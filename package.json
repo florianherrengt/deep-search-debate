@@ -13,11 +13,14 @@
     "build:web": "npm run build -w @deep-search-debate/web",
     "start": "npm run start -w @deep-search-debate/api",
     "test": "npm run test -w @deep-search-debate/api && npm run test -w @deep-search-debate/web",
+    "test:e2e": "npm run test:e2e -w @deep-search-debate/web",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "typecheck": "tsc --noEmit",
     "storybook": "npm run storybook -w @deep-search-debate/web",
     "storybook:build": "npm run storybook:build -w @deep-search-debate/web",
-    "knip": "knip"
+    "knip": "knip",
+    "gatekeep": "npm run lint && npm run typecheck && npm run knip && npm run test"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

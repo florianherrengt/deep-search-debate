@@ -2,11 +2,11 @@ import type { Hono } from "hono"
 import { z } from "zod"
 import { webSearch } from "../web_search/index.ts"
 
-const DebugSearchQuery = z.object({
+const debugSearchQuerySchema = z.object({
   query: z.string(),
 })
 
-export const DebugSearchResponse = z.object({
+const debugSearchResponseSchema = z.object({
   results: z.array(
     z.object({
       title: z.string(),
@@ -18,8 +18,8 @@ export const DebugSearchResponse = z.object({
 
 export function debug(app: Hono) {
   app.get("/debug/search", async (c) => {
-    const parsed = DebugSearchQuery.parse({ query: c.req.query("query") })
+    const parsed = debugSearchQuerySchema.parse({ query: c.req.query("query") })
     const results = await webSearch(parsed)
-    return c.json(DebugSearchResponse.parse({ results }))
+    return c.json(debugSearchResponseSchema.parse({ results }))
   })
 }

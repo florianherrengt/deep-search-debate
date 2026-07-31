@@ -37,7 +37,7 @@ describe("searxng", () => {
       { title: "Second Result", shortText: "Another snippet", link: "https://example.org" },
     ]);
 
-    const url = new URL(mockFetch.mock.calls[0][0]);
+    const url = new URL(mockFetch.mock.calls[0][0] as string);
     expect(url.searchParams.get("q")).toBe("test");
     expect(url.searchParams.get("format")).toBe("json");
   });
@@ -50,7 +50,7 @@ describe("searxng", () => {
 
     await searxng({ query: "test" });
 
-    const fetchedUrl = mockFetch.mock.calls[0][0];
+    const fetchedUrl = mockFetch.mock.calls[0][0] as string;
     expect(fetchedUrl).toMatch(/^http:\/\//);
   });
 

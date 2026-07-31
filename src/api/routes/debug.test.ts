@@ -18,7 +18,7 @@ describe("GET /api/debug/search", () => {
     const res = await app.request("/api/debug/search?query=hello");
     expect(res.status).toBe(200);
 
-    const body = await res.json();
+    const body: unknown = await res.json();
     expect(body).toEqual({ results: mockResults });
     expect(webSearch).toHaveBeenCalledWith({ query: "hello" });
   });

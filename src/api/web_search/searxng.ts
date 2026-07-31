@@ -1,29 +1,27 @@
 import { config } from "../config.ts";
 import z from "zod";
 
-const SearxngRawResult = z.object({
+const searxngRawResultSchema = z.object({
   title: z.string(),
   content: z.string(),
   url: z.string(),
 });
 
-const SearxngJson = z.object({
+const searxngJsonSchema = z.object({
   query: z.string(),
-  results: z.array(SearxngRawResult),
+  results: z.array(searxngRawResultSchema),
 });
 
-const WebSearchResult = z.object({
+const webSearchResultSchema = z.object({
   title: z.string(),
   shortText: z.string(),
   link: z.string(),
 });
 
-export type WebSearchResults = z.infer<typeof WebSearchResult>;
-
 export const searxng = z
   .function()
   .input(z.tuple([z.object({ query: z.string() })]))
-  .output(z.array(WebSearchResult))
+  .output(z.array(webSearchResultSchema))
   .implementAsync(async (params) => {
     const baseUrl = config.webSearch.searxng.url;
     const url = new URL(
@@ -34,7 +32,7 @@ export const searxng = z
     url.searchParams.set("format", "json");
     const res = await fetch(url.toString());
     if (!res.ok) throw new Error(`SearXNG search failed: ${res.status}`);
-    const data = SearxngJson.parse(await res.json());
+    const data = searxngJsonSchema.parse(await res.json());
     return data.results.map((r) => ({
       title: r.title,
       shortText: r.content,
