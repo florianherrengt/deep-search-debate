@@ -16,6 +16,7 @@
     "@hono/node-server": "^2.0.12",
     "ai": "^7.0.44",
     "better-sqlite3": "^13.0.2",
+    "deep-search-core": "file:../../../deep-search-core",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.33",

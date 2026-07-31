@@ -1,47 +1,54 @@
-import { useMutation } from "@tanstack/react-query"
-import { Box, Paper, TextField, Typography } from "@mui/material"
+import {
+  Box,
+  Paper,
+  TextField,
+  Typography,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+} from "@mui/material"
+import ExpandMore from "@mui/icons-material/ExpandMore"
 import { FormEvent, useState } from "react"
+import { useTextStream } from "../hooks/useTextStream.ts"
 
-type Message = { role: "user" | "assistant"; content: string }
+type Message = {
+  id: string
+  role: "user" | "assistant"
+  content: string
+  reasoning?: string
+  streamId?: string
+}
 
 export function Chat() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
-  const [streamingText, setStreamingText] = useState("")
+  const { text, reasoning, isStreaming, send } = useTextStream()
 
-  const mutation = useMutation({
-    mutationFn: async (prompt: string) => {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
-      })
-      if (!res.ok) throw new Error(`Chat failed: ${res.status}`)
-      const reader = res.body!.getReader()
-      const decoder = new TextDecoder()
-      let text = ""
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        text += decoder.decode(value, { stream: true })
-        setStreamingText(text)
-      }
-      return text
-    },
-    onMutate: (prompt) => {
-      setMessages((prev) => [...prev, { role: "user", content: prompt }])
-    },
-    onSuccess: (text) => {
-      setMessages((prev) => [...prev, { role: "assistant", content: text }])
-      setStreamingText("")
-    },
-  })
-
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!input.trim() || mutation.isPending) return
-    mutation.mutate(input.trim())
+    const prompt = input.trim()
+    if (!prompt || isStreaming) return
+
+    setMessages((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), role: "user", content: prompt },
+    ])
     setInput("")
+    void run(prompt)
+  }
+
+  const run = async (prompt: string) => {
+    const result = await send({ prompt })
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: result.streamId ?? crypto.randomUUID(),
+        role: "assistant",
+        content: result.text,
+        reasoning: result.reasoning || undefined,
+        streamId: result.streamId ?? undefined,
+      },
+    ])
   }
 
   return (
@@ -50,45 +57,75 @@ export function Chat() {
         Chat
       </Typography>
 
-      <Paper
-        component="form"
-        onSubmit={handleSubmit}
-        sx={{ p: 2, mb: 2 }}
-      >
+      <Paper component="form" onSubmit={handleSubmit} sx={{ p: 2, mb: 2 }}>
         <TextField
           fullWidth
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Ask something..."
-          disabled={mutation.isPending}
+          disabled={isStreaming}
           slotProps={{ htmlInput: { autoFocus: true } }}
         />
       </Paper>
 
       <Box>
-        {messages.map((m, i) => (
-          <Paper key={i} sx={{ p: 2, mb: 1 }} variant="outlined">
+        {messages.map((m) => (
+          <Paper key={m.id} sx={{ p: 2, mb: 1 }} variant="outlined">
             <Typography variant="subtitle2" color="text.secondary">
               {m.role === "user" ? "You" : "DeepSeek"}
             </Typography>
+            {m.reasoning && (
+              <Accordion sx={{ my: 1 }} defaultExpanded>
+                <AccordionSummary expandIcon={<ExpandMore />}>
+                  <Typography variant="body2" color="text.secondary">
+                    Show reasoning
+                  </Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Typography
+                    variant="body2"
+                    sx={{ whiteSpace: "pre-wrap", color: "text.secondary" }}
+                  >
+                    {m.reasoning}
+                  </Typography>
+                </AccordionDetails>
+              </Accordion>
+            )}
             <Typography sx={{ whiteSpace: "pre-wrap" }}>
               {m.content}
             </Typography>
           </Paper>
         ))}
 
-        {streamingText && (
+        {isStreaming && (text || reasoning) && (
           <Paper sx={{ p: 2, mb: 1 }} variant="outlined">
             <Typography variant="subtitle2" color="text.secondary">
               DeepSeek
             </Typography>
-            <Typography sx={{ whiteSpace: "pre-wrap" }}>
-              {streamingText}
-            </Typography>
+            {reasoning && (
+              <Accordion sx={{ my: 1 }} defaultExpanded>
+                <AccordionSummary expandIcon={<ExpandMore />}>
+                  <Typography variant="body2" color="text.secondary">
+                    Reasoning in progress...
+                  </Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Typography
+                    variant="body2"
+                    sx={{ whiteSpace: "pre-wrap", color: "text.secondary" }}
+                  >
+                    {reasoning}
+                  </Typography>
+                </AccordionDetails>
+              </Accordion>
+            )}
+            {text && (
+              <Typography sx={{ whiteSpace: "pre-wrap" }}>{text}</Typography>
+            )}
           </Paper>
         )}
 
-        {mutation.isPending && !streamingText && (
+        {isStreaming && !text && !reasoning && (
           <Typography color="text.secondary">Thinking...</Typography>
         )}
       </Box>

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "workspaces": {
+    "src/api": {
+      "entry": ["db/index.ts"]
+    },
+    "src/web": {
+      "entry": ["e2e/**/*.spec.ts"]
+    }
+  }
+}
