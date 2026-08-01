@@ -19,7 +19,7 @@ const debugSearchResponseSchema = z.object({
 })
 
 const debugExtractQuerySchema = z.object({
-  url: z.string().url(),
+  url: z.url(),
 })
 
 const debugExtractResponseSchema = z.object({

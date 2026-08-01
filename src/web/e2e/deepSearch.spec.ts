@@ -21,6 +21,7 @@ type DeepSearchJobEvent =
       stage: "extraction" | "summary"
       message: string
     }
+  | { type: "query-summary-stream"; query: string; streamId: string }
   | { type: "error"; message: string }
   | { type: "done" }
 
@@ -47,7 +48,7 @@ function parseTextEvents(body: string): TextStreamEvent[] {
 // This test deliberately uses real DeepSeek, SearXNG, and page extraction.
 // Network requests are observed for assertions but are never intercepted.
 test.describe("Deep search", () => {
-  test("streams and replays a real extracted-page summary", async ({
+  test("streams and replays a mixed-result query summary", async ({
     page,
     request,
   }) => {
@@ -189,6 +190,14 @@ test.describe("Deep search", () => {
     expect(selectedResults?.selectedLinks.length).toBeGreaterThan(0)
     expect(selectedResults?.selectedLinks.length).toBeLessThanOrEqual(3)
 
+    const summarizedSearch = searchResults?.searches.find(
+      (search) => search.query === selectedResults?.query,
+    )
+    expect(summarizedSearch).toBeDefined()
+    expect(summarizedSearch?.results.length).toBeGreaterThan(
+      selectedResults?.selectedLinks.length ?? 0,
+    )
+
     const pageSummaryStreams = liveEvents.filter(
       (
         event,
@@ -236,6 +245,39 @@ test.describe("Deep search", () => {
       .join("")
     expect(streamedPageSummary.trim()).not.toBe("")
 
+    const querySummaryStreams = liveEvents.filter(
+      (
+        event,
+      ): event is Extract<
+        DeepSearchJobEvent,
+        { type: "query-summary-stream" }
+      > => event.type === "query-summary-stream",
+    )
+    expect(querySummaryStreams).toHaveLength(
+      searchResults?.searches.length ?? 0,
+    )
+    const firstQuerySummary = querySummaryStreams[0]
+    expect(firstQuerySummary).toBeDefined()
+    expect(firstQuerySummary?.query).toBe(summarizedSearch?.query)
+    const querySummaryPath = `/api/streams/${firstQuerySummary?.streamId ?? ""}`
+    await expect
+      .poll(() => observedStreamResponses.has(querySummaryPath))
+      .toBe(true)
+    const observedQuerySummaryResponse =
+      observedStreamResponses.get(querySummaryPath)
+    const querySummaryEvents = parseTextEvents(
+      (await observedQuerySummaryResponse?.text()) ?? "",
+    )
+    expect(querySummaryEvents.at(-1)).toEqual({ type: "done" })
+    expect(querySummaryEvents.some((event) => event.type === "error")).toBe(
+      false,
+    )
+    const streamedQuerySummary = querySummaryEvents
+      .filter((event) => event.type === "text")
+      .map((event) => event.text)
+      .join("")
+    expect(streamedQuerySummary.trim()).not.toBe("")
+
     const generatedQueriesAccordion = page.getByRole("button", {
       name: "Generated search queries",
     })
@@ -257,6 +299,12 @@ test.describe("Deep search", () => {
     await expect(resultsAccordion).toHaveAttribute("aria-expanded", "true")
     await expect(
       page.locator('[data-testid^="selection-stream-"]').first(),
+    ).toBeVisible()
+    await expect(
+      page.getByTestId(`query-summary-${firstQuerySummary?.query ?? ""}`),
+    ).toHaveText(streamedQuerySummary)
+    await expect(
+      page.locator('[data-query-summary-status="completed"]').first(),
     ).toBeVisible()
 
     const summarizedResult = page.locator(
@@ -305,5 +353,14 @@ test.describe("Deep search", () => {
       "application/x-ndjson",
     )
     expect(parseTextEvents(await summaryReplay.text())).toEqual(summaryEvents)
+
+    const querySummaryReplay = await request.get(querySummaryPath)
+    expect(querySummaryReplay.status()).toBe(200)
+    expect(querySummaryReplay.headers()["content-type"]).toContain(
+      "application/x-ndjson",
+    )
+    expect(parseTextEvents(await querySummaryReplay.text())).toEqual(
+      querySummaryEvents,
+    )
   })
 })

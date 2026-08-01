@@ -60,6 +60,11 @@ describe("DeepSearch", () => {
         url: "https://example.com/result",
         streamId: "summary-stream-id",
       }
+      yield {
+        type: "query-summary-stream" as const,
+        query: "test query",
+        streamId: "query-summary-stream-id",
+      }
       yield { type: "done" as const }
     }
     async function* queryEvents() {
@@ -84,12 +89,20 @@ describe("DeepSearch", () => {
       yield { type: "text" as const, text: "page summary" }
       yield { type: "done" as const }
     }
+    async function* querySummaryEvents() {
+      await Promise.resolve()
+      yield { type: "reasoning" as const, text: "Combining all results" }
+      yield { type: "text" as const, text: "The search found " }
+      yield { type: "text" as const, text: "useful evidence." }
+      yield { type: "done" as const }
+    }
     mocks.createDeepSearchJob.mockResolvedValue("job-id")
     mocks.subscribeToDeepSearchJob.mockReturnValue(events())
     mocks.subscribeToTextStream.mockImplementation((id: string) => {
       if (id === "query-stream-id") return queryEvents()
       if (id === "selection-stream-id") return selectionEvents()
       if (id === "summary-stream-id") return summaryEvents()
+      if (id === "query-summary-stream-id") return querySummaryEvents()
       throw new Error(`Unexpected stream: ${id}`)
     })
 
@@ -126,6 +139,10 @@ describe("DeepSearch", () => {
     expect(screen.getByText("Comparing source relevance")).toBeVisible()
     expect(screen.getByText("Finding relevant facts")).toBeVisible()
     expect(await screen.findByText("A relevant page summary")).toBeVisible()
+    expect(screen.getByText("Combining all results")).toBeVisible()
+    expect(screen.getByTestId("query-summary-test query")).toHaveTextContent(
+      "The search found useful evidence.",
+    )
     expect(screen.getByRole("link", { name: "Useful result" })).toHaveAttribute(
       "href",
       "https://example.com/result",
@@ -158,6 +175,10 @@ describe("DeepSearch", () => {
     )
     expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(
       "summary-stream-id",
+      expect.any(AbortSignal),
+    )
+    expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(
+      "query-summary-stream-id",
       expect.any(AbortSignal),
     )
   })

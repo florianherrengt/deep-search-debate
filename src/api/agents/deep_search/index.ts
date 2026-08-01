@@ -1,5 +1,6 @@
 import z from "zod"
 import { generateSearchResults } from "./queries.ts"
+import { summarizeSearchQuery } from "./querySummaries.ts"
 import { deepSearchInputSchema } from "./schemas.ts"
 import { selectSearchResults } from "./selection.ts"
 import { startPageSummary } from "./summaries.ts"
@@ -8,8 +9,8 @@ export type { DeepSearchEvent } from "./schemas.ts"
 
 /**
  * Runs the deep-search pipeline and emits progress events as each stage starts or
- * completes. It returns once every selected page has registered a summary stream
- * or emitted a non-fatal page error; the registered streams continue independently.
+ * completes. It returns after page summaries resolve and every search query has
+ * registered its synthesis stream; those synthesis streams continue independently.
  */
 export const deepSearch = z
   .function()
@@ -19,8 +20,8 @@ export const deepSearch = z
     const searchResults = await generateSearchResults(params)
     params.onEvent({ type: "search-results", searches: searchResults })
 
-    const summarizedUrls = new Set<string>()
-    const pageSummaryTasks: Promise<void>[] = []
+    const pageSummaryTasks = new Map<string, Promise<string | undefined>>()
+    const selectedSearches = []
     for (const search of searchResults) {
       const selected = await selectSearchResults({
         researchRequest: params.researchRequest,
@@ -34,13 +35,39 @@ export const deepSearch = z
         query: selected.query,
         selectedLinks: selected.selectedLinks,
       })
+      selectedSearches.push(selected)
 
       for (const url of selected.selectedLinks) {
-        if (summarizedUrls.has(url)) continue
-        summarizedUrls.add(url)
-        pageSummaryTasks.push(startPageSummary({ ...params, url }))
+        if (pageSummaryTasks.has(url)) continue
+        pageSummaryTasks.set(url, startPageSummary({ ...params, url }))
       }
     }
 
-    await Promise.all(pageSummaryTasks)
+    const pageSummaries = new Map(
+      await Promise.all(
+        [...pageSummaryTasks].map(async ([url, task]) => {
+          const summary = await task
+          return [url, summary] as const
+        }),
+      ),
+    )
+
+    await Promise.all(
+      selectedSearches.map(async (search) => {
+        const streamId = await summarizeSearchQuery({
+          researchRequest: params.researchRequest,
+          query: search.query,
+          results: search.results.map((result) => ({
+            title: result.title,
+            url: result.link,
+            content: pageSummaries.get(result.link) || result.shortText,
+          })),
+        })
+        params.onEvent({
+          type: "query-summary-stream",
+          query: search.query,
+          streamId,
+        })
+      }),
+    )
   })

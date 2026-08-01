@@ -39,7 +39,7 @@ const webExtractResultSchema = z.object({
 
 export const webExtract = z
   .function()
-  .input(z.tuple([z.object({ url: z.string().url() })]))
+  .input(z.tuple([z.object({ url: z.url() })]))
   .output(webExtractResultSchema)
   .implementAsync(async (params) => {
     const result = await extractPage(params.url, undefined, extractDeps)

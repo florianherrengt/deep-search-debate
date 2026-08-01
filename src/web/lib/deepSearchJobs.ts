@@ -23,6 +23,7 @@ export type DeepSearchJobEvent =
       stage: "extraction" | "summary"
       message: string
     }
+  | { type: "query-summary-stream"; query: string; streamId: string }
   | { type: "error"; message: string }
   | { type: "done" }
 

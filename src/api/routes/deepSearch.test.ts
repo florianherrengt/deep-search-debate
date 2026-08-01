@@ -47,6 +47,11 @@ const progressEvents: DeepSearchEvent[] = [
     stage: "extraction",
     message: "Extraction failed",
   },
+  {
+    type: "query-summary-stream",
+    query: "test query",
+    streamId: "query-summary-stream-id",
+  },
 ]
 
 function createApp(): Hono {

@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   generateSearchResults: vi.fn(),
   selectSearchResults: vi.fn(),
   startPageSummary: vi.fn(),
+  summarizeSearchQuery: vi.fn(),
 }))
 
 vi.mock("./queries.ts", () => ({
@@ -16,6 +17,10 @@ vi.mock("./selection.ts", () => ({
 
 vi.mock("./summaries.ts", () => ({
   startPageSummary: mocks.startPageSummary,
+}))
+
+vi.mock("./querySummaries.ts", () => ({
+  summarizeSearchQuery: mocks.summarizeSearchQuery,
 }))
 
 import { deepSearch, type DeepSearchEvent } from "./index.ts"
@@ -41,7 +46,8 @@ describe("deepSearch", () => {
       results,
       selectedLinks: ["https://example.com/result"],
     })
-    mocks.startPageSummary.mockResolvedValue(undefined)
+    mocks.startPageSummary.mockResolvedValue("Completed page summary")
+    mocks.summarizeSearchQuery.mockResolvedValue("query-summary-stream-id")
   })
 
   it("emits pipeline progress through one event callback", async () => {
@@ -107,6 +113,11 @@ describe("deepSearch", () => {
         url: "https://example.com/result",
         streamId: "summary-stream-id",
       },
+      {
+        type: "query-summary-stream",
+        query: "test query",
+        streamId: "query-summary-stream-id",
+      },
     ])
   })
 
@@ -117,6 +128,7 @@ describe("deepSearch", () => {
 
     expect(mocks.selectSearchResults).not.toHaveBeenCalled()
     expect(mocks.startPageSummary).not.toHaveBeenCalled()
+    expect(mocks.summarizeSearchQuery).not.toHaveBeenCalled()
   })
 
   it("passes configured limits to each pipeline stage", async () => {
@@ -155,11 +167,12 @@ describe("deepSearch", () => {
     await deepSearch({ researchRequest: "Research this", onEvent: ignoreEvent })
 
     expect(mocks.startPageSummary).toHaveBeenCalledTimes(1)
+    expect(mocks.summarizeSearchQuery).toHaveBeenCalledTimes(2)
   })
 
-  it("waits until every summary stream has been registered", async () => {
-    const registration = Promise.withResolvers<void>()
-    mocks.startPageSummary.mockReturnValueOnce(registration.promise)
+  it("waits for page summary text before starting the query summary", async () => {
+    const completion = Promise.withResolvers<string | undefined>()
+    mocks.startPageSummary.mockReturnValueOnce(completion.promise)
     let completed = false
 
     const run = deepSearch({
@@ -171,8 +184,73 @@ describe("deepSearch", () => {
     await Promise.resolve()
 
     expect(completed).toBe(false)
-    registration.resolve()
+    expect(mocks.summarizeSearchQuery).not.toHaveBeenCalled()
+    completion.resolve("Completed page summary")
     await run
     expect(completed).toBe(true)
+    expect(mocks.summarizeSearchQuery).toHaveBeenCalled()
+  })
+
+  it("uses page summaries when available and descriptions as fallback", async () => {
+    const mixedResults = [
+      {
+        title: "Explored result",
+        shortText: "Explored result description",
+        link: "https://example.com/explored",
+      },
+      {
+        title: "Failed result",
+        shortText: "Failed result description",
+        link: "https://example.com/failed",
+      },
+      {
+        title: "Unselected result",
+        shortText: "Unselected result description",
+        link: "https://example.com/unselected",
+      },
+    ]
+    mocks.generateSearchResults.mockResolvedValueOnce([
+      { query: "mixed query", results: mixedResults },
+    ])
+    mocks.selectSearchResults.mockResolvedValueOnce({
+      query: "mixed query",
+      results: mixedResults,
+      selectedLinks: [
+        "https://example.com/explored",
+        "https://example.com/failed",
+      ],
+    })
+    mocks.startPageSummary.mockImplementation(
+      ({ url }: { url: string }) =>
+        Promise.resolve(
+          url === "https://example.com/explored"
+            ? "Full explored-page summary"
+            : undefined,
+        ),
+    )
+
+    await deepSearch({ researchRequest: "Research this", onEvent: ignoreEvent })
+
+    expect(mocks.summarizeSearchQuery).toHaveBeenCalledWith({
+      researchRequest: "Research this",
+      query: "mixed query",
+      results: [
+        {
+          title: "Explored result",
+          url: "https://example.com/explored",
+          content: "Full explored-page summary",
+        },
+        {
+          title: "Failed result",
+          url: "https://example.com/failed",
+          content: "Failed result description",
+        },
+        {
+          title: "Unselected result",
+          url: "https://example.com/unselected",
+          content: "Unselected result description",
+        },
+      ],
+    })
   })
 })

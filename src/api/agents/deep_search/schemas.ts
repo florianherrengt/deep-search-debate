@@ -40,6 +40,11 @@ const deepSearchEventSchema = z.discriminatedUnion("type", [
     stage: z.enum(["extraction", "summary"]),
     message: z.string(),
   }),
+  z.object({
+    type: z.literal("query-summary-stream"),
+    query: z.string(),
+    streamId: z.string(),
+  }),
 ])
 
 export type DeepSearchEvent = z.infer<typeof deepSearchEventSchema>

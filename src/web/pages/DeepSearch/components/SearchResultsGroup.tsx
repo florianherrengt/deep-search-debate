@@ -7,6 +7,7 @@ import {
   Typography,
 } from "@mui/material"
 import type { DeepSearchSearchState } from "../deepSearchState.ts"
+import { QuerySummary } from "./QuerySummary.tsx"
 import { SearchResultCard } from "./SearchResultCard.tsx"
 import { SelectionOutput } from "./SelectionOutput.tsx"
 
@@ -23,6 +24,10 @@ export function SearchResultsGroup({ search }: SearchResultsGroupProps) {
         </AccordionSummary>
         <AccordionDetails>
           <Stack spacing={2}>
+            <QuerySummary
+              query={search.query}
+              streamId={search.querySummaryStreamId}
+            />
             <SelectionOutput
               query={search.query}
               streamId={search.selectionStreamId}

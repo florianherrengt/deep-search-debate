@@ -17,6 +17,12 @@ const streamText: Record<string, string> = {
     "OpenAI's official homepage presents its main consumer and developer products, current research, and company announcements. For this research request, it is the strongest primary source for identifying the organisation's current product portfolio and how OpenAI describes it.",
   "summary-products-streaming":
     "OpenAI groups its current offering around ChatGPT for individuals and teams, an API platform for developers, and enterprise products. The page emphasises",
+  "query-summary-products":
+    "The search results identify ChatGPT, the API platform, and enterprise offerings as OpenAI's main current product groups.",
+  "query-summary-history":
+    "The search results trace OpenAI from its 2015 founding announcement through later changes to its mission and structure.",
+  "query-summary-criticism":
+    "The search results surface recurring criticism around governance, accountability, market concentration, and the evidence behind safety claims.",
 }
 
 const streamReasoning: Record<string, string> = {
@@ -30,6 +36,8 @@ const streamReasoning: Record<string, string> = {
     "I will retain the product categories and discard unrelated announcements.",
   "summary-products-streaming":
     "I am identifying the product groups relevant to the research request.",
+  "query-summary-products":
+    "I am combining the explored pages with the remaining search descriptions.",
 }
 
 export const researchRequest =
@@ -43,6 +51,7 @@ export const completedRun: DeepSearchRunState = {
     {
       query: queryOne,
       selectionStreamId: "selection-stream-products",
+      querySummaryStreamId: "query-summary-products",
       results: [
         {
           title: "OpenAI",
@@ -70,6 +79,7 @@ export const completedRun: DeepSearchRunState = {
     {
       query: queryTwo,
       selectionStreamId: "selection-stream-history",
+      querySummaryStreamId: "query-summary-history",
       results: [
         {
           title: "OpenAI — About",
@@ -97,6 +107,7 @@ export const completedRun: DeepSearchRunState = {
     {
       query: queryThree,
       selectionStreamId: "selection-stream-criticism",
+      querySummaryStreamId: "query-summary-criticism",
       results: [
         {
           title: "OpenAI safety approach",

@@ -88,7 +88,7 @@ Selected links enter the extraction phase immediately. Exact duplicate URLs acro
 }
 ```
 
-The frontend follows each announced stream through `GET /api/streams/:streamId`. Summary subscriptions run independently so one page cannot block discovery of streams for other selected pages. Buffered summary output remains replayable after generation completes.
+The frontend follows each announced stream through `GET /api/streams/:streamId`. Summary subscriptions run independently so one page cannot block discovery of streams for other selected pages. The backend also follows the retained stream so its completed text can be used in the query-level synthesis. Buffered summary output remains replayable after generation completes.
 
 If extraction or summary stream registration fails before a stream exists, the job publishes a non-fatal page event and continues processing the other selected URLs:
 
@@ -101,8 +101,22 @@ If extraction or summary stream registration fails before a stream exists, the j
 }
 ```
 
-After a summary stream is registered, that stream owns its generation status and reports any generation failure through `GET /api/streams/:streamId`. The deep-search job does not duplicate those failures.
+After a summary stream is registered, that stream owns its generation status and reports any generation failure through `GET /api/streams/:streamId`. The deep-search job does not duplicate those failures. If extraction, stream registration, or summary generation fails, query synthesis falls back to that result's search description.
 
-The job feed terminates with `done` after every selected page has either announced its summary stream or emitted `page-summary-error`. Announced summary streams may still be running; the frontend continues following them independently. Job-level failures emit `error` with a public message before `done`.
+After all selected page-summary streams have settled, the pipeline builds one synthesis input for every executed search query. Every returned result is included in its original order with its title, URL, and a uniform content field. The content is the completed extracted-page summary when that URL was successfully explored, including when the same URL was explored for another query; otherwise it is the original search description. The synthesis agent is not told which form was used.
 
-The `/deep-search` page renders collapsible query generation and result groups. Each result group contains the selection output, selected/rejected result styling, and live page summaries for selected results.
+Each query synthesis emits its retained text stream:
+
+```json
+{
+  "type": "query-summary-stream",
+  "query": "generated search query",
+  "streamId": "<uuid>"
+}
+```
+
+The query summary receives both the original research request and the executed search query and returns plain Markdown. Query-summary streams are registered in parallel.
+
+The job feed terminates with `done` after every query-summary stream has been registered. Those query-summary streams may still be running; the frontend continues following them independently. Job-level failures emit `error` with a public message before `done`.
+
+The `/deep-search` page renders collapsible query generation and result groups. Each result group contains its live query summary, the selection output, selected/rejected result styling, and live page summaries for selected results.

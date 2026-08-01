@@ -62,6 +62,11 @@ describe("deep search jobs client", () => {
             url: "https://example.com",
             streamId: "summary-stream-id",
           },
+          {
+            type: "query-summary-stream",
+            query: "test query",
+            streamId: "query-summary-stream-id",
+          },
           { type: "done" },
         ]),
       )
@@ -88,6 +93,11 @@ describe("deep search jobs client", () => {
         type: "page-summary-stream",
         url: "https://example.com",
         streamId: "summary-stream-id",
+      },
+      {
+        type: "query-summary-stream",
+        query: "test query",
+        streamId: "query-summary-stream-id",
       },
       { type: "done" },
     ])

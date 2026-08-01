@@ -1,5 +1,5 @@
 import { Stack } from "@mui/material"
-import type { FormEventHandler } from "react"
+import type { SubmitEventHandler } from "react"
 import type { DeepSearchRunState } from "../deepSearchState.ts"
 import { DeepSearchHeader } from "./DeepSearchHeader.tsx"
 import { DeepSearchJobStatus } from "./DeepSearchJobStatus.tsx"
@@ -12,7 +12,7 @@ export type DeepSearchViewProps = {
   researchRequest: string
   run: DeepSearchRunState
   onResearchRequestChange: (value: string) => void
-  onSubmit: FormEventHandler<HTMLFormElement>
+  onSubmit: SubmitEventHandler<HTMLFormElement>
 }
 
 function getProgressMessage(run: DeepSearchRunState): string | undefined {

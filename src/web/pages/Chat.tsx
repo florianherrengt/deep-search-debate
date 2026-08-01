@@ -8,7 +8,7 @@ import {
   AccordionDetails,
 } from "@mui/material"
 import ExpandMore from "@mui/icons-material/ExpandMore"
-import { FormEvent, useState } from "react"
+import { type SubmitEvent, useState } from "react"
 import { useTextGeneration } from "../hooks/useTextGeneration.ts"
 
 type Message = {
@@ -24,7 +24,7 @@ export function Chat() {
   const [input, setInput] = useState("")
   const { text, reasoning, isStreaming, send } = useTextGeneration()
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = (e: SubmitEvent<HTMLFormElement>) => {
     e.preventDefault()
     const prompt = input.trim()
     if (!prompt || isStreaming) return

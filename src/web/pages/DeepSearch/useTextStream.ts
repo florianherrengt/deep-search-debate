@@ -2,7 +2,7 @@ import {
   createContext,
   createElement,
   type ReactNode,
-  useContext,
+  use,
   useEffect,
   useState,
 } from "react"
@@ -70,7 +70,7 @@ function getCurrentState(
  */
 export function useTextStream(streamId?: string | null): TextStreamState {
   const [observed, setObserved] = useState<ObservedStream | null>(null)
-  const subscribe = useContext(TextStreamContext)
+  const subscribe = use(TextStreamContext)
   const state = getCurrentState(streamId, observed)
 
   useEffect(() => {

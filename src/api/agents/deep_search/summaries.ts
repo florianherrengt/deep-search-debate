@@ -1,4 +1,5 @@
 import z from "zod"
+import { collectStreamText } from "../../helpers/index.ts"
 import { generateTextStream } from "../../llms/generateText.ts"
 import { PromptName } from "../../llms/prompts.ts"
 import { webExtract } from "../../web_search/webExtract.ts"
@@ -14,7 +15,7 @@ export const summarizePage = z
     z.tuple([
       z.object({
         researchRequest: z.string().min(1),
-        url: z.string().url(),
+        url: z.url(),
         content: z.string().min(1),
       }),
     ]),
@@ -39,7 +40,7 @@ export const summarizePage = z
 
 const startPageSummaryInputSchema = deepSearchInputSchema
   .pick({ researchRequest: true, onEvent: true })
-  .extend({ url: z.string().url() })
+  .extend({ url: z.url() })
 
 type StartPageSummaryInput = z.infer<typeof startPageSummaryInputSchema>
 
@@ -71,19 +72,20 @@ async function extractPageContent(
 }
 
 /**
- * Extracts one selected page and emits either its registered summary-stream ID or
- * a non-fatal stage-specific error. Stream completion is owned by the registry.
+ * Extracts one selected page, exposes its summary stream, and returns the completed
+ * summary text. Failures return no text so callers can fall back to search snippets.
  */
 export const startPageSummary = z
   .function()
   .input(z.tuple([startPageSummaryInputSchema]))
-  .output(z.void())
+  .output(z.string().optional())
   .implementAsync(async (params) => {
     const content = await extractPageContent(params)
     if (content === undefined) return
 
+    let streamId: string
     try {
-      const streamId = await summarizePage({
+      streamId = await summarizePage({
         researchRequest: params.researchRequest,
         url: params.url,
         content,
@@ -96,5 +98,13 @@ export const startPageSummary = z
         stage: "summary",
         message: getErrorMessage(error),
       })
+      return
+    }
+
+    try {
+      const summary = (await collectStreamText({ id: streamId })).trim()
+      return summary || undefined
+    } catch {
+      return undefined
     }
   })

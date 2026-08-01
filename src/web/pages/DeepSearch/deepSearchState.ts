@@ -18,6 +18,7 @@ export type DeepSearchSearchState = {
   query: string
   results: DeepSearchResultState[]
   selectionStreamId?: string
+  querySummaryStreamId?: string
 }
 
 export type DeepSearchRunState = {
@@ -118,6 +119,11 @@ export const deepSearchReducer = produce<
         message: action.message,
       })
       break
+    case "query-summary-stream": {
+      const search = state.searches.find(({ query }) => query === action.query)
+      if (search) search.querySummaryStreamId = action.streamId
+      break
+    }
     case "error":
     case "request-failed":
       state.status = "failed"

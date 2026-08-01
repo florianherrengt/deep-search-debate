@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
+  collectStreamText: vi.fn(),
   generateTextStream: vi.fn(),
   webExtract: vi.fn(),
+}))
+
+vi.mock("../../helpers/index.ts", () => ({
+  collectStreamText: mocks.collectStreamText,
 }))
 
 vi.mock("../../llms/generateText.ts", () => ({
@@ -22,6 +27,7 @@ describe("page summaries", () => {
       url: "https://example.com/page",
       content: "Extracted page content",
     })
+    mocks.collectStreamText.mockResolvedValue("Completed page summary")
   })
 
   it("registers a research-focused summary stream", async () => {
@@ -65,7 +71,7 @@ describe("page summaries", () => {
     const onEvent = vi.fn()
     mocks.generateTextStream.mockResolvedValueOnce({ id: "summary-stream-id" })
 
-    await startPageSummary({
+    const result = await startPageSummary({
       researchRequest: "Research this",
       url: "https://example.com/page",
       onEvent,
@@ -76,6 +82,10 @@ describe("page summaries", () => {
       url: "https://example.com/page",
       streamId: "summary-stream-id",
     })
+    expect(mocks.collectStreamText).toHaveBeenCalledWith({
+      id: "summary-stream-id",
+    })
+    expect(result).toBe("Completed page summary")
   })
 
   it("emits extraction failures without starting a summary stream", async () => {
@@ -95,6 +105,7 @@ describe("page summaries", () => {
       message: "Extraction failed",
     })
     expect(mocks.generateTextStream).not.toHaveBeenCalled()
+    expect(mocks.collectStreamText).not.toHaveBeenCalled()
   })
 
   it("reports summary stream registration failures separately", async () => {
@@ -114,6 +125,29 @@ describe("page summaries", () => {
       url: "https://example.com/page",
       stage: "summary",
       message: "Stream registration failed",
+    })
+    expect(mocks.collectStreamText).not.toHaveBeenCalled()
+  })
+
+  it("returns no summary when the registered stream fails", async () => {
+    const onEvent = vi.fn()
+    mocks.generateTextStream.mockResolvedValueOnce({ id: "summary-stream-id" })
+    mocks.collectStreamText.mockRejectedValueOnce(
+      new Error("Summary generation failed"),
+    )
+
+    await expect(
+      startPageSummary({
+        researchRequest: "Research this",
+        url: "https://example.com/page",
+        onEvent,
+      }),
+    ).resolves.toBeUndefined()
+
+    expect(onEvent).toHaveBeenCalledWith({
+      type: "page-summary-stream",
+      url: "https://example.com/page",
+      streamId: "summary-stream-id",
     })
   })
 })

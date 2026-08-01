@@ -1,11 +1,11 @@
 import { Button, Paper, Stack, TextField } from "@mui/material"
-import type { FormEventHandler } from "react"
+import type { SubmitEventHandler } from "react"
 
 type ResearchRequestFormProps = {
   researchRequest: string
   isSearching: boolean
   onResearchRequestChange: (value: string) => void
-  onSubmit: FormEventHandler<HTMLFormElement>
+  onSubmit: SubmitEventHandler<HTMLFormElement>
 }
 
 export function ResearchRequestForm({
