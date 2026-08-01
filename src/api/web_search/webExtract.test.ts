@@ -6,9 +6,17 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("deep-search-core/search-extract", () => ({
   extractPage: mocks.extractPage,
+  RedditExtractor: class {},
+  AmazonExtractor: class {},
+  ShopifyExtractor: class {},
+  TrustpilotExtractor: class {},
+  GithubExtractor: class {},
+  YouTubeExtractor: class {},
+  HackerNewsExtractor: class {},
+  createScrapingAntPageLoader: vi.fn(() => ({ renderHtml: vi.fn() })),
 }))
 
-import { webExtract } from "./webExtract.ts"
+import { webExtract, extractDeps } from "./webExtract.ts"
 
 describe("webExtract", () => {
   beforeEach(() => {
@@ -30,7 +38,7 @@ describe("webExtract", () => {
     expect(mocks.extractPage).toHaveBeenCalledWith(
       "https://example.com",
       undefined,
-      { fetch: globalThis.fetch },
+      extractDeps,
     )
     expect(result).toEqual({ url: "https://example.com", content: "Hello World" })
   })

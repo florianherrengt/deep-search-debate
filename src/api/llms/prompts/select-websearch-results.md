@@ -6,6 +6,7 @@ You will receive:
 
 - `user_query`: the user's original research question
 - `search_query`: the query sent to the search engine
+- `max_results_to_explore`: the maximum number of results you may select
 - `results`: search results containing an ID and potentially a title, URL, domain, snippet, publication date, author, or other metadata
 
 Evaluate every result independently.
@@ -40,9 +41,9 @@ Do not select a result merely because its domain is reputable. It must still be 
 
 Consider publication date when freshness matters. Older sources may still be useful for historical questions or stable information.
 
-Any number of results may be selected, including all results or none.
+Select no more than `max_results_to_explore` results. Select fewer, including none, when the remaining results are not worth exploring.
 
-Return a valid JSON array containing only the IDs of the results that should be explored.
+Return a valid JSON array containing only the IDs of the results that should be explored, ordered from highest to lowest exploration priority. The first ID must be the single most valuable result to open, and each following ID must be the next most valuable.
 
 Example:
 
@@ -51,7 +52,7 @@ Example:
 Requirements:
 
 - Return only the JSON array.
-- The order of IDs does not matter.
+- Order IDs from highest to lowest exploration priority.
 - Do not include explanations, markdown, or additional properties.
 - Use only IDs supplied in the results.
 - Do not include duplicate IDs.

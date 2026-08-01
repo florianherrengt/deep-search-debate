@@ -10,6 +10,7 @@ export const PromptName = {
   Default: "default",
   GenerateWebSearchQueries: "generate-websearch-queries",
   SelectWebSearchResults: "select-websearch-results",
+  SummarizeWebPage: "summarize-web-page",
 } as const
 export type PromptName = (typeof PromptName)[keyof typeof PromptName]
 

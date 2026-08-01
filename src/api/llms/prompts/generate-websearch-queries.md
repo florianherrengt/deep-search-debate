@@ -19,6 +19,8 @@ Preserve all important constraints from the user's request. Do not invent facts,
 
 Generate fewer queries for simple requests and more for broad or complex research questions. Prefer quality and coverage over an arbitrary fixed number. Avoid queries that are redundant, excessively long, vague, or unlikely to produce useful search results.
 
+Order the queries from highest to lowest research priority. The first query must be the single most valuable search to run, and each following query must be the next most valuable.
+
 Output only the search queries, with one query per line.
 
 Do not include numbering, bullet points, quotation marks, explanations, headings, rationales, or any other text.

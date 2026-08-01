@@ -2,7 +2,7 @@
   "$schema": "https://unpkg.com/knip@latest/schema.json",
   "workspaces": {
     "src/api": {
-      "entry": ["db/index.ts"]
+      "entry": ["db/index.ts", "helpers/index.ts"]
     },
     "src/web": {
       "entry": ["e2e/**/*.spec.ts"]

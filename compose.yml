@@ -1,0 +1,11 @@
+services:
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    ports:
+      - "127.0.0.1:8090:8080"
+    volumes:
+      - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - searxng-cache:/var/cache/searxng
+
+volumes:
+  searxng-cache:

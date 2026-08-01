@@ -31,3 +31,4 @@ Detailed guidance lives in per-folder `docs/` files. Read the relevant one with 
 - `src/api/llms/docs/prompts.md` — prompt `.md` files and the `PromptName` enum. Read before adding or editing prompts.
 - `src/api/db/docs/database.md` — better-sqlite3, committed `data.db`, Drizzle migrations. Read before touching the schema or DB.
 - `src/api/routes/docs/text-streaming.md` — the LLM stream lifecycle and NDJSON contract. Read before changing stream routes, generation, or the streaming client.
+- `src/api/routes/docs/deep-search-jobs.md` — the deep-search job and event contract. Read before changing the deep-search route, agent events, or frontend subscription.

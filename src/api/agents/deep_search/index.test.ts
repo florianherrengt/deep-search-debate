@@ -1,105 +1,178 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
-  generateWebSearchQueries: vi.fn(),
-  webSearch: vi.fn(),
-  selectWebSearchResults: vi.fn(),
-  webExtract: vi.fn(),
+  generateSearchResults: vi.fn(),
+  selectSearchResults: vi.fn(),
+  startPageSummary: vi.fn(),
 }))
 
-vi.mock("../../llms/generateWebSearchQueries.ts", () => ({
-  generateWebSearchQueries: mocks.generateWebSearchQueries,
+vi.mock("./queries.ts", () => ({
+  generateSearchResults: mocks.generateSearchResults,
 }))
 
-vi.mock("../../llms/selectWebSearchResults.ts", () => ({
-  selectWebSearchResults: mocks.selectWebSearchResults,
+vi.mock("./selection.ts", () => ({
+  selectSearchResults: mocks.selectSearchResults,
 }))
 
-vi.mock("../../web_search/index.ts", () => ({
-  webSearch: mocks.webSearch,
+vi.mock("./summaries.ts", () => ({
+  startPageSummary: mocks.startPageSummary,
 }))
 
-vi.mock("../../web_search/webExtract.ts", () => ({
-  webExtract: mocks.webExtract,
-}))
+import { deepSearch, type DeepSearchEvent } from "./index.ts"
 
-import { deepSearch } from "./index.ts"
+const ignoreEvent = (_event: DeepSearchEvent) => undefined
 
-const mockResults = [
-  { title: "Result 1", shortText: "Snippet 1", link: "https://example.com/1" },
-  { title: "Result 2", shortText: "Snippet 2", link: "https://example.com/2" },
-  { title: "Result 3", shortText: "Snippet 3", link: "https://example.com/3" },
+const results = [
+  {
+    title: "Result",
+    shortText: "Useful result",
+    link: "https://example.com/result",
+  },
 ]
 
 describe("deepSearch", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.generateSearchResults.mockResolvedValue([
+      { query: "test query", results },
+    ])
+    mocks.selectSearchResults.mockResolvedValue({
+      query: "test query",
+      results,
+      selectedLinks: ["https://example.com/result"],
+    })
+    mocks.startPageSummary.mockResolvedValue(undefined)
   })
 
-  it("generates queries, searches, selects, and extracts", async () => {
-    mocks.generateWebSearchQueries.mockResolvedValueOnce(["query one"])
-    mocks.webSearch.mockResolvedValue(mockResults)
-    mocks.selectWebSearchResults.mockResolvedValueOnce(["result-0", "result-2"])
-    mocks.webExtract
-      .mockResolvedValueOnce({ url: "https://example.com/1", content: "Page 1 content" })
-      .mockResolvedValueOnce({ url: "https://example.com/3", content: "Page 3 content" })
+  it("emits pipeline progress through one event callback", async () => {
+    const events: DeepSearchEvent[] = []
+    mocks.generateSearchResults.mockImplementationOnce(
+      (input: { onEvent: (event: DeepSearchEvent) => void }) => {
+        input.onEvent({ type: "query-stream", streamId: "query-stream-id" })
+        return Promise.resolve([{ query: "test query", results }])
+      },
+    )
+    mocks.selectSearchResults.mockImplementationOnce(
+      (input: { onEvent: (event: DeepSearchEvent) => void }) => {
+        input.onEvent({
+          type: "selection-stream",
+          query: "test query",
+          streamId: "selection-stream-id",
+        })
+        return Promise.resolve({
+          query: "test query",
+          results,
+          selectedLinks: ["https://example.com/result"],
+        })
+      },
+    )
+    mocks.startPageSummary.mockImplementationOnce(
+      (input: { onEvent: (event: DeepSearchEvent) => void }) => {
+        input.onEvent({
+          type: "page-summary-stream",
+          url: "https://example.com/result",
+          streamId: "summary-stream-id",
+        })
+        return Promise.resolve()
+      },
+    )
 
-    const results = await deepSearch({ researchRequest: "test topic" })
+    await expect(
+      deepSearch({
+        researchRequest: "Research this",
+        onEvent: (event) => {
+          events.push(event)
+        },
+      }),
+    ).resolves.toBeUndefined()
 
-    expect(mocks.generateWebSearchQueries).toHaveBeenCalledWith({ researchRequest: "test topic" })
-    expect(mocks.webSearch).toHaveBeenCalledWith({ query: "query one" })
-    expect(mocks.selectWebSearchResults).toHaveBeenCalledWith({
-      userQuery: "test topic",
-      searchQuery: "query one",
-      results: [
-        { id: "result-0", title: "Result 1", url: "https://example.com/1", snippet: "Snippet 1" },
-        { id: "result-1", title: "Result 2", url: "https://example.com/2", snippet: "Snippet 2" },
-        { id: "result-2", title: "Result 3", url: "https://example.com/3", snippet: "Snippet 3" },
-      ],
-    })
-    expect(mocks.webExtract).toHaveBeenCalledTimes(2)
-    expect(results).toEqual([
+    expect(events).toEqual([
+      { type: "query-stream", streamId: "query-stream-id" },
       {
-        query: "query one",
-        results: mockResults,
-        extractedPages: [
-          { url: "https://example.com/1", content: "Page 1 content" },
-          { url: "https://example.com/3", content: "Page 3 content" },
-        ],
+        type: "search-results",
+        searches: [{ query: "test query", results }],
+      },
+      {
+        type: "selection-stream",
+        query: "test query",
+        streamId: "selection-stream-id",
+      },
+      {
+        type: "selected-search-results",
+        query: "test query",
+        selectedLinks: ["https://example.com/result"],
+      },
+      {
+        type: "page-summary-stream",
+        url: "https://example.com/result",
+        streamId: "summary-stream-id",
       },
     ])
   })
 
-  it("returns empty extractedPages when nothing is selected", async () => {
-    mocks.generateWebSearchQueries.mockResolvedValueOnce(["query one"])
-    mocks.webSearch.mockResolvedValue(mockResults)
-    mocks.selectWebSearchResults.mockResolvedValueOnce([])
+  it("does nothing after query generation returns no searches", async () => {
+    mocks.generateSearchResults.mockResolvedValueOnce([])
 
-    const results = await deepSearch({ researchRequest: "test" })
+    await deepSearch({ researchRequest: "Research this", onEvent: ignoreEvent })
 
-    expect(results[0].extractedPages).toEqual([])
-    expect(mocks.webExtract).not.toHaveBeenCalled()
+    expect(mocks.selectSearchResults).not.toHaveBeenCalled()
+    expect(mocks.startPageSummary).not.toHaveBeenCalled()
   })
 
-  it("handles extraction failures gracefully", async () => {
-    mocks.generateWebSearchQueries.mockResolvedValueOnce(["query one"])
-    mocks.webSearch.mockResolvedValue([mockResults[0]])
-    mocks.selectWebSearchResults.mockResolvedValueOnce(["result-0"])
-    mocks.webExtract.mockRejectedValueOnce(new Error("extract failed"))
+  it("passes configured limits to each pipeline stage", async () => {
+    await deepSearch({
+      researchRequest: "Research this",
+      maxSearches: 5,
+      maxResultsPerSearch: 2,
+      onEvent: ignoreEvent,
+    })
 
-    const results = await deepSearch({ researchRequest: "test" })
+    expect(mocks.generateSearchResults).toHaveBeenCalledWith(
+      expect.objectContaining({ maxSearches: 5 }),
+    )
+    expect(mocks.selectSearchResults).toHaveBeenCalledWith(
+      expect.objectContaining({ maxResultsPerSearch: 2 }),
+    )
+  })
 
-    expect(results[0].extractedPages).toEqual([
-      { url: "https://example.com/1", content: "" },
+  it("starts a summary only once for duplicate selected URLs", async () => {
+    mocks.generateSearchResults.mockResolvedValueOnce([
+      { query: "first query", results },
+      { query: "second query", results },
     ])
+    mocks.selectSearchResults
+      .mockResolvedValueOnce({
+        query: "first query",
+        results,
+        selectedLinks: ["https://example.com/result"],
+      })
+      .mockResolvedValueOnce({
+        query: "second query",
+        results,
+        selectedLinks: ["https://example.com/result"],
+      })
+
+    await deepSearch({ researchRequest: "Research this", onEvent: ignoreEvent })
+
+    expect(mocks.startPageSummary).toHaveBeenCalledTimes(1)
   })
 
-  it("returns empty array when no queries are generated", async () => {
-    mocks.generateWebSearchQueries.mockResolvedValueOnce([])
+  it("waits until every summary stream has been registered", async () => {
+    const registration = Promise.withResolvers<void>()
+    mocks.startPageSummary.mockReturnValueOnce(registration.promise)
+    let completed = false
 
-    const results = await deepSearch({ researchRequest: "empty" })
+    const run = deepSearch({
+      researchRequest: "Research this",
+      onEvent: ignoreEvent,
+    }).then(() => {
+      completed = true
+    })
+    await Promise.resolve()
 
-    expect(results).toEqual([])
-    expect(mocks.webSearch).not.toHaveBeenCalled()
+    expect(completed).toBe(false)
+    registration.resolve()
+    await run
+    expect(completed).toBe(true)
   })
 })

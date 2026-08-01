@@ -1,76 +1,46 @@
 import z from "zod"
-import { generateWebSearchQueries } from "../../llms/generateWebSearchQueries.ts"
-import { selectWebSearchResults } from "../../llms/selectWebSearchResults.ts"
-import { webSearch } from "../../web_search/index.ts"
-import { webExtract } from "../../web_search/webExtract.ts"
+import { generateSearchResults } from "./queries.ts"
+import { deepSearchInputSchema } from "./schemas.ts"
+import { selectSearchResults } from "./selection.ts"
+import { startPageSummary } from "./summaries.ts"
 
-const searchResultSchema = z.object({
-  title: z.string(),
-  shortText: z.string(),
-  link: z.string(),
-})
+export type { DeepSearchEvent } from "./schemas.ts"
 
-const extractedPageSchema = z.object({
-  url: z.string(),
-  content: z.string(),
-})
-
+/**
+ * Runs the deep-search pipeline and emits progress events as each stage starts or
+ * completes. It returns once every selected page has registered a summary stream
+ * or emitted a non-fatal page error; the registered streams continue independently.
+ */
 export const deepSearch = z
   .function()
-  .input(
-    z.tuple([
-      z.object({
-        researchRequest: z.string(),
-      }),
-    ]),
-  )
-  .output(
-    z.array(
-      z.object({
-        query: z.string(),
-        results: z.array(searchResultSchema),
-        extractedPages: z.array(extractedPageSchema),
-      }),
-    ),
-  )
+  .input(z.tuple([deepSearchInputSchema]))
+  .output(z.void())
   .implementAsync(async (params) => {
-    const queries = await generateWebSearchQueries(params)
+    const searchResults = await generateSearchResults(params)
+    params.onEvent({ type: "search-results", searches: searchResults })
 
-    const searchResults = await Promise.all(
-      queries.map(async (query) => {
-        const results = await webSearch({ query })
+    const summarizedUrls = new Set<string>()
+    const pageSummaryTasks: Promise<void>[] = []
+    for (const search of searchResults) {
+      const selected = await selectSearchResults({
+        researchRequest: params.researchRequest,
+        maxResultsPerSearch: params.maxResultsPerSearch,
+        search,
+        onEvent: params.onEvent,
+      })
 
-        const withIds = results.map((r, i) => ({
-          id: `result-${i}`,
-          title: r.title,
-          url: r.link,
-          snippet: r.shortText,
-        }))
+      params.onEvent({
+        type: "selected-search-results",
+        query: selected.query,
+        selectedLinks: selected.selectedLinks,
+      })
 
-        const selectedIds = await selectWebSearchResults({
-          userQuery: params.researchRequest,
-          searchQuery: query,
-          results: withIds,
-        })
+      for (const url of selected.selectedLinks) {
+        if (summarizedUrls.has(url)) continue
+        summarizedUrls.add(url)
+        pageSummaryTasks.push(startPageSummary({ ...params, url }))
+      }
+    }
 
-        const idToUrl = new Map(withIds.map((r) => [r.id, r.url]))
-        const selectedUrls = selectedIds
-          .map((id) => idToUrl.get(id))
-          .filter((url): url is string => url != null)
-
-        const extractedPages = await Promise.all(
-          selectedUrls.map(async (url) => {
-            try {
-              return await webExtract({ url })
-            } catch {
-              return { url, content: "" }
-            }
-          }),
-        )
-
-        return { query, results, extractedPages }
-      }),
-    )
-
-    return searchResults
+    await Promise.all(pageSummaryTasks)
   })

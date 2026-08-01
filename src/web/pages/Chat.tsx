@@ -9,7 +9,7 @@ import {
 } from "@mui/material"
 import ExpandMore from "@mui/icons-material/ExpandMore"
 import { FormEvent, useState } from "react"
-import { useTextStream } from "../hooks/useTextStream.ts"
+import { useTextGeneration } from "../hooks/useTextGeneration.ts"
 
 type Message = {
   id: string
@@ -22,7 +22,7 @@ type Message = {
 export function Chat() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
-  const { text, reasoning, isStreaming, send } = useTextStream()
+  const { text, reasoning, isStreaming, send } = useTextGeneration()
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()

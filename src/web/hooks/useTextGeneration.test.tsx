@@ -11,9 +11,9 @@ vi.mock("../lib/textStreams.ts", () => ({
   subscribeToTextStream: mocks.subscribeToTextStream,
 }))
 
-import { useTextStream } from "./useTextStream.ts"
+import { useTextGeneration } from "./useTextGeneration.ts"
 
-describe("useTextStream", () => {
+describe("useTextGeneration", () => {
   beforeEach(() => vi.clearAllMocks())
 
   it("retains the stream ID while consuming its events", async () => {
@@ -26,7 +26,7 @@ describe("useTextStream", () => {
     mocks.createTextStream.mockResolvedValue("stream-id")
     mocks.subscribeToTextStream.mockReturnValue(events())
 
-    const { result } = renderHook(() => useTextStream())
+    const { result } = renderHook(() => useTextGeneration())
     let completed
 
     await act(async () => {
@@ -54,7 +54,7 @@ describe("useTextStream", () => {
     mocks.createTextStream.mockResolvedValue("stream-id")
     mocks.subscribeToTextStream.mockReturnValue(events())
 
-    const { result } = renderHook(() => useTextStream())
+    const { result } = renderHook(() => useTextGeneration())
     let thrown: unknown
 
     await act(async () => {
@@ -68,7 +68,7 @@ describe("useTextStream", () => {
     expect(thrown).toEqual(new Error("Provider failed"))
     expect(result.current.streamId).toBe("stream-id")
     expect(result.current.text).toBe("Partial")
-    expect(result.current.error).toEqual(new Error("Provider failed"))
+    expect(result.current.error).toBe("Provider failed")
     expect(result.current.isStreaming).toBe(false)
   })
 })
