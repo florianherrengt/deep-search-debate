@@ -21,6 +21,4 @@ Generate fewer queries for simple requests and more for broad or complex researc
 
 Order the queries from highest to lowest research priority. The first query must be the single most valuable search to run, and each following query must be the next most valuable.
 
-Output only the search queries, with one query per line.
-
-Do not include numbering, bullet points, quotation marks, explanations, headings, rationales, or any other text.
+Return the search queries as the elements of the requested structured array. Do not include numbering, explanations, headings, rationales, or any other text in an element.

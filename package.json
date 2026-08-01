@@ -12,6 +12,7 @@
     "dev:web": "npm run dev -w @deep-search-debate/web",
     "build:web": "npm run build -w @deep-search-debate/web",
     "start": "npm run start -w @deep-search-debate/api",
+    "db:diagram": "npm run db:diagram -w @deep-search-debate/api",
     "test": "npm run test -w @deep-search-debate/api && npm run test -w @deep-search-debate/web",
     "test:e2e": "npm run test:e2e -w @deep-search-debate/web",
     "lint": "eslint .",

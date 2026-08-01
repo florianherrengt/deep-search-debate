@@ -1,9 +1,13 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
+import { eq } from "drizzle-orm"
 import type { streamText } from "ai"
+import { db } from "../db/index.ts"
+import { llmGenerations } from "../db/schema.ts"
 import {
   registerTextStream,
   subscribeToTextStream,
   type TextStreamEvent,
+  waitForTextStream,
 } from "./streams.ts"
 
 type SourceStreamPart = ReturnType<
@@ -108,6 +112,18 @@ describe("text streams", () => {
       { type: "text", text: "Shared" },
       { type: "done" },
     ])
+    expect(
+      db
+        .select()
+        .from(llmGenerations)
+        .where(eq(llmGenerations.llmGenerationId, id))
+        .get(),
+    ).toMatchObject({
+      status: "completed",
+      text: "Shared",
+      reasoning: "",
+      error: null,
+    })
   })
 
   it("buffers failures for current and later readers", async () => {
@@ -123,7 +139,52 @@ describe("text streams", () => {
     ])
   })
 
+  it("terminates subscribers when terminal persistence fails", async () => {
+    const source = new AsyncQueue<SourceStreamPart>()
+    const id = registerTextStream(source)
+    const subscribed = subscribeToTextStream(id)
+    const completion = waitForTextStream(id)
+    const update = vi
+      .spyOn(db, "update")
+      .mockImplementationOnce(() => {
+        throw new Error("SQLite unavailable")
+      })
+
+    try {
+      source.close()
+
+      await expect(completion).rejects.toThrow("SQLite unavailable")
+      await expect(drain(subscribed!)).resolves.toEqual([
+        { type: "error", message: "SQLite unavailable" },
+        { type: "done" },
+      ])
+    } finally {
+      update.mockRestore()
+    }
+  })
+
   it("returns undefined for unknown streams", () => {
     expect(subscribeToTextStream("missing")).toBeUndefined()
+  })
+
+  it("replays terminal output and reasoning from a database-only generation", async () => {
+    const llmGenerationId = "database-only-generation"
+    db.insert(llmGenerations)
+      .values({
+        llmGenerationId,
+        status: "completed",
+        text: "Persisted answer",
+        reasoning: "Persisted reasoning",
+        completedAt: new Date(),
+      })
+      .run()
+
+    await expect(drain(subscribeToTextStream(llmGenerationId)!)).resolves.toEqual(
+      [
+        { type: "reasoning", text: "Persisted reasoning" },
+        { type: "text", text: "Persisted answer" },
+        { type: "done" },
+      ],
+    )
   })
 })

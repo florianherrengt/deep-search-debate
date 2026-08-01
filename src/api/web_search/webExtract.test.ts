@@ -48,8 +48,4 @@ describe("webExtract", () => {
 
     await expect(webExtract({ url: "https://example.com" })).rejects.toThrow("fetch failed")
   })
-
-  it("rejects invalid URLs via zod validation", async () => {
-    await expect(webExtract({ url: "not-a-url" })).rejects.toThrow()
-  })
 })

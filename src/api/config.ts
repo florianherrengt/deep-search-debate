@@ -1,26 +1,28 @@
-const searxngUrl = process.env.SEARXNG_URL;
-if (!searxngUrl) throw new Error("SEARXNG_URL is not configured");
+import z from "zod"
 
-const deepseekApiKey = process.env.DEEPSEEK_API_KEY;
-if (!deepseekApiKey) throw new Error("DEEPSEEK_API_KEY is not configured");
+const environmentSchema = z.object({
+  SEARXNG_URL: z.url(),
+  DEEPSEEK_API_KEY: z.string().min(1),
+  SCRAPINGANT_API_KEY: z.string().min(1),
+  DATABASE_URL: z.string().min(1).default("data.db"),
+  PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
+})
 
-const scrapingantApiKey = process.env.SCRAPINGANT_API_KEY;
-if (!scrapingantApiKey) throw new Error("SCRAPINGANT_API_KEY is not configured");
-
-const databaseUrl = process.env.DATABASE_URL ?? "data.db";
+const environment = environmentSchema.parse(process.env)
 
 export const config = {
-  db: { url: databaseUrl },
+  api: { port: environment.PORT },
+  db: { url: environment.DATABASE_URL },
   webSearch: {
-    searxng: { url: searxngUrl },
+    searxng: { url: environment.SEARXNG_URL },
   },
   extraction: {
-    scrapingant: { apiKey: scrapingantApiKey },
+    scrapingant: { apiKey: environment.SCRAPINGANT_API_KEY },
   },
   llm: {
     deepseek: {
-      apiKey: deepseekApiKey,
+      apiKey: environment.DEEPSEEK_API_KEY,
       model: "deepseek-v4-flash",
     },
   },
-};
+}

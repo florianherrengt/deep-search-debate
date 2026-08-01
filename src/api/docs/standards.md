@@ -2,13 +2,19 @@
 
 Conventions that hold across the API. Follow existing patterns rather than introducing alternatives.
 
-## Zod is the validation layer
+## Validate at trust boundaries
 
 [Zod 4](https://zod.dev) is the single source of truth for runtime validation and parsing on the API. Use it for:
 
-- request body parsing — `const Body = z.object({...}); const body = Body.parse(await c.req.json())`
-- response shape validation — `c.json(ResponseSchema.parse(payload))`
+- request bodies, query strings, and route parameters via `@hono/zod-validator`
+- untrusted third-party responses and persisted JSON
 - config schemas and LLM structured output (e.g. `Output.array({ element: z.string() })`)
+
+Use ordinary TypeScript types for values passed between trusted in-process modules.
+Do not wrap internal functions, callbacks, maps, iterators, or objects in
+`z.function()` or `z.custom()` merely to repeat compile-time types at runtime.
+Validate once when data enters the application, then pass the parsed value through
+typed functions.
 
 Prefer the **default import**:
 
@@ -18,19 +24,25 @@ import z from "zod"
 
 This is the majority style in the codebase. Don't mix in `import { z } from "zod"`.
 
-### Type-safe functions via `z.function`
+### Hono request validation
 
-Domain functions are defined as input/output-validated implementations rather than plain `async` functions:
+Use `zValidator` as route middleware and read the parsed value with
+`c.req.valid(...)`:
 
 ```ts
-export const webSearch = z
-  .function()
-  .input(z.tuple([z.object({ query: z.string() })]))
-  .output(z.array(webSearchResultSchema))
-  .implementAsync(async (params) => { /* ... */ })
+app.post(
+  "/streams",
+  zValidator("json", createTextStreamInputSchema),
+  async (c) => {
+    const input = c.req.valid("json")
+    // ...
+  },
+)
 ```
 
-This pattern (`z.function().input(...).output(...).implementAsync(...)`) is used for `webSearch`, `searxng`, `generateWebSearchQueries`, and `generateTextStream`. Follow it for new domain/service functions so their inputs and outputs stay runtime-validated and the types are inferred from the schemas.
+Response schemas are useful when validating untrusted data or documenting a public
+contract. Do not parse constants or objects assembled entirely from already typed
+values immediately before passing them to `c.json()`.
 
 ## Hono routes
 

@@ -1,25 +1,14 @@
 # Text streaming
 
-An LLM generation is represented by one stream ID from creation through completion.
+An LLM invocation has one UUID for its complete lifecycle. `generateTextStream` creates an `llm_generations` row with null `text` and `reasoning`, consumes provider deltas in memory, and returns the UUID immediately.
 
-`generateTextStream` invokes the model, registers its provider stream immediately, starts consuming it in the background, and returns `{ id }`. The registry buffers normalized events and keeps the stream's internal status.
-
-Streams are currently stored in memory. Completed and failed streams remain readable for the lifetime of the API process and are lost when the process restarts.
+Deltas are not written to SQLite. At the terminal boundary, the consumer performs one database update with the accumulated text, accumulated reasoning, status, error, and completion time. This keeps writes conservative while making completed output durable.
 
 ## HTTP contract
 
 ### `POST /api/streams`
 
-Creates and starts a text stream. The request body is:
-
-```json
-{
-  "prompt": "Explain the result",
-  "promptName": "default"
-}
-```
-
-`promptName` defaults to `default`. The response is `201 Created` with the stream ID:
+Starts generation and returns `201 Created`:
 
 ```json
 { "id": "<uuid>" }
@@ -27,17 +16,13 @@ Creates and starts a text stream. The request body is:
 
 ### `GET /api/streams/:id`
 
-Returns the stream as NDJSON (`Content-Type: application/x-ndjson`). It immediately replays all buffered events, then follows new events until generation finishes.
-
-Reads are non-destructive. Concurrent readers and later reconnects each receive the full retained history. An unknown ID returns 404.
-
-Events are:
+Returns NDJSON. A live invocation replays buffered in-memory deltas and follows new ones. If the invocation is no longer in memory, its terminal reasoning, text, error, and `done` event are synthesized from `llm_generations`. Reads are non-destructive.
 
 | Type        | Payload         | Meaning                         |
 | ----------- | --------------- | ------------------------------- |
-| `reasoning` | `{ text }`      | Reasoning delta                 |
-| `text`      | `{ text }`      | Answer delta                    |
+| `reasoning` | `{ text }`      | Reasoning delta or full replay  |
+| `text`      | `{ text }`      | Answer delta or full replay     |
 | `error`     | `{ message }`   | Generation failed               |
 | `done`      | none            | No more events will be produced |
 
-The web client mirrors this contract in `src/web/lib/textStreams.ts`. `useTextStream` retains only the stream ID and accumulated output.
+A server restart marks orphaned `running` generations as `interrupted`; provider streams themselves are not resumable.

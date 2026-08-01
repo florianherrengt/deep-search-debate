@@ -7,6 +7,6 @@ export const pingResponseSchema = z.object({
 
 export function ping(app: Hono) {
   app.get("/ping", (c) => {
-    return c.json(pingResponseSchema.parse({ message: "pong" }))
+    return c.json({ message: "pong" })
   })
 }

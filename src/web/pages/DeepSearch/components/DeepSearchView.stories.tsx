@@ -43,8 +43,6 @@ export const WithSearchResults: Story = {
   args: {
     researchRequest,
     run: completedRun,
-    onResearchRequestChange: () => undefined,
-    onSubmit: (event) => event.preventDefault(),
   },
 }
 

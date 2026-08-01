@@ -17,12 +17,12 @@ export type DeepSearchResultState = DeepSearchResults["results"][number] & {
 export type DeepSearchSearchState = {
   query: string
   results: DeepSearchResultState[]
+  selectionStreamId?: string
   querySummaryStreamId?: string
 }
 
 export type DeepSearchRunState = {
   status: "idle" | "running" | "completed" | "failed"
-  jobId: string | null
   queryStreamId: string | null
   searches: DeepSearchSearchState[]
   error: string | null
@@ -30,7 +30,6 @@ export type DeepSearchRunState = {
 
 export const initialDeepSearchState: DeepSearchRunState = {
   status: "idle",
-  jobId: null,
   queryStreamId: null,
   searches: [],
   error: null,
@@ -38,8 +37,7 @@ export const initialDeepSearchState: DeepSearchRunState = {
 
 type DeepSearchAction =
   | DeepSearchJobEvent
-  | { type: "started" }
-  | { type: "created"; jobId: string }
+  | { type: "opened" }
   | { type: "request-failed"; message: string }
 
 function createSearchState(
@@ -74,17 +72,22 @@ export const deepSearchReducer = produce<
   [DeepSearchAction]
 >((state, action) => {
   switch (action.type) {
-    case "started":
-      return { ...initialDeepSearchState, status: "running" }
-    case "created":
-      state.jobId = action.jobId
-      break
+    case "opened":
+      return {
+        ...initialDeepSearchState,
+        status: "running",
+      }
     case "query-stream":
       state.queryStreamId = action.streamId
       break
     case "search-results":
       state.searches = createSearchState(action.searches)
       break
+    case "selection-stream": {
+      const search = state.searches.find(({ query }) => query === action.query)
+      if (search) search.selectionStreamId = action.streamId
+      break
+    }
     case "selected-search-results": {
       const search = state.searches.find(({ query }) => query === action.query)
       if (!search) break

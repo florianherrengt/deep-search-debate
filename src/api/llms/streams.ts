@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto"
+import { eq } from "drizzle-orm"
 import type { streamText } from "ai"
+import { db } from "../db/index.ts"
+import { llmGenerations } from "../db/schema.ts"
+import { getErrorMessage } from "../helpers/getErrorMessage.ts"
 import {
   createReplayableEventLog,
   type ReplayableEventLog,
@@ -20,43 +24,67 @@ type SourceStreamPart = ReturnType<
 type TextStream = ReplayableEventLog<TextStreamEvent>
 
 const streams = new Map<string, TextStream>()
-
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message
-  if (typeof error === "string" && error) return error
-  return "Text generation failed"
-}
+const completions = new Map<string, Promise<void>>()
 
 /**
  * Translates provider deltas into public events and always terminates the retained
  * event log with `done`, even when the provider throws or emits an error.
  */
 async function consume(
+  id: string,
   source: AsyncIterable<SourceStreamPart>,
   stream: TextStream,
 ): Promise<void> {
+  let text = ""
+  let reasoning = ""
+  let errorMessage: string | undefined
+
   try {
     for await (const part of source) {
       switch (part.type) {
         case "reasoning-delta":
+          reasoning += part.text
           stream.publish({ type: "reasoning", text: part.text })
           break
         case "text-delta":
+          text += part.text
           stream.publish({ type: "text", text: part.text })
           break
-        case "error":
-          stream.publish({
-            type: "error",
-            message: getErrorMessage(part.error),
-          })
+        case "error": {
+          errorMessage ??= getErrorMessage(part.error, "Text generation failed")
+          stream.publish({ type: "error", message: errorMessage })
           break
+        }
       }
     }
   } catch (error) {
-    stream.publish({ type: "error", message: getErrorMessage(error) })
+    errorMessage ??= getErrorMessage(error, "Text generation failed")
+    stream.publish({ type: "error", message: errorMessage })
+  }
+
+  try {
+    db.update(llmGenerations)
+      .set({
+        status: errorMessage ? "failed" : "completed",
+        text,
+        reasoning,
+        error: errorMessage ?? null,
+        completedAt: new Date(),
+      })
+      .where(eq(llmGenerations.llmGenerationId, id))
+      .run()
+  } catch (error) {
+    stream.publish({
+      type: "error",
+      message: getErrorMessage(error, "Text generation failed"),
+    })
+    throw error
   } finally {
-    stream.publish({ type: "done" })
-    stream.close()
+    try {
+      stream.publish({ type: "done" })
+    } finally {
+      stream.close()
+    }
   }
 }
 
@@ -70,8 +98,14 @@ export function registerTextStream(
   const id = randomUUID()
   const stream = createReplayableEventLog<TextStreamEvent>()
 
+  db.insert(llmGenerations).values({ llmGenerationId: id }).run()
   streams.set(id, stream)
-  void consume(source, stream)
+  const completion = consume(id, source, stream)
+  completions.set(id, completion)
+  const clearCompletion = () => {
+    completions.delete(id)
+  }
+  void completion.then(clearCompletion, clearCompletion)
 
   return id
 }
@@ -84,5 +118,52 @@ export function subscribeToTextStream(
   id: string,
 ): AsyncGenerator<TextStreamEvent> | undefined {
   const stream = streams.get(id)
-  return stream?.subscribe()
+  if (stream) return stream.subscribe()
+
+  const generation = db
+    .select()
+    .from(llmGenerations)
+    .where(eq(llmGenerations.llmGenerationId, id))
+    .get()
+  if (!generation) return
+
+  return replayPersistedGeneration(generation)
+}
+
+type LlmGeneration = typeof llmGenerations.$inferSelect
+
+/** Reconstructs the same public stream shape from one terminal database row. */
+async function* replayPersistedGeneration(
+  generation: LlmGeneration,
+): AsyncGenerator<TextStreamEvent> {
+  await Promise.resolve()
+  if (generation.reasoning) {
+    yield { type: "reasoning", text: generation.reasoning }
+  }
+  if (generation.text) {
+    yield { type: "text", text: generation.text }
+  }
+  if (generation.error) {
+    yield { type: "error", message: generation.error }
+  }
+  yield { type: "done" }
+}
+
+/** Waits until a live generation has written its terminal database update. */
+export async function waitForTextStream(id: string): Promise<void> {
+  const completion = completions.get(id)
+  if (completion) {
+    await completion
+    return
+  }
+
+  const generation = db
+    .select({ status: llmGenerations.status })
+    .from(llmGenerations)
+    .where(eq(llmGenerations.llmGenerationId, id))
+    .get()
+  if (!generation) throw new Error(`Text stream ${id} was not found`)
+  if (generation.status === "running") {
+    throw new Error(`Text stream ${id} is no longer attached to this process`)
+  }
 }

@@ -1,54 +1,18 @@
 import { expect, test, type Response } from "@playwright/test"
+import type { DeepSearchJobEvent } from "../lib/deepSearchJobs.ts"
+import type { TextStreamEvent } from "../lib/textStreams.ts"
 
-type SearchResult = {
-  title: string
-  shortText: string
-  link: string
-}
-
-type DeepSearchJobEvent =
-  | { type: "query-stream"; streamId: string }
-  | {
-      type: "search-results"
-      searches: Array<{ query: string; results: SearchResult[] }>
-    }
-  | { type: "selection-stream"; query: string; streamId: string }
-  | { type: "selected-search-results"; query: string; selectedLinks: string[] }
-  | { type: "page-summary-stream"; url: string; streamId: string }
-  | {
-      type: "page-summary-error"
-      url: string
-      stage: "extraction" | "summary"
-      message: string
-    }
-  | { type: "query-summary-stream"; query: string; streamId: string }
-  | { type: "error"; message: string }
-  | { type: "done" }
-
-type TextStreamEvent =
-  | { type: "reasoning"; text: string }
-  | { type: "text"; text: string }
-  | { type: "error"; message: string }
-  | { type: "done" }
-
-function parseEvents(body: string): DeepSearchJobEvent[] {
+function parseEvents<Event>(body: string): Event[] {
   return body
     .split("\n")
     .filter((line) => line.trim())
-    .map((line) => JSON.parse(line) as DeepSearchJobEvent)
-}
-
-function parseTextEvents(body: string): TextStreamEvent[] {
-  return body
-    .split("\n")
-    .filter((line) => line.trim())
-    .map((line) => JSON.parse(line) as TextStreamEvent)
+    .map((line) => JSON.parse(line) as Event)
 }
 
 // This test deliberately uses real DeepSeek, SearXNG, and page extraction.
 // Network requests are observed for assertions but are never intercepted.
 test.describe("Deep search", () => {
-  test("renders only results and replays a mixed-result query summary", async ({
+  test("persists, reopens, and replays a mixed-result query summary", async ({
     page,
     request,
   }) => {
@@ -71,12 +35,14 @@ test.describe("Deep search", () => {
     const createdResponse = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
-        new URL(response.url()).pathname === "/api/deep-search",
+        new URL(response.url()).pathname === "/api/deep-search-jobs",
     )
     const liveResponse = page.waitForResponse(
       (response) =>
         response.request().method() === "GET" &&
-        /^\/api\/deep-search\/[^/]+$/.test(new URL(response.url()).pathname),
+        /^\/api\/deep-search-jobs\/[^/]+\/events$/.test(
+          new URL(response.url()).pathname,
+        ),
     )
     await page.getByLabel("Research request").fill(researchRequest)
     await page.getByRole("button", { name: "Start deep search" }).click()
@@ -89,20 +55,30 @@ test.describe("Deep search", () => {
       maxResultsPerSearch: 3,
     })
 
-    const { id } = (await created.json()) as { id: string }
-    expect(id).toMatch(
+    const { deepSearchJobId } = (await created.json()) as {
+      deepSearchJobId: string
+    }
+    expect(deepSearchJobId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     )
-    expect(created.headers()["location"]).toBe(`/api/deep-search/${id}`)
-    await expect(page.getByText(`Job: ${id}`)).toHaveCount(0)
+    expect(created.headers()["location"]).toBe(
+      `/api/deep-search-jobs/${deepSearchJobId}`,
+    )
+    await expect(page).toHaveURL(
+      new RegExp(`/deep-search/${deepSearchJobId}$`),
+    )
+    await expect(page.getByText(`Job: ${deepSearchJobId}`)).toHaveCount(0)
     await expect(page.getByLabel("Research request")).toHaveCount(0)
+    await expect(page.getByText(researchRequest)).toBeVisible()
 
     const live = await liveResponse
-    expect(new URL(live.url()).pathname).toBe(`/api/deep-search/${id}`)
+    expect(new URL(live.url()).pathname).toBe(
+      `/api/deep-search-jobs/${deepSearchJobId}/events`,
+    )
     expect(live.status()).toBe(200)
     expect(live.headers()["content-type"]).toContain("application/x-ndjson")
 
-    const liveEvents = parseEvents(await live.text())
+    const liveEvents = parseEvents<DeepSearchJobEvent>(await live.text())
     expect(liveEvents.at(-1)).toEqual({ type: "done" })
     const jobError = liveEvents.find((event) => event.type === "error")
     expect(
@@ -121,7 +97,7 @@ test.describe("Deep search", () => {
     expect(queryStream.headers()["content-type"]).toContain(
       "application/x-ndjson",
     )
-    const queryEvents = parseTextEvents(await queryStream.text())
+    const queryEvents = parseEvents<TextStreamEvent>(await queryStream.text())
     expect(queryEvents.at(-1)).toEqual({ type: "done" })
     expect(queryEvents.some((event) => event.type === "error")).toBe(false)
 
@@ -146,7 +122,9 @@ test.describe("Deep search", () => {
     expect(selectionStream.headers()["content-type"]).toContain(
       "application/x-ndjson",
     )
-    const selectionEvents = parseTextEvents(await selectionStream.text())
+    const selectionEvents = parseEvents<TextStreamEvent>(
+      await selectionStream.text(),
+    )
     expect(selectionEvents.at(-1)).toEqual({ type: "done" })
     expect(selectionEvents.some((event) => event.type === "error")).toBe(false)
     const streamedSelection = selectionEvents
@@ -206,7 +184,7 @@ test.describe("Deep search", () => {
       .poll(() => observedStreamResponses.has(summaryPath))
       .toBe(true)
     const observedSummaryResponse = observedStreamResponses.get(summaryPath)
-    const summaryEvents = parseTextEvents(
+    const summaryEvents = parseEvents<TextStreamEvent>(
       await observedSummaryResponse?.text() ?? "",
     )
     expect(summaryEvents.at(-1)).toEqual({ type: "done" })
@@ -237,7 +215,7 @@ test.describe("Deep search", () => {
       .toBe(true)
     const observedQuerySummaryResponse =
       observedStreamResponses.get(querySummaryPath)
-    const querySummaryEvents = parseTextEvents(
+    const querySummaryEvents = parseEvents<TextStreamEvent>(
       (await observedQuerySummaryResponse?.text()) ?? "",
     )
     expect(querySummaryEvents.at(-1)).toEqual({ type: "done" })
@@ -250,12 +228,7 @@ test.describe("Deep search", () => {
       .join("")
     expect(streamedQuerySummary.trim()).not.toBe("")
 
-    const hiddenReasoning = [
-      queryEvents,
-      selectionEvents,
-      summaryEvents,
-      querySummaryEvents,
-    ]
+    const renderedReasoning = [queryEvents, selectionEvents, querySummaryEvents]
       .map((events) =>
         events
           .filter((event) => event.type === "reasoning")
@@ -263,8 +236,14 @@ test.describe("Deep search", () => {
           .join(""),
       )
       .filter(Boolean)
-    for (const reasoning of hiddenReasoning) {
-      await expect(page.getByText(reasoning, { exact: true })).toHaveCount(0)
+    const reasoningToggles = page.getByRole("button", {
+      name: "Show reasoning",
+    })
+    await expect(reasoningToggles).toHaveCount(renderedReasoning.length)
+    for (const reasoning of renderedReasoning) {
+      await expect(page.getByText(reasoning, { exact: true })).toBeHidden()
+      await reasoningToggles.first().click()
+      await expect(page.getByText(reasoning, { exact: true })).toBeVisible()
     }
 
     await expect(
@@ -283,7 +262,9 @@ test.describe("Deep search", () => {
     await expect(
       page.locator('[data-query-summary-status="completed"]').first(),
     ).toBeVisible()
-    await expect(page.getByText(streamedSelection)).toHaveCount(0)
+    await expect(
+      page.getByTestId(`selection-${selectionStreamEvent?.query ?? ""}`),
+    ).toHaveText(streamedSelection)
 
     const sourceResultsAccordion = page
       .getByRole("button", {
@@ -307,6 +288,20 @@ test.describe("Deep search", () => {
     await expect(
       summarizedResult.getByTestId("page-summary-text"),
     ).toHaveText(streamedPageSummary)
+    const pageReasoning = summaryEvents
+      .filter((event) => event.type === "reasoning")
+      .map((event) => event.text)
+      .join("")
+    expect(pageReasoning).not.toBe("")
+    await expect(
+      summarizedResult.getByText(pageReasoning, { exact: true }),
+    ).toBeHidden()
+    await summarizedResult
+      .getByRole("button", { name: "Show reasoning" })
+      .click()
+    await expect(
+      summarizedResult.getByText(pageReasoning, { exact: true }),
+    ).toBeVisible()
     await expect(
       summarizedResult.locator('[data-summary-status="completed"]'),
     ).toBeVisible()
@@ -321,8 +316,8 @@ test.describe("Deep search", () => {
     const highlightedLinks = await selectedResultLinks.evaluateAll((links) =>
       links.map((link) => link.getAttribute("href")),
     )
-    expect(highlightedLinks.sort()).toEqual(
-      [...(selectedResults?.selectedLinks ?? [])].sort(),
+    expect(highlightedLinks.toSorted()).toEqual(
+      (selectedResults?.selectedLinks ?? []).toSorted(),
     )
 
     await sourceResultsAccordion.click()
@@ -331,27 +326,62 @@ test.describe("Deep search", () => {
       "false",
     )
 
-    const replay = await request.get(`/api/deep-search/${id}`)
+    const replay = await request.get(
+      `/api/deep-search-jobs/${deepSearchJobId}/events`,
+    )
     expect(replay.status()).toBe(200)
     expect(replay.headers()["content-type"]).toContain(
       "application/x-ndjson",
     )
-    expect(parseEvents(await replay.text())).toEqual(liveEvents)
+    expect(parseEvents<DeepSearchJobEvent>(await replay.text())).toEqual(
+      liveEvents,
+    )
 
     const summaryReplay = await request.get(summaryPath)
     expect(summaryReplay.status()).toBe(200)
     expect(summaryReplay.headers()["content-type"]).toContain(
       "application/x-ndjson",
     )
-    expect(parseTextEvents(await summaryReplay.text())).toEqual(summaryEvents)
+    expect(parseEvents<TextStreamEvent>(await summaryReplay.text())).toEqual(
+      summaryEvents,
+    )
 
     const querySummaryReplay = await request.get(querySummaryPath)
     expect(querySummaryReplay.status()).toBe(200)
     expect(querySummaryReplay.headers()["content-type"]).toContain(
       "application/x-ndjson",
     )
-    expect(parseTextEvents(await querySummaryReplay.text())).toEqual(
+    expect(parseEvents<TextStreamEvent>(await querySummaryReplay.text())).toEqual(
       querySummaryEvents,
     )
+
+    const detail = await request.get(
+      `/api/deep-search-jobs/${deepSearchJobId}`,
+    )
+    expect(detail.status()).toBe(200)
+    const detailBody = (await detail.json()) as {
+      deepSearchJob: {
+        deepSearchJobId: string
+        researchRequest: string
+        status: string
+      }
+    }
+    expect(detailBody.deepSearchJob).toMatchObject({
+      deepSearchJobId,
+      researchRequest,
+      status: "completed",
+    })
+
+    await page.reload()
+    await expect(
+      page.getByRole("heading", { name: "Research results" }),
+    ).toBeVisible()
+    await page.goto("/deep-search")
+    await expect(page.getByRole("heading", { name: "Previous searches" })).toBeVisible()
+    const historyLink = page.locator(
+      `a[href="/deep-search/${deepSearchJobId}"]`,
+    )
+    await expect(historyLink).toBeVisible()
+    await expect(historyLink).toContainText(researchRequest)
   })
 })

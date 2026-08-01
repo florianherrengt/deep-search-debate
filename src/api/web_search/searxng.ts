@@ -1,41 +1,24 @@
-import { config } from "../config.ts";
-import z from "zod";
+import { createSearXNGFetchSearch } from "deep-search-core/search-extract"
+import { config } from "../config.ts"
 
-const searxngRawResultSchema = z.object({
-  title: z.string(),
-  content: z.string(),
-  url: z.string(),
-});
+export type WebSearchResult = {
+  title: string
+  shortText: string
+  link: string
+}
 
-const searxngJsonSchema = z.object({
-  query: z.string(),
-  results: z.array(searxngRawResultSchema),
-});
+const search = createSearXNGFetchSearch({
+  baseUrl: config.webSearch.searxng.url,
+  fetch: (input, init) => globalThis.fetch(input, init),
+})
 
-const webSearchResultSchema = z.object({
-  title: z.string(),
-  shortText: z.string(),
-  link: z.string(),
-});
-
-export const searxng = z
-  .function()
-  .input(z.tuple([z.object({ query: z.string() })]))
-  .output(z.array(webSearchResultSchema))
-  .implementAsync(async (params) => {
-    const baseUrl = config.webSearch.searxng.url;
-    const url = new URL(
-      "/search",
-      baseUrl.startsWith("http") ? baseUrl : `http://${baseUrl}`,
-    );
-    url.searchParams.set("q", params.query);
-    url.searchParams.set("format", "json");
-    const res = await fetch(url.toString());
-    if (!res.ok) throw new Error(`SearXNG search failed: ${res.status}`);
-    const data = searxngJsonSchema.parse(await res.json());
-    return data.results.map((r) => ({
-      title: r.title,
-      shortText: r.content,
-      link: r.url,
-    }));
-  });
+export async function searxng(params: {
+  query: string
+}): Promise<WebSearchResult[]> {
+  const results = await search(params.query)
+  return results.map((result) => ({
+    title: result.title,
+    shortText: result.description,
+    link: result.url,
+  }))
+}

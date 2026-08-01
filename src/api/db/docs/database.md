@@ -10,6 +10,7 @@ SQLite accessed through `better-sqlite3` and `drizzle-orm`.
 
 - `src/api/data.db` is **committed to git**. It is the real dev database, not a fixture.
 - It runs in WAL mode (`pragma journal_mode = WAL`), set in `src/api/db/index.ts`.
+- Foreign-key enforcement is enabled on the connection.
 
 ## Schema and migrations
 
@@ -20,6 +21,8 @@ SQLite accessed through `better-sqlite3` and `drizzle-orm`.
   npm run db:migrate   -w @deep-search-debate/api
   ```
 
+Generate the reviewable DBML relationship graph with `npm run db:diagram`. The output is `src/api/db/schema.dbml`.
+
 ## Tests
 
-API tests use `DATABASE_URL=:memory:` (set in `vitest.config.ts`), so they never touch `data.db`.
+API tests use `DATABASE_URL=:memory:` and apply the committed Drizzle migrations in `db/testSetup.ts`, so they never touch `data.db` and exercise the real migration chain.

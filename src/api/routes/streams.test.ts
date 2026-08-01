@@ -25,6 +25,8 @@ function createApp(): Hono {
 describe("stream routes", () => {
   beforeEach(() => vi.clearAllMocks())
 
+  const streamId = "11111111-1111-4111-8111-111111111111"
+
   it("creates a stream and returns its ID", async () => {
     mocks.generateTextStream.mockResolvedValue({ id: "stream-id" })
 
@@ -52,7 +54,7 @@ describe("stream routes", () => {
     }
     mocks.subscribeToTextStream.mockReturnValue(events())
 
-    const response = await createApp().request("/streams/stream-id")
+    const response = await createApp().request(`/streams/${streamId}`)
 
     expect(response.status).toBe(200)
     expect(response.headers.get("Content-Type")).toContain(
@@ -63,16 +65,24 @@ describe("stream routes", () => {
         '{"type":"text","text":"Answer"}\n' +
         '{"type":"done"}\n',
     )
+    expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(streamId)
   })
 
   it("returns 404 for an unknown stream", async () => {
     mocks.subscribeToTextStream.mockReturnValue(undefined)
 
-    const response = await createApp().request("/streams/missing")
+    const response = await createApp().request(`/streams/${streamId}`)
 
     expect(response.status).toBe(404)
     await expect(response.json()).resolves.toEqual({
       error: "Stream not found",
     })
+  })
+
+  it("rejects malformed stream IDs before lookup", async () => {
+    const response = await createApp().request("/streams/not-a-uuid")
+
+    expect(response.status).toBe(400)
+    expect(mocks.subscribeToTextStream).not.toHaveBeenCalled()
   })
 })

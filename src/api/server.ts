@@ -1,9 +1,8 @@
 import "dotenv/config"
 import { serve } from "@hono/node-server"
+import { config } from "./config.ts"
 import { app } from "./index.ts"
 
-const port = Number(process.env.PORT) || 3000
-
-serve({ fetch: app.fetch, port }, (info) => {
+serve({ fetch: app.fetch, port: config.api.port }, (info) => {
   console.log(`Listening on http://localhost:${info.port}`)
 })

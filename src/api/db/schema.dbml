@@ -1,0 +1,116 @@
+table deep_search_generated_queries {
+  deep_search_generated_query_id text [pk, not null]
+  deep_search_query_generation_id text [not null]
+  position integer [not null]
+  query text [not null]
+  created_at integer [not null, default: `(unixepoch())`]
+
+  indexes {
+    (deep_search_query_generation_id, position) [name: 'deep_search_generated_queries_generation_position_idx', unique]
+
+  }
+}
+
+table deep_search_jobs {
+  deep_search_job_id text [pk, not null]
+  research_request text [not null]
+  max_searches integer [not null]
+  max_results_per_search integer [not null]
+  status text [not null, default: 'running']
+  error text
+  created_at integer [not null, default: `(unixepoch())`]
+  completed_at integer
+
+  indexes {
+    created_at [name: 'deep_search_jobs_created_at_idx']
+
+
+
+  }
+}
+
+table deep_search_queries {
+  deep_search_query_id text [pk, not null]
+  deep_search_generated_query_id text [not null, unique]
+  status text [not null, default: 'pending']
+  selection_generation_id text
+  summary_generation_id text
+  error_stage text
+  error_message text
+  created_at integer [not null, default: `(unixepoch())`]
+  completed_at integer
+}
+
+table deep_search_query_generations {
+  deep_search_query_generation_id text [pk, not null]
+  deep_search_job_id text [not null, unique]
+  llm_generation_id text [not null, unique]
+  created_at integer [not null, default: `(unixepoch())`]
+}
+
+table deep_search_results {
+  deep_search_result_id text [pk, not null]
+  deep_search_query_id text [not null]
+  position integer [not null]
+  title text [not null]
+  short_text text [not null]
+  url text [not null]
+  selection_status text [not null, default: 'pending']
+  deep_search_web_page_id text
+  created_at integer [not null, default: `(unixepoch())`]
+
+  indexes {
+    (deep_search_query_id, position) [name: 'deep_search_results_query_position_idx', unique]
+
+
+  }
+}
+
+table deep_search_web_pages {
+  deep_search_web_page_id text [pk, not null]
+  deep_search_job_id text [not null]
+  url text [not null]
+  status text [not null, default: 'pending']
+  summary_generation_id text
+  error_stage text
+  error_message text
+  created_at integer [not null, default: `(unixepoch())`]
+  completed_at integer
+
+  indexes {
+    (deep_search_job_id, url) [name: 'deep_search_web_pages_job_url_idx', unique]
+
+
+
+  }
+}
+
+table llm_generations {
+  llm_generation_id text [pk, not null]
+  status text [not null, default: 'running']
+  text text
+  reasoning text
+  error text
+  started_at integer [not null, default: `(unixepoch())`]
+  completed_at integer
+}
+
+ref deep_search_generated_queries_deep_search_query_generation_id_deep_search_query_generations_deep_search_query_generation_id_fk: deep_search_generated_queries.deep_search_query_generation_id > deep_search_query_generations.deep_search_query_generation_id [delete: cascade, update: no action]
+
+ref deep_search_queries_deep_search_generated_query_id_deep_search_generated_queries_deep_search_generated_query_id_fk: deep_search_queries.deep_search_generated_query_id > deep_search_generated_queries.deep_search_generated_query_id [delete: cascade, update: no action]
+
+ref deep_search_queries_selection_generation_id_llm_generations_llm_generation_id_fk: deep_search_queries.selection_generation_id > llm_generations.llm_generation_id [delete: restrict, update: no action]
+
+ref deep_search_queries_summary_generation_id_llm_generations_llm_generation_id_fk: deep_search_queries.summary_generation_id > llm_generations.llm_generation_id [delete: restrict, update: no action]
+
+ref deep_search_query_generations_deep_search_job_id_deep_search_jobs_deep_search_job_id_fk: deep_search_query_generations.deep_search_job_id > deep_search_jobs.deep_search_job_id [delete: cascade, update: no action]
+
+ref deep_search_query_generations_llm_generation_id_llm_generations_llm_generation_id_fk: deep_search_query_generations.llm_generation_id > llm_generations.llm_generation_id [delete: restrict, update: no action]
+
+ref deep_search_results_deep_search_query_id_deep_search_queries_deep_search_query_id_fk: deep_search_results.deep_search_query_id > deep_search_queries.deep_search_query_id [delete: cascade, update: no action]
+
+ref deep_search_results_deep_search_web_page_id_deep_search_web_pages_deep_search_web_page_id_fk: deep_search_results.deep_search_web_page_id > deep_search_web_pages.deep_search_web_page_id [delete: set null, update: no action]
+
+ref deep_search_web_pages_deep_search_job_id_deep_search_jobs_deep_search_job_id_fk: deep_search_web_pages.deep_search_job_id > deep_search_jobs.deep_search_job_id [delete: cascade, update: no action]
+
+ref deep_search_web_pages_summary_generation_id_llm_generations_llm_generation_id_fk: deep_search_web_pages.summary_generation_id > llm_generations.llm_generation_id [delete: restrict, update: no action]

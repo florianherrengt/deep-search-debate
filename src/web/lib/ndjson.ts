@@ -1,6 +1,9 @@
-export async function* readNdjson<T>(
+import type z from "zod"
+
+export async function* readNdjson<Schema extends z.ZodType>(
   body: ReadableStream<Uint8Array>,
-): AsyncGenerator<T> {
+  schema: Schema,
+): AsyncGenerator<z.output<Schema>> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ""
@@ -15,10 +18,11 @@ export async function* readNdjson<T>(
 
     for (const line of lines) {
       const value = line.trim()
-      if (value) yield JSON.parse(value) as T
+      if (value) yield schema.parse(JSON.parse(value))
     }
   }
 
+  buffer += decoder.decode()
   const value = buffer.trim()
-  if (value) yield JSON.parse(value) as T
+  if (value) yield schema.parse(JSON.parse(value))
 }

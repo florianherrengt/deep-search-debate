@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../web_search/index.ts", () => ({
   webSearch: vi.fn(),
@@ -23,6 +23,8 @@ vi.mock("deep-search-core/search-extract", () => ({
 import { webSearch } from "../web_search/index.ts";
 import { extractDeps } from "../web_search/webExtract.ts";
 import { app } from "../index.ts";
+
+beforeEach(() => vi.clearAllMocks());
 
 describe("GET /api/debug/search", () => {
   it("returns search results", async () => {
@@ -96,6 +98,7 @@ describe("GET /api/debug/extract", () => {
 
   it("rejects non-URL inputs", async () => {
     const res = await app.request("/api/debug/extract?url=not-a-url");
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(400);
+    expect(extractMocks.extractPage).not.toHaveBeenCalled();
   });
 });

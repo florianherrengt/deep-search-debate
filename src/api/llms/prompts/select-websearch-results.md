@@ -43,17 +43,12 @@ Consider publication date when freshness matters. Older sources may still be use
 
 Select no more than `max_results_to_explore` results. Select fewer, including none, when the remaining results are not worth exploring.
 
-Return a valid JSON array containing only the IDs of the results that should be explored, ordered from highest to lowest exploration priority. The first ID must be the single most valuable result to open, and each following ID must be the next most valuable.
-
-Example:
-
-["result-1", "result-4", "result-7"]
+Return only the IDs of the results that should be explored as the elements of the requested structured array, ordered from highest to lowest exploration priority. The first ID must be the single most valuable result to open, and each following ID must be the next most valuable.
 
 Requirements:
 
-- Return only the JSON array.
 - Order IDs from highest to lowest exploration priority.
-- Do not include explanations, markdown, or additional properties.
+- Do not include explanations or other text in an element.
 - Use only IDs supplied in the results.
 - Do not include duplicate IDs.
-- Return `[]` when no result is worth exploring.
+- Return an empty array when no result is worth exploring.

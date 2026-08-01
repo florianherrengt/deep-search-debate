@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({ subscribeToTextStream: vi.fn() }))
@@ -30,9 +30,16 @@ describe("PageSummary", () => {
     )
 
     expect(await screen.findByText("Summarizing source…")).toBeVisible()
+    const reasoningToggle = await screen.findByRole("button", {
+      name: "Show reasoning",
+    })
+    expect(reasoningToggle).toHaveAttribute("aria-expanded", "false")
     expect(
       screen.queryByText("Identifying useful details"),
     ).not.toBeInTheDocument()
+    fireEvent.click(reasoningToggle)
+    expect(reasoningToggle).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByText("Identifying useful details")).toBeVisible()
     expect(screen.getByTestId("page-summary-text")).toHaveTextContent(
       "A partial summary",
     )

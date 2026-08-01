@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   createDeepSearchJob,
+  getDeepSearchJob,
+  getDeepSearchJobs,
   subscribeToDeepSearchJob,
   type DeepSearchJobEvent,
 } from "./deepSearchJobs.ts"
@@ -42,7 +44,9 @@ describe("deep search jobs client", () => {
     }
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(Response.json({ id: "job-id" }, { status: 202 }))
+      .mockResolvedValueOnce(
+        Response.json({ deepSearchJobId: "job-id" }, { status: 202 }),
+      )
       .mockResolvedValueOnce(
         ndjsonResponse([
           { type: "query-stream", streamId: "query-stream-id" },
@@ -101,7 +105,7 @@ describe("deep search jobs client", () => {
       },
       { type: "done" },
     ])
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/deep-search", {
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/deep-search-jobs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -111,9 +115,11 @@ describe("deep search jobs client", () => {
       }),
       signal: undefined,
     })
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/deep-search/job-id", {
-      signal: undefined,
-    })
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/deep-search-jobs/job-id/events",
+      { signal: undefined },
+    )
   })
 
   it("surfaces creation and subscription failures", async () => {
@@ -128,5 +134,54 @@ describe("deep search jobs client", () => {
     await expect(
       drain(subscribeToDeepSearchJob("job-id")),
     ).rejects.toThrow(/500/)
+  })
+
+  it("lists history and reads one durable job", async () => {
+    const job = {
+      deepSearchJobId: "job-id",
+      researchRequest: "Research this",
+      maxSearches: 3,
+      maxResultsPerSearch: 3,
+      status: "completed" as const,
+      error: null,
+      createdAt: "2026-08-01T12:00:00.000Z",
+      completedAt: "2026-08-01T12:01:00.000Z",
+    }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ deepSearchJobs: [job] }))
+      .mockResolvedValueOnce(Response.json({ deepSearchJob: job }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(getDeepSearchJobs()).resolves.toEqual([job])
+    await expect(getDeepSearchJob("job-id")).resolves.toEqual(job)
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/deep-search-jobs", {
+      signal: undefined,
+    })
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/deep-search-jobs/job-id",
+      { signal: undefined },
+    )
+  })
+
+  it("rejects malformed job responses and events", async () => {
+    const invalidEvent = new Response(
+      JSON.stringify({ type: "page-summary-stream", url: "not-a-url" }) +
+        "\n",
+      { status: 200 },
+    )
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ deepSearchJobs: [{ deepSearchJobId: 123 }] }),
+      )
+      .mockResolvedValueOnce(invalidEvent)
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(getDeepSearchJobs()).rejects.toThrow()
+    await expect(
+      drain(subscribeToDeepSearchJob("job-id")),
+    ).rejects.toThrow()
   })
 })

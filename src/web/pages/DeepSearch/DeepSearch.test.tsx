@@ -1,14 +1,20 @@
-import { act, fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen, within } from "@testing-library/react"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   createDeepSearchJob: vi.fn(),
+  getDeepSearchJob: vi.fn(),
+  getDeepSearchJobs: vi.fn(),
   subscribeToDeepSearchJob: vi.fn(),
   subscribeToTextStream: vi.fn(),
 }))
 
 vi.mock("../../lib/deepSearchJobs.ts", () => ({
   createDeepSearchJob: mocks.createDeepSearchJob,
+  getDeepSearchJob: mocks.getDeepSearchJob,
+  getDeepSearchJobs: mocks.getDeepSearchJobs,
   subscribeToDeepSearchJob: mocks.subscribeToDeepSearchJob,
 }))
 
@@ -18,8 +24,44 @@ vi.mock("../../lib/textStreams.ts", () => ({
 
 import { DeepSearch } from "./index.tsx"
 
+function renderDeepSearch(initialEntry = "/deep-search") {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <Routes>
+          <Route path="/deep-search" element={<DeepSearch />} />
+          <Route
+            path="/deep-search/:deepSearchJobId"
+            element={<DeepSearch />}
+          />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
+
+function deepSearchJob() {
+  return {
+    deepSearchJobId: "job-id",
+    researchRequest: "Research this",
+    maxSearches: 3,
+    maxResultsPerSearch: 3,
+    status: "completed" as const,
+    error: null,
+    createdAt: new Date().toISOString(),
+    completedAt: new Date().toISOString(),
+  }
+}
+
 describe("DeepSearch", () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.getDeepSearchJobs.mockResolvedValue([])
+    mocks.getDeepSearchJob.mockResolvedValue(deepSearchJob())
+  })
 
   it("creates a job, subscribes, and displays search results", async () => {
     async function* events() {
@@ -81,15 +123,32 @@ describe("DeepSearch", () => {
       yield { type: "text" as const, text: "useful evidence." }
       yield { type: "done" as const }
     }
+    async function* queryGenerationEvents() {
+      await Promise.resolve()
+      yield { type: "reasoning" as const, text: "Prioritizing queries" }
+      yield { type: "text" as const, text: "test query" }
+      yield { type: "done" as const }
+    }
+    async function* selectionEvents() {
+      await Promise.resolve()
+      yield {
+        type: "reasoning" as const,
+        text: "Comparing source relevance",
+      }
+      yield { type: "text" as const, text: '["result-0"]' }
+      yield { type: "done" as const }
+    }
     mocks.createDeepSearchJob.mockResolvedValue("job-id")
     mocks.subscribeToDeepSearchJob.mockReturnValue(events())
     mocks.subscribeToTextStream.mockImplementation((id: string) => {
+      if (id === "query-stream-id") return queryGenerationEvents()
+      if (id === "selection-stream-id") return selectionEvents()
       if (id === "summary-stream-id") return summaryEvents()
       if (id === "query-summary-stream-id") return querySummaryEvents()
       throw new Error(`Unexpected stream: ${id}`)
     })
 
-    render(<DeepSearch />)
+    renderDeepSearch()
     fireEvent.change(screen.getByLabelText("Research request"), {
       target: { value: "Research this" },
     })
@@ -105,17 +164,40 @@ describe("DeepSearch", () => {
     expect(screen.getByText("1 explored in depth")).toBeVisible()
     expect(screen.queryByLabelText("Research request")).not.toBeInTheDocument()
     expect(screen.queryByText("Job: job-id")).not.toBeInTheDocument()
-    expect(screen.queryByText("Prioritizing queries")).not.toBeInTheDocument()
-    expect(screen.queryByText("Selection output")).not.toBeInTheDocument()
-    expect(
-      screen.queryByText("Comparing source relevance"),
-    ).not.toBeInTheDocument()
-    expect(
-      screen.queryByText("Finding relevant facts"),
-    ).not.toBeInTheDocument()
-    expect(
-      screen.queryByText("Combining all results"),
-    ).not.toBeInTheDocument()
+
+    const reasoningSections = [
+      {
+        container: screen
+          .getByText("Generated search queries")
+          .closest(".MuiPaper-root"),
+        reasoning: "Prioritizing queries",
+      },
+      {
+        container: screen
+          .getByText("Source selection")
+          .closest(".MuiPaper-root"),
+        reasoning: "Comparing source relevance",
+      },
+      {
+        container: screen
+          .getByText("What this search found")
+          .closest("section"),
+        reasoning: "Combining all results",
+      },
+    ]
+    for (const { container, reasoning } of reasoningSections) {
+      if (!(container instanceof HTMLElement)) {
+        throw new Error("Reasoning section was not rendered")
+      }
+      const toggle = await within(container).findByRole("button", {
+        name: "Show reasoning",
+      })
+      expect(toggle).toHaveAttribute("aria-expanded", "false")
+      expect(screen.queryByText(reasoning)).not.toBeInTheDocument()
+      fireEvent.click(toggle)
+      expect(toggle).toHaveAttribute("aria-expanded", "true")
+      expect(screen.getByText(reasoning)).toBeVisible()
+    }
 
     const sourceResults = screen.getByRole("button", {
       name: "Show source results for test query",
@@ -123,6 +205,12 @@ describe("DeepSearch", () => {
     expect(sourceResults).toHaveAttribute("aria-expanded", "false")
     fireEvent.click(sourceResults)
     expect(sourceResults).toHaveAttribute("aria-expanded", "true")
+    expect(screen.queryByText("Finding relevant facts")).not.toBeInTheDocument()
+    const sourceReasoningToggle = await screen.findByRole("button", {
+      name: "Show reasoning",
+    })
+    fireEvent.click(sourceReasoningToggle)
+    expect(screen.getByText("Finding relevant facts")).toBeVisible()
     expect(await screen.findByText("A relevant page summary")).toBeVisible()
     expect(screen.getByTestId("query-summary-test query")).toHaveTextContent(
       "The search found useful evidence.",
@@ -145,17 +233,16 @@ describe("DeepSearch", () => {
     ).toHaveAttribute("data-selection-status", "rejected")
     expect(mocks.createDeepSearchJob).toHaveBeenCalledWith(
       { researchRequest: "Research this" },
-      expect.any(AbortSignal),
     )
     expect(mocks.subscribeToDeepSearchJob).toHaveBeenCalledWith(
       "job-id",
       expect.any(AbortSignal),
     )
-    expect(mocks.subscribeToTextStream).not.toHaveBeenCalledWith(
+    expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(
       "query-stream-id",
       expect.any(AbortSignal),
     )
-    expect(mocks.subscribeToTextStream).not.toHaveBeenCalledWith(
+    expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(
       "selection-stream-id",
       expect.any(AbortSignal),
     )
@@ -236,7 +323,7 @@ describe("DeepSearch", () => {
       throw new Error(`Unexpected stream: ${id}`)
     })
 
-    render(<DeepSearch />)
+    renderDeepSearch()
     fireEvent.change(screen.getByLabelText("Research request"), {
       target: { value: "Research this" },
     })
@@ -253,5 +340,21 @@ describe("DeepSearch", () => {
       return firstSummaryGate.promise
     })
     expect(await screen.findByText("First partial summary")).toBeInTheDocument()
+  })
+
+  it("lists previous jobs as reopenable UUID links", async () => {
+    mocks.getDeepSearchJobs.mockResolvedValue([
+      {
+        ...deepSearchJob(),
+        researchRequest: "Previously researched topic",
+      },
+    ])
+
+    renderDeepSearch()
+
+    expect(
+      await screen.findByRole("link", { name: /Previously researched topic/ }),
+    ).toHaveAttribute("href", "/deep-search/job-id")
+    expect(screen.getByText("completed")).toBeVisible()
   })
 })

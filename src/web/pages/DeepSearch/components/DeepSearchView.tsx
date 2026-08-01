@@ -1,17 +1,12 @@
-import { Stack } from "@mui/material"
-import type { SubmitEventHandler } from "react"
+import { Alert, CircularProgress, Stack, Typography } from "@mui/material"
 import type { DeepSearchRunState } from "../deepSearchState.ts"
 import { DeepSearchHeader } from "./DeepSearchHeader.tsx"
-import { DeepSearchJobStatus } from "./DeepSearchJobStatus.tsx"
-import { ProgressMessage } from "./ProgressMessage.tsx"
-import { ResearchRequestForm } from "./ResearchRequestForm.tsx"
+import { GenerationOutput } from "./GenerationOutput.tsx"
 import { SearchResults } from "./SearchResults.tsx"
 
 export type DeepSearchViewProps = {
   researchRequest: string
   run: DeepSearchRunState
-  onResearchRequestChange: (value: string) => void
-  onSubmit: SubmitEventHandler<HTMLFormElement>
 }
 
 function getProgressMessage(run: DeepSearchRunState): string | undefined {
@@ -24,26 +19,30 @@ function getProgressMessage(run: DeepSearchRunState): string | undefined {
 export function DeepSearchView({
   researchRequest,
   run,
-  onResearchRequestChange,
-  onSubmit,
 }: DeepSearchViewProps) {
-  const isSearching = run.status === "running"
   const progressMessage = getProgressMessage(run)
-  const showResearchForm = run.status === "idle" || run.status === "failed"
 
   return (
     <Stack spacing={3}>
       <DeepSearchHeader />
-      {showResearchForm && (
-        <ResearchRequestForm
-          researchRequest={researchRequest}
-          isSearching={isSearching}
-          onResearchRequestChange={onResearchRequestChange}
-          onSubmit={onSubmit}
+      <Typography variant="h6" sx={{ overflowWrap: "anywhere" }}>
+        {researchRequest}
+      </Typography>
+      {run.error && <Alert severity="error">{run.error}</Alert>}
+      {progressMessage && (
+        <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+          <CircularProgress size={20} />
+          <Typography color="text.secondary">{progressMessage}</Typography>
+        </Stack>
+      )}
+      {run.queryStreamId && (
+        <GenerationOutput
+          streamId={run.queryStreamId}
+          title="Generated search queries"
+          waitingText="Generating search queries…"
+          testId="generated-search-queries"
         />
       )}
-      <DeepSearchJobStatus error={run.error} />
-      {progressMessage && <ProgressMessage>{progressMessage}</ProgressMessage>}
       <SearchResults searches={run.searches} />
     </Stack>
   )

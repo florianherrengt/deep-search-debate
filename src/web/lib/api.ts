@@ -1,11 +1,28 @@
+import type z from "zod"
 import { readNdjson } from "./ndjson.ts"
 
-/** Posts JSON and returns the ID from the response body. */
-export async function postForId(
+/** Fetches JSON and validates the response at the network boundary. */
+export async function getJson<Schema extends z.ZodType>(
+  url: string,
+  schema: Schema,
+  signal?: AbortSignal,
+): Promise<z.output<Schema>> {
+  const response = await fetch(url, { signal })
+
+  if (!response.ok) {
+    throw new Error(`GET ${url} failed: ${response.status}`)
+  }
+
+  return schema.parse(await response.json())
+}
+
+/** Posts JSON and validates the response at the network boundary. */
+export async function postJson<Schema extends z.ZodType>(
   url: string,
   body: unknown,
+  schema: Schema,
   signal?: AbortSignal,
-): Promise<string> {
+): Promise<z.output<Schema>> {
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -17,24 +34,15 @@ export async function postForId(
     throw new Error(`POST ${url} failed: ${response.status}`)
   }
 
-  const result = (await response.json()) as unknown
-  if (
-    !result ||
-    typeof result !== "object" ||
-    !("id" in result) ||
-    typeof result.id !== "string"
-  ) {
-    throw new Error(`POST ${url} response has no ID`)
-  }
-
-  return result.id
+  return schema.parse(await response.json())
 }
 
-/** Replays and follows an NDJSON endpoint as parsed events. */
-export async function* subscribeToNdjson<T>(
+/** Replays and follows an NDJSON endpoint with every event validated. */
+export async function* subscribeToNdjson<Schema extends z.ZodType>(
   url: string,
+  schema: Schema,
   signal?: AbortSignal,
-): AsyncGenerator<T> {
+): AsyncGenerator<z.output<Schema>> {
   const response = await fetch(url, { signal })
 
   if (!response.ok) {
@@ -44,5 +52,5 @@ export async function* subscribeToNdjson<T>(
     throw new Error(`GET ${url} response has no body`)
   }
 
-  yield* readNdjson<T>(response.body)
+  yield* readNdjson(response.body, schema)
 }

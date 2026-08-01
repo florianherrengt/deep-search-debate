@@ -4,6 +4,7 @@ import { config } from "../config.ts";
 import * as schema from "./schema.ts";
 
 const sqlite = new Database(config.db.url);
+sqlite.pragma("foreign_keys = ON");
 sqlite.pragma("journal_mode = WAL");
 
 export const db = drizzle(sqlite, { schema });

@@ -10,6 +10,7 @@ import {
   Typography,
 } from "@mui/material"
 import type { DeepSearchSearchState } from "../deepSearchState.ts"
+import { GenerationOutput } from "./GenerationOutput.tsx"
 import { QuerySummary } from "./QuerySummary.tsx"
 import { SearchResultCard } from "./SearchResultCard.tsx"
 
@@ -59,6 +60,15 @@ export function SearchResultsGroup({
         <Typography component="h3" variant="h5" sx={{ overflowWrap: "anywhere" }}>
           {search.query}
         </Typography>
+
+        {search.selectionStreamId && (
+          <GenerationOutput
+            streamId={search.selectionStreamId}
+            title="Source selection"
+            waitingText="Selecting sources…"
+            testId={`selection-${search.query}`}
+          />
+        )}
 
         <QuerySummary
           query={search.query}

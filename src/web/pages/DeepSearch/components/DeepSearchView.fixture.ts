@@ -19,6 +19,14 @@ const streamText: Record<string, string> = {
     "The search results trace OpenAI from its 2015 founding announcement through later changes to its mission and structure.",
   "query-summary-criticism":
     "The search results surface recurring criticism around governance, accountability, market concentration, and the evidence behind safety claims.",
+  "streaming-query-summary":
+    "The search results consistently recommend stable, flexible longboards for beginners. The explored sources add",
+  "completed-query-summary":
+    "The search results favour drop-through longboards with medium-flex decks for beginner cruising. Explored sources consistently highlight stability and predictable turning, while the remaining listings suggest comparing rider weight limits and wheel hardness before buying.",
+  "streaming-summary":
+    "The page describes ChatGPT, the API platform, and enterprise products. It emphasises",
+  "completed-summary":
+    "The page is a primary source for OpenAI's current product portfolio. It describes ChatGPT offerings for individuals and organisations alongside an API platform for developers.",
 }
 
 const streamReasoning: Record<string, string> = {
@@ -28,6 +36,24 @@ const streamReasoning: Record<string, string> = {
     "I am identifying the product groups relevant to the research request.",
   "query-summary-products":
     "I am combining the explored pages with the remaining search descriptions.",
+  "streaming-query-summary":
+    "I am combining the explored pages with the remaining search descriptions.",
+  "completed-query-summary":
+    "I will retain the findings that directly answer the user's request.",
+  "streaming-summary":
+    "I am extracting the product claims that answer the research request.",
+  "completed-summary":
+    "The page is a primary source, so I will prioritize its product descriptions.",
+}
+
+const streamingIds = new Set([
+  "summary-products-streaming",
+  "streaming-query-summary",
+  "streaming-summary",
+])
+
+const streamErrors: Record<string, string> = {
+  "failed-query-summary": "Query summary generation failed",
 }
 
 export const researchRequest =
@@ -35,7 +61,6 @@ export const researchRequest =
 
 export const completedRun: DeepSearchRunState = {
   status: "completed",
-  jobId: "7428de3d-6bea-4e39-862c-2adfe9ebcd36",
   queryStreamId: null,
   searches: [
     {
@@ -156,11 +181,17 @@ export async function* subscribeToStoryStream(
   id: string,
   signal?: AbortSignal,
 ): AsyncGenerator<TextStreamEvent> {
+  const error = streamErrors[id]
+  if (error) {
+    yield { type: "error", message: error }
+    return
+  }
+
   const reasoning = streamReasoning[id]
   if (reasoning) yield { type: "reasoning", text: reasoning }
   yield { type: "text", text: streamText[id] ?? "" }
 
-  if (id === "summary-products-streaming") {
+  if (streamingIds.has(id)) {
     await new Promise<void>((resolve) => {
       if (signal?.aborted) resolve()
       else signal?.addEventListener("abort", () => resolve(), { once: true })

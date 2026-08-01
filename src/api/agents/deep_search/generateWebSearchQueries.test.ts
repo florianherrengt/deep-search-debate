@@ -1,17 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { ZodType } from "zod"
 
 const mocks = vi.hoisted(() => ({
-  generateTextStream: vi.fn(),
-  subscribeToTextStream: vi.fn(),
+  generateArrayStream: vi.fn(),
   webSearch: vi.fn(),
 }))
 
 vi.mock("../../llms/generateText.ts", () => ({
-  generateTextStream: mocks.generateTextStream,
-}))
-
-vi.mock("../../llms/streams.ts", () => ({
-  subscribeToTextStream: mocks.subscribeToTextStream,
+  generateArrayStream: mocks.generateArrayStream,
 }))
 
 vi.mock("../../web_search/index.ts", () => ({
@@ -22,70 +18,52 @@ import { generateSearchResults, generateWebSearchQueries } from "./queries.ts"
 
 const ignoreStream = () => undefined
 
-async function* textStream(events: Array<{ type: string; text?: string; message?: string }>) {
-  for (const e of events) {
-    await Promise.resolve()
-    yield e
-  }
-}
-
 describe("generateWebSearchQueries", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("generates queries from streamed text", async () => {
+  it("generates deduplicated queries from structured output", async () => {
     const onStreamCreated = vi.fn()
-    mocks.generateTextStream.mockResolvedValueOnce({ id: "stream-id" })
-    mocks.subscribeToTextStream.mockReturnValueOnce(
-      textStream([
-        { type: "text", text: "quantum computing basics\n" },
-        { type: "text", text: "quantum computing applications\n" },
-        { type: "text", text: "quantum computing history" },
-        { type: "done" },
+    mocks.generateArrayStream.mockResolvedValueOnce({
+      id: "stream-id",
+      output: Promise.resolve([
+        "quantum computing basics",
+        "quantum computing applications",
+        "quantum computing basics",
       ]),
-    )
+    })
 
     const result = await generateWebSearchQueries({
       researchRequest: "quantum computing",
       onStreamCreated,
     })
 
-    expect(mocks.generateTextStream).toHaveBeenCalledWith({
+    const call = mocks.generateArrayStream.mock.calls[0]?.[0] as
+      | {
+          prompt: string
+          promptName: string
+          element: ZodType<string>
+        }
+      | undefined
+    expect(call).toBeDefined()
+    if (!call) throw new Error("generateArrayStream was not called")
+    expect(call).toMatchObject({
       prompt: "quantum computing",
       promptName: "generate-websearch-queries",
     })
+    expect(call.element.parse(" valid query ")).toBe("valid query")
+    expect(() => call.element.parse("  ")).toThrow()
     expect(onStreamCreated).toHaveBeenCalledWith("stream-id")
     expect(result).toEqual([
       "quantum computing basics",
       "quantum computing applications",
-      "quantum computing history",
     ])
   })
 
-  it("filters empty lines", async () => {
-    mocks.generateTextStream.mockResolvedValueOnce({ id: "stream-id" })
-    mocks.subscribeToTextStream.mockReturnValueOnce(
-      textStream([
-        { type: "text", text: "query one\n\nquery two\n" },
-        { type: "done" },
-      ]),
-    )
-
-    const result = await generateWebSearchQueries({
-      researchRequest: "test",
-      onStreamCreated: ignoreStream,
+  it("propagates structured output errors", async () => {
+    mocks.generateArrayStream.mockResolvedValueOnce({
+      id: "stream-id",
+      output: Promise.reject(new Error("API error")),
     })
-
-    expect(result).toEqual(["query one", "query two"])
-  })
-
-  it("throws on stream error", async () => {
-    mocks.generateTextStream.mockResolvedValueOnce({ id: "stream-id" })
-    mocks.subscribeToTextStream.mockReturnValueOnce(
-      textStream([
-        { type: "error", message: "API error" },
-        { type: "done" },
-      ]),
-    )
 
     await expect(
       generateWebSearchQueries({
@@ -97,19 +75,18 @@ describe("generateWebSearchQueries", () => {
 
   it("emits the query stream and searches only the configured limit", async () => {
     const onEvent = vi.fn()
-    mocks.generateTextStream.mockResolvedValueOnce({ id: "stream-id" })
-    mocks.subscribeToTextStream.mockReturnValueOnce(
-      textStream([
-        { type: "text", text: "first\nsecond\nthird" },
-        { type: "done" },
-      ]),
-    )
+    const onQueriesGenerated = vi.fn()
+    mocks.generateArrayStream.mockResolvedValueOnce({
+      id: "stream-id",
+      output: Promise.resolve(["first", "second", "third"]),
+    })
     mocks.webSearch.mockResolvedValue([])
 
     const searches = await generateSearchResults({
       researchRequest: "test",
       maxSearches: 2,
       onEvent,
+      onQueriesGenerated,
     })
 
     expect(onEvent).toHaveBeenCalledWith({
@@ -117,6 +94,11 @@ describe("generateWebSearchQueries", () => {
       streamId: "stream-id",
     })
     expect(mocks.webSearch).toHaveBeenCalledTimes(2)
+    expect(onQueriesGenerated).toHaveBeenCalledWith([
+      "first",
+      "second",
+      "third",
+    ])
     expect(searches.map(({ query }) => query)).toEqual(["first", "second"])
   })
 })

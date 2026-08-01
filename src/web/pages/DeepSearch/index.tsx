@@ -1,25 +1,140 @@
-import { type SubmitEvent, useState } from "react"
+import {
+  Alert,
+  Chip,
+  CircularProgress,
+  List,
+  ListItemButton,
+  ListItemText,
+  Paper,
+  Stack,
+  Typography,
+} from "@mui/material"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Link, useNavigate, useParams } from "react-router-dom"
+import {
+  createDeepSearchJob,
+  getDeepSearchJob,
+  getDeepSearchJobs,
+  type DeepSearchJob,
+} from "../../lib/deepSearchJobs.ts"
+import { DeepSearchHeader } from "./components/DeepSearchHeader.tsx"
 import { DeepSearchView } from "./components/DeepSearchView.tsx"
+import { ResearchRequestForm } from "./components/ResearchRequestForm.tsx"
 import { useDeepSearchJob } from "./useDeepSearchJob.ts"
 
-export function DeepSearch() {
-  const [researchRequest, setResearchRequest] = useState("")
-  const { state: run, start } = useDeepSearchJob()
+const deepSearchJobsQueryKey = ["deep-search-jobs"] as const
 
-  const handleSubmit = (event: SubmitEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const request = researchRequest.trim()
-    if (!request || run.status === "running") return
+function formatCreatedAt(value: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value))
+}
 
-    void start(request)
+function statusColor(
+  status: DeepSearchJob["status"],
+): "default" | "primary" | "success" | "error" {
+  switch (status) {
+    case "running":
+      return "primary"
+    case "completed":
+      return "success"
+    case "failed":
+    case "interrupted":
+      return "error"
   }
+}
+
+function DeepSearchHistory() {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const history = useQuery({
+    queryKey: deepSearchJobsQueryKey,
+    queryFn: ({ signal }) => getDeepSearchJobs(signal),
+  })
+  const creation = useMutation({
+    mutationFn: (request: string) =>
+      createDeepSearchJob({ researchRequest: request }),
+    onSuccess: (deepSearchJobId) => {
+      void queryClient.invalidateQueries({ queryKey: deepSearchJobsQueryKey })
+      void navigate(`/deep-search/${deepSearchJobId}`)
+    },
+  })
+
+  return (
+    <Stack spacing={3}>
+      <DeepSearchHeader />
+      <ResearchRequestForm
+        isSearching={creation.isPending}
+        onSubmit={(request) => creation.mutate(request)}
+      />
+      {creation.error && (
+        <Alert severity="error">{creation.error.message}</Alert>
+      )}
+
+      <Stack component="section" spacing={1.5} aria-labelledby="search-history">
+        <Typography id="search-history" component="h2" variant="h5">
+          Previous searches
+        </Typography>
+        {history.isPending && <CircularProgress size={24} />}
+        {history.error && <Alert severity="error">{history.error.message}</Alert>}
+        {history.data?.length === 0 && (
+          <Typography color="text.secondary">No deep searches yet.</Typography>
+        )}
+        {history.data && history.data.length > 0 && (
+          <Paper variant="outlined">
+            <List disablePadding>
+              {history.data.map((job) => (
+                <ListItemButton
+                  key={job.deepSearchJobId}
+                  component={Link}
+                  to={`/deep-search/${job.deepSearchJobId}`}
+                  divider
+                >
+                  <ListItemText
+                    primary={job.researchRequest}
+                    secondary={formatCreatedAt(job.createdAt)}
+                    slotProps={{
+                      primary: { sx: { overflowWrap: "anywhere" } },
+                    }}
+                  />
+                  <Chip
+                    size="small"
+                    label={job.status}
+                    color={statusColor(job.status)}
+                  />
+                </ListItemButton>
+              ))}
+            </List>
+          </Paper>
+        )}
+      </Stack>
+    </Stack>
+  )
+}
+
+function DeepSearchDetail({ deepSearchJobId }: { deepSearchJobId: string }) {
+  const job = useQuery({
+    queryKey: [...deepSearchJobsQueryKey, deepSearchJobId],
+    queryFn: ({ signal }) => getDeepSearchJob(deepSearchJobId, signal),
+  })
+  const run = useDeepSearchJob(deepSearchJobId)
+
+  if (job.isPending) return <CircularProgress />
+  if (job.error) return <Alert severity="error">{job.error.message}</Alert>
 
   return (
     <DeepSearchView
-      researchRequest={researchRequest}
+      researchRequest={job.data.researchRequest}
       run={run}
-      onResearchRequestChange={setResearchRequest}
-      onSubmit={handleSubmit}
     />
   )
+}
+
+export function DeepSearch() {
+  const { deepSearchJobId } = useParams<{ deepSearchJobId: string }>()
+  if (deepSearchJobId) {
+    return <DeepSearchDetail deepSearchJobId={deepSearchJobId} />
+  }
+  return <DeepSearchHistory />
 }

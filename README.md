@@ -16,6 +16,7 @@ DEEPSEEK_API_KEY=your-key
 SEARXNG_URL=http://127.0.0.1:8090
 SCRAPINGANT_API_KEY=your-key
 DATABASE_URL=data.db
+PORT=3000
 ```
 
 Install dependencies with `npm install`.
@@ -48,17 +49,17 @@ Each LLM generation is a retained stream identified by a UUID:
 
 Stream events are `reasoning`, `text`, `error`, and `done`. Reads are non-destructive, so reconnects and concurrent readers receive the same retained history.
 
-The registry is currently in memory. Streams survive reader disconnects but are lost when the API process restarts. See [the full streaming contract](src/api/routes/docs/text-streaming.md).
+Live deltas are retained in memory. When generation terminates, complete text and reasoning are written once to SQLite and remain replayable after restart. See [the full streaming contract](src/api/routes/docs/text-streaming.md).
 
 ## Deep search
 
-Open `/deep-search` to start a deep-search job. `POST /api/deep-search` returns its UUID immediately, and `GET /api/deep-search/:id` replays and follows the job's NDJSON events. The pipeline generates search queries, searches through SearXNG, selects results for extraction, and streams summaries of the selected pages.
+Open `/deep-search` to start a deep-search job or reopen a previous one. `POST /api/deep-search-jobs` returns its UUID immediately. `GET /api/deep-search-jobs/:deepSearchJobId/events` replays and follows the NDJSON feed. The UUID is also part of the browser URL.
 
 After the page summaries settle, every executed query receives a query-level Markdown synthesis. All returned results are included: successfully explored results contribute their full page summaries, while unselected results and failed extractions fall back to their search descriptions. The synthesis receives one uniform content field and is not told which form was used.
 
-Once a run starts, the page hides the submitted research prompt and renders only user-facing research output. Internal query-generation and result-selection streams, model reasoning, and job identifiers are not shown. Results are grouped by executed search query: each group leads with its synthesized findings, then nests the returned source listings underneath. Sources explored in depth are clearly distinguished from listings represented by their search descriptions. Queries and results are priority ordered; the client currently runs at most three searches and explores at most three results per search.
+The page displays the research request, generated queries, result-selection output, model reasoning, query summaries, and page summaries. Results are grouped by executed search query. Sources explored in depth are distinguished from listings represented by their search descriptions. Queries and results are priority ordered; the client currently runs at most three searches and explores at most three results per search.
 
-Deep-search jobs are also retained only for the lifetime of the API process. See [the deep-search job contract](src/api/routes/docs/deep-search-jobs.md).
+The history page lists durable jobs newest first. Structural progress is stored in normalized typed SQLite tables; no JSON snapshot or event log is stored. See [the deep-search job contract](src/api/routes/docs/deep-search-jobs.md).
 
 ## Verification
 

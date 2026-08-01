@@ -1,28 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { ZodType } from "zod"
 
 const mocks = vi.hoisted(() => ({
-  generateTextStream: vi.fn(),
-  subscribeToTextStream: vi.fn(),
+  generateArrayStream: vi.fn(),
 }))
 
 vi.mock("../../llms/generateText.ts", () => ({
-  generateTextStream: mocks.generateTextStream,
-}))
-
-vi.mock("../../llms/streams.ts", () => ({
-  subscribeToTextStream: mocks.subscribeToTextStream,
+  generateArrayStream: mocks.generateArrayStream,
 }))
 
 import { selectSearchResults, selectWebSearchResults } from "./selection.ts"
 
 const ignoreStream = () => undefined
-
-async function* textStream(events: Array<{ type: string; text?: string; message?: string }>) {
-  for (const e of events) {
-    await Promise.resolve()
-    yield e
-  }
-}
 
 const sampleResults = [
   { id: "result-0", title: "Intro to QC", url: "https://a.com", snippet: "..." },
@@ -33,16 +22,12 @@ const sampleResults = [
 describe("selectWebSearchResults", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("selects results from streamed JSON response", async () => {
+  it("selects results from structured output", async () => {
     const onStreamCreated = vi.fn()
-    mocks.generateTextStream.mockResolvedValueOnce({ id: "stream-id" })
-    mocks.subscribeToTextStream.mockReturnValueOnce(
-      textStream([
-        { type: "text", text: '["result-0"' },
-        { type: "text", text: ', "result-2"]' },
-        { type: "done" },
-      ]),
-    )
+    mocks.generateArrayStream.mockResolvedValueOnce({
+      id: "stream-id",
+      output: Promise.resolve(["result-0", "result-2"]),
+    })
 
     const result = await selectWebSearchResults({
       userQuery: "What is quantum computing?",
@@ -51,25 +36,29 @@ describe("selectWebSearchResults", () => {
       onStreamCreated,
     })
 
-    const callArgs = mocks.generateTextStream.mock.calls[0]?.[0] as Record<string, unknown> | undefined
-    expect(callArgs?.promptName).toBe("select-websearch-results")
-    expect(callArgs?.prompt).toContain("user_query: What is quantum computing?")
-    expect(callArgs?.prompt).toContain("max_results_to_explore: 3")
+    const callArgs = mocks.generateArrayStream.mock.calls[0]?.[0] as
+      | {
+          prompt: string
+          promptName: string
+          element: ZodType<string>
+        }
+      | undefined
+    expect(callArgs).toBeDefined()
+    if (!callArgs) throw new Error("generateArrayStream was not called")
+    expect(callArgs.promptName).toBe("select-websearch-results")
+    expect(callArgs.prompt).toContain("user_query: What is quantum computing?")
+    expect(callArgs.prompt).toContain("max_results_to_explore: 3")
+    expect(callArgs.element.parse("result-0")).toBe("result-0")
+    expect(() => callArgs.element.parse(1)).toThrow()
     expect(onStreamCreated).toHaveBeenCalledWith("stream-id")
     expect(result).toEqual(["result-0", "result-2"])
   })
 
   it("keeps only the highest-priority results up to the limit", async () => {
-    mocks.generateTextStream.mockResolvedValueOnce({ id: "stream-id" })
-    mocks.subscribeToTextStream.mockReturnValueOnce(
-      textStream([
-        {
-          type: "text",
-          text: '["result-2", "result-0", "result-1"]',
-        },
-        { type: "done" },
-      ]),
-    )
+    mocks.generateArrayStream.mockResolvedValueOnce({
+      id: "stream-id",
+      output: Promise.resolve(["result-2", "result-0", "result-1"]),
+    })
 
     const result = await selectWebSearchResults({
       userQuery: "test",
@@ -83,13 +72,10 @@ describe("selectWebSearchResults", () => {
   })
 
   it("returns empty array when no results selected", async () => {
-    mocks.generateTextStream.mockResolvedValueOnce({ id: "stream-id" })
-    mocks.subscribeToTextStream.mockReturnValueOnce(
-      textStream([
-        { type: "text", text: "[]" },
-        { type: "done" },
-      ]),
-    )
+    mocks.generateArrayStream.mockResolvedValueOnce({
+      id: "stream-id",
+      output: Promise.resolve([]),
+    })
 
     const result = await selectWebSearchResults({
       userQuery: "test",
@@ -101,33 +87,11 @@ describe("selectWebSearchResults", () => {
     expect(result).toEqual([])
   })
 
-  it("strips markdown code fences", async () => {
-    mocks.generateTextStream.mockResolvedValueOnce({ id: "stream-id" })
-    mocks.subscribeToTextStream.mockReturnValueOnce(
-      textStream([
-        { type: "text", text: '```json\n["result-1"]\n```' },
-        { type: "done" },
-      ]),
-    )
-
-    const result = await selectWebSearchResults({
-      userQuery: "test",
-      searchQuery: "test",
-      results: sampleResults,
-      onStreamCreated: ignoreStream,
+  it("propagates structured output errors", async () => {
+    mocks.generateArrayStream.mockResolvedValueOnce({
+      id: "stream-id",
+      output: Promise.reject(new Error("model error")),
     })
-
-    expect(result).toEqual(["result-1"])
-  })
-
-  it("throws on stream error", async () => {
-    mocks.generateTextStream.mockResolvedValueOnce({ id: "stream-id" })
-    mocks.subscribeToTextStream.mockReturnValueOnce(
-      textStream([
-        { type: "error", message: "model error" },
-        { type: "done" },
-      ]),
-    )
 
     await expect(
       selectWebSearchResults({
@@ -141,13 +105,10 @@ describe("selectWebSearchResults", () => {
 
   it("emits the selection stream and maps selected IDs back to links", async () => {
     const onEvent = vi.fn()
-    mocks.generateTextStream.mockResolvedValueOnce({ id: "stream-id" })
-    mocks.subscribeToTextStream.mockReturnValueOnce(
-      textStream([
-        { type: "text", text: '["result-2", "result-0"]' },
-        { type: "done" },
-      ]),
-    )
+    mocks.generateArrayStream.mockResolvedValueOnce({
+      id: "stream-id",
+      output: Promise.resolve(["result-2", "result-0"]),
+    })
 
     const selected = await selectSearchResults({
       researchRequest: "What is quantum computing?",

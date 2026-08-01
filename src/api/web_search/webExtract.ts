@@ -10,7 +10,6 @@ import {
   YouTubeExtractor,
   type ExtractPageDeps,
 } from "deep-search-core/search-extract"
-import z from "zod"
 import { config } from "../config.ts"
 
 const pageLoader = createScrapingAntPageLoader({
@@ -32,16 +31,9 @@ export const extractDeps: ExtractPageDeps = {
   ],
 }
 
-const webExtractResultSchema = z.object({
-  url: z.string(),
-  content: z.string(),
-})
-
-export const webExtract = z
-  .function()
-  .input(z.tuple([z.object({ url: z.url() })]))
-  .output(webExtractResultSchema)
-  .implementAsync(async (params) => {
-    const result = await extractPage(params.url, undefined, extractDeps)
-    return { url: result.url, content: result.content }
-  })
+export async function webExtract(params: {
+  url: string
+}): Promise<{ url: string; content: string }> {
+  const result = await extractPage(params.url, undefined, extractDeps)
+  return { url: result.url, content: result.content }
+}
