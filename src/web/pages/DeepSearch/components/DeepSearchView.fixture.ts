@@ -9,10 +9,6 @@ const queryTwo = "OpenAI company history major milestones"
 const queryThree = "OpenAI major criticisms safety governance"
 
 const streamText: Record<string, string> = {
-  "query-stream-complete": [queryOne, queryTwo, queryThree].join("\n"),
-  "selection-stream-products": '["result-0", "result-1"]',
-  "selection-stream-history": '["result-1", "result-0"]',
-  "selection-stream-criticism": '["result-1", "result-2", "result-0"]',
   "summary-products-completed":
     "OpenAI's official homepage presents its main consumer and developer products, current research, and company announcements. For this research request, it is the strongest primary source for identifying the organisation's current product portfolio and how OpenAI describes it.",
   "summary-products-streaming":
@@ -26,12 +22,6 @@ const streamText: Record<string, string> = {
 }
 
 const streamReasoning: Record<string, string> = {
-  "selection-stream-products":
-    "The official product pages are the most direct sources for the current portfolio.",
-  "selection-stream-history":
-    "The founding announcement and company page provide the strongest chronology.",
-  "selection-stream-criticism":
-    "Independent governance analysis should be balanced with OpenAI's own safety claims.",
   "summary-products-completed":
     "I will retain the product categories and discard unrelated announcements.",
   "summary-products-streaming":
@@ -46,11 +36,10 @@ export const researchRequest =
 export const completedRun: DeepSearchRunState = {
   status: "completed",
   jobId: "7428de3d-6bea-4e39-862c-2adfe9ebcd36",
-  queryStreamId: "query-stream-complete",
+  queryStreamId: null,
   searches: [
     {
       query: queryOne,
-      selectionStreamId: "selection-stream-products",
       querySummaryStreamId: "query-summary-products",
       results: [
         {
@@ -78,7 +67,6 @@ export const completedRun: DeepSearchRunState = {
     },
     {
       query: queryTwo,
-      selectionStreamId: "selection-stream-history",
       querySummaryStreamId: "query-summary-history",
       results: [
         {
@@ -106,7 +94,6 @@ export const completedRun: DeepSearchRunState = {
     },
     {
       query: queryThree,
-      selectionStreamId: "selection-stream-criticism",
       querySummaryStreamId: "query-summary-criticism",
       results: [
         {

@@ -29,8 +29,10 @@ describe("QuerySummary", () => {
       />,
     )
 
-    expect(await screen.findByText("Query summary")).toBeVisible()
-    expect(screen.getByText("Combining the findings")).toBeVisible()
+    expect(await screen.findByText("What this search found")).toBeVisible()
+    expect(
+      screen.queryByText("Combining the findings"),
+    ).not.toBeInTheDocument()
     expect(
       screen.getByTestId("query-summary-best beginner longboards"),
     ).toHaveTextContent("- First finding - Second finding")

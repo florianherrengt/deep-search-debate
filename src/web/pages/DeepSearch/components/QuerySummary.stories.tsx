@@ -41,7 +41,7 @@ async function* subscribeToStoryStream(
 }
 
 const meta: Meta<typeof QuerySummary> = {
-  title: "Pages/Deep Search/Query Summary",
+  title: "Pages/Deep Search/Search Findings",
   component: QuerySummary,
   decorators: [
     (Story) => (

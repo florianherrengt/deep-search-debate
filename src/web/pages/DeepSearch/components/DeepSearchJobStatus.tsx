@@ -1,23 +1,10 @@
-import { Alert, Typography } from "@mui/material"
+import { Alert } from "@mui/material"
 
 type DeepSearchJobStatusProps = {
-  jobId: string | null
   error: string | null
 }
 
-export function DeepSearchJobStatus({
-  jobId,
-  error,
-}: DeepSearchJobStatusProps) {
-  return (
-    <>
-      {jobId && (
-        <Typography variant="caption" color="text.secondary">
-          Job: {jobId}
-        </Typography>
-      )}
-
-      {error && <Alert severity="error">{error}</Alert>}
-    </>
-  )
+export function DeepSearchJobStatus({ error }: DeepSearchJobStatusProps) {
+  if (!error) return null
+  return <Alert severity="error">{error}</Alert>
 }

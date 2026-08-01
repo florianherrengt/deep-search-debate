@@ -56,7 +56,7 @@ Open `/deep-search` to start a deep-search job. `POST /api/deep-search` returns 
 
 After the page summaries settle, every executed query receives a query-level Markdown synthesis. All returned results are included: successfully explored results contribute their full page summaries, while unselected results and failed extractions fall back to their search descriptions. The synthesis receives one uniform content field and is not told which form was used.
 
-The page follows the LLM streams for query generation, result selection, page summaries, and query summaries. Each result group is collapsible, with its query summary above the detailed results and subtle green or red borders distinguishing selected and rejected results. Queries and results are priority ordered; the client currently runs at most three searches and selects at most three results per search.
+Once a run starts, the page hides the submitted research prompt and renders only user-facing research output. Internal query-generation and result-selection streams, model reasoning, and job identifiers are not shown. Results are grouped by executed search query: each group leads with its synthesized findings, then nests the returned source listings underneath. Sources explored in depth are clearly distinguished from listings represented by their search descriptions. Queries and results are priority ordered; the client currently runs at most three searches and explores at most three results per search.
 
 Deep-search jobs are also retained only for the lifetime of the API process. See [the deep-search job contract](src/api/routes/docs/deep-search-jobs.md).
 
@@ -79,7 +79,7 @@ npm run storybook
 npm run storybook:build
 ```
 
-The Deep Search stories include standalone streaming, completed, and failed query summaries, plus page-level result fixtures.
+The Deep Search stories include standalone streaming, completed, and failed search findings and source findings, plus page-level result fixtures for the summary-first hierarchy.
 
 Run the end-to-end test separately:
 
@@ -87,4 +87,4 @@ Run the end-to-end test separately:
 npm run test:e2e
 ```
 
-The E2E tests start isolated API and Vite servers. They exercise real DeepSeek query generation, selection, page summarization, and query synthesis plus SearXNG search and page extraction. They consume live streams and job feeds, then verify rendered selections, mixed-result query summaries, and replayed events. Valid API configuration and network access are required; no LLM, search, extraction, or HTTP responses are mocked.
+The E2E tests start isolated API and Vite servers. They exercise real DeepSeek query generation, selection, page summarization, and query synthesis plus SearXNG search and page extraction. They consume live streams and job feeds, verify that only synthesized findings and source results are rendered, and check replayed events. Valid API configuration and network access are required; no LLM, search, extraction, or HTTP responses are mocked.

@@ -1,4 +1,4 @@
-import { Link, Paper, Typography } from "@mui/material"
+import { Chip, Link, Paper, Stack, Typography } from "@mui/material"
 import { alpha, type Theme } from "@mui/material/styles"
 import type { DeepSearchResultState } from "../deepSearchState.ts"
 import { PageSummary } from "./PageSummary.tsx"
@@ -13,9 +13,9 @@ function getBorderColor(
 ): string {
   if (selection === "pending") return theme.palette.divider
   if (selection === "selected") {
-    return alpha(theme.palette.success.main, 0.55)
+    return alpha(theme.palette.primary.main, 0.55)
   }
-  return alpha(theme.palette.error.main, 0.55)
+  return theme.palette.divider
 }
 
 export function SearchResultCard({ result }: SearchResultCardProps) {
@@ -29,12 +29,32 @@ export function SearchResultCard({ result }: SearchResultCardProps) {
       sx={(theme) => ({
         p: 2,
         borderColor: getBorderColor(theme, result.selection),
+        backgroundColor: isSelected
+          ? alpha(theme.palette.primary.main, 0.035)
+          : undefined,
       })}
     >
-      <Link href={result.link} target="_blank" rel="noreferrer">
-        {result.title}
-      </Link>
-      <Typography variant="body2" sx={{ mt: 1 }}>
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        spacing={1}
+        sx={{ justifyContent: "space-between", alignItems: { sm: "flex-start" } }}
+      >
+        <Typography component="h5" variant="subtitle1">
+          <Link href={result.link} target="_blank" rel="noreferrer">
+            {result.title}
+          </Link>
+        </Typography>
+        <Chip
+          size="small"
+          color={isSelected ? "primary" : "default"}
+          variant="outlined"
+          label={isSelected ? "Explored source" : "Search listing"}
+        />
+      </Stack>
+      <Typography variant="overline" color="text.secondary" sx={{ mt: 1, display: "block" }}>
+        Search description
+      </Typography>
+      <Typography variant="body2">
         {result.shortText}
       </Typography>
       <Typography

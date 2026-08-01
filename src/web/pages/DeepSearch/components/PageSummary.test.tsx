@@ -29,8 +29,10 @@ describe("PageSummary", () => {
       />,
     )
 
-    expect(await screen.findByText("Generating page summary…")).toBeVisible()
-    expect(screen.getByText("Identifying useful details")).toBeVisible()
+    expect(await screen.findByText("Summarizing source…")).toBeVisible()
+    expect(
+      screen.queryByText("Identifying useful details"),
+    ).not.toBeInTheDocument()
     expect(screen.getByTestId("page-summary-text")).toHaveTextContent(
       "A partial summary",
     )
@@ -40,7 +42,7 @@ describe("PageSummary", () => {
       await completion.promise
     })
 
-    expect(await screen.findByText("Page summary")).toBeVisible()
+    expect(await screen.findByText("Source findings")).toBeVisible()
     expect(screen.getByTestId("page-summary-text")).toHaveTextContent(
       "A partial summary is complete",
     )
@@ -59,7 +61,9 @@ describe("PageSummary", () => {
       />,
     )
 
-    expect(screen.getByText("Page summary unavailable")).toBeInTheDocument()
+    expect(
+      screen.getByText("Source findings unavailable"),
+    ).toBeInTheDocument()
     expect(screen.getByText("Extraction failed")).toBeInTheDocument()
     expect(mocks.subscribeToTextStream).not.toHaveBeenCalled()
   })

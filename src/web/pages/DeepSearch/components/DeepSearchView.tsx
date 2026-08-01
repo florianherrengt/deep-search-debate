@@ -3,7 +3,6 @@ import type { SubmitEventHandler } from "react"
 import type { DeepSearchRunState } from "../deepSearchState.ts"
 import { DeepSearchHeader } from "./DeepSearchHeader.tsx"
 import { DeepSearchJobStatus } from "./DeepSearchJobStatus.tsx"
-import { GeneratedQueries } from "./GeneratedQueries.tsx"
 import { ProgressMessage } from "./ProgressMessage.tsx"
 import { ResearchRequestForm } from "./ResearchRequestForm.tsx"
 import { SearchResults } from "./SearchResults.tsx"
@@ -30,21 +29,20 @@ export function DeepSearchView({
 }: DeepSearchViewProps) {
   const isSearching = run.status === "running"
   const progressMessage = getProgressMessage(run)
+  const showResearchForm = run.status === "idle" || run.status === "failed"
 
   return (
     <Stack spacing={3}>
       <DeepSearchHeader />
-      <ResearchRequestForm
-        researchRequest={researchRequest}
-        isSearching={isSearching}
-        onResearchRequestChange={onResearchRequestChange}
-        onSubmit={onSubmit}
-      />
-      <DeepSearchJobStatus
-        jobId={run.jobId}
-        error={run.error}
-      />
-      <GeneratedQueries streamId={run.queryStreamId} />
+      {showResearchForm && (
+        <ResearchRequestForm
+          researchRequest={researchRequest}
+          isSearching={isSearching}
+          onResearchRequestChange={onResearchRequestChange}
+          onSubmit={onSubmit}
+        />
+      )}
+      <DeepSearchJobStatus error={run.error} />
       {progressMessage && <ProgressMessage>{progressMessage}</ProgressMessage>}
       <SearchResults searches={run.searches} />
     </Stack>

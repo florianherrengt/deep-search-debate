@@ -18,11 +18,11 @@ function getPageSummaryLabel(status: PageSummaryStatus): string {
       return "Extracting page content…"
     case "idle":
     case "streaming":
-      return "Generating page summary…"
+      return "Summarizing source…"
     case "completed":
-      return "Page summary"
+      return "Source findings"
     case "error":
-      return "Page summary unavailable"
+      return "Source findings unavailable"
   }
 }
 
@@ -76,8 +76,7 @@ export function PageSummary({ summary }: PageSummaryProps) {
       {hasStream && (
         <TextStreamOutput
           stream={stream}
-          waitingText="Waiting for summary text…"
-          reasoningTestId="page-summary-reasoning"
+          waitingText="Waiting for source findings…"
           textTestId="page-summary-text"
         />
       )}

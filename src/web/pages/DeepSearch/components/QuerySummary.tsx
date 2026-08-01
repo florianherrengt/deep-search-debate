@@ -14,11 +14,11 @@ function getQuerySummaryLabel(status: TextStreamState["status"]): string {
   switch (status) {
     case "idle":
     case "streaming":
-      return "Summarizing search findings…"
+      return "Summarizing findings…"
     case "completed":
-      return "Query summary"
+      return "What this search found"
     case "error":
-      return "Query summary unavailable"
+      return "Search summary unavailable"
   }
 }
 
@@ -34,15 +34,15 @@ export function QuerySummary({ query, streamId }: QuerySummaryProps) {
       data-query-summary-status={stream.status}
     >
       <Typography
-        variant="subtitle1"
+        component="h4"
+        variant="h6"
         color={stream.status === "error" ? "error" : "text.primary"}
       >
         {getQuerySummaryLabel(stream.status)}
       </Typography>
       <TextStreamOutput
         stream={stream}
-        waitingText="Waiting for query summary…"
-        reasoningTestId={`query-summary-reasoning-${query}`}
+        waitingText="Waiting for search findings…"
         textTestId={`query-summary-${query}`}
       />
     </Stack>

@@ -67,21 +67,6 @@ describe("DeepSearch", () => {
       }
       yield { type: "done" as const }
     }
-    async function* queryEvents() {
-      await Promise.resolve()
-      yield { type: "reasoning" as const, text: "Prioritizing queries" }
-      yield { type: "text" as const, text: "first query\n" }
-      yield { type: "text" as const, text: "second query" }
-      yield { type: "done" as const }
-    }
-    async function* selectionEvents() {
-      await Promise.resolve()
-      yield { type: "reasoning" as const, text: "Comparing source " }
-      yield { type: "reasoning" as const, text: "relevance" }
-      yield { type: "text" as const, text: '["result-' }
-      yield { type: "text" as const, text: '0"]' }
-      yield { type: "done" as const }
-    }
     async function* summaryEvents() {
       await Promise.resolve()
       yield { type: "reasoning" as const, text: "Finding relevant facts" }
@@ -99,8 +84,6 @@ describe("DeepSearch", () => {
     mocks.createDeepSearchJob.mockResolvedValue("job-id")
     mocks.subscribeToDeepSearchJob.mockReturnValue(events())
     mocks.subscribeToTextStream.mockImplementation((id: string) => {
-      if (id === "query-stream-id") return queryEvents()
-      if (id === "selection-stream-id") return selectionEvents()
       if (id === "summary-stream-id") return summaryEvents()
       if (id === "query-summary-stream-id") return querySummaryEvents()
       throw new Error(`Unexpected stream: ${id}`)
@@ -113,36 +96,39 @@ describe("DeepSearch", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start deep search" }))
 
     expect(await screen.findByText("Useful result")).toBeInTheDocument()
-    expect(await screen.findByTestId("generated-queries")).toHaveTextContent(
-      "first query second query",
-    )
     expect(screen.getByText("A useful description")).toBeInTheDocument()
     expect(
-      await screen.findByTestId("selection-stream-test query"),
-    ).toHaveTextContent('["result-0"]')
-    expect(screen.getByText("Job: job-id")).toBeInTheDocument()
+      screen.getByRole("heading", { name: "Research results" }),
+    ).toBeVisible()
+    expect(screen.getByRole("heading", { name: "test query" })).toBeVisible()
+    expect(screen.getByText("2 results")).toBeVisible()
+    expect(screen.getByText("1 explored in depth")).toBeVisible()
+    expect(screen.queryByLabelText("Research request")).not.toBeInTheDocument()
+    expect(screen.queryByText("Job: job-id")).not.toBeInTheDocument()
+    expect(screen.queryByText("Prioritizing queries")).not.toBeInTheDocument()
+    expect(screen.queryByText("Selection output")).not.toBeInTheDocument()
+    expect(
+      screen.queryByText("Comparing source relevance"),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText("Finding relevant facts"),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText("Combining all results"),
+    ).not.toBeInTheDocument()
 
-    const generatedQueries = screen.getByRole("button", {
-      name: "Generated search queries",
+    const sourceResults = screen.getByRole("button", {
+      name: "Show source results for test query",
     })
-    const searchResults = screen.getByRole("button", {
-      name: "Results for test query",
-    })
-    expect(generatedQueries).toHaveAttribute("aria-expanded", "false")
-    expect(searchResults).toHaveAttribute("aria-expanded", "false")
-    fireEvent.click(generatedQueries)
-    fireEvent.click(searchResults)
-    expect(generatedQueries).toHaveAttribute("aria-expanded", "true")
-    expect(searchResults).toHaveAttribute("aria-expanded", "true")
-    expect(screen.getByText("Prioritizing queries")).toBeVisible()
-    expect(screen.getByText("Selection output")).toBeVisible()
-    expect(screen.getByText("Comparing source relevance")).toBeVisible()
-    expect(screen.getByText("Finding relevant facts")).toBeVisible()
+    expect(sourceResults).toHaveAttribute("aria-expanded", "false")
+    fireEvent.click(sourceResults)
+    expect(sourceResults).toHaveAttribute("aria-expanded", "true")
     expect(await screen.findByText("A relevant page summary")).toBeVisible()
-    expect(screen.getByText("Combining all results")).toBeVisible()
     expect(screen.getByTestId("query-summary-test query")).toHaveTextContent(
       "The search found useful evidence.",
     )
+    expect(screen.getByText("Explored source")).toBeVisible()
+    expect(screen.getByText("Search listing")).toBeVisible()
     expect(screen.getByRole("link", { name: "Useful result" })).toHaveAttribute(
       "href",
       "https://example.com/result",
@@ -165,11 +151,11 @@ describe("DeepSearch", () => {
       "job-id",
       expect.any(AbortSignal),
     )
-    expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(
+    expect(mocks.subscribeToTextStream).not.toHaveBeenCalledWith(
       "query-stream-id",
       expect.any(AbortSignal),
     )
-    expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(
+    expect(mocks.subscribeToTextStream).not.toHaveBeenCalledWith(
       "selection-stream-id",
       expect.any(AbortSignal),
     )

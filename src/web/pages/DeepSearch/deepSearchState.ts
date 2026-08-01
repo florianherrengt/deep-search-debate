@@ -17,7 +17,6 @@ export type DeepSearchResultState = DeepSearchResults["results"][number] & {
 export type DeepSearchSearchState = {
   query: string
   results: DeepSearchResultState[]
-  selectionStreamId?: string
   querySummaryStreamId?: string
 }
 
@@ -86,11 +85,6 @@ export const deepSearchReducer = produce<
     case "search-results":
       state.searches = createSearchState(action.searches)
       break
-    case "selection-stream": {
-      const search = state.searches.find(({ query }) => query === action.query)
-      if (search) search.selectionStreamId = action.streamId
-      break
-    }
     case "selected-search-results": {
       const search = state.searches.find(({ query }) => query === action.query)
       if (!search) break

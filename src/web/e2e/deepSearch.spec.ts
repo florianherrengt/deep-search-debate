@@ -48,7 +48,7 @@ function parseTextEvents(body: string): TextStreamEvent[] {
 // This test deliberately uses real DeepSeek, SearXNG, and page extraction.
 // Network requests are observed for assertions but are never intercepted.
 test.describe("Deep search", () => {
-  test("streams and replays a mixed-result query summary", async ({
+  test("renders only results and replays a mixed-result query summary", async ({
     page,
     request,
   }) => {
@@ -78,12 +78,6 @@ test.describe("Deep search", () => {
         response.request().method() === "GET" &&
         /^\/api\/deep-search\/[^/]+$/.test(new URL(response.url()).pathname),
     )
-    const queryStreamResponse = page.waitForResponse(
-      (response) =>
-        response.request().method() === "GET" &&
-        /^\/api\/streams\/[^/]+$/.test(new URL(response.url()).pathname),
-    )
-
     await page.getByLabel("Research request").fill(researchRequest)
     await page.getByRole("button", { name: "Start deep search" }).click()
 
@@ -100,54 +94,13 @@ test.describe("Deep search", () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     )
     expect(created.headers()["location"]).toBe(`/api/deep-search/${id}`)
-    await expect(page.getByText(`Job: ${id}`)).toBeVisible()
+    await expect(page.getByText(`Job: ${id}`)).toHaveCount(0)
+    await expect(page.getByLabel("Research request")).toHaveCount(0)
 
     const live = await liveResponse
     expect(new URL(live.url()).pathname).toBe(`/api/deep-search/${id}`)
     expect(live.status()).toBe(200)
     expect(live.headers()["content-type"]).toContain("application/x-ndjson")
-
-    const queryStream = await queryStreamResponse
-    expect(queryStream.status()).toBe(200)
-    expect(queryStream.headers()["content-type"]).toContain(
-      "application/x-ndjson",
-    )
-    const selectionStreamResponse = page.waitForResponse(
-      (response) =>
-        response.request().method() === "GET" &&
-        /^\/api\/streams\/[^/]+$/.test(new URL(response.url()).pathname) &&
-        response.url() !== queryStream.url(),
-    )
-    const queryEvents = parseTextEvents(await queryStream.text())
-    expect(queryEvents.at(-1)).toEqual({ type: "done" })
-    expect(queryEvents.some((event) => event.type === "error")).toBe(false)
-
-    const generatedQueries = queryEvents
-      .filter((event) => event.type === "text")
-      .map((event) => event.text)
-      .join("")
-    expect(generatedQueries.trim()).not.toBe("")
-    await expect(page.getByTestId("generated-queries")).toHaveText(
-      generatedQueries,
-    )
-
-    const selectionStream = await selectionStreamResponse
-    expect(selectionStream.status()).toBe(200)
-    expect(selectionStream.headers()["content-type"]).toContain(
-      "application/x-ndjson",
-    )
-    const selectionEvents = parseTextEvents(await selectionStream.text())
-    expect(selectionEvents.at(-1)).toEqual({ type: "done" })
-    expect(selectionEvents.some((event) => event.type === "error")).toBe(false)
-
-    const streamedSelection = selectionEvents
-      .filter((event) => event.type === "text")
-      .map((event) => event.text)
-      .join("")
-    expect(streamedSelection.trim()).not.toBe("")
-    await expect(
-      page.locator('[data-testid^="selection-stream-"]').first(),
-    ).toHaveText(streamedSelection)
 
     const liveEvents = parseEvents(await live.text())
     expect(liveEvents.at(-1)).toEqual({ type: "done" })
@@ -161,9 +114,16 @@ test.describe("Deep search", () => {
       (event) => event.type === "query-stream",
     )
     expect(queryStreamEvent).toBeDefined()
-    expect(new URL(queryStream.url()).pathname).toBe(
-      `/api/streams/${queryStreamEvent?.streamId}`,
+    const queryStream = await request.get(
+      `/api/streams/${queryStreamEvent?.streamId ?? ""}`,
     )
+    expect(queryStream.status()).toBe(200)
+    expect(queryStream.headers()["content-type"]).toContain(
+      "application/x-ndjson",
+    )
+    const queryEvents = parseTextEvents(await queryStream.text())
+    expect(queryEvents.at(-1)).toEqual({ type: "done" })
+    expect(queryEvents.some((event) => event.type === "error")).toBe(false)
 
     const searchResults = liveEvents.find(
       (event) => event.type === "search-results",
@@ -179,9 +139,21 @@ test.describe("Deep search", () => {
       (event) => event.type === "selection-stream",
     )
     expect(selectionStreamEvent).toBeDefined()
-    expect(new URL(selectionStream.url()).pathname).toBe(
-      `/api/streams/${selectionStreamEvent?.streamId}`,
+    const selectionStream = await request.get(
+      `/api/streams/${selectionStreamEvent?.streamId ?? ""}`,
     )
+    expect(selectionStream.status()).toBe(200)
+    expect(selectionStream.headers()["content-type"]).toContain(
+      "application/x-ndjson",
+    )
+    const selectionEvents = parseTextEvents(await selectionStream.text())
+    expect(selectionEvents.at(-1)).toEqual({ type: "done" })
+    expect(selectionEvents.some((event) => event.type === "error")).toBe(false)
+    const streamedSelection = selectionEvents
+      .filter((event) => event.type === "text")
+      .map((event) => event.text)
+      .join("")
+    expect(streamedSelection.trim()).not.toBe("")
 
     const selectedResults = liveEvents.find(
       (event) => event.type === "selected-search-results",
@@ -278,34 +250,55 @@ test.describe("Deep search", () => {
       .join("")
     expect(streamedQuerySummary.trim()).not.toBe("")
 
-    const generatedQueriesAccordion = page.getByRole("button", {
-      name: "Generated search queries",
-    })
-    const resultsAccordion = page.getByRole("button", {
-      name: `Results for ${searchResults?.searches[0]?.query ?? ""}`,
-    })
-    await expect(generatedQueriesAccordion).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    )
-    await expect(resultsAccordion).toHaveAttribute("aria-expanded", "false")
+    const hiddenReasoning = [
+      queryEvents,
+      selectionEvents,
+      summaryEvents,
+      querySummaryEvents,
+    ]
+      .map((events) =>
+        events
+          .filter((event) => event.type === "reasoning")
+          .map((event) => event.text)
+          .join(""),
+      )
+      .filter(Boolean)
+    for (const reasoning of hiddenReasoning) {
+      await expect(page.getByText(reasoning, { exact: true })).toHaveCount(0)
+    }
 
-    await generatedQueriesAccordion.click()
-    await resultsAccordion.click()
-    await expect(generatedQueriesAccordion).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    )
-    await expect(resultsAccordion).toHaveAttribute("aria-expanded", "true")
     await expect(
-      page.locator('[data-testid^="selection-stream-"]').first(),
+      page.getByRole("heading", { name: "Research results" }),
     ).toBeVisible()
+    await expect(
+      page.getByRole("heading", {
+        name: searchResults?.searches[0]?.query ?? "",
+        exact: true,
+      }),
+    ).toBeVisible()
+    await expect(page.getByText("What this search found").first()).toBeVisible()
     await expect(
       page.getByTestId(`query-summary-${firstQuerySummary?.query ?? ""}`),
     ).toHaveText(streamedQuerySummary)
     await expect(
       page.locator('[data-query-summary-status="completed"]').first(),
     ).toBeVisible()
+    await expect(page.getByText(streamedSelection)).toHaveCount(0)
+
+    const sourceResultsAccordion = page
+      .getByRole("button", {
+        name: `Show source results for ${searchResults?.searches[0]?.query ?? ""}`,
+      })
+      .first()
+    await expect(sourceResultsAccordion).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    )
+    await sourceResultsAccordion.click()
+    await expect(sourceResultsAccordion).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    )
 
     const summarizedResult = page.locator(
       `[data-selected="true"]:has(a[href="${firstPageSummary?.url ?? ""}"])`,
@@ -332,13 +325,11 @@ test.describe("Deep search", () => {
       [...(selectedResults?.selectedLinks ?? [])].sort(),
     )
 
-    await generatedQueriesAccordion.click()
-    await resultsAccordion.click()
-    await expect(generatedQueriesAccordion).toHaveAttribute(
+    await sourceResultsAccordion.click()
+    await expect(sourceResultsAccordion).toHaveAttribute(
       "aria-expanded",
       "false",
     )
-    await expect(resultsAccordion).toHaveAttribute("aria-expanded", "false")
 
     const replay = await request.get(`/api/deep-search/${id}`)
     expect(replay.status()).toBe(200)

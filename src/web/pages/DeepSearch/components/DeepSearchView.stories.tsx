@@ -39,7 +39,7 @@ export default meta
 
 type Story = StoryObj<typeof DeepSearchView>
 
-export const WithGeneratedAndSelectedResults: Story = {
+export const WithSearchResults: Story = {
   args: {
     researchRequest,
     run: completedRun,
@@ -50,7 +50,7 @@ export const WithGeneratedAndSelectedResults: Story = {
 
 export const WithStreamingPageSummaries: Story = {
   args: {
-    ...WithGeneratedAndSelectedResults.args,
+    ...WithSearchResults.args,
     run: streamingPageSummariesRun,
   },
 }
