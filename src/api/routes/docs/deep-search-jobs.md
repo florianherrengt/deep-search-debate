@@ -43,13 +43,14 @@ The progress event sequence remains:
 3. `selection-stream` and `selected-search-results` per executed query
 4. `page-summary-stream` or `page-summary-error` per unique selected URL
 5. `query-summary-stream` per executed query
-6. optional job-level `error`, then `done`
+6. `final-answer-stream` after every query summary completes
+7. optional job-level `error`, then `done`
 
-The job is marked complete only after every linked LLM generation has persisted terminal text and reasoning. Individual summary-generation failures stay attached to their typed query or web-page row; a pipeline failure marks unfinished child rows and the job failed.
+The final-answer agent receives the original research request and every completed query-level summary. The job is marked complete only after its final-answer generation and every other linked LLM generation have persisted terminal text and reasoning. Page-summary failures stay attached to their web-page row and fall back to search snippets; a query-summary, final-answer, or wider pipeline failure marks the job failed.
 
 ## Persistence model
 
-- `deep_search_jobs` owns request, limits, lifecycle, and timestamps.
+- `deep_search_jobs` owns request, limits, lifecycle, timestamps, and the final-answer generation link.
 - `deep_search_query_generations` links the job to the LLM invocation that generated queries.
 - `deep_search_generated_queries` stores the complete ordered generated list.
 - `deep_search_queries` represents only generated queries actually executed and links selection and synthesis generations.

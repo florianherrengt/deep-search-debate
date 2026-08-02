@@ -46,6 +46,10 @@ const deepSearchJobEventSchema = z.discriminatedUnion("type", [
     query: z.string(),
     streamId: z.string().min(1),
   }),
+  z.object({
+    type: z.literal("final-answer-stream"),
+    streamId: z.string().min(1),
+  }),
   z.object({ type: z.literal("error"), message: z.string() }),
   z.object({ type: z.literal("done") }),
 ])

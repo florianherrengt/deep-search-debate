@@ -24,6 +24,7 @@ export type DeepSearchEvent =
       message: string
     }
   | { type: "query-summary-stream"; query: string; streamId: string }
+  | { type: "final-answer-stream"; streamId: string }
 
 export type DeepSearchInput = {
   researchRequest: string

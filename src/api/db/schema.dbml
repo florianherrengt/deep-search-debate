@@ -16,6 +16,7 @@ table deep_search_jobs {
   research_request text [not null]
   max_searches integer [not null]
   max_results_per_search integer [not null]
+  final_answer_generation_id text [unique]
   status text [not null, default: 'running']
   error text
   created_at integer [not null, default: `(unixepoch())`]
@@ -96,6 +97,8 @@ table llm_generations {
 }
 
 ref deep_search_generated_queries_deep_search_query_generation_id_deep_search_query_generations_deep_search_query_generation_id_fk: deep_search_generated_queries.deep_search_query_generation_id > deep_search_query_generations.deep_search_query_generation_id [delete: cascade, update: no action]
+
+ref deep_search_jobs_final_answer_generation_id_llm_generations_llm_generation_id_fk: deep_search_jobs.final_answer_generation_id > llm_generations.llm_generation_id [delete: restrict, update: no action]
 
 ref deep_search_queries_deep_search_generated_query_id_deep_search_generated_queries_deep_search_generated_query_id_fk: deep_search_queries.deep_search_generated_query_id > deep_search_generated_queries.deep_search_generated_query_id [delete: cascade, update: no action]
 

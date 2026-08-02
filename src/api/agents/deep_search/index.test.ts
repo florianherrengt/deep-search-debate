@@ -1,10 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
+  answerResearchRequest: vi.fn(),
+  collectStreamText: vi.fn(),
   generateSearchResults: vi.fn(),
   selectSearchResults: vi.fn(),
   startPageSummary: vi.fn(),
   summarizeSearchQuery: vi.fn(),
+}))
+
+vi.mock("../../helpers/index.ts", () => ({
+  collectStreamText: mocks.collectStreamText,
+}))
+
+vi.mock("./finalAnswer.ts", () => ({
+  answerResearchRequest: mocks.answerResearchRequest,
 }))
 
 vi.mock("./queries.ts", () => ({
@@ -48,6 +58,8 @@ describe("deepSearch", () => {
     })
     mocks.startPageSummary.mockResolvedValue("Completed page summary")
     mocks.summarizeSearchQuery.mockResolvedValue("query-summary-stream-id")
+    mocks.collectStreamText.mockResolvedValue("Completed query summary")
+    mocks.answerResearchRequest.mockResolvedValue("final-answer-stream-id")
   })
 
   it("emits pipeline progress through one event callback", async () => {
@@ -118,10 +130,14 @@ describe("deepSearch", () => {
         query: "test query",
         streamId: "query-summary-stream-id",
       },
+      {
+        type: "final-answer-stream",
+        streamId: "final-answer-stream-id",
+      },
     ])
   })
 
-  it("does nothing after query generation returns no searches", async () => {
+  it("generates an explicit final answer when no searches are returned", async () => {
     mocks.generateSearchResults.mockResolvedValueOnce([])
 
     await deepSearch({ researchRequest: "Research this", onEvent: ignoreEvent })
@@ -129,6 +145,10 @@ describe("deepSearch", () => {
     expect(mocks.selectSearchResults).not.toHaveBeenCalled()
     expect(mocks.startPageSummary).not.toHaveBeenCalled()
     expect(mocks.summarizeSearchQuery).not.toHaveBeenCalled()
+    expect(mocks.answerResearchRequest).toHaveBeenCalledWith({
+      researchRequest: "Research this",
+      searchSummaries: [],
+    })
   })
 
   it("passes configured limits to each pipeline stage", async () => {
@@ -168,6 +188,13 @@ describe("deepSearch", () => {
 
     expect(mocks.startPageSummary).toHaveBeenCalledTimes(1)
     expect(mocks.summarizeSearchQuery).toHaveBeenCalledTimes(2)
+    expect(mocks.answerResearchRequest).toHaveBeenCalledWith({
+      researchRequest: "Research this",
+      searchSummaries: [
+        { query: "first query", content: "Completed query summary" },
+        { query: "second query", content: "Completed query summary" },
+      ],
+    })
   })
 
   it("waits for page summary text before starting the query summary", async () => {
@@ -250,6 +277,29 @@ describe("deepSearch", () => {
           url: "https://example.com/unselected",
           content: "Unselected result description",
         },
+      ],
+    })
+  })
+
+  it("waits for every query summary before starting the final answer", async () => {
+    const completion = Promise.withResolvers<string>()
+    mocks.collectStreamText.mockReturnValueOnce(completion.promise)
+
+    const run = deepSearch({
+      researchRequest: "Research this",
+      onEvent: ignoreEvent,
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(mocks.answerResearchRequest).not.toHaveBeenCalled()
+    completion.resolve("Top-level findings")
+    await run
+
+    expect(mocks.answerResearchRequest).toHaveBeenCalledWith({
+      researchRequest: "Research this",
+      searchSummaries: [
+        { query: "test query", content: "Top-level findings" },
       ],
     })
   })

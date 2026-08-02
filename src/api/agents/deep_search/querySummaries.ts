@@ -13,7 +13,7 @@ type SummarizeSearchQueryInput = {
   results: QuerySummaryResult[]
 }
 
-/** Registers a synthesis stream for all content returned by one web search. */
+/** Registers a top-level synthesis stream for all content returned by one web search. */
 export async function summarizeSearchQuery(
   params: SummarizeSearchQueryInput,
 ): Promise<string> {

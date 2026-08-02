@@ -9,7 +9,7 @@ type GenerationOutputProps = {
   testId: string
 }
 
-/** Displays one query-planning or result-selection model invocation. */
+/** Displays one retained model-generation stream. */
 export function GenerationOutput({
   streamId,
   title,

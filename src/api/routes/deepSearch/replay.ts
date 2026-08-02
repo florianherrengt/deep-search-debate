@@ -172,6 +172,16 @@ export function reconstructDeepSearchJobEvents(
       return []
     })
 
+    const finalAnswerEvents: DeepSearchJobEvent[] =
+      job.finalAnswerGenerationId
+        ? [
+            {
+              type: "final-answer-stream",
+              streamId: job.finalAnswerGenerationId,
+            },
+          ]
+        : []
+
     const terminalEvents: DeepSearchJobEvent[] =
       job.status === "running"
         ? []
@@ -188,6 +198,7 @@ export function reconstructDeepSearchJobEvents(
       ...queryProgressEvents,
       ...pageEvents,
       ...querySummaryEvents,
+      ...finalAnswerEvents,
       ...terminalEvents,
     ]
 }

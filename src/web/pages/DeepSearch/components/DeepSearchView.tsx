@@ -13,6 +13,7 @@ function getProgressMessage(run: DeepSearchRunState): string | undefined {
   if (run.status !== "running") return undefined
   if (!run.queryStreamId) return "Starting deep search…"
   if (run.searches.length === 0) return "Searching the web…"
+  if (!run.finalAnswerStreamId) return "Researching and summarizing…"
   return undefined
 }
 
@@ -41,6 +42,14 @@ export function DeepSearchView({
           title="Generated search queries"
           waitingText="Generating search queries…"
           testId="generated-search-queries"
+        />
+      )}
+      {run.finalAnswerStreamId && (
+        <GenerationOutput
+          streamId={run.finalAnswerStreamId}
+          title="Final answer"
+          waitingText="Writing the final answer…"
+          testId="final-answer"
         />
       )}
       <SearchResults searches={run.searches} />

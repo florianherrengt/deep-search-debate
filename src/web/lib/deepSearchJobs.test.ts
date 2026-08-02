@@ -71,6 +71,10 @@ describe("deep search jobs client", () => {
             query: "test query",
             streamId: "query-summary-stream-id",
           },
+          {
+            type: "final-answer-stream",
+            streamId: "final-answer-stream-id",
+          },
           { type: "done" },
         ]),
       )
@@ -102,6 +106,10 @@ describe("deep search jobs client", () => {
         type: "query-summary-stream",
         query: "test query",
         streamId: "query-summary-stream-id",
+      },
+      {
+        type: "final-answer-stream",
+        streamId: "final-answer-stream-id",
       },
       { type: "done" },
     ])

@@ -4,6 +4,7 @@ import { deepSearch } from "../../agents/deep_search/index.ts"
 import { db } from "../../db/index.ts"
 import {
   deepSearchGeneratedQueries,
+  deepSearchJobs,
   deepSearchQueries,
   deepSearchQueryGenerations,
   deepSearchWebPages,
@@ -75,6 +76,13 @@ export async function runDeepSearchJob(
             eq(deepSearchQueryGenerations.deepSearchJobId, deepSearchJobId),
           )
           .get()
+        const finalAnswerGeneration = db
+          .select({
+            llmGenerationId: deepSearchJobs.finalAnswerGenerationId,
+          })
+          .from(deepSearchJobs)
+          .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+          .get()
         const queryGenerations = db
           .select({
             selectionGenerationId: deepSearchQueries.selectionGenerationId,
@@ -107,6 +115,9 @@ export async function runDeepSearchJob(
         const generationIds = [
           ...new Set([
             ...(queryGeneration ? [queryGeneration.llmGenerationId] : []),
+            ...(finalAnswerGeneration?.llmGenerationId
+              ? [finalAnswerGeneration.llmGenerationId]
+              : []),
             ...queryGenerations.flatMap((query) =>
               [query.selectionGenerationId, query.summaryGenerationId].filter(
                 (id): id is string => id !== null,

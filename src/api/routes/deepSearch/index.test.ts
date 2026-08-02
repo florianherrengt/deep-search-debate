@@ -57,6 +57,7 @@ const progressEvents: DeepSearchEvent[] = [
     query: "test query",
     streamId: "query-summary-stream-id",
   },
+  { type: "final-answer-stream", streamId: "final-answer-stream-id" },
 ]
 
 type MockDeepSearchInput = {
@@ -76,12 +77,29 @@ function insertCompletedGeneration(llmGenerationId: string): void {
     .run()
 }
 
+function insertFailedGeneration(
+  llmGenerationId: string,
+  error: string,
+): void {
+  db.insert(llmGenerations)
+    .values({
+      llmGenerationId,
+      status: "failed",
+      text: "",
+      reasoning: "",
+      error,
+      completedAt: new Date(),
+    })
+    .run()
+}
+
 function prepareProgressGenerations(): void {
   for (const streamId of [
     "query-stream-id",
     "selection-stream-id",
     "summary-stream-id",
     "query-summary-stream-id",
+    "final-answer-stream-id",
   ]) {
     insertCompletedGeneration(streamId)
   }
@@ -163,13 +181,20 @@ describe("deep search job routes", () => {
       deepSearchJob: {
         deepSearchJobId,
         researchRequest: "Research this",
+        finalAnswerGenerationId: "final-answer-stream-id",
         status: "completed",
       },
     })
 
     const history = await app.request("/deep-search-jobs")
     await expect(history.json()).resolves.toMatchObject({
-      deepSearchJobs: [{ deepSearchJobId, status: "completed" }],
+      deepSearchJobs: [
+        {
+          deepSearchJobId,
+          finalAnswerGenerationId: "final-answer-stream-id",
+          status: "completed",
+        },
+      ],
     })
   })
 
@@ -260,6 +285,10 @@ describe("deep search job routes", () => {
         query: "test query",
         streamId: "query-summary-stream-id",
       },
+      {
+        type: "final-answer-stream",
+        streamId: "final-answer-stream-id",
+      },
       { type: "done" },
     ])
   })
@@ -280,6 +309,48 @@ describe("deep search job routes", () => {
       { type: "error", message: "Search failed" },
       { type: "done" },
     ])
+  })
+
+  it("fails the job when its final-answer generation fails", async () => {
+    for (const streamId of [
+      "query-stream-id",
+      "selection-stream-id",
+      "summary-stream-id",
+      "query-summary-stream-id",
+    ]) {
+      insertCompletedGeneration(streamId)
+    }
+    insertFailedGeneration(
+      "final-answer-stream-id",
+      "Final answer generation failed",
+    )
+    mocks.deepSearch.mockImplementation((input: MockDeepSearchInput) => {
+      emitProgress(input)
+      return Promise.resolve()
+    })
+    const app = createApp()
+    const created = await createJob(app)
+    const { deepSearchJobId } = (await created.json()) as {
+      deepSearchJobId: string
+    }
+
+    const subscribed = await app.request(
+      `/deep-search-jobs/${deepSearchJobId}/events`,
+    )
+
+    await expect(readEvents(subscribed)).resolves.toEqual([
+      ...progressEvents,
+      { type: "error", message: "Final answer generation failed" },
+      { type: "done" },
+    ])
+    const detail = await app.request(`/deep-search-jobs/${deepSearchJobId}`)
+    await expect(detail.json()).resolves.toMatchObject({
+      deepSearchJob: {
+        deepSearchJobId,
+        status: "failed",
+        error: "Final answer generation failed",
+      },
+    })
   })
 
   it("terminates with an error when terminal job persistence fails", async () => {

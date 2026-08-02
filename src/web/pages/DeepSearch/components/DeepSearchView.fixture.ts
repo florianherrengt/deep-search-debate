@@ -23,6 +23,8 @@ const streamText: Record<string, string> = {
     "The search results consistently recommend stable, flexible longboards for beginners. The explored sources add",
   "completed-query-summary":
     "The search results favour drop-through longboards with medium-flex decks for beginner cruising. Explored sources consistently highlight stability and predictable turning, while the remaining listings suggest comparing rider weight limits and wheel hardness before buying.",
+  "final-answer":
+    "OpenAI's current portfolio centres on ChatGPT, its API platform, and enterprise offerings. The research traces the company from its 2015 founding while identifying recurring governance, accountability, and market-concentration criticisms.",
   "streaming-summary":
     "The page describes ChatGPT, the API platform, and enterprise products. It emphasises",
   "completed-summary":
@@ -40,6 +42,8 @@ const streamReasoning: Record<string, string> = {
     "I am combining the explored pages with the remaining search descriptions.",
   "completed-query-summary":
     "I will retain the findings that directly answer the user's request.",
+  "final-answer":
+    "I will synthesize the product, history, and criticism findings into one answer.",
   "streaming-summary":
     "I am extracting the product claims that answer the research request.",
   "completed-summary":
@@ -62,6 +66,7 @@ export const researchRequest =
 export const completedRun: DeepSearchRunState = {
   status: "completed",
   queryStreamId: null,
+  finalAnswerStreamId: "final-answer",
   searches: [
     {
       query: queryOne,

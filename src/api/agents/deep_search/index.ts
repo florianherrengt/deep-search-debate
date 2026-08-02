@@ -1,3 +1,5 @@
+import { collectStreamText } from "../../helpers/index.ts"
+import { answerResearchRequest } from "./finalAnswer.ts"
 import { generateSearchResults } from "./queries.ts"
 import { summarizeSearchQuery } from "./querySummaries.ts"
 import type { DeepSearchInput } from "./schemas.ts"
@@ -8,8 +10,8 @@ export type { DeepSearchEvent } from "./schemas.ts"
 
 /**
  * Runs the deep-search pipeline and emits progress events as each stage starts or
- * completes. It returns after page summaries resolve and every search query has
- * registered its synthesis stream; those synthesis streams continue independently.
+ * completes. It returns after query summaries resolve and the final-answer stream
+ * has been registered; that final stream continues independently.
  */
 export async function deepSearch(params: DeepSearchInput): Promise<void> {
   const maxSearches = params.maxSearches ?? 3
@@ -52,7 +54,7 @@ export async function deepSearch(params: DeepSearchInput): Promise<void> {
     ),
   )
 
-  await Promise.all(
+  const searchSummaries = await Promise.all(
     selectedSearches.map(async (search) => {
       const streamId = await summarizeSearchQuery({
         researchRequest: params.researchRequest,
@@ -68,6 +70,19 @@ export async function deepSearch(params: DeepSearchInput): Promise<void> {
         query: search.query,
         streamId,
       })
+      return {
+        query: search.query,
+        content: (await collectStreamText({ id: streamId })).trim(),
+      }
     }),
   )
+
+  const finalAnswerStreamId = await answerResearchRequest({
+    researchRequest: params.researchRequest,
+    searchSummaries,
+  })
+  params.onEvent({
+    type: "final-answer-stream",
+    streamId: finalAnswerStreamId,
+  })
 }

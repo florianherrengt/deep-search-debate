@@ -7,6 +7,7 @@ const promptsDir = resolve(__dirname, "prompts")
 
 /** @public */
 export const PromptName = {
+  AnswerResearchRequest: "answer-research-request",
   Default: "default",
   GenerateWebSearchQueries: "generate-websearch-queries",
   SelectWebSearchResults: "select-websearch-results",

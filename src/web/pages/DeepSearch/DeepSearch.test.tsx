@@ -107,6 +107,10 @@ describe("DeepSearch", () => {
         query: "test query",
         streamId: "query-summary-stream-id",
       }
+      yield {
+        type: "final-answer-stream" as const,
+        streamId: "final-answer-stream-id",
+      }
       yield { type: "done" as const }
     }
     async function* summaryEvents() {
@@ -121,6 +125,13 @@ describe("DeepSearch", () => {
       yield { type: "reasoning" as const, text: "Combining all results" }
       yield { type: "text" as const, text: "The search found " }
       yield { type: "text" as const, text: "useful evidence." }
+      yield { type: "done" as const }
+    }
+    async function* finalAnswerEvents() {
+      await Promise.resolve()
+      yield { type: "reasoning" as const, text: "Synthesizing the research" }
+      yield { type: "text" as const, text: "The final researched " }
+      yield { type: "text" as const, text: "answer." }
       yield { type: "done" as const }
     }
     async function* queryGenerationEvents() {
@@ -145,6 +156,7 @@ describe("DeepSearch", () => {
       if (id === "selection-stream-id") return selectionEvents()
       if (id === "summary-stream-id") return summaryEvents()
       if (id === "query-summary-stream-id") return querySummaryEvents()
+      if (id === "final-answer-stream-id") return finalAnswerEvents()
       throw new Error(`Unexpected stream: ${id}`)
     })
 
@@ -184,6 +196,10 @@ describe("DeepSearch", () => {
           .closest("section"),
         reasoning: "Combining all results",
       },
+      {
+        container: screen.getByText("Final answer").closest(".MuiPaper-root"),
+        reasoning: "Synthesizing the research",
+      },
     ]
     for (const { container, reasoning } of reasoningSections) {
       if (!(container instanceof HTMLElement)) {
@@ -214,6 +230,9 @@ describe("DeepSearch", () => {
     expect(await screen.findByText("A relevant page summary")).toBeVisible()
     expect(screen.getByTestId("query-summary-test query")).toHaveTextContent(
       "The search found useful evidence.",
+    )
+    expect(screen.getByTestId("final-answer")).toHaveTextContent(
+      "The final researched answer.",
     )
     expect(screen.getByText("Explored source")).toBeVisible()
     expect(screen.getByText("Search listing")).toBeVisible()
@@ -252,6 +271,10 @@ describe("DeepSearch", () => {
     )
     expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(
       "query-summary-stream-id",
+      expect.any(AbortSignal),
+    )
+    expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(
+      "final-answer-stream-id",
       expect.any(AbortSignal),
     )
   })

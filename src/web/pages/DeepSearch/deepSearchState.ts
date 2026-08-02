@@ -24,6 +24,7 @@ export type DeepSearchSearchState = {
 export type DeepSearchRunState = {
   status: "idle" | "running" | "completed" | "failed"
   queryStreamId: string | null
+  finalAnswerStreamId: string | null
   searches: DeepSearchSearchState[]
   error: string | null
 }
@@ -31,6 +32,7 @@ export type DeepSearchRunState = {
 export const initialDeepSearchState: DeepSearchRunState = {
   status: "idle",
   queryStreamId: null,
+  finalAnswerStreamId: null,
   searches: [],
   error: null,
 }
@@ -121,6 +123,9 @@ export const deepSearchReducer = produce<
       if (search) search.querySummaryStreamId = action.streamId
       break
     }
+    case "final-answer-stream":
+      state.finalAnswerStreamId = action.streamId
+      break
     case "error":
     case "request-failed":
       state.status = "failed"

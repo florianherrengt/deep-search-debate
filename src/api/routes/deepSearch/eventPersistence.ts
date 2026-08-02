@@ -7,6 +7,7 @@ import type {
 import { db } from "../../db/index.ts"
 import {
   deepSearchGeneratedQueries,
+  deepSearchJobs,
   deepSearchQueries,
   deepSearchQueryGenerations,
   deepSearchResults,
@@ -252,5 +253,11 @@ export function persistDeepSearchEvent(
         .run()
       break
     }
+    case "final-answer-stream":
+      db.update(deepSearchJobs)
+        .set({ finalAnswerGenerationId: event.streamId })
+        .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+        .run()
+      break
   }
 }

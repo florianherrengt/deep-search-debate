@@ -12,7 +12,7 @@ function parseEvents<Event>(body: string): Event[] {
 // This test deliberately uses real DeepSeek, SearXNG, and page extraction.
 // Network requests are observed for assertions but are never intercepted.
 test.describe("Deep search", () => {
-  test("persists, reopens, and replays a mixed-result query summary", async ({
+  test("persists, reopens, and replays a mixed-result final answer", async ({
     page,
     request,
   }) => {
@@ -228,27 +228,79 @@ test.describe("Deep search", () => {
       .join("")
     expect(streamedQuerySummary.trim()).not.toBe("")
 
-    const renderedReasoning = [queryEvents, selectionEvents, querySummaryEvents]
-      .map((events) =>
-        events
+    const finalAnswerStream = liveEvents.find(
+      (event) => event.type === "final-answer-stream",
+    )
+    expect(finalAnswerStream).toBeDefined()
+    const finalAnswerPath =
+      `/api/streams/${finalAnswerStream?.streamId ?? ""}`
+    await expect
+      .poll(() => observedStreamResponses.has(finalAnswerPath))
+      .toBe(true)
+    const observedFinalAnswerResponse =
+      observedStreamResponses.get(finalAnswerPath)
+    const finalAnswerEvents = parseEvents<TextStreamEvent>(
+      (await observedFinalAnswerResponse?.text()) ?? "",
+    )
+    expect(finalAnswerEvents.at(-1)).toEqual({ type: "done" })
+    expect(finalAnswerEvents.some((event) => event.type === "error")).toBe(
+      false,
+    )
+    const streamedFinalAnswer = finalAnswerEvents
+      .filter((event) => event.type === "text")
+      .map((event) => event.text)
+      .join("")
+    expect(streamedFinalAnswer.trim()).not.toBe("")
+
+    const reasoningSections = [
+      {
+        events: queryEvents,
+        section: page
+          .getByRole("heading", { name: "Generated search queries" })
+          .locator(".."),
+      },
+      {
+        events: finalAnswerEvents,
+        section: page
+          .getByRole("heading", { name: "Final answer" })
+          .locator(".."),
+      },
+      {
+        events: selectionEvents,
+        section: page
+          .getByRole("heading", { name: "Source selection" })
+          .locator(".."),
+      },
+      {
+        events: querySummaryEvents,
+        section: page
+          .locator('[data-query-summary-status="completed"]')
+          .first(),
+      },
+    ]
+      .map(({ events, section }) => ({
+        reasoning: events
           .filter((event) => event.type === "reasoning")
           .map((event) => event.text)
           .join(""),
-      )
-      .filter(Boolean)
-    const reasoningToggles = page.getByRole("button", {
-      name: "Show reasoning",
-    })
-    await expect(reasoningToggles).toHaveCount(renderedReasoning.length)
-    for (const reasoning of renderedReasoning) {
+        section,
+      }))
+      .filter(({ reasoning }) => reasoning)
+    for (const { reasoning, section } of reasoningSections) {
       await expect(page.getByText(reasoning, { exact: true })).toBeHidden()
-      await reasoningToggles.first().click()
+      await section.getByRole("button", { name: "Show reasoning" }).click()
       await expect(page.getByText(reasoning, { exact: true })).toBeVisible()
     }
 
     await expect(
       page.getByRole("heading", { name: "Research results" }),
     ).toBeVisible()
+    await expect(
+      page.getByRole("heading", { name: "Final answer" }),
+    ).toBeVisible()
+    await expect(page.getByTestId("final-answer")).toHaveText(
+      streamedFinalAnswer,
+    )
     await expect(
       page.getByRole("heading", {
         name: searchResults?.searches[0]?.query ?? "",

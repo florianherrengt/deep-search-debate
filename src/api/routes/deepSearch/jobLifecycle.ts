@@ -88,6 +88,26 @@ export function completeDeepSearchJob(deepSearchJobId: string): void {
         .run()
     }
 
+    const job = db
+      .select({
+        finalAnswerGenerationId:
+          deepSearchJobsTable.finalAnswerGenerationId,
+      })
+      .from(deepSearchJobsTable)
+      .where(eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId))
+      .get()
+    const finalAnswerGeneration = findLlmGeneration(
+      job?.finalAnswerGenerationId ?? null,
+    )
+    if (
+      job?.finalAnswerGenerationId &&
+      finalAnswerGeneration?.status !== "completed"
+    ) {
+      throw new Error(
+        finalAnswerGeneration?.error ?? "Final answer did not complete",
+      )
+    }
+
     db.update(deepSearchJobsTable)
       .set({ status: "completed", completedAt })
       .where(eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId))

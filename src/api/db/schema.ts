@@ -103,6 +103,11 @@ export const deepSearchJobs = sqliteTable(
     researchRequest: text("research_request").notNull(),
     maxSearches: integer("max_searches").notNull(),
     maxResultsPerSearch: integer("max_results_per_search").notNull(),
+    finalAnswerGenerationId: text("final_answer_generation_id")
+      .unique()
+      .references(() => llmGenerations.llmGenerationId, {
+        onDelete: "restrict",
+      }),
     status: text("status", { enum: deepSearchJobStatuses })
       .notNull()
       .default("running"),
@@ -338,6 +343,10 @@ export const deepSearchJobsRelations = relations(
   deepSearchJobs,
   ({ many, one }) => ({
     queryGeneration: one(deepSearchQueryGenerations),
+    finalAnswerGeneration: one(llmGenerations, {
+      fields: [deepSearchJobs.finalAnswerGenerationId],
+      references: [llmGenerations.llmGenerationId],
+    }),
     webPages: many(deepSearchWebPages),
   }),
 )

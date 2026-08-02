@@ -15,6 +15,13 @@
       "when": 1785605553849,
       "tag": "0001_brave_expediter",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785622319612,
+      "tag": "0002_cute_jetstream",
+      "breakpoints": true
     }
   ]
 }
