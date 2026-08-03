@@ -15,3 +15,11 @@ vi.mock("../web_search/index.ts", () => ({
 ```
 
 Use the exact same path (including `.ts`) as the `import` statement under test.
+
+## Browser E2E tests
+
+Playwright starts the real API and Vite app on dedicated ports. `src/api/e2e/mockExternalServices.mjs` is loaded into the API process through `NODE_OPTIONS`; before application imports, it creates a unique migrated SQLite database in the OS temp directory and sets `DATABASE_URL` for that process. This test bootstrap is an intentional direct environment write because it must run before `config.ts` is imported.
+
+The same preload replaces only outbound DeepSeek, SearXNG, and page HTTP responses. Unrecognized outbound requests fail the test instead of reaching the network.
+
+Do not mock Hono routes or browser API requests in these scenarios. The tests must continue to exercise real database writes, stream/event managers, extraction orchestration, NDJSON subscriptions, reducers, replay, and history. Provider-specific response fixtures belong in the preload module.

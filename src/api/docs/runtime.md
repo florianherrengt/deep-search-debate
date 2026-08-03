@@ -12,7 +12,7 @@ The API runs TypeScript directly via `node --experimental-strip-types`. Conseque
 
 ## Required env vars throw at import time
 
-`src/api/config.ts` throws on import if `SEARXNG_URL`, `DEEPSEEK_API_KEY`, or `SCRAPINGANT_API_KEY` is missing or empty. The committed `.env` is a stub (empty key, no `SEARXNG_URL`) — fill all three before `npm run dev` / `npm run start` will boot. The api `vitest.config.ts` injects all three, so tests pass without real values.
+`src/api/config.ts` throws on import if `SEARXNG_URL`, `DEEPSEEK_API_KEY`, or `SCRAPINGANT_API_KEY` is missing or empty. Copy the tracked `src/api/.env.example` to the ignored `src/api/.env`, then replace its provider-key placeholders before `npm run dev` / `npm run start` will boot. The API `vitest.config.ts` injects the required values, so tests pass without real credentials.
 
 ## Real external services in dev
 

@@ -9,7 +9,13 @@ An npm workspaces monorepo with a Hono API and a Vite/React web client.
 - A running SearXNG instance
 - A ScrapingAnt API key for rendered page extraction
 
-Create `src/api/.env` with:
+Create the ignored local environment file from the tracked template:
+
+```sh
+cp src/api/.env.example src/api/.env
+```
+
+Then replace the placeholder provider keys in `src/api/.env`. The template contains:
 
 ```dotenv
 DEEPSEEK_API_KEY=your-key
@@ -72,6 +78,21 @@ The page displays the research request, generated queries, result-selection outp
 
 The history page lists durable jobs newest first. Structural progress is stored in normalized typed SQLite tables; no JSON snapshot or event log is stored. See [the deep-search job contract](src/api/routes/docs/deep-search-jobs.md).
 
+## Ideas
+
+Open `/ideas` and enter a prompt to start a researched idea run. The current UI requests 12 ideas backed by two parallel deep searches. The API also accepts `numberOfIdeas`, `deepSearchCount`, `maxSearches`, and `maxResultsPerSearch`; the UI will expose those controls later.
+
+The pipeline uses four visible stages:
+
+1. One planning generation creates exactly one distinct prompt per requested deep search.
+2. Every deep search starts in parallel. Its existing `/deep-search/:id` page opens in a new tab from the Ideas run.
+3. A fresh generation combines only the child searches' final-answer text into one research briefing.
+4. A fresh generation receives the user prompt and briefing, then streams the requested title-and-description ideas.
+
+The run is all-or-nothing: a planning, child-search, summary, or idea-generation failure fails the parent run and prevents later stages. Individual blocked, challenged, paywalled, unavailable, or unsupported pages remain non-fatal inside a child search because their search snippets can still support its synthesis.
+
+Runs and their generated output are durable and appear newest first under "Previous idea runs." See [the idea-job contract](src/api/routes/docs/idea-jobs.md).
+
 ## Verification
 
 Run the local quality gate:
@@ -91,7 +112,7 @@ npm run storybook
 npm run storybook:build
 ```
 
-The Deep Search stories include standalone streaming, completed, and failed search findings and source findings, plus page-level result fixtures for the summary-first hierarchy.
+The Deep Search stories include standalone streaming, completed, and failed search findings and source findings, plus page-level result fixtures for the summary-first hierarchy. The Ideas stories cover planning, active research, idea generation, and a completed run.
 
 Run the end-to-end test separately:
 
@@ -99,4 +120,4 @@ Run the end-to-end test separately:
 npm run test:e2e
 ```
 
-The E2E tests start isolated API and Vite servers. They exercise real DeepSeek query generation, selection, page summarization, and query synthesis plus SearXNG search and page extraction. They consume live streams and job feeds, verify that only synthesized findings and source results are rendered, and check replayed events. Valid API configuration and network access are required; no LLM, search, extraction, or HTTP responses are mocked.
+The E2E tests start isolated API and Vite servers with a migrated temporary SQLite database. Deterministic process-level mocks replace only outbound DeepSeek, SearXNG, and page HTTP responses; the Hono routes, extraction pipeline, persistence, NDJSON streams, React UI, replay, and history remain real. The Deep Search scenario covers query generation through final synthesis. The Ideas scenario covers planning, parallel child searches, research summarization, exact-count idea generation, child-search links, durable replay, and history. No provider credentials or network access are required.

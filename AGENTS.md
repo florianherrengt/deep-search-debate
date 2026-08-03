@@ -2,7 +2,7 @@
 
 npm workspaces monorepo for a "deep search debate" app: a Hono + SQLite API (`src/api`) and a Vite + React 19 web client (`src/web`).
 
-Area-specific guidance lives in per-folder `docs/` files (e.g. `src/api/llms/docs/`), all auto-loaded via `opencode.json`. This file holds only cross-cutting orientation.
+Area-specific guidance lives in per-folder `docs/` files (e.g. `src/api/llms/docs/`). This file holds only cross-cutting orientation and indexes the scoped documents that must be read before changing those areas.
 
 ## Layout
 
@@ -32,3 +32,4 @@ Detailed guidance lives in per-folder `docs/` files. Read the relevant one with 
 - `src/api/db/docs/database.md` — better-sqlite3, committed `data.db`, Drizzle migrations. Read before touching the schema or DB.
 - `src/api/routes/docs/text-streaming.md` — the LLM stream lifecycle and NDJSON contract. Read before changing stream routes, generation, or the streaming client.
 - `src/api/routes/docs/deep-search-jobs.md` — the deep-search job and event contract. Read before changing the deep-search route, agent events, or frontend subscription.
+- `src/api/routes/docs/idea-jobs.md` — the researched-idea pipeline, child searches, failure policy, persistence, and event contract. Read before changing idea routes, stages, events, or frontend subscription.

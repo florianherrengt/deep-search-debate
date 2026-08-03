@@ -9,14 +9,14 @@ function parseEvents<Event>(body: string): Event[] {
     .map((line) => JSON.parse(line) as Event)
 }
 
-// This test deliberately uses real DeepSeek, SearXNG, and page extraction.
-// Network requests are observed for assertions but are never intercepted.
+// External HTTP responses are deterministic; the API, persistence, streaming,
+// extraction pipeline, and browser behavior remain real.
 test.describe("Deep search", () => {
   test("persists, reopens, and replays a mixed-result final answer", async ({
     page,
     request,
   }) => {
-    test.setTimeout(240_000)
+    test.setTimeout(30_000)
     await page.goto("/deep-search")
 
     const observedStreamResponses = new Map<string, Response>()

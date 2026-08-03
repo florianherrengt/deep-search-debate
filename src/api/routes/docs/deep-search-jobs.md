@@ -48,7 +48,7 @@ The progress event sequence remains:
 
 The final-answer agent receives the original research request and every completed query-level summary. The job is marked complete only after its final-answer generation and every other linked LLM generation have persisted terminal text and reasoning. Page-summary failures stay attached to their web-page row and fall back to search snippets; a query-summary, final-answer, or wider pipeline failure marks the job failed.
 
-Idea pipelines also accept a completed child search when individual pages could not be extracted because a source was blocked, challenged, paywalled, unavailable, or unsupported. Those pages retain their search-snippet fallback. Query failures and model-generation failures remain fatal to the owning idea pipeline.
+A deep-search job may belong to an idea job. It keeps the same extraction and failure semantics when used as a child: blocked, challenged, paywalled, unavailable, or unsupported pages retain their search-snippet fallback, while query and model-generation failures remain fatal. See [the idea-job contract](idea-jobs.md) for parent-pipeline behavior.
 
 ## Persistence model
 
