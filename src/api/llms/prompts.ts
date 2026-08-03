@@ -10,7 +10,10 @@ export const PromptName = {
   AnswerResearchRequest: "answer-research-request",
   Default: "default",
   GenerateWebSearchQueries: "generate-websearch-queries",
+  GenerateIdeaResearchPrompts: "generate-idea-research-prompts",
+  GenerateIdeas: "generate-ideas",
   SelectWebSearchResults: "select-websearch-results",
+  SummarizeIdeaResearch: "summarize-idea-research",
   SummarizeSearchQuery: "summarize-search-query",
   SummarizeWebPage: "summarize-web-page",
 } as const

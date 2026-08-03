@@ -14,7 +14,7 @@ SQLite accessed through `better-sqlite3` and `drizzle-orm`.
 
 ## Schema and migrations
 
-- Schema lives in `src/api/db/schema.ts`. Drizzle migrations live in `src/api/drizzle/`.
+- Schema modules live in `src/api/db/schema/` and are exported from `schema/index.ts`. Drizzle migrations live in `src/api/drizzle/`.
 - After editing the schema, regenerate and apply (run from the api workspace, or via the root proxy):
   ```
   npm run db:generate -w @deep-search-debate/api

@@ -10,6 +10,7 @@ const extractMocks = vi.hoisted(() => ({
 
 vi.mock("deep-search-core/search-extract", () => ({
   extractPage: extractMocks.extractPage,
+  PdfExtractor: class {},
   RedditExtractor: class {},
   AmazonExtractor: class {},
   ShopifyExtractor: class {},

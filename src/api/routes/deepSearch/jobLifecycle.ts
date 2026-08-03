@@ -7,7 +7,7 @@ import {
   deepSearchQueryGenerations,
   deepSearchWebPages,
   llmGenerations,
-} from "../../db/schema.ts"
+} from "../../db/schema/index.ts"
 
 function findLlmGeneration(llmGenerationId: string | null) {
   if (!llmGenerationId) return

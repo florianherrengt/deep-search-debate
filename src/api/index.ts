@@ -3,6 +3,8 @@ import { ping } from "./routes/ping.ts"
 import { debug } from "./routes/debug.ts"
 import { streams } from "./routes/streams.ts"
 import { deepSearchJobs } from "./routes/deepSearch/index.ts"
+import { createDeepSearchJobManager } from "./routes/deepSearch/manager.ts"
+import { ideaJobs } from "./routes/ideas/index.ts"
 import { recoverInterruptedWork } from "./db/recovery.ts"
 
 recoverInterruptedWork()
@@ -13,6 +15,8 @@ const api = app.basePath("/api")
 ping(api)
 debug(api)
 streams(api)
-deepSearchJobs(api)
+const deepSearchManager = createDeepSearchJobManager()
+deepSearchJobs(api, deepSearchManager)
+ideaJobs(api, deepSearchManager)
 
 export { app }

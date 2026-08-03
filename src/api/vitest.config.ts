@@ -8,6 +8,7 @@ export default defineConfig({
       SEARXNG_URL: "http://localhost:8090/",
       DEEPSEEK_API_KEY: "test-key",
       SCRAPINGANT_API_KEY: "test-key",
+      SCRAPINGANT_RETRY_DELAY_MS: "0",
       DATABASE_URL: ":memory:",
     },
   },

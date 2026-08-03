@@ -7,6 +7,7 @@ import { SearchResults } from "./SearchResults.tsx"
 export type DeepSearchViewProps = {
   researchRequest: string
   run: DeepSearchRunState
+  showHeader?: boolean
 }
 
 function getProgressMessage(run: DeepSearchRunState): string | undefined {
@@ -20,12 +21,13 @@ function getProgressMessage(run: DeepSearchRunState): string | undefined {
 export function DeepSearchView({
   researchRequest,
   run,
+  showHeader = true,
 }: DeepSearchViewProps) {
   const progressMessage = getProgressMessage(run)
 
   return (
     <Stack spacing={3}>
-      <DeepSearchHeader />
+      {showHeader && <DeepSearchHeader />}
       <Typography variant="h6" sx={{ overflowWrap: "anywhere" }}>
         {researchRequest}
       </Typography>

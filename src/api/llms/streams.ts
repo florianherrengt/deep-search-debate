@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import { eq } from "drizzle-orm"
 import type { streamText } from "ai"
 import { db } from "../db/index.ts"
-import { llmGenerations } from "../db/schema.ts"
+import { llmGenerations } from "../db/schema/index.ts"
 import { getErrorMessage } from "../helpers/getErrorMessage.ts"
 import {
   createReplayableEventLog,
@@ -102,10 +102,19 @@ export function registerTextStream(
   streams.set(id, stream)
   const completion = consume(id, source, stream)
   completions.set(id, completion)
-  const clearCompletion = () => {
-    completions.delete(id)
-  }
-  void completion.then(clearCompletion, clearCompletion)
+  void completion.then(
+    () => {
+      // Completed output is durable, so late readers can use the database
+      // replay without retaining every token delta for the process lifetime.
+      streams.delete(id)
+      completions.delete(id)
+    },
+    () => {
+      // If terminal persistence failed, the closed live log is the only copy
+      // of its error and done events. Retain it until a process restart.
+      completions.delete(id)
+    },
+  )
 
   return id
 }

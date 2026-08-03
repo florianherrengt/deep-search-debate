@@ -13,6 +13,7 @@ table deep_search_generated_queries {
 
 table deep_search_jobs {
   deep_search_job_id text [pk, not null]
+  idea_job_id text
   research_request text [not null]
   max_searches integer [not null]
   max_results_per_search integer [not null]
@@ -24,6 +25,7 @@ table deep_search_jobs {
 
   indexes {
     created_at [name: 'deep_search_jobs_created_at_idx']
+    (idea_job_id, created_at) [name: 'deep_search_jobs_idea_job_created_at_idx']
 
 
 
@@ -86,6 +88,29 @@ table deep_search_web_pages {
   }
 }
 
+table idea_jobs {
+  idea_job_id text [pk, not null]
+  prompt text [not null]
+  stage text [not null, default: 'planning']
+  number_of_ideas integer [not null]
+  deep_search_count integer [not null]
+  research_prompt_generation_id text [unique]
+  research_summary_generation_id text [unique]
+  idea_generation_id text [unique]
+  status text [not null, default: 'running']
+  error text
+  created_at integer [not null, default: `(unixepoch())`]
+  completed_at integer
+
+  indexes {
+    created_at [name: 'idea_jobs_created_at_idx']
+
+
+
+
+  }
+}
+
 table llm_generations {
   llm_generation_id text [pk, not null]
   status text [not null, default: 'running']
@@ -97,6 +122,8 @@ table llm_generations {
 }
 
 ref deep_search_generated_queries_deep_search_query_generation_id_deep_search_query_generations_deep_search_query_generation_id_fk: deep_search_generated_queries.deep_search_query_generation_id > deep_search_query_generations.deep_search_query_generation_id [delete: cascade, update: no action]
+
+ref deep_search_jobs_idea_job_id_idea_jobs_idea_job_id_fk: deep_search_jobs.idea_job_id > idea_jobs.idea_job_id [delete: cascade, update: no action]
 
 ref deep_search_jobs_final_answer_generation_id_llm_generations_llm_generation_id_fk: deep_search_jobs.final_answer_generation_id > llm_generations.llm_generation_id [delete: restrict, update: no action]
 
@@ -117,3 +144,9 @@ ref deep_search_results_deep_search_web_page_id_deep_search_web_pages_deep_searc
 ref deep_search_web_pages_deep_search_job_id_deep_search_jobs_deep_search_job_id_fk: deep_search_web_pages.deep_search_job_id > deep_search_jobs.deep_search_job_id [delete: cascade, update: no action]
 
 ref deep_search_web_pages_summary_generation_id_llm_generations_llm_generation_id_fk: deep_search_web_pages.summary_generation_id > llm_generations.llm_generation_id [delete: restrict, update: no action]
+
+ref idea_jobs_research_prompt_generation_id_llm_generations_llm_generation_id_fk: idea_jobs.research_prompt_generation_id > llm_generations.llm_generation_id [delete: restrict, update: no action]
+
+ref idea_jobs_research_summary_generation_id_llm_generations_llm_generation_id_fk: idea_jobs.research_summary_generation_id > llm_generations.llm_generation_id [delete: restrict, update: no action]
+
+ref idea_jobs_idea_generation_id_llm_generations_llm_generation_id_fk: idea_jobs.idea_generation_id > llm_generations.llm_generation_id [delete: restrict, update: no action]

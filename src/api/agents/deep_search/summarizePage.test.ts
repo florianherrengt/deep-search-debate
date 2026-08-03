@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import z from "zod"
 
 const mocks = vi.hoisted(() => ({
   collectStreamText: vi.fn(),
@@ -51,6 +52,26 @@ describe("page summaries", () => {
       promptName: "summarize-web-page",
     })
     expect(result).toBe("summary-stream-id")
+  })
+
+  it("bounds extracted content before sending it to the model", async () => {
+    mocks.generateTextStream.mockResolvedValueOnce({ id: "summary-stream-id" })
+    const content = `document-start-${"x".repeat(150_000)}-document-end`
+
+    await summarizePage({
+      researchRequest: "Research a long document",
+      url: "https://example.com/report.pdf",
+      content,
+    })
+
+    const { prompt } = z.object({ prompt: z.string() }).parse(
+      mocks.generateTextStream.mock.calls[0]?.[0] as unknown,
+    )
+    expect(prompt).toContain("document-start")
+    expect(prompt).toContain("document-end")
+    expect(prompt).toContain("[... page content omitted to fit the model context ...]")
+    expect(prompt).not.toContain(content)
+    expect(prompt.length).toBeLessThan(102_000)
   })
 
   it("propagates summary stream registration failures", async () => {

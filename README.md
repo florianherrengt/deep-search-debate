@@ -15,9 +15,17 @@ Create `src/api/.env` with:
 DEEPSEEK_API_KEY=your-key
 SEARXNG_URL=http://127.0.0.1:8090
 SCRAPINGANT_API_KEY=your-key
+SCRAPINGANT_PROXY_TYPE=datacenter
+SCRAPINGANT_MAX_RETRIES=2
+SCRAPINGANT_RETRY_DELAY_MS=1000
 DATABASE_URL=data.db
+API_HOST=127.0.0.1
 PORT=3000
 ```
+
+Set `SCRAPINGANT_PROXY_TYPE=residential` for sites that repeatedly return HTTP
+423 anti-bot detections. Residential browser renders use substantially more
+ScrapingAnt credits than the default datacenter proxy.
 
 Install dependencies with `npm install`.
 
@@ -38,7 +46,10 @@ npm run dev
 npm run dev:web
 ```
 
-The API runs on port 3000. Vite serves the web client and proxies `/api` requests to it.
+The API listens on `127.0.0.1:3000` by default. Vite serves the web client and
+proxies `/api` requests to it. A network deployment can override `API_HOST`, but
+must add authentication, quotas, request-size limits, and concurrency controls at
+its gateway before exposing the API.
 
 ## Text streams
 

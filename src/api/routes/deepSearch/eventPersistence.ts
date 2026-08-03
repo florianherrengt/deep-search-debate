@@ -12,7 +12,7 @@ import {
   deepSearchQueryGenerations,
   deepSearchResults,
   deepSearchWebPages,
-} from "../../db/schema.ts"
+} from "../../db/schema/index.ts"
 
 function findQueryExecution(deepSearchJobId: string, query: string) {
   return db

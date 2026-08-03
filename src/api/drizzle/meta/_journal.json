@@ -22,6 +22,13 @@
       "when": 1785622319612,
       "tag": "0002_cute_jetstream",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1785718548794,
+      "tag": "0003_bumpy_hellcat",
+      "breakpoints": true
     }
   ]
 }

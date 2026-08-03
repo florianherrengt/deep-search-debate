@@ -1,5 +1,5 @@
 import { sqliteGenerate } from "drizzle-dbml-generator"
-import * as schema from "./schema.ts"
+import * as schema from "./schema/index.ts"
 
 sqliteGenerate({
   schema,

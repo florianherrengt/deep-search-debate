@@ -52,9 +52,10 @@ describe("generateTextStream", () => {
   it("uses AI SDK structured array output and exposes its result", async () => {
     const stream = { id: "raw-stream" }
     const output = Promise.resolve(["first", "second"])
+    const elementStream = { id: "element-stream" }
     const element = { type: "schema" }
     mocks.loadPrompt.mockResolvedValue("System prompt")
-    mocks.streamText.mockReturnValue({ stream, output })
+    mocks.streamText.mockReturnValue({ stream, output, elementStream })
     mocks.registerTextStream.mockReturnValue("stream-id")
 
     const result = await generateArrayStream({
@@ -68,6 +69,7 @@ describe("generateTextStream", () => {
       expect.objectContaining({ output: { type: "array", options: { element } } }),
     )
     expect(result.id).toBe("stream-id")
+    expect(result.elementStream).toBe(elementStream)
     await expect(result.output).resolves.toEqual(["first", "second"])
   })
 })

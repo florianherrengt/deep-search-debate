@@ -12,7 +12,6 @@ export function useDeepSearchJob(deepSearchJobId: string) {
     deepSearchReducer,
     initialDeepSearchState,
   )
-
   useEffect(() => {
     const controller = new AbortController()
     dispatch({ type: "opened" })

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { eq } from "drizzle-orm"
 import type { streamText } from "ai"
 import { db } from "../db/index.ts"
-import { llmGenerations } from "../db/schema.ts"
+import { llmGenerations } from "../db/schema/index.ts"
 import {
   registerTextStream,
   subscribeToTextStream,
@@ -126,6 +126,20 @@ describe("text streams", () => {
     })
   })
 
+  it("evicts a completed live log and replays its durable output", async () => {
+    const source = new AsyncQueue<SourceStreamPart>()
+    const id = registerTextStream(source)
+    source.push({ type: "text-delta", id: "text", text: "First " })
+    source.push({ type: "text-delta", id: "text", text: "second" })
+    source.close()
+    await waitForTextStream(id)
+
+    await expect(drain(subscribeToTextStream(id)!)).resolves.toEqual([
+      { type: "text", text: "First second" },
+      { type: "done" },
+    ])
+  })
+
   it("buffers failures for current and later readers", async () => {
     const source = new AsyncQueue<SourceStreamPart>()
     const id = registerTextStream(source)
@@ -155,6 +169,10 @@ describe("text streams", () => {
 
       await expect(completion).rejects.toThrow("SQLite unavailable")
       await expect(drain(subscribed!)).resolves.toEqual([
+        { type: "error", message: "SQLite unavailable" },
+        { type: "done" },
+      ])
+      await expect(drain(subscribeToTextStream(id)!)).resolves.toEqual([
         { type: "error", message: "SQLite unavailable" },
         { type: "done" },
       ])

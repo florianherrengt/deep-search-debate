@@ -12,7 +12,7 @@ import { db } from "../../db/index.ts"
 import {
   deepSearchJobs as deepSearchJobsTable,
   llmGenerations,
-} from "../../db/schema.ts"
+} from "../../db/schema/index.ts"
 import { deepSearchJobs, type DeepSearchJobEvent } from "./index.ts"
 
 const searches = [
@@ -23,6 +23,11 @@ const searches = [
         title: "Result",
         shortText: "Useful result",
         link: "https://example.com",
+      },
+      {
+        title: "Failed result",
+        shortText: "Result whose page cannot be extracted",
+        link: "https://example.com/failed",
       },
     ],
   },
@@ -39,7 +44,7 @@ const progressEvents: DeepSearchEvent[] = [
   {
     type: "selected-search-results",
     query: "test query",
-    selectedLinks: ["https://example.com"],
+    selectedLinks: ["https://example.com", "https://example.com/failed"],
   },
   {
     type: "page-summary-stream",
@@ -273,12 +278,18 @@ describe("deep search job routes", () => {
       {
         type: "selected-search-results",
         query: "test query",
-        selectedLinks: ["https://example.com"],
+        selectedLinks: ["https://example.com", "https://example.com/failed"],
       },
       {
         type: "page-summary-stream",
         url: "https://example.com",
         streamId: "summary-stream-id",
+      },
+      {
+        type: "page-summary-error",
+        url: "https://example.com/failed",
+        stage: "extraction",
+        message: "Extraction failed",
       },
       {
         type: "query-summary-stream",

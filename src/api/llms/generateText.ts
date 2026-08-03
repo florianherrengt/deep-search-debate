@@ -34,7 +34,11 @@ export async function generateTextStream(
 
 export async function generateArrayStream<Element>(
   params: GenerateTextStreamInput & { element: z.ZodType<Element> },
-): Promise<{ id: string; output: Promise<Element[]> }> {
+): Promise<{
+  id: string
+  output: Promise<Element[]>
+  elementStream: AsyncIterable<Element>
+}> {
   const result = streamText({
     model: deepseek(params.model ?? config.llm.deepseek.model),
     prompt: params.prompt,
@@ -48,5 +52,8 @@ export async function generateArrayStream<Element>(
   return {
     id: registerTextStream(result.stream),
     output: Promise.resolve(result.output),
+    // `output` resolves once with the full array; this iterable yields each
+    // schema-validated element as soon as that element is complete.
+    elementStream: result.elementStream,
   }
 }

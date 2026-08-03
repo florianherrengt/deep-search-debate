@@ -2,7 +2,7 @@
 
 Deep-search jobs are durable SQLite records with stable UUID URLs. Live event deltas remain in memory, while structural progress is written to normalized typed tables at stage boundaries. There is no JSON snapshot or database event log.
 
-Closing a browser tab does not stop a job. Reopening its URL in the same API process replays the exact retained live feed. Completed jobs, and jobs reopened after their in-memory feed is gone, reconstruct the same reducer-compatible state from normalized rows and persisted LLM output.
+Closing a browser tab does not stop a job. While it is running, reopening its URL in the same API process replays the exact retained live feed. Jobs with a durable terminal state evict that in-memory log and reconstruct reducer-compatible state from normalized rows and persisted LLM output. A closed log is retained when terminal persistence fails.
 
 ## HTTP contract
 
@@ -47,6 +47,8 @@ The progress event sequence remains:
 7. optional job-level `error`, then `done`
 
 The final-answer agent receives the original research request and every completed query-level summary. The job is marked complete only after its final-answer generation and every other linked LLM generation have persisted terminal text and reasoning. Page-summary failures stay attached to their web-page row and fall back to search snippets; a query-summary, final-answer, or wider pipeline failure marks the job failed.
+
+Idea pipelines also accept a completed child search when individual pages could not be extracted because a source was blocked, challenged, paywalled, unavailable, or unsupported. Those pages retain their search-snippet fallback. Query failures and model-generation failures remain fatal to the owning idea pipeline.
 
 ## Persistence model
 

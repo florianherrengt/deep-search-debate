@@ -8,7 +8,7 @@ import {
   deepSearchQueries,
   deepSearchQueryGenerations,
   deepSearchWebPages,
-} from "../../db/schema.ts"
+} from "../../db/schema/index.ts"
 import { getErrorMessage } from "../../helpers/getErrorMessage.ts"
 import { waitForTextStream } from "../../llms/streams.ts"
 import { persistDeepSearchEvent } from "./eventPersistence.ts"

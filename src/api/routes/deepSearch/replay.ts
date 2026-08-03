@@ -7,7 +7,7 @@ import {
   deepSearchQueryGenerations,
   deepSearchResults,
   deepSearchWebPages,
-} from "../../db/schema.ts"
+} from "../../db/schema/index.ts"
 import {
   type DeepSearchJobEvent,
 } from "./schemas.ts"

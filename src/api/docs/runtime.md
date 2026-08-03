@@ -20,4 +20,11 @@ A SearXNG instance, a DeepSeek API key, and a ScrapingAnt API key are real runti
 
 - **SearXNG:** HTTP `/search?format=json`. Configure its URL via `SEARXNG_URL`.
 - **DeepSeek:** used by the LLM layer (`src/api/llms/`). Key via `DEEPSEEK_API_KEY`.
-- **ScrapingAnt:** headless-browser renderer used for page extraction. Without it the Reddit/Amazon/Shopify/Trustpilot/GitHub/YouTube/Hacker News custom extractors can't run (they require a renderer), and any page whose plain-fetch text falls under ~200 chars falls back to a ScrapingAnt render. Key via `SCRAPINGANT_API_KEY`.
+- **ScrapingAnt:** headless-browser renderer used for page extraction. Without it the Reddit/Amazon/Shopify/Trustpilot/GitHub/YouTube/Hacker News custom extractors can't run (they require a renderer), and any page whose plain-fetch text falls under ~200 chars falls back to a ScrapingAnt render. Key via `SCRAPINGANT_API_KEY`. Renders are serialized for the free-plan concurrency cap. HTTP 423 anti-bot detections are retried twice with exponential backoff by default; configure this with `SCRAPINGANT_MAX_RETRIES` and `SCRAPINGANT_RETRY_DELAY_MS`. `SCRAPINGANT_PROXY_TYPE` defaults to `datacenter`; `residential` has a higher success rate on protected sites and a much higher credit cost.
+
+## Network binding
+
+The API binds to `127.0.0.1` by default through `API_HOST`. This keeps the
+unauthenticated local development API and its paid provider integrations off the
+LAN. A deployment may override the host only when authentication, quotas,
+request-size limits, and concurrency controls are enforced by its gateway.

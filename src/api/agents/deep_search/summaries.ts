@@ -5,6 +5,24 @@ import { PromptName } from "../../llms/prompts.ts"
 import { webExtract } from "../../web_search/webExtract.ts"
 import type { DeepSearchEvent } from "./schemas.ts"
 
+const maxPageContentChars = 100_000
+const pageContentOmission =
+  "\n\n[... page content omitted to fit the model context ...]\n\n"
+
+/** Keeps page-summary requests bounded while preserving introductions and conclusions. */
+function fitPageContent(content: string): string {
+  if (content.length <= maxPageContentChars) return content
+
+  const availableChars = maxPageContentChars - pageContentOmission.length
+  const startChars = Math.ceil(availableChars * 0.75)
+  const endChars = availableChars - startChars
+  return [
+    content.slice(0, startChars),
+    pageContentOmission,
+    content.slice(-endChars),
+  ].join("")
+}
+
 type SummarizePageInput = {
   researchRequest: string
   url: string
@@ -18,12 +36,13 @@ type SummarizePageInput = {
 export async function summarizePage(
   params: SummarizePageInput,
 ): Promise<string> {
+  const content = fitPageContent(params.content)
   const prompt = [
     `user_query: ${params.researchRequest}`,
     `source_url: ${params.url}`,
     "page_content:",
     "<page_content>",
-    params.content,
+    content,
     "</page_content>",
   ].join("\n")
 

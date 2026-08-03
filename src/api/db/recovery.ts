@@ -5,7 +5,8 @@ import {
   deepSearchQueries,
   deepSearchWebPages,
   llmGenerations,
-} from "./schema.ts"
+  ideaJobs,
+} from "./schema/index.ts"
 
 const interruptionMessage = "Interrupted by a server restart"
 
@@ -78,5 +79,14 @@ export function recoverInterruptedWork(): void {
         completedAt,
       })
       .where(eq(deepSearchJobs.status, "running"))
+      .run()
+
+    db.update(ideaJobs)
+      .set({
+        status: "interrupted",
+        error: interruptionMessage,
+        completedAt,
+      })
+      .where(eq(ideaJobs.status, "running"))
       .run()
 }
