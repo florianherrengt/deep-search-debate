@@ -1,5 +1,4 @@
 import {
-  Chip,
   CircularProgress,
   List,
   ListItemButton,
@@ -14,12 +13,12 @@ import {
   createIdeaJob,
   getIdeaJob,
   getIdeaJobs,
-  type IdeaJob,
 } from "../../lib/ideaJobs.ts"
 import { IdeaJobView } from "./components/IdeaJobView.tsx"
 import { IdeaPromptForm } from "./components/IdeaPromptForm.tsx"
 import { useIdeaJob } from "./useIdeaJob.ts"
 import { RequestError } from "../../components/RequestError.tsx"
+import { JobStatusBadge } from "../../components/JobStatusBadge.tsx"
 
 const ideaJobsQueryKey = ["idea-jobs"] as const
 
@@ -28,20 +27,6 @@ function formatCreatedAt(value: Date): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(value)
-}
-
-function statusColor(
-  status: IdeaJob["status"],
-): "default" | "primary" | "success" | "error" {
-  switch (status) {
-    case "running":
-      return "primary"
-    case "completed":
-      return "success"
-    case "failed":
-    case "interrupted":
-      return "error"
-  }
 }
 
 function IdeaHistory() {
@@ -101,11 +86,7 @@ function IdeaHistory() {
                       primary: { sx: { overflowWrap: "anywhere" } },
                     }}
                   />
-                  <Chip
-                    size="small"
-                    label={job.status}
-                    color={statusColor(job.status)}
-                  />
+                  <JobStatusBadge status={job.status} />
                 </ListItemButton>
               ))}
             </List>

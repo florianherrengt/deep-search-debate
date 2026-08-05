@@ -401,7 +401,7 @@ describe("DeepSearch", () => {
     expect(
       await screen.findByRole("link", { name: /Previously researched topic/ }),
     ).toHaveAttribute("href", "/deep-search/job-id")
-    expect(screen.getByText("completed")).toBeVisible()
+    expect(screen.getByText("Complete")).toBeVisible()
   })
 
   it("reconnects and replays when a job stream ends before done", async () => {

@@ -49,7 +49,11 @@ function StreamText({
         {stream.text && (
           <Typography
             data-testid={textTestId}
-            sx={{ whiteSpace: "pre-wrap" }}
+            sx={{
+              maxWidth: "85ch",
+              overflowWrap: "anywhere",
+              whiteSpace: "pre-wrap",
+            }}
             variant="body2"
           >
             {stream.text}
@@ -63,7 +67,11 @@ function StreamText({
     <Typography
       data-testid={textTestId}
       variant="body2"
-      sx={{ whiteSpace: "pre-wrap" }}
+      sx={{
+        maxWidth: "85ch",
+        overflowWrap: "anywhere",
+        whiteSpace: "pre-wrap",
+      }}
     >
       {stream.text || waitingText}
     </Typography>
@@ -111,7 +119,11 @@ function StreamReasoning({
           data-testid={`${textTestId}-reasoning`}
           variant="body2"
           color="text.secondary"
-          sx={{ whiteSpace: "pre-wrap" }}
+          sx={{
+            maxWidth: "85ch",
+            overflowWrap: "anywhere",
+            whiteSpace: "pre-wrap",
+          }}
         >
           {reasoning}
         </Typography>

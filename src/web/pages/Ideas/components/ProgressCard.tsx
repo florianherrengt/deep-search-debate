@@ -67,6 +67,7 @@ export function ProgressCard({
             size="small"
             label={presentation.label}
             color={presentation.color}
+            variant="outlined"
           />
         </Stack>
       </AccordionSummary>

@@ -1,5 +1,4 @@
 import {
-  Chip,
   CircularProgress,
   List,
   ListItemButton,
@@ -14,13 +13,13 @@ import {
   createDeepSearchJob,
   getDeepSearchJob,
   getDeepSearchJobs,
-  type DeepSearchJob,
 } from "../../lib/deepSearchJobs.ts"
 import { DeepSearchHeader } from "./components/DeepSearchHeader.tsx"
 import { DeepSearchView } from "./components/DeepSearchView.tsx"
 import { ResearchRequestForm } from "./components/ResearchRequestForm.tsx"
 import { useDeepSearchJob } from "./useDeepSearchJob.ts"
 import { RequestError } from "../../components/RequestError.tsx"
+import { JobStatusBadge } from "../../components/JobStatusBadge.tsx"
 
 const deepSearchJobsQueryKey = ["deep-search-jobs"] as const
 
@@ -29,20 +28,6 @@ function formatCreatedAt(value: Date): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(value)
-}
-
-function statusColor(
-  status: DeepSearchJob["status"],
-): "default" | "primary" | "success" | "error" {
-  switch (status) {
-    case "running":
-      return "primary"
-    case "completed":
-      return "success"
-    case "failed":
-    case "interrupted":
-      return "error"
-  }
 }
 
 function DeepSearchHistory() {
@@ -103,11 +88,7 @@ function DeepSearchHistory() {
                       primary: { sx: { overflowWrap: "anywhere" } },
                     }}
                   />
-                  <Chip
-                    size="small"
-                    label={job.status}
-                    color={statusColor(job.status)}
-                  />
+                  <JobStatusBadge status={job.status} />
                 </ListItemButton>
               ))}
             </List>

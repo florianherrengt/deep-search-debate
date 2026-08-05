@@ -99,13 +99,15 @@ export function KnockoutBracket({
           <Card
             variant="outlined"
             sx={{
-              bgcolor: champion ? "success.main" : undefined,
-              color: champion ? "success.contrastText" : undefined,
+              borderColor: champion ? "success.main" : undefined,
             }}
           >
             <CardContent>
               <Stack spacing={1} sx={{ alignItems: "center", textAlign: "center" }}>
-                <EmojiEventsRounded fontSize="large" />
+                <EmojiEventsRounded
+                  color={champion ? "success" : "disabled"}
+                  fontSize="large"
+                />
                 <Typography sx={{ fontWeight: 700 }} variant="body1">
                   {champion?.title ?? "To be decided"}
                 </Typography>

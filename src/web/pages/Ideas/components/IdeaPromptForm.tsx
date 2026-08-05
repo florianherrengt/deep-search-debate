@@ -17,7 +17,12 @@ export function IdeaPromptForm({
   }
 
   return (
-    <Paper component="form" onSubmit={handleSubmit} sx={{ p: 2 }}>
+    <Paper
+      component="form"
+      onSubmit={handleSubmit}
+      variant="outlined"
+      sx={{ maxWidth: 720, p: { xs: 2, sm: 2.5 }, width: "100%" }}
+    >
       <Stack spacing={2}>
         <TextField
           label="What should we generate ideas for?"
@@ -27,7 +32,12 @@ export function IdeaPromptForm({
           onChange={(event) => setPrompt(event.target.value)}
           disabled={isGenerating}
         />
-        <Button type="submit" variant="contained" disabled={isGenerating}>
+        <Button
+          disabled={isGenerating}
+          sx={{ alignSelf: { xs: "stretch", sm: "flex-start" } }}
+          type="submit"
+          variant="contained"
+        >
           Generate 12 ideas
         </Button>
       </Stack>

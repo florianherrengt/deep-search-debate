@@ -20,7 +20,12 @@ export function ResearchRequestForm({
   }
 
   return (
-    <Paper component="form" onSubmit={handleSubmit} sx={{ p: 2 }}>
+    <Paper
+      component="form"
+      onSubmit={handleSubmit}
+      variant="outlined"
+      sx={{ maxWidth: 720, p: { xs: 2, sm: 2.5 }, width: "100%" }}
+    >
       <Stack spacing={2}>
         <TextField
           label="Research request"
@@ -30,7 +35,12 @@ export function ResearchRequestForm({
           onChange={(event) => setResearchRequest(event.target.value)}
           disabled={isSearching}
         />
-        <Button type="submit" variant="contained" disabled={isSearching}>
+        <Button
+          disabled={isSearching}
+          sx={{ alignSelf: { xs: "stretch", sm: "flex-start" } }}
+          type="submit"
+          variant="contained"
+        >
           Start deep search
         </Button>
       </Stack>

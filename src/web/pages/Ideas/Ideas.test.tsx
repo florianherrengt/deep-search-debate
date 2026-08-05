@@ -247,4 +247,27 @@ describe("Ideas", () => {
       screen.queryByText("Live updates were interrupted. Reconnecting…"),
     ).not.toBeInTheDocument()
   })
+
+  it("lists previous jobs with consistent status labels", async () => {
+    mocks.getIdeaJobs.mockResolvedValue([
+      {
+        ideaJobId: "previous-idea-job",
+        prompt: "Previously generated ideas",
+        numberOfIdeas: 12,
+        deepSearchCount: 2,
+        stage: "ideas",
+        status: "completed",
+        error: null,
+        createdAt: new Date("2026-08-04T12:00:00.000Z"),
+        completedAt: new Date("2026-08-04T12:30:00.000Z"),
+      },
+    ])
+
+    renderIdeas()
+
+    expect(
+      await screen.findByRole("link", { name: /Previously generated ideas/ }),
+    ).toHaveAttribute("href", "/ideas/previous-idea-job")
+    expect(screen.getByText("Complete")).toBeVisible()
+  })
 })

@@ -59,61 +59,63 @@ function TranscriptMessage({
 
   return (
     <Box
+      component="article"
       sx={{
-        display: "flex",
-        justifyContent: isJudge
-          ? "center"
-          : isSecondSpeaker
-            ? "flex-end"
-            : "flex-start",
-        py: 1,
+        bgcolor: isJudge ? "action.hover" : "transparent",
+        borderBottom: 1,
+        borderColor: "divider",
+        mx: { xs: -1.5, sm: -2.5 },
+        px: { xs: 1.5, sm: 2.5 },
+        py: 2,
+        "&:last-child": { borderBottom: 0 },
       }}
     >
       <Stack
-        direction={isSecondSpeaker ? "row-reverse" : "row"}
-        spacing={1.25}
+        direction="row"
+        spacing={1.5}
         sx={{
           alignItems: "flex-start",
-          maxWidth: isJudge ? "94%" : "86%",
-          width: isJudge ? "100%" : "auto",
+          borderLeft: "2px solid",
+          borderLeftColor: isJudge
+            ? "warning.main"
+            : isSecondSpeaker
+              ? "secondary.main"
+              : "primary.main",
+          pl: 1.5,
         }}
       >
         <Avatar
-          sx={{
+          variant="rounded"
+          sx={(theme) => ({
             bgcolor: isJudge
-              ? "warning.main"
+              ? alpha(theme.palette.warning.main, 0.14)
               : isSecondSpeaker
-                ? "secondary.main"
-                : "primary.main",
-            color: isJudge ? "warning.contrastText" : undefined,
-            height: 34,
-            width: 34,
-          }}
+                ? alpha(theme.palette.secondary.main, 0.14)
+                : alpha(theme.palette.primary.main, 0.14),
+            color: isJudge
+              ? "warning.light"
+              : isSecondSpeaker
+                ? "secondary.light"
+                : "primary.light",
+            fontSize: "0.75rem",
+            fontWeight: 700,
+            height: 28,
+            width: 28,
+          })}
         >
           {isJudge ? "J" : message.speakerSlot === 0 ? "A" : "B"}
         </Avatar>
         <Box
-          sx={(theme) => ({
-            bgcolor: isJudge
-              ? alpha(theme.palette.warning.main, 0.11)
-              : isSecondSpeaker
-                ? alpha(theme.palette.secondary.main, 0.1)
-                : alpha(theme.palette.primary.main, 0.09),
-            border: "1px solid",
-            borderColor: isJudge
-              ? alpha(theme.palette.warning.main, 0.35)
-              : "divider",
-            borderRadius: 2.5,
+          sx={{
+            flexGrow: 1,
             minWidth: 0,
-            px: 2,
-            py: 1.5,
-            width: isJudge ? "100%" : "auto",
-          })}
+          }}
         >
           <Stack
             direction="row"
             spacing={1}
-            sx={{ alignItems: "center", mb: 0.75 }}
+            useFlexGap
+            sx={{ alignItems: "center", flexWrap: "wrap", mb: 0.75 }}
           >
             <Typography sx={{ fontWeight: 700 }} variant="caption">
               {getSpeakerName(message, match)}
@@ -131,7 +133,11 @@ function TranscriptMessage({
                 stream.status === "reconnecting") && (
               <CircularProgress size={12} />
             )}
-            <Typography color="text.secondary" sx={{ ml: "auto" }} variant="caption">
+            <Typography
+              color="text.secondary"
+              sx={{ ml: "auto" }}
+              variant="caption"
+            >
               {message.createdAt.toLocaleTimeString([], {
                 hour: "2-digit",
                 minute: "2-digit",
@@ -140,7 +146,12 @@ function TranscriptMessage({
           </Stack>
           <Typography
             component="div"
-            sx={{ lineHeight: 1.65, whiteSpace: "pre-wrap" }}
+            sx={{
+              lineHeight: 1.7,
+              maxWidth: "85ch",
+              overflowWrap: "anywhere",
+              whiteSpace: "pre-wrap",
+            }}
             variant="body2"
           >
             {text}
@@ -214,8 +225,7 @@ function TranscriptMessages({
         maxHeight: { xs: 520, lg: "calc(100vh - 290px)" },
         minHeight: 360,
         overflowY: "auto",
-        px: 2,
-        py: 1,
+        px: { xs: 1.5, sm: 2.5 },
       }}
     >
       {messages.map((message) => (
@@ -268,17 +278,21 @@ export function DebateTranscript({
             sx={{ alignItems: "center", flexWrap: "wrap" }}
           >
             <Chip
+              color="primary"
               label={`A · ${match.firstIdea.title}`}
               size="small"
               sx={{ maxWidth: "100%" }}
+              variant="outlined"
             />
             <Typography color="text.secondary" variant="caption">
               versus
             </Typography>
             <Chip
+              color="secondary"
               label={`B · ${match.secondIdea.title}`}
               size="small"
               sx={{ maxWidth: "100%" }}
+              variant="outlined"
             />
           </Stack>
         </Stack>

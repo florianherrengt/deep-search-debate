@@ -48,7 +48,7 @@ export function DebatePromptForm({
 
       {error && <Alert severity="error">{error}</Alert>}
 
-      <Card variant="outlined">
+      <Card variant="outlined" sx={{ maxWidth: 760 }}>
         <CardContent>
           <Stack component="form" spacing={2.5} onSubmit={handleSubmit}>
             <TextField

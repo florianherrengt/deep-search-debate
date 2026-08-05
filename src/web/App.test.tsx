@@ -16,6 +16,13 @@ describe("App", () => {
       "href",
       "/debates",
     )
+    expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    )
+    expect(screen.getByRole("link", { name: "Debates" })).not.toHaveAttribute(
+      "aria-current",
+    )
   })
 
   it("renders an explicit not-found screen for unknown routes", () => {

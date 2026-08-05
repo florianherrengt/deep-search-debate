@@ -40,9 +40,16 @@ export function DebateView({
           <Chip
             color={status.color}
             label={status.label}
+            size="small"
+            sx={{ alignSelf: "flex-start" }}
+            variant="outlined"
           />
         </Stack>
-        <Typography color="text.secondary" variant="body1">
+        <Typography
+          color="text.secondary"
+          sx={{ maxWidth: "85ch", overflowWrap: "anywhere" }}
+          variant="body1"
+        >
           {tournament.prompt}
         </Typography>
         <Button

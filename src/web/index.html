@@ -3,6 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0B0D10" />
+    <!-- This boot colour mirrors theme.palette.background.default to avoid a
+         light flash before the application theme is mounted. -->
+    <style>
+      html,
+      body,
+      #root {
+        background: #0b0d10;
+        min-height: 100%;
+      }
+    </style>
     <title>Deep Search Debate</title>
   </head>
   <body>

@@ -11,7 +11,6 @@ import {
   Stack,
   Typography,
 } from "@mui/material"
-import { alpha } from "@mui/material/styles"
 import type { DebateIdea, DebateMatch } from "../debateUiTypes.ts"
 
 export type MatchCardProps = {
@@ -42,8 +41,11 @@ function MatchIdea({
         {idea.position + 1}
       </Typography>
       <Typography
-        noWrap
-        sx={{ flexGrow: 1, fontWeight: winner ? 700 : 500 }}
+        sx={{
+          flexGrow: 1,
+          fontWeight: winner ? 700 : 500,
+          overflowWrap: "anywhere",
+        }}
         variant="body2"
       >
         {idea.title}
@@ -80,12 +82,10 @@ export function MatchCard({
   return (
     <Card
       variant="outlined"
-      sx={(theme) => ({
+      sx={{
         borderColor: selected ? "primary.main" : undefined,
-        bgcolor: selected
-          ? alpha(theme.palette.primary.main, 0.06)
-          : undefined,
-      })}
+        bgcolor: selected ? "action.selected" : undefined,
+      }}
     >
       <CardActionArea
         aria-label={`Open ${match.firstIdea.title} versus ${match.secondIdea.title}`}

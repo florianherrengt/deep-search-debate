@@ -249,6 +249,6 @@ test.describe("Ideas", () => {
     const historyLink = page.locator(`a[href="/ideas/${ideaJobId}"]`)
     await expect(historyLink).toBeVisible()
     await expect(historyLink).toContainText(prompt)
-    await expect(historyLink).toContainText("completed")
+    await expect(historyLink).toContainText("Complete")
   })
 })

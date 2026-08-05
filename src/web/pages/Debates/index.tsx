@@ -87,7 +87,12 @@ function DebateStart() {
                         primary: { sx: { overflowWrap: "anywhere" } },
                       }}
                     />
-                    <Chip color={status.color} label={status.label} size="small" />
+                    <Chip
+                      color={status.color}
+                      label={status.label}
+                      size="small"
+                      variant="outlined"
+                    />
                   </ListItemButton>
                 )
               })}
