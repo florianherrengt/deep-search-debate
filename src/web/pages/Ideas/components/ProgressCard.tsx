@@ -11,6 +11,8 @@ import { type ReactNode, useState } from "react"
 
 export type ProgressStatus = "waiting" | "running" | "completed" | "failed"
 
+const defaultAutoExpandStatuses: ProgressStatus[] = ["running"]
+
 const statusPresentation: Record<
   ProgressStatus,
   {
@@ -28,10 +30,12 @@ export function ProgressCard({
   title,
   status,
   children,
+  autoExpandStatuses = defaultAutoExpandStatuses,
 }: {
   title: string
   status: ProgressStatus
   children: ReactNode
+  autoExpandStatuses?: ProgressStatus[]
 }) {
   const [manualState, setManualState] = useState<{
     status: ProgressStatus
@@ -44,7 +48,7 @@ export function ProgressCard({
   const expanded =
     manualState?.status === status
       ? manualState.expanded
-      : status === "running"
+      : autoExpandStatuses.includes(status)
   const presentation = statusPresentation[status]
 
   return (

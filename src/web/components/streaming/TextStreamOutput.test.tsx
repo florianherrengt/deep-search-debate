@@ -37,6 +37,10 @@ describe("TextStreamOutput", () => {
       "Final answer: Response complete",
     )
     expect(screen.getByRole("status")).not.toHaveTextContent("Visible answer")
+    expect(screen.getByRole("status")).toHaveStyle({
+      display: "block",
+      width: "1px",
+    })
 
     const toggle = screen.getByRole("button", { name: "Show reasoning" })
     fireEvent.click(toggle)

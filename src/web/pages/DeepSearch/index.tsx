@@ -1,14 +1,12 @@
 import {
   CircularProgress,
   List,
-  ListItemButton,
-  ListItemText,
   Paper,
   Stack,
   Typography,
 } from "@mui/material"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link, useNavigate, useParams } from "react-router-dom"
+import { useNavigate, useParams } from "react-router-dom"
 import {
   createDeepSearchJob,
   getDeepSearchJob,
@@ -20,6 +18,7 @@ import { ResearchRequestForm } from "./components/ResearchRequestForm.tsx"
 import { useDeepSearchJob } from "./useDeepSearchJob.ts"
 import { RequestError } from "../../components/RequestError.tsx"
 import { JobStatusBadge } from "../../components/JobStatusBadge.tsx"
+import { JobHistoryListItem } from "../../components/JobHistoryListItem.tsx"
 
 const deepSearchJobsQueryKey = ["deep-search-jobs"] as const
 
@@ -75,21 +74,13 @@ function DeepSearchHistory() {
           <Paper variant="outlined">
             <List disablePadding>
               {history.data.map((job) => (
-                <ListItemButton
+                <JobHistoryListItem
                   key={job.deepSearchJobId}
-                  component={Link}
+                  date={formatCreatedAt(job.createdAt)}
+                  label={job.researchRequest}
+                  status={<JobStatusBadge status={job.status} />}
                   to={`/deep-search/${job.deepSearchJobId}`}
-                  divider
-                >
-                  <ListItemText
-                    primary={job.researchRequest}
-                    secondary={formatCreatedAt(job.createdAt)}
-                    slotProps={{
-                      primary: { sx: { overflowWrap: "anywhere" } },
-                    }}
-                  />
-                  <JobStatusBadge status={job.status} />
-                </ListItemButton>
+                />
               ))}
             </List>
           </Paper>

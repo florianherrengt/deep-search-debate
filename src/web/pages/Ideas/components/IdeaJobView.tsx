@@ -1,4 +1,11 @@
-import { Alert, Card, CardContent, Stack, Typography } from "@mui/material"
+import {
+  Alert,
+  Card,
+  CardContent,
+  CircularProgress,
+  Stack,
+  Typography,
+} from "@mui/material"
 import { GenerationOutput } from "../../../components/streaming/GenerationOutput.tsx"
 import type { IdeaJobRunState } from "../ideaJobState.ts"
 import {
@@ -120,19 +127,34 @@ export function IdeaJobView({
       </ProgressCard>
 
       <ProgressCard
+        autoExpandStatuses={["running", "completed", "failed"]}
         title="Generate ideas"
         status={ideaStatus}
       >
         <Stack spacing={2}>
-          {run.ideaGenerationStreamId && (
-            <GenerationOutput
-              announcementLabel="Idea generation"
-              headingComponent="h3"
-              streamId={run.ideaGenerationStreamId}
-              title="Raw structured output"
-              waitingText="Generating ideas…"
-              testId="idea-generation"
-            />
+          {ideaStatus === "running" && (
+            <Stack
+              aria-live="polite"
+              direction="row"
+              role="status"
+              spacing={1}
+              sx={{ alignItems: "center" }}
+            >
+              <CircularProgress aria-hidden="true" size={20} />
+              <Typography color="text.secondary">
+                Generating 12 ideas…
+              </Typography>
+            </Stack>
+          )}
+          {ideaStatus === "failed" && (
+            <Typography color="error" variant="body2">
+              Idea generation stopped before producing a complete set.
+            </Typography>
+          )}
+          {ideaStatus === "completed" && run.ideas.length === 0 && (
+            <Typography color="text.secondary">
+              No ideas were returned.
+            </Typography>
           )}
           {run.ideas.map((idea) => (
             <Card key={`${idea.title}-${idea.description}`} variant="outlined">

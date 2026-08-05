@@ -75,6 +75,19 @@ describe("DeepSearch", () => {
     })
   })
 
+  it("disables submission until the request contains text", () => {
+    renderDeepSearch()
+
+    const submit = screen.getByRole("button", { name: "Start deep search" })
+    expect(submit).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText("Research request"), {
+      target: { value: "Research accessible energy tools" },
+    })
+
+    expect(submit).toBeEnabled()
+  })
+
   it("creates a job, subscribes, and displays search results", async () => {
     async function* events() {
       await Promise.resolve()

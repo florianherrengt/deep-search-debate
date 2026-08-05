@@ -270,8 +270,17 @@ test.describe("Debate tournament", () => {
       timeout: 60_000,
     })
     await expect(
-      page.getByText(injectedFailureMessage, { exact: true }),
+      page.getByText(
+        "The tournament stopped before it could finish. You can review the completed matches below or start a new tournament.",
+        { exact: true },
+      ),
     ).toBeVisible()
+    await expect(
+      page.getByText(injectedFailureMessage, { exact: true }),
+    ).toHaveCount(0)
+    await expect(
+      page.getByRole("link", { name: "Start a new tournament" }),
+    ).toHaveAttribute("href", "/debates")
     await expect(page.getByText("Winning idea", { exact: true })).toHaveCount(0)
 
     const detail = await request.get(`/api/debate-jobs/${debateJobId}`)

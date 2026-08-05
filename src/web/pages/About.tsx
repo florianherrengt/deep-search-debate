@@ -1,9 +1,101 @@
-import { Typography } from "@mui/material"
+import {
+  AutoAwesomeRounded,
+  LightbulbOutlined,
+  SearchRounded,
+} from "@mui/icons-material"
+import { Box, Button, Paper, Stack, Typography } from "@mui/material"
+import { Link } from "react-router-dom"
+
+const steps = [
+  {
+    description:
+      "Deep Search collects source results, explores the strongest candidates, and writes a final answer.",
+    icon: <SearchRounded color="primary" />,
+    title: "1. Research",
+  },
+  {
+    description:
+      "The idea workflow uses that research to generate twelve distinct, practical concepts.",
+    icon: <LightbulbOutlined color="primary" />,
+    title: "2. Generate",
+  },
+  {
+    description:
+      "A Swiss stage and knockout bracket compare every concept before an independent judge selects the winner.",
+    icon: <AutoAwesomeRounded color="primary" />,
+    title: "3. Debate",
+  },
+]
 
 export function About() {
   return (
-    <Typography component="h1" variant="h4">
-      About
-    </Typography>
+    <Stack spacing={{ xs: 4, sm: 5 }}>
+      <Stack spacing={1.5} sx={{ maxWidth: "72ch" }}>
+        <Typography component="h1" variant="h3">
+          About Deep Search Debate
+        </Typography>
+        <Typography color="text.secondary" component="p" variant="h6">
+          A research and decision workspace for questions that need more than
+          one model response.
+        </Typography>
+        <Typography>
+          The application keeps the research, generated options, head-to-head
+          arguments, judge decisions, and final outcome inspectable as one
+          persisted workflow. You can reopen completed or failed work at any
+          time.
+        </Typography>
+      </Stack>
+
+      <Box component="section" aria-labelledby="how-it-works">
+        <Typography
+          component="h2"
+          id="how-it-works"
+          sx={{ mb: 2 }}
+          variant="h5"
+        >
+          How it works
+        </Typography>
+        <Box
+          sx={{
+            display: "grid",
+            gap: 2,
+            gridTemplateColumns: { xs: "1fr", md: "repeat(3, 1fr)" },
+          }}
+        >
+          {steps.map((step) => (
+            <Paper key={step.title} sx={{ p: 2.5 }} variant="outlined">
+              <Stack spacing={1.5}>
+                {step.icon}
+                <Typography component="h3" variant="h6">
+                  {step.title}
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  {step.description}
+                </Typography>
+              </Stack>
+            </Paper>
+          ))}
+        </Box>
+      </Box>
+
+      <Stack spacing={1.5} sx={{ maxWidth: "72ch" }}>
+        <Typography component="h2" variant="h5">
+          Start where you need to
+        </Typography>
+        <Typography color="text.secondary">
+          Use Deep Search for a direct researched answer, Ideas for concept
+          generation, or Debates when the goal is to compare options and choose
+          one.
+        </Typography>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+          <Button component={Link} to="/deep-search" variant="outlined">
+            Start with research
+          </Button>
+          <Button component={Link} to="/debates" variant="contained">
+            Start a tournament
+          </Button>
+        </Stack>
+      </Stack>
+    </Stack>
   )
 }

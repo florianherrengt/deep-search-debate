@@ -5,6 +5,7 @@ import {
   Routes,
   useLocation,
 } from "react-router-dom"
+import { useEffect, useRef } from "react"
 import {
   AppBar,
   Box,
@@ -44,8 +45,8 @@ function AppNavigation() {
           flexWrap: { xs: "wrap", sm: "nowrap" },
           maxWidth: 1536,
           mx: "auto",
-          py: { xs: 1, sm: 0.5 },
-          rowGap: 0.75,
+          py: { xs: 0.5, sm: 0.5 },
+          rowGap: { xs: 0.25, sm: 0.75 },
           width: "100%",
         }}
       >
@@ -99,6 +100,7 @@ function AppNavigation() {
                   bgcolor: current ? "action.selected" : "transparent",
                   color: current ? "text.primary" : "text.secondary",
                   flexShrink: 0,
+                  minHeight: { xs: 44, sm: 32 },
                   minWidth: 0,
                   px: { xs: 0.5, sm: 1.25 },
                   "&:hover": {
@@ -120,19 +122,34 @@ function AppNavigation() {
 
 function RoutedContent() {
   const location = useLocation()
+  const mainRef = useRef<HTMLElement>(null)
+  const previousPathnameRef = useRef(location.pathname)
   const isDebateDetail = /^\/debates\/[^/]+\/?$/.test(location.pathname)
   const isResearchDetail = /^\/(deep-search|ideas)\/[^/]+\/?$/.test(
     location.pathname,
   )
 
+  useEffect(() => {
+    if (previousPathnameRef.current === location.pathname) return
+    previousPathnameRef.current = location.pathname
+    window.scrollTo({ behavior: "auto", left: 0, top: 0 })
+    const heading = mainRef.current?.querySelector<HTMLElement>("h1")
+    const focusTarget = heading ?? mainRef.current
+    if (heading) heading.tabIndex = -1
+    focusTarget?.focus({ preventScroll: true })
+  }, [location.pathname])
+
   return (
     <Container
       component="main"
       maxWidth={isDebateDetail ? "xl" : isResearchDetail ? "lg" : "md"}
+      ref={mainRef}
       sx={{
         flex: 1,
+        outline: "none",
         py: { xs: 3, sm: 4.5 },
       }}
+      tabIndex={-1}
     >
       <Routes>
         <Route path="/" element={<Home />} />

@@ -62,7 +62,24 @@ export function DebateView({
         </Button>
       </Stack>
 
-      {tournament.error && <Alert severity="error">{tournament.error}</Alert>}
+      {tournament.error && (
+        <Alert severity="error">
+          <Stack spacing={1.5} sx={{ alignItems: "flex-start" }}>
+            <Typography variant="body2">
+              The tournament stopped before it could finish. You can review the
+              completed matches below or start a new tournament.
+            </Typography>
+            <Button
+              color="inherit"
+              component={Link}
+              size="small"
+              to="/debates"
+            >
+              Start a new tournament
+            </Button>
+          </Stack>
+        </Alert>
+      )}
       {winner && <WinnerIdeaCard idea={winner} />}
 
       <Box

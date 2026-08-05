@@ -36,7 +36,7 @@ export function ResearchRequestForm({
           disabled={isSearching}
         />
         <Button
-          disabled={isSearching}
+          disabled={isSearching || !researchRequest.trim()}
           sx={{ alignSelf: { xs: "stretch", sm: "flex-start" } }}
           type="submit"
           variant="contained"

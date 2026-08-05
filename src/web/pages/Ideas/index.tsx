@@ -1,14 +1,12 @@
 import {
   CircularProgress,
   List,
-  ListItemButton,
-  ListItemText,
   Paper,
   Stack,
   Typography,
 } from "@mui/material"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link, useNavigate, useParams } from "react-router-dom"
+import { useNavigate, useParams } from "react-router-dom"
 import {
   createIdeaJob,
   getIdeaJob,
@@ -19,6 +17,7 @@ import { IdeaPromptForm } from "./components/IdeaPromptForm.tsx"
 import { useIdeaJob } from "./useIdeaJob.ts"
 import { RequestError } from "../../components/RequestError.tsx"
 import { JobStatusBadge } from "../../components/JobStatusBadge.tsx"
+import { JobHistoryListItem } from "../../components/JobHistoryListItem.tsx"
 
 const ideaJobsQueryKey = ["idea-jobs"] as const
 
@@ -73,21 +72,13 @@ function IdeaHistory() {
           <Paper variant="outlined">
             <List disablePadding>
               {history.data.map((job) => (
-                <ListItemButton
+                <JobHistoryListItem
                   key={job.ideaJobId}
-                  component={Link}
+                  date={formatCreatedAt(job.createdAt)}
+                  label={job.prompt}
+                  status={<JobStatusBadge status={job.status} />}
                   to={`/ideas/${job.ideaJobId}`}
-                  divider
-                >
-                  <ListItemText
-                    primary={job.prompt}
-                    secondary={formatCreatedAt(job.createdAt)}
-                    slotProps={{
-                      primary: { sx: { overflowWrap: "anywhere" } },
-                    }}
-                  />
-                  <JobStatusBadge status={job.status} />
-                </ListItemButton>
+                />
               ))}
             </List>
           </Paper>

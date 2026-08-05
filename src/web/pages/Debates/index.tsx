@@ -3,15 +3,13 @@ import {
   Chip,
   CircularProgress,
   List,
-  ListItemButton,
-  ListItemText,
   Paper,
   Stack,
   Typography,
 } from "@mui/material"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
-import { Link, useNavigate, useParams } from "react-router-dom"
+import { useNavigate, useParams } from "react-router-dom"
 import { createDebateJob, getDebateJobs } from "../../lib/debateJobs.ts"
 import { DebatePromptForm } from "./components/DebatePromptForm.tsx"
 import { DebateView } from "./components/DebateView.tsx"
@@ -19,6 +17,7 @@ import { debateStatusPresentation } from "./debatePresentation.ts"
 import { useDebateJob } from "./useDebateJob.ts"
 import { RequestError } from "../../components/RequestError.tsx"
 import { getRequestErrorMessage } from "../../lib/requestErrors.ts"
+import { JobHistoryListItem } from "../../components/JobHistoryListItem.tsx"
 
 const debateJobsQueryKey = ["debate-jobs"] as const
 
@@ -74,26 +73,20 @@ function DebateStart() {
               {history.data.map((job) => {
                 const status = debateStatusPresentation[job.status]
                 return (
-                  <ListItemButton
+                  <JobHistoryListItem
                     key={job.debateJobId}
-                    component={Link}
-                    divider
+                    date={formatCreatedAt(job.createdAt)}
+                    label={job.prompt}
+                    status={
+                      <Chip
+                        color={status.color}
+                        label={status.label}
+                        size="small"
+                        variant="outlined"
+                      />
+                    }
                     to={`/debates/${job.debateJobId}`}
-                  >
-                    <ListItemText
-                      primary={job.prompt}
-                      secondary={formatCreatedAt(job.createdAt)}
-                      slotProps={{
-                        primary: { sx: { overflowWrap: "anywhere" } },
-                      }}
-                    />
-                    <Chip
-                      color={status.color}
-                      label={status.label}
-                      size="small"
-                      variant="outlined"
-                    />
-                  </ListItemButton>
+                  />
                 )
               })}
             </List>

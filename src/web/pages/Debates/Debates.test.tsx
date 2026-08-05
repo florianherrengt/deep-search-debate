@@ -228,7 +228,15 @@ describe("Debates", () => {
     renderDebates("/debates/debate-id")
 
     expect(await screen.findByText("Tournament failed")).toBeVisible()
-    expect(screen.getByText("Judge generation failed")).toBeVisible()
+    expect(
+      screen.getByText(
+        "The tournament stopped before it could finish. You can review the completed matches below or start a new tournament.",
+      ),
+    ).toBeVisible()
+    expect(screen.queryByText("Judge generation failed")).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Start a new tournament" }),
+    ).toHaveAttribute("href", "/debates")
     expect(mocks.getDebateJob).toHaveBeenCalledTimes(2)
   })
 

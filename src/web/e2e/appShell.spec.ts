@@ -30,21 +30,26 @@ test.describe("Application shell", () => {
       const appBar = document.querySelector(".MuiAppBar-root")
       return {
         appBarHeight: appBar?.getBoundingClientRect().height ?? Infinity,
+        navigationTargetHeights:
+          navigation === null
+            ? []
+            : Array.from(navigation.querySelectorAll("a"), (link) =>
+                link.getBoundingClientRect().height,
+              ),
         navigationFits:
           navigation !== null &&
           navigation.scrollWidth <= navigation.clientWidth,
-        pageHeightFits:
-          document.documentElement.scrollHeight <=
-          document.documentElement.clientHeight,
         pageFits:
           document.documentElement.scrollWidth <=
           document.documentElement.clientWidth,
       }
     })
     expect(mobileLayout.navigationFits).toBe(true)
-    expect(mobileLayout.pageHeightFits).toBe(true)
     expect(mobileLayout.pageFits).toBe(true)
     expect(mobileLayout.appBarHeight).toBeLessThan(90)
+    expect(
+      mobileLayout.navigationTargetHeights.every((height) => height >= 44),
+    ).toBe(true)
 
     const brand = page.getByRole("link", { name: "Deep Search Debate home" })
     await page.keyboard.press("Tab")
@@ -71,5 +76,15 @@ test.describe("Application shell", () => {
         .getByRole("link", { name: "About" })
         .evaluate((element) => getComputedStyle(element).textTransform),
     ).toBe("none")
+
+    const tournamentLink = page
+      .getByRole("main")
+      .getByRole("link", { name: "Start a tournament" })
+    await tournamentLink.scrollIntoViewIfNeeded()
+    await tournamentLink.click()
+
+    const debateHeading = page.getByRole("heading", { name: "Debate ideas" })
+    await expect(debateHeading).toBeFocused()
+    expect(await page.evaluate(() => window.scrollY)).toBe(0)
   })
 })

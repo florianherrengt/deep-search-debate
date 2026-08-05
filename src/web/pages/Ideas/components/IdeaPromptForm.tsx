@@ -33,7 +33,7 @@ export function IdeaPromptForm({
           disabled={isGenerating}
         />
         <Button
-          disabled={isGenerating}
+          disabled={isGenerating || !prompt.trim()}
           sx={{ alignSelf: { xs: "stretch", sm: "flex-start" } }}
           type="submit"
           variant="contained"

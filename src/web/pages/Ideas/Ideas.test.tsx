@@ -3,7 +3,6 @@ import {
   render,
   screen,
   waitFor,
-  within,
 } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
@@ -103,11 +102,14 @@ describe("Ideas", () => {
     mocks.subscribeToTextStream.mockImplementation(textEvents)
 
     renderIdeas()
+    const submit = screen.getByRole("button", { name: "Generate 12 ideas" })
+    expect(submit).toBeDisabled()
     fireEvent.change(
       screen.getByLabelText("What should we generate ideas for?"),
       { target: { value: "Ideas for independent cafés" } },
     )
-    fireEvent.click(screen.getByRole("button", { name: "Generate 12 ideas" }))
+    expect(submit).toBeEnabled()
+    fireEvent.click(submit)
 
     expect(await screen.findByText("Prep Forecast")).toBeVisible()
     expect(
@@ -115,13 +117,9 @@ describe("Ideas", () => {
     ).toBeVisible()
     expect(screen.getAllByRole("status")).toHaveLength(1)
     expect(screen.getByRole("status")).toHaveTextContent(
-      "Idea generation: Response complete",
+      "Generating 12 ideas…",
     )
-    await waitFor(() =>
-      expect(screen.getByTestId("idea-generation")).toHaveTextContent(
-        "Prep Forecast",
-      ),
-    )
+    expect(screen.queryByText("Raw structured output")).not.toBeInTheDocument()
     expect(mocks.createIdeaJob).toHaveBeenCalledWith({
       prompt: "Ideas for independent cafés",
     })
@@ -139,18 +137,35 @@ describe("Ideas", () => {
         name: "Research proven café interventions",
       }),
     ).toHaveAttribute("href", "/deep-search/search-two")
+  })
 
-    const output = screen
-      .getByText("Raw structured output")
-      .closest(".MuiPaper-root")
-    if (!(output instanceof HTMLElement)) {
-      throw new Error("Raw idea output was not rendered")
-    }
-    const reasoning = within(output).getByRole("button", {
-      name: "Show reasoning",
-    })
-    fireEvent.click(reasoning)
-    expect(screen.getByText("Reasoning for ideas")).toBeVisible()
+  it("opens completed idea results by default without exposing provider output", () => {
+    render(
+      <IdeaJobView
+        prompt="Generate ideas"
+        run={{
+          status: "completed",
+          failedStage: null,
+          researchPromptStreamId: null,
+          research: [],
+          researchSummaryStreamId: null,
+          ideaGenerationStreamId: null,
+          ideas: [
+            {
+              title: "Prep Forecast",
+              description: "Recommend daily prep quantities from recent demand.",
+            },
+          ],
+          error: null,
+        }}
+      />,
+    )
+
+    expect(
+      screen.getByRole("button", { name: /Generate ideas Complete/ }),
+    ).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByRole("heading", { name: "Prep Forecast" })).toBeVisible()
+    expect(screen.queryByText("Raw structured output")).not.toBeInTheDocument()
   })
 
   it("marks the stage that failed instead of treating its stream as complete", () => {

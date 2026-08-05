@@ -174,7 +174,8 @@ test.describe("Ideas", () => {
 
     const ideaStage = page.getByRole("button", { name: /Generate ideas/ })
     await expect(ideaStage).toContainText("Complete")
-    await ideaStage.click()
+    await expect(ideaStage).toHaveAttribute("aria-expanded", "true")
+    await expect(page.getByText("Raw structured output")).toHaveCount(0)
     for (const idea of ideas) {
       await expect(
         page.getByRole("heading", { name: idea.title, exact: true }).first(),
@@ -235,7 +236,7 @@ test.describe("Ideas", () => {
       name: /Generate ideas/,
     })
     await expect(replayedIdeaStage).toContainText("Complete")
-    await replayedIdeaStage.click()
+    await expect(replayedIdeaStage).toHaveAttribute("aria-expanded", "true")
     for (const idea of ideas) {
       await expect(
         page.getByRole("heading", { name: idea.title, exact: true }).first(),

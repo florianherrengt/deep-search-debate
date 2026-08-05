@@ -301,6 +301,12 @@ test.describe("Deep search", () => {
     await expect(page.getByTestId("final-answer")).toHaveText(
       streamedFinalAnswer,
     )
+    await page.setViewportSize({ width: 390, height: 844 })
+    expect(
+      await page
+        .locator("html")
+        .evaluate((element) => element.scrollWidth <= element.clientWidth),
+    ).toBe(true)
     await expect(
       page.getByRole("heading", {
         name: searchResults?.searches[0]?.query ?? "",
