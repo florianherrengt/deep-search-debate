@@ -1,6 +1,18 @@
 import type z from "zod"
 import { readNdjson } from "./ndjson.ts"
 
+export class ApiError extends Error {
+  override readonly name = "ApiError"
+
+  constructor(
+    readonly method: string,
+    readonly url: string,
+    readonly status: number,
+  ) {
+    super(`${method} ${url} failed: ${status}`)
+  }
+}
+
 /** Fetches JSON and validates the response at the network boundary. */
 export async function getJson<Schema extends z.ZodType>(
   url: string,
@@ -10,7 +22,7 @@ export async function getJson<Schema extends z.ZodType>(
   const response = await fetch(url, { signal })
 
   if (!response.ok) {
-    throw new Error(`GET ${url} failed: ${response.status}`)
+    throw new ApiError("GET", url, response.status)
   }
 
   return schema.parse(await response.json())
@@ -31,7 +43,7 @@ export async function postJson<Schema extends z.ZodType>(
   })
 
   if (!response.ok) {
-    throw new Error(`POST ${url} failed: ${response.status}`)
+    throw new ApiError("POST", url, response.status)
   }
 
   return schema.parse(await response.json())
@@ -47,7 +59,7 @@ export async function* subscribeToNdjson<Schema extends z.ZodType>(
   const response = await fetch(url, { signal })
 
   if (!response.ok) {
-    throw new Error(`GET ${url} failed: ${response.status}`)
+    throw new ApiError("GET", url, response.status)
   }
   if (!response.body) {
     throw new Error(`GET ${url} response has no body`)

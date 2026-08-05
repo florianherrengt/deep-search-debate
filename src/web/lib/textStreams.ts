@@ -13,10 +13,12 @@ export type TextStreamEvent = z.infer<typeof textStreamEventSchema>
 export async function* subscribeToTextStream(
   id: string,
   signal?: AbortSignal,
+  onOpen?: () => void,
 ): AsyncGenerator<TextStreamEvent> {
   yield* subscribeToNdjson(
     `/api/streams/${encodeURIComponent(id)}`,
     textStreamEventSchema,
     signal,
+    onOpen,
   )
 }

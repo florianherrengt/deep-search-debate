@@ -69,8 +69,8 @@ const deepSearchJobSchema = z.object({
   maxResultsPerSearch: z.number().int().positive(),
   status: z.enum(["running", "completed", "failed", "interrupted"]),
   error: z.string().nullable(),
-  createdAt: z.string(),
-  completedAt: z.string().nullable(),
+  createdAt: z.iso.datetime().transform((value) => new Date(value)),
+  completedAt: z.iso.datetime().transform((value) => new Date(value)).nullable(),
 })
 
 const createDeepSearchJobResponseSchema = z.object({
@@ -129,10 +129,12 @@ export async function getDeepSearchJob(
 export async function* subscribeToDeepSearchJob(
   deepSearchJobId: string,
   signal?: AbortSignal,
+  onOpen?: () => void,
 ): AsyncGenerator<DeepSearchJobEvent> {
   yield* subscribeToNdjson(
     `/api/deep-search-jobs/${encodeURIComponent(deepSearchJobId)}/events`,
     deepSearchJobEventSchema,
     signal,
+    onOpen,
   )
 }

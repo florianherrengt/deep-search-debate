@@ -2,8 +2,8 @@ import { Stack, Typography } from "@mui/material"
 import {
   useTextStream,
   type TextStreamState,
-} from "../useTextStream.ts"
-import { TextStreamOutput } from "./TextStreamOutput.tsx"
+} from "../../../components/streaming/useTextStream.ts"
+import { TextStreamOutput } from "../../../components/streaming/TextStreamOutput.tsx"
 
 type QuerySummaryProps = {
   query: string
@@ -15,6 +15,8 @@ function getQuerySummaryLabel(status: TextStreamState["status"]): string {
     case "idle":
     case "streaming":
       return "Summarizing findings…"
+    case "reconnecting":
+      return "Reconnecting to search summary…"
     case "completed":
       return "What this search found"
     case "error":

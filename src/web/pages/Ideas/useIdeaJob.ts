@@ -1,35 +1,49 @@
-import { useEffect, useReducer } from "react"
+import { useEffect, useReducer, useState } from "react"
 import { subscribeToIdeaJob } from "../../lib/ideaJobs.ts"
-import { getErrorMessage } from "../../lib/errors.ts"
+import { followReplayableStream } from "../../lib/replayStream.ts"
 import { ideaJobReducer, initialIdeaJobState } from "./ideaJobState.ts"
 
 export function useIdeaJob(ideaJobId: string) {
   const [state, dispatch] = useReducer(ideaJobReducer, initialIdeaJobState)
+  const [observedSubscriptionError, setObservedSubscriptionError] = useState<{
+    ideaJobId: string
+    message: string
+  } | null>(null)
+  const subscriptionError =
+    observedSubscriptionError?.ideaJobId === ideaJobId
+      ? observedSubscriptionError.message
+      : null
 
   useEffect(() => {
     const controller = new AbortController()
     dispatch({ type: "opened" })
 
-    void (async () => {
-      try {
-        for await (const event of subscribeToIdeaJob(
+    void followReplayableStream({
+      signal: controller.signal,
+      subscribe: (onOpen) =>
+        subscribeToIdeaJob(
           ideaJobId,
           controller.signal,
-        )) {
-          dispatch(event)
-        }
-      } catch (error) {
-        if (!controller.signal.aborted) {
-          dispatch({
-            type: "request-failed",
-            message: getErrorMessage(error),
-          })
-        }
-      }
-    })()
+          onOpen,
+        ),
+      isTerminal: (event) => event.type === "done",
+      onOpen: () => {
+        setObservedSubscriptionError(null)
+      },
+      onReplayStart: () => dispatch({ type: "opened" }),
+      onEvent: dispatch,
+      onDisconnect: (_error, willRetry) => {
+        setObservedSubscriptionError({
+          ideaJobId,
+          message: willRetry
+            ? "Live updates were interrupted. Reconnecting…"
+            : "Live updates are unavailable. Reload the page to try again.",
+        })
+      },
+    })
 
     return () => controller.abort()
   }, [ideaJobId])
 
-  return state
+  return { ...state, subscriptionError }
 }

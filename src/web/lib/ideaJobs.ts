@@ -43,8 +43,8 @@ const ideaJobSchema = z.object({
   deepSearchCount: z.number().int().positive(),
   status: z.enum(["running", "completed", "failed", "interrupted"]),
   error: z.string().nullable(),
-  createdAt: z.string(),
-  completedAt: z.string().nullable(),
+  createdAt: z.iso.datetime().transform((value) => new Date(value)),
+  completedAt: z.iso.datetime().transform((value) => new Date(value)).nullable(),
 })
 
 const createIdeaJobResponseSchema = z.object({
@@ -107,10 +107,12 @@ export async function getIdeaJob(
 export async function* subscribeToIdeaJob(
   ideaJobId: string,
   signal?: AbortSignal,
+  onOpen?: () => void,
 ): AsyncGenerator<IdeaJobEvent> {
   yield* subscribeToNdjson(
     `/api/idea-jobs/${encodeURIComponent(ideaJobId)}/events`,
     ideaJobEventSchema,
     signal,
+    onOpen,
   )
 }

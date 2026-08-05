@@ -59,8 +59,8 @@ const debateJobSummarySchema = z.object({
   stage: debateTournamentSchema.shape.stage,
   status: debateTournamentSchema.shape.status,
   error: z.string().nullable(),
-  createdAt: z.iso.datetime(),
-  completedAt: z.iso.datetime().nullable(),
+  createdAt: z.iso.datetime().transform((value) => new Date(value)),
+  completedAt: z.iso.datetime().transform((value) => new Date(value)).nullable(),
 })
 
 const debateJobEventSchema = z.discriminatedUnion("type", [

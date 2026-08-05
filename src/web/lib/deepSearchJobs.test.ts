@@ -161,8 +161,13 @@ describe("deep search jobs client", () => {
       .mockResolvedValueOnce(Response.json({ deepSearchJob: job }))
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(getDeepSearchJobs()).resolves.toEqual([job])
-    await expect(getDeepSearchJob("job-id")).resolves.toEqual(job)
+    const parsedJob = {
+      ...job,
+      createdAt: new Date(job.createdAt),
+      completedAt: new Date(job.completedAt),
+    }
+    await expect(getDeepSearchJobs()).resolves.toEqual([parsedJob])
+    await expect(getDeepSearchJob("job-id")).resolves.toEqual(parsedJob)
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/deep-search-jobs", {
       signal: undefined,
     })
@@ -191,5 +196,29 @@ describe("deep search jobs client", () => {
     await expect(
       drain(subscribeToDeepSearchJob("job-id")),
     ).rejects.toThrow()
+  })
+
+  it("rejects malformed job timestamps before they reach the UI", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          deepSearchJobs: [
+            {
+              deepSearchJobId: "job-id",
+              researchRequest: "Research this",
+              maxSearches: 3,
+              maxResultsPerSearch: 3,
+              status: "running",
+              error: null,
+              createdAt: "not-a-date",
+              completedAt: null,
+            },
+          ],
+        }),
+      ),
+    )
+
+    await expect(getDeepSearchJobs()).rejects.toThrow()
   })
 })

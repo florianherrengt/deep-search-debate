@@ -1,5 +1,4 @@
 import {
-  Alert,
   Chip,
   CircularProgress,
   List,
@@ -21,14 +20,15 @@ import { DeepSearchHeader } from "./components/DeepSearchHeader.tsx"
 import { DeepSearchView } from "./components/DeepSearchView.tsx"
 import { ResearchRequestForm } from "./components/ResearchRequestForm.tsx"
 import { useDeepSearchJob } from "./useDeepSearchJob.ts"
+import { RequestError } from "../../components/RequestError.tsx"
 
 const deepSearchJobsQueryKey = ["deep-search-jobs"] as const
 
-function formatCreatedAt(value: string): string {
+function formatCreatedAt(value: Date): string {
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
-  }).format(new Date(value))
+  }).format(value)
 }
 
 function statusColor(
@@ -69,7 +69,7 @@ function DeepSearchHistory() {
         onSubmit={(request) => creation.mutate(request)}
       />
       {creation.error && (
-        <Alert severity="error">{creation.error.message}</Alert>
+        <RequestError error={creation.error} />
       )}
 
       <Stack component="section" spacing={1.5} aria-labelledby="search-history">
@@ -77,7 +77,12 @@ function DeepSearchHistory() {
           Previous searches
         </Typography>
         {history.isPending && <CircularProgress size={24} />}
-        {history.error && <Alert severity="error">{history.error.message}</Alert>}
+        {history.error && (
+          <RequestError
+            error={history.error}
+            onRetry={() => void history.refetch()}
+          />
+        )}
         {history.data?.length === 0 && (
           <Typography color="text.secondary">No deep searches yet.</Typography>
         )}
@@ -121,7 +126,16 @@ function DeepSearchDetail({ deepSearchJobId }: { deepSearchJobId: string }) {
   const run = useDeepSearchJob(deepSearchJobId)
 
   if (job.isPending) return <CircularProgress />
-  if (job.error) return <Alert severity="error">{job.error.message}</Alert>
+  if (job.error) {
+    return (
+      <RequestError
+        error={job.error}
+        notFoundMessage="This deep search does not exist or is no longer available."
+        notFoundTitle="Deep search not found"
+        onRetry={() => void job.refetch()}
+      />
+    )
+  }
 
   return (
     <DeepSearchView

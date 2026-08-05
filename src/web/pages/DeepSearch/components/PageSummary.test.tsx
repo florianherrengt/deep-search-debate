@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen } from "@testing-library/react"
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({ subscribeToTextStream: vi.fn() }))
@@ -73,5 +79,49 @@ describe("PageSummary", () => {
     ).toBeInTheDocument()
     expect(screen.getByText("Extraction failed")).toBeInTheDocument()
     expect(mocks.subscribeToTextStream).not.toHaveBeenCalled()
+  })
+
+  it("reconnects instead of completing a text stream after premature EOF", async () => {
+    const replay = Promise.withResolvers<void>()
+    mocks.subscribeToTextStream
+      .mockImplementationOnce(async function* () {
+        await Promise.resolve()
+        yield { type: "text" as const, text: "Partial" }
+      })
+      .mockImplementationOnce(async function* (
+        _id: string,
+        _signal?: AbortSignal,
+        onOpen?: () => void,
+      ) {
+        onOpen?.()
+        await replay.promise
+        yield { type: "text" as const, text: "Complete summary" }
+        yield { type: "done" as const }
+      })
+
+    render(
+      <PageSummary
+        summary={{ status: "stream", streamId: "summary-stream-id" }}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(mocks.subscribeToTextStream).toHaveBeenCalledTimes(2),
+    )
+    expect(
+      screen.queryByText("Live response interrupted. Reconnecting…"),
+    ).not.toBeInTheDocument()
+    expect(screen.getByTestId("page-summary-text")).toHaveTextContent(
+      "Partial",
+    )
+
+    await act(async () => {
+      replay.resolve()
+      await replay.promise
+    })
+    expect(await screen.findByText("Source findings")).toBeVisible()
+    expect(screen.getByTestId("page-summary-text")).toHaveTextContent(
+      "Complete summary",
+    )
   })
 })

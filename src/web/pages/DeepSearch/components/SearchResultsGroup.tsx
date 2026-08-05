@@ -10,7 +10,7 @@ import {
   Typography,
 } from "@mui/material"
 import type { DeepSearchSearchState } from "../deepSearchState.ts"
-import { GenerationOutput } from "./GenerationOutput.tsx"
+import { GenerationOutput } from "../../../components/streaming/GenerationOutput.tsx"
 import { QuerySummary } from "./QuerySummary.tsx"
 import { SearchResultCard } from "./SearchResultCard.tsx"
 
@@ -63,6 +63,7 @@ export function SearchResultsGroup({
 
         {search.selectionStreamId && (
           <GenerationOutput
+            headingComponent="h4"
             streamId={search.selectionStreamId}
             title="Source selection"
             waitingText="Selecting sources…"

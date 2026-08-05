@@ -1,5 +1,4 @@
 import {
-  Alert,
   Chip,
   CircularProgress,
   List,
@@ -20,14 +19,15 @@ import {
 import { IdeaJobView } from "./components/IdeaJobView.tsx"
 import { IdeaPromptForm } from "./components/IdeaPromptForm.tsx"
 import { useIdeaJob } from "./useIdeaJob.ts"
+import { RequestError } from "../../components/RequestError.tsx"
 
 const ideaJobsQueryKey = ["idea-jobs"] as const
 
-function formatCreatedAt(value: string): string {
+function formatCreatedAt(value: Date): string {
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
-  }).format(new Date(value))
+  }).format(value)
 }
 
 function statusColor(
@@ -68,14 +68,19 @@ function IdeaHistory() {
         isGenerating={creation.isPending}
         onSubmit={(prompt) => creation.mutate(prompt)}
       />
-      {creation.error && <Alert severity="error">{creation.error.message}</Alert>}
+      {creation.error && <RequestError error={creation.error} />}
 
       <Stack component="section" spacing={1.5} aria-labelledby="idea-history">
         <Typography id="idea-history" component="h2" variant="h5">
           Previous idea runs
         </Typography>
         {history.isPending && <CircularProgress size={24} />}
-        {history.error && <Alert severity="error">{history.error.message}</Alert>}
+        {history.error && (
+          <RequestError
+            error={history.error}
+            onRetry={() => void history.refetch()}
+          />
+        )}
         {history.data?.length === 0 && (
           <Typography color="text.secondary">No idea runs yet.</Typography>
         )}
@@ -119,7 +124,16 @@ function IdeaDetail({ ideaJobId }: { ideaJobId: string }) {
   const run = useIdeaJob(ideaJobId)
 
   if (job.isPending) return <CircularProgress />
-  if (job.error) return <Alert severity="error">{job.error.message}</Alert>
+  if (job.error) {
+    return (
+      <RequestError
+        error={job.error}
+        notFoundMessage="This idea run does not exist or is no longer available."
+        notFoundTitle="Idea run not found"
+        onRetry={() => void job.refetch()}
+      />
+    )
+  }
   return <IdeaJobView prompt={job.data.prompt} run={run} />
 }
 

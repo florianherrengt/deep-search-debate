@@ -37,6 +37,7 @@ Do not load unrelated checklists. These files supplement scoped documentation an
 
 Detailed guidance lives in per-folder `docs/` files. Read the relevant one with your Read tool before working in that area — they hold gotchas you would otherwise miss:
 
+- `src/web/docs/standards.md` — frontend architecture, dependencies, React and MUI patterns, state ownership, API boundaries, accessibility, and testing. Read before changing frontend code.
 - `src/api/docs/runtime.md` — no build step, `--experimental-strip-types`, required env, external services. Read before touching API startup, config, or imports.
 - `src/api/docs/standards.md` — Zod everywhere, `z.function()` pattern, Hono route conventions. Read before adding routes, validation, or service functions.
 - `src/api/docs/testing.md` — vitest mock conventions, in-memory SQLite. Read before writing or editing API tests.

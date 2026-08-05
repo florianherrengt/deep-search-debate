@@ -16,7 +16,7 @@ import {
 } from "@mui/material"
 import { alpha } from "@mui/material/styles"
 import { useEffect, useRef } from "react"
-import { useTextStream } from "../../DeepSearch/useTextStream.ts"
+import { useTextStream } from "../../../components/streaming/useTextStream.ts"
 import type {
   DebateMatch,
   DebateTranscriptMessage,
@@ -126,7 +126,9 @@ function TranscriptMessage({
                 variant="outlined"
               />
             )}
-            {streaming && stream.status === "streaming" && (
+            {streaming &&
+              (stream.status === "streaming" ||
+                stream.status === "reconnecting") && (
               <CircularProgress size={12} />
             )}
             <Typography color="text.secondary" sx={{ ml: "auto" }} variant="caption">
@@ -143,8 +145,11 @@ function TranscriptMessage({
           >
             {text}
           </Typography>
-          {stream.status === "error" && (
-            <Typography color="error" variant="caption">
+          {(stream.status === "error" || stream.status === "reconnecting") && (
+            <Typography
+              color={stream.status === "error" ? "error" : "warning.main"}
+              variant="caption"
+            >
               {stream.message}
             </Typography>
           )}

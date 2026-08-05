@@ -1,5 +1,5 @@
 import { Alert, Card, CardContent, Stack, Typography } from "@mui/material"
-import { GenerationOutput } from "../../DeepSearch/components/GenerationOutput.tsx"
+import { GenerationOutput } from "../../../components/streaming/GenerationOutput.tsx"
 import type { IdeaJobRunState } from "../ideaJobState.ts"
 import {
   ProgressCard,
@@ -27,7 +27,7 @@ export function IdeaJobView({
   run,
 }: {
   prompt: string
-  run: IdeaJobRunState
+  run: IdeaJobRunState & { subscriptionError?: string | null }
 }) {
   // Stream boundaries normally mark prior stages complete. An explicit failed
   // stage also proves that every preceding stage completed, including failures
@@ -73,11 +73,14 @@ export function IdeaJobView({
         <Typography component="h1" variant="h4">
           Ideas
         </Typography>
-        <Typography variant="h6" sx={{ overflowWrap: "anywhere" }}>
+        <Typography component="p" variant="h6" sx={{ overflowWrap: "anywhere" }}>
           {prompt}
         </Typography>
       </Stack>
       {run.error && <Alert severity="error">{run.error}</Alert>}
+      {run.subscriptionError && !run.error && (
+        <Alert severity="warning">{run.subscriptionError}</Alert>
+      )}
 
       <ProgressCard
         title="Plan the research"
@@ -85,6 +88,7 @@ export function IdeaJobView({
       >
         {run.researchPromptStreamId && (
           <GenerationOutput
+            headingComponent="h3"
             streamId={run.researchPromptStreamId}
             title="Research prompts"
             waitingText="Planning research…"
@@ -106,6 +110,7 @@ export function IdeaJobView({
       >
         {run.researchSummaryStreamId && (
           <GenerationOutput
+            headingComponent="h3"
             streamId={run.researchSummaryStreamId}
             title="Research briefing"
             waitingText="Summarising research…"
@@ -121,6 +126,8 @@ export function IdeaJobView({
         <Stack spacing={2}>
           {run.ideaGenerationStreamId && (
             <GenerationOutput
+              announcementLabel="Idea generation"
+              headingComponent="h3"
               streamId={run.ideaGenerationStreamId}
               title="Raw structured output"
               waitingText="Generating ideas…"

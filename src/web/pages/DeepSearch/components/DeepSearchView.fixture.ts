@@ -189,6 +189,7 @@ export async function* subscribeToStoryStream(
   const error = streamErrors[id]
   if (error) {
     yield { type: "error", message: error }
+    yield { type: "done" }
     return
   }
 

@@ -1,0 +1,57 @@
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { getIdeaJobs } from "./ideaJobs.ts"
+
+describe("idea jobs client", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it("validates and transforms durable job timestamps", async () => {
+    const job = {
+      ideaJobId: "idea-id",
+      prompt: "Generate ideas",
+      stage: "ideas",
+      numberOfIdeas: 12,
+      deepSearchCount: 2,
+      status: "completed",
+      error: null,
+      createdAt: "2026-08-04T12:00:00.000Z",
+      completedAt: "2026-08-04T12:30:00.000Z",
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(Response.json({ ideaJobs: [job] })),
+    )
+
+    await expect(getIdeaJobs()).resolves.toEqual([
+      {
+        ...job,
+        createdAt: new Date(job.createdAt),
+        completedAt: new Date(job.completedAt),
+      },
+    ])
+  })
+
+  it("rejects malformed durable job timestamps", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          ideaJobs: [
+            {
+              ideaJobId: "idea-id",
+              prompt: "Generate ideas",
+              stage: "ideas",
+              numberOfIdeas: 12,
+              deepSearchCount: 2,
+              status: "running",
+              error: null,
+              createdAt: "not-an-iso-timestamp",
+              completedAt: null,
+            },
+          ],
+        }),
+      ),
+    )
+
+    await expect(getIdeaJobs()).rejects.toThrow()
+  })
+})

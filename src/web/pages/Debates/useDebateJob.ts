@@ -4,27 +4,10 @@ import {
   getDebateJob,
   subscribeToDebateJob,
 } from "../../lib/debateJobs.ts"
-import { getErrorMessage } from "../../lib/errors.ts"
+import { followReplayableStream } from "../../lib/replayStream.ts"
 
 const debateJobQueryKey = (debateJobId: string) =>
   ["debate-jobs", debateJobId] as const
-
-const INITIAL_RECONNECT_DELAY_MS = 100
-const MAX_RECONNECT_DELAY_MS = 2_000
-
-function waitForReconnect(signal: AbortSignal, delayMs: number): Promise<void> {
-  if (signal.aborted) return Promise.resolve()
-
-  return new Promise((resolve) => {
-    const finish = () => {
-      clearTimeout(timeout)
-      signal.removeEventListener("abort", finish)
-      resolve()
-    }
-    const timeout = setTimeout(finish, delayMs)
-    signal.addEventListener("abort", finish, { once: true })
-  })
-}
 
 /** Reads the durable snapshot, then follows lightweight invalidation events. */
 export function useDebateJob(debateJobId: string) {
@@ -43,51 +26,35 @@ export function useDebateJob(debateJobId: string) {
 
     const controller = new AbortController()
 
-    void (async () => {
-      let reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS
-
-      while (!controller.signal.aborted) {
-        let receivedDone = false
-
-        try {
-          for await (const event of subscribeToDebateJob(
-            debateJobId,
-            controller.signal,
-            () => setSubscriptionFailure(null),
-          )) {
-            if (event.type === "updated") {
-              setSubscriptionFailure(null)
-            } else if (event.type === "error") {
-              setSubscriptionFailure({
-                debateJobId,
-                message: event.message,
-              })
-            } else {
-              receivedDone = true
-            }
-
-            void queryClient.invalidateQueries({
-              queryKey: debateJobQueryKey(debateJobId),
-            })
-          }
-
-          if (receivedDone || controller.signal.aborted) return
-          throw new Error("Debate update stream ended before completion")
-        } catch (error) {
-          if (controller.signal.aborted) return
-
+    void followReplayableStream({
+      signal: controller.signal,
+      subscribe: (onOpen) =>
+        subscribeToDebateJob(debateJobId, controller.signal, onOpen),
+      isTerminal: (event) => event.type === "done",
+      onOpen: () => setSubscriptionFailure(null),
+      onEvent: (event) => {
+        if (event.type === "updated") {
+          setSubscriptionFailure(null)
+        } else if (event.type === "error") {
           setSubscriptionFailure({
             debateJobId,
-            message: getErrorMessage(error),
+            message: event.message,
           })
-          await waitForReconnect(controller.signal, reconnectDelayMs)
-          reconnectDelayMs = Math.min(
-            reconnectDelayMs * 2,
-            MAX_RECONNECT_DELAY_MS,
-          )
         }
-      }
-    })()
+
+        void queryClient.invalidateQueries({
+          queryKey: debateJobQueryKey(debateJobId),
+        })
+      },
+      onDisconnect: (_error, willRetry) => {
+        setSubscriptionFailure({
+          debateJobId,
+          message: willRetry
+            ? "Live updates were interrupted. Reconnecting…"
+            : "Live updates are unavailable. Reload the page to try again.",
+        })
+      },
+    })
 
     return () => controller.abort()
   }, [debateJobId, query.data?.status, queryClient])

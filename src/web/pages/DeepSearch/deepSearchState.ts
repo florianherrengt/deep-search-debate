@@ -40,7 +40,6 @@ export const initialDeepSearchState: DeepSearchRunState = {
 type DeepSearchAction =
   | DeepSearchJobEvent
   | { type: "opened" }
-  | { type: "request-failed"; message: string }
 
 function createSearchState(
   searches: DeepSearchResults[],
@@ -127,7 +126,6 @@ export const deepSearchReducer = produce<
       state.finalAnswerStreamId = action.streamId
       break
     case "error":
-    case "request-failed":
       state.status = "failed"
       state.error = action.message
       break

@@ -11,6 +11,7 @@ import { About } from "./pages/About.tsx"
 import { DeepSearch } from "./pages/DeepSearch/index.tsx"
 import { Ideas } from "./pages/Ideas/index.tsx"
 import { Debates } from "./pages/Debates/index.tsx"
+import { NotFound } from "./components/NotFound.tsx"
 
 function RoutedContent() {
   const location = useLocation()
@@ -30,6 +31,7 @@ function RoutedContent() {
         <Route path="/debates" element={<Debates />} />
         <Route path="/debates/:debateJobId" element={<Debates />} />
         <Route path="/about" element={<About />} />
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </Container>
   )
@@ -41,6 +43,7 @@ export function App() {
       <AppBar position="static">
         <Toolbar sx={{ flexWrap: "wrap", py: { xs: 1, sm: 0 } }}>
           <Typography
+            component="div"
             variant="h6"
             sx={{
               flexBasis: { xs: "100%", sm: "auto" },

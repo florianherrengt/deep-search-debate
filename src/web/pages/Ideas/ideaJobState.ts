@@ -35,14 +35,6 @@ export const initialIdeaJobState: IdeaJobRunState = {
 type IdeaJobAction =
   | IdeaJobEvent
   | { type: "opened" }
-  | { type: "request-failed"; message: string }
-
-function getCurrentStage(state: IdeaJobRunState): IdeaStage {
-  if (state.ideaGenerationStreamId) return "ideas"
-  if (state.researchSummaryStreamId) return "summary"
-  if (state.research.length > 0) return "research"
-  return "planning"
-}
 
 /** Folds replayed and live parent-pipeline events into renderable state. */
 export const ideaJobReducer = produce<IdeaJobRunState, [IdeaJobAction]>(
@@ -75,11 +67,6 @@ export const ideaJobReducer = produce<IdeaJobRunState, [IdeaJobAction]>(
         state.status = "failed"
         state.error = action.message
         state.failedStage = action.stage
-        break
-      case "request-failed":
-        state.status = "failed"
-        state.error = action.message
-        state.failedStage = getCurrentStage(state)
         break
       case "done":
         if (state.status !== "failed") state.status = "completed"

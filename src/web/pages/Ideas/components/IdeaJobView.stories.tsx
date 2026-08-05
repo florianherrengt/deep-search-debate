@@ -1,7 +1,7 @@
 import { Container } from "@mui/material"
 import type { Meta, StoryObj } from "@storybook/react"
 import type { TextStreamEvent } from "../../../lib/textStreams.ts"
-import { TextStreamProvider } from "../../DeepSearch/useTextStream.ts"
+import { TextStreamProvider } from "../../../components/streaming/useTextStream.ts"
 import type { IdeaJobRunState } from "../ideaJobState.ts"
 import { IdeaJobView } from "./IdeaJobView.tsx"
 

@@ -17,14 +17,16 @@ import { DebatePromptForm } from "./components/DebatePromptForm.tsx"
 import { DebateView } from "./components/DebateView.tsx"
 import { debateStatusPresentation } from "./debatePresentation.ts"
 import { useDebateJob } from "./useDebateJob.ts"
+import { RequestError } from "../../components/RequestError.tsx"
+import { getRequestErrorMessage } from "../../lib/requestErrors.ts"
 
 const debateJobsQueryKey = ["debate-jobs"] as const
 
-function formatCreatedAt(value: string): string {
+function formatCreatedAt(value: Date): string {
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
-  }).format(new Date(value))
+  }).format(value)
 }
 
 function DebateStart() {
@@ -45,7 +47,9 @@ function DebateStart() {
   return (
     <Stack spacing={3}>
       <DebatePromptForm
-        error={creation.error?.message}
+        error={
+          creation.error ? getRequestErrorMessage(creation.error) : undefined
+        }
         isStarting={creation.isPending}
         onSubmit={(prompt) => creation.mutate(prompt)}
       />
@@ -55,7 +59,12 @@ function DebateStart() {
           Previous tournaments
         </Typography>
         {history.isPending && <CircularProgress size={24} />}
-        {history.error && <Alert severity="error">{history.error.message}</Alert>}
+        {history.error && (
+          <RequestError
+            error={history.error}
+            onRetry={() => void history.refetch()}
+          />
+        )}
         {history.data?.length === 0 && (
           <Typography color="text.secondary">No tournaments yet.</Typography>
         )}
@@ -95,12 +104,21 @@ function DebateDetail({ debateJobId }: { debateJobId: string }) {
   const job = useDebateJob(debateJobId)
 
   if (job.isPending) return <CircularProgress />
-  if (job.error) return <Alert severity="error">{job.error.message}</Alert>
+  if (job.error) {
+    return (
+      <RequestError
+        error={job.error}
+        notFoundMessage="This tournament does not exist or is no longer available."
+        notFoundTitle="Tournament not found"
+        onRetry={() => void job.refetch()}
+      />
+    )
+  }
 
   return (
     <Stack spacing={2}>
       {job.subscriptionError && !job.data.error && (
-        <Alert severity="error">{job.subscriptionError}</Alert>
+        <Alert severity="warning">{job.subscriptionError}</Alert>
       )}
       <DebateView
         onSelectMatch={setSelectedMatchId}

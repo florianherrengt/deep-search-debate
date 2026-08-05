@@ -2,9 +2,9 @@ import { CircularProgress, Stack, Typography } from "@mui/material"
 import {
   useTextStream,
   type TextStreamState,
-} from "../useTextStream.ts"
+} from "../../../components/streaming/useTextStream.ts"
 import type { DeepSearchPageSummary } from "../deepSearchState.ts"
-import { TextStreamOutput } from "./TextStreamOutput.tsx"
+import { TextStreamOutput } from "../../../components/streaming/TextStreamOutput.tsx"
 
 type PageSummaryProps = {
   summary: DeepSearchPageSummary
@@ -19,6 +19,8 @@ function getPageSummaryLabel(status: PageSummaryStatus): string {
     case "idle":
     case "streaming":
       return "Summarizing source…"
+    case "reconnecting":
+      return "Reconnecting to source findings…"
     case "completed":
       return "Source findings"
     case "error":
@@ -52,7 +54,10 @@ export function PageSummary({ summary }: PageSummaryProps) {
   const hasStream = summary.status === "stream"
   const stream = useTextStream(getPageSummaryStreamId(summary))
   const status = getPageSummaryStatus(summary, stream)
-  const isWorking = status === "extracting" || status === "streaming"
+  const isWorking =
+    status === "extracting" ||
+    status === "streaming" ||
+    status === "reconnecting"
   const label = getPageSummaryLabel(status)
 
   return (
@@ -60,7 +65,6 @@ export function PageSummary({ summary }: PageSummaryProps) {
       component="section"
       spacing={1}
       data-summary-status={status}
-      aria-live={isWorking ? "polite" : undefined}
       sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: "divider" }}
     >
       <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>

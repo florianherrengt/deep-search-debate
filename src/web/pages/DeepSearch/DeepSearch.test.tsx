@@ -1,7 +1,15 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react"
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { ApiError } from "../../lib/api.ts"
 
 const mocks = vi.hoisted(() => ({
   createDeepSearchJob: vi.fn(),
@@ -51,8 +59,8 @@ function deepSearchJob() {
     maxResultsPerSearch: 3,
     status: "completed" as const,
     error: null,
-    createdAt: new Date().toISOString(),
-    completedAt: new Date().toISOString(),
+    createdAt: new Date(),
+    completedAt: new Date(),
   }
 }
 
@@ -61,6 +69,10 @@ describe("DeepSearch", () => {
     vi.clearAllMocks()
     mocks.getDeepSearchJobs.mockResolvedValue([])
     mocks.getDeepSearchJob.mockResolvedValue(deepSearchJob())
+    mocks.subscribeToDeepSearchJob.mockImplementation(async function* () {
+      await Promise.resolve()
+      yield { type: "done" as const }
+    })
   })
 
   it("creates a job, subscribes, and displays search results", async () => {
@@ -234,6 +246,10 @@ describe("DeepSearch", () => {
     expect(screen.getByTestId("final-answer")).toHaveTextContent(
       "The final researched answer.",
     )
+    expect(screen.getAllByRole("status")).toHaveLength(1)
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Final answer: Response complete",
+    )
     expect(screen.getByText("Explored source")).toBeVisible()
     expect(screen.getByText("Search listing")).toBeVisible()
     expect(screen.getByRole("link", { name: "Useful result" })).toHaveAttribute(
@@ -256,26 +272,32 @@ describe("DeepSearch", () => {
     expect(mocks.subscribeToDeepSearchJob).toHaveBeenCalledWith(
       "job-id",
       expect.any(AbortSignal),
+      expect.any(Function),
     )
     expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(
       "query-stream-id",
       expect.any(AbortSignal),
+      expect.any(Function),
     )
     expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(
       "selection-stream-id",
       expect.any(AbortSignal),
+      expect.any(Function),
     )
     expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(
       "summary-stream-id",
       expect.any(AbortSignal),
+      expect.any(Function),
     )
     expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(
       "query-summary-stream-id",
       expect.any(AbortSignal),
+      expect.any(Function),
     )
     expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(
       "final-answer-stream-id",
       expect.any(AbortSignal),
+      expect.any(Function),
     )
   })
 
@@ -356,6 +378,7 @@ describe("DeepSearch", () => {
     expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(
       "second-summary-stream",
       expect.any(AbortSignal),
+      expect.any(Function),
     )
 
     await act(() => {
@@ -379,5 +402,50 @@ describe("DeepSearch", () => {
       await screen.findByRole("link", { name: /Previously researched topic/ }),
     ).toHaveAttribute("href", "/deep-search/job-id")
     expect(screen.getByText("completed")).toBeVisible()
+  })
+
+  it("reconnects and replays when a job stream ends before done", async () => {
+    mocks.subscribeToDeepSearchJob
+      .mockImplementationOnce(async function* () {
+        await Promise.resolve()
+        yield* []
+      })
+      .mockImplementationOnce(async function* () {
+        await Promise.resolve()
+        yield { type: "done" as const }
+      })
+
+    renderDeepSearch("/deep-search/job-id")
+
+    expect(
+      await screen.findByText(
+        "Live updates were interrupted. Reconnecting…",
+      ),
+    ).toBeVisible()
+    await waitFor(() =>
+      expect(mocks.subscribeToDeepSearchJob).toHaveBeenCalledTimes(2),
+    )
+    expect(
+      screen.queryByText("Live updates were interrupted. Reconnecting…"),
+    ).not.toBeInTheDocument()
+  })
+
+  it("renders an explicit resource not-found state", async () => {
+    mocks.getDeepSearchJob.mockRejectedValue(
+      new ApiError("GET", "/api/deep-search-jobs/missing", 404),
+    )
+
+    renderDeepSearch("/deep-search/missing")
+
+    expect(
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "Deep search not found",
+      }),
+    ).toBeVisible()
+    expect(screen.getByRole("link", { name: "Go home" })).toHaveAttribute(
+      "href",
+      "/",
+    )
   })
 })

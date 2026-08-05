@@ -1,9 +1,11 @@
 # Web gatekeep checklist
 
-Use this checklist for recurring React, browser persistence, streaming, presentation, Storybook, and frontend testing mistakes.
+Use this checklist for recurring React, browser persistence, streaming, presentation, Storybook, and frontend testing mistakes. Read `docs/standards.md` for the governing frontend policy; this checklist preserves focused review checks instead of restating it.
 
 - The implementation uses the existing React, MUI, React Query, React Router, and native streaming stack. Do not reintroduce a removed UI dependency without a new, documented reason.
-- The durable API snapshot is the single source of truth and NDJSON events only trigger invalidation, refetch, and reconnect behavior.
+- Each streaming workflow explicitly uses either snapshot invalidation or replayed content as its state-ownership model; do not mix competing sources of truth.
+- For snapshot-backed workflows, the durable API snapshot is the single source of truth and NDJSON events only trigger invalidation, refetch, reconciliation, and reconnect behavior.
+- Replayed-content reducers define reconnect, replay or duplicate handling, ordering, cancellation, completion, failure, and reopen behavior.
 - Direct URLs, refresh, closing the tab, and reopening later reconstruct the same running, completed, or failed workflow from the server.
 - Terminal snapshots do not keep or reopen a live event subscription.
 - An unexpectedly closed or failed stream reconnects while the job remains non-terminal.

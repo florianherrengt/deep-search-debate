@@ -1,6 +1,6 @@
-import { useEffect, useReducer } from "react"
+import { useEffect, useReducer, useState } from "react"
 import { subscribeToDeepSearchJob } from "../../lib/deepSearchJobs.ts"
-import { getErrorMessage } from "../../lib/errors.ts"
+import { followReplayableStream } from "../../lib/replayStream.ts"
 import {
   deepSearchReducer,
   initialDeepSearchState,
@@ -12,30 +12,45 @@ export function useDeepSearchJob(deepSearchJobId: string) {
     deepSearchReducer,
     initialDeepSearchState,
   )
+  const [observedSubscriptionError, setObservedSubscriptionError] = useState<{
+    deepSearchJobId: string
+    message: string
+  } | null>(null)
+  const subscriptionError =
+    observedSubscriptionError?.deepSearchJobId === deepSearchJobId
+      ? observedSubscriptionError.message
+      : null
+
   useEffect(() => {
     const controller = new AbortController()
     dispatch({ type: "opened" })
 
-    void (async () => {
-      try {
-        for await (const event of subscribeToDeepSearchJob(
+    void followReplayableStream({
+      signal: controller.signal,
+      subscribe: (onOpen) =>
+        subscribeToDeepSearchJob(
           deepSearchJobId,
           controller.signal,
-        )) {
-          dispatch(event)
-        }
-      } catch (error) {
-        if (!controller.signal.aborted) {
-          dispatch({
-            type: "request-failed",
-            message: getErrorMessage(error),
-          })
-        }
-      }
-    })()
+          onOpen,
+        ),
+      isTerminal: (event) => event.type === "done",
+      onOpen: () => {
+        setObservedSubscriptionError(null)
+      },
+      onReplayStart: () => dispatch({ type: "opened" }),
+      onEvent: dispatch,
+      onDisconnect: (_error, willRetry) => {
+        setObservedSubscriptionError({
+          deepSearchJobId,
+          message: willRetry
+            ? "Live updates were interrupted. Reconnecting…"
+            : "Live updates are unavailable. Reload the page to try again.",
+        })
+      },
+    })
 
     return () => controller.abort()
   }, [deepSearchJobId])
 
-  return state
+  return { ...state, subscriptionError }
 }

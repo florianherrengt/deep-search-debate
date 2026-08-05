@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import type { DebateMatch } from "../debateUiTypes.ts"
-import { TextStreamProvider } from "../../DeepSearch/useTextStream.ts"
+import { TextStreamProvider } from "../../../components/streaming/useTextStream.ts"
 import { DebateTranscript } from "./DebateTranscript.tsx"
 
 const match: DebateMatch = {

@@ -151,6 +151,7 @@ describe("Debates", () => {
     expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(
       "generation",
       expect.any(AbortSignal),
+      expect.any(Function),
     )
   })
 
@@ -253,12 +254,18 @@ describe("Debates", () => {
 
     renderDebates("/debates/debate-id")
 
-    expect(await screen.findByText("Connection lost")).toBeVisible()
+    expect(
+      await screen.findByText(
+        "Live updates were interrupted. Reconnecting…",
+      ),
+    ).toBeVisible()
     await waitFor(() =>
       expect(mocks.subscribeToDebateJob).toHaveBeenCalledTimes(2),
     )
     await waitFor(() =>
-      expect(screen.queryByText("Connection lost")).not.toBeInTheDocument(),
+      expect(
+        screen.queryByText("Live updates were interrupted. Reconnecting…"),
+      ).not.toBeInTheDocument(),
     )
   })
 
@@ -280,14 +287,18 @@ describe("Debates", () => {
 
     renderDebates("/debates/debate-id")
 
-    expect(await screen.findByText("Connection lost at completion")).toBeVisible()
+    expect(
+      await screen.findByText(
+        "Live updates were interrupted. Reconnecting…",
+      ),
+    ).toBeVisible()
     resolveTerminalSnapshot(
       tournament({ status: "completed", stage: "final" }),
     )
 
     expect(await screen.findByText("Tournament complete")).toBeVisible()
     expect(
-      screen.queryByText("Connection lost at completion"),
+      screen.queryByText("Live updates were interrupted. Reconnecting…"),
     ).not.toBeInTheDocument()
   })
 
@@ -331,8 +342,8 @@ describe("Debates", () => {
         stage: "final",
         status: "completed",
         error: null,
-        createdAt: "2026-08-04T12:00:00.000Z",
-        completedAt: "2026-08-04T12:30:00.000Z",
+        createdAt: new Date("2026-08-04T12:00:00.000Z"),
+        completedAt: new Date("2026-08-04T12:30:00.000Z"),
       },
     ])
 

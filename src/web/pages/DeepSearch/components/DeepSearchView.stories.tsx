@@ -1,6 +1,6 @@
 import { Container } from "@mui/material"
 import type { Meta, StoryObj } from "@storybook/react"
-import { TextStreamProvider } from "../useTextStream.ts"
+import { TextStreamProvider } from "../../../components/streaming/useTextStream.ts"
 import {
   completedRun,
   researchRequest,

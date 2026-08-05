@@ -31,13 +31,13 @@ vi.mock("../../lib/textStreams.ts", () => ({
 import { Ideas } from "./index.tsx"
 import { IdeaJobView } from "./components/IdeaJobView.tsx"
 
-function renderIdeas() {
+function renderIdeas(initialEntry = "/ideas") {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/ideas"]}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/ideas" element={<Ideas />} />
           <Route path="/ideas/:ideaJobId" element={<Ideas />} />
@@ -60,7 +60,7 @@ describe("Ideas", () => {
       stage: "planning",
       status: "running",
       error: null,
-      createdAt: new Date().toISOString(),
+      createdAt: new Date(),
       completedAt: null,
     })
   })
@@ -113,6 +113,10 @@ describe("Ideas", () => {
     expect(
       screen.getByText("Recommend daily prep quantities from recent demand."),
     ).toBeVisible()
+    expect(screen.getAllByRole("status")).toHaveLength(1)
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Idea generation: Response complete",
+    )
     await waitFor(() =>
       expect(screen.getByTestId("idea-generation")).toHaveTextContent(
         "Prep Forecast",
@@ -216,5 +220,31 @@ describe("Ideas", () => {
     expect(
       screen.getByRole("button", { name: /Summarise the research Complete/ }),
     ).toBeVisible()
+  })
+
+  it("reconnects and replays when a job stream ends before done", async () => {
+    mocks.subscribeToIdeaJob
+      .mockImplementationOnce(async function* () {
+        await Promise.resolve()
+        yield* []
+      })
+      .mockImplementationOnce(async function* () {
+        await Promise.resolve()
+        yield { type: "done" as const }
+      })
+
+    renderIdeas("/ideas/idea-job-id")
+
+    expect(
+      await screen.findByText(
+        "Live updates were interrupted. Reconnecting…",
+      ),
+    ).toBeVisible()
+    await waitFor(() =>
+      expect(mocks.subscribeToIdeaJob).toHaveBeenCalledTimes(2),
+    )
+    expect(
+      screen.queryByText("Live updates were interrupted. Reconnecting…"),
+    ).not.toBeInTheDocument()
   })
 })

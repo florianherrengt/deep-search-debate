@@ -144,9 +144,39 @@ describe("debate jobs client", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(getDebateJobs()).resolves.toEqual(debateJobs)
+    await expect(getDebateJobs()).resolves.toEqual([
+      {
+        ...debateJobs[0],
+        createdAt: new Date(debateJobs[0].createdAt),
+        completedAt: new Date(debateJobs[0].completedAt),
+      },
+    ])
     expect(fetchMock).toHaveBeenCalledWith("/api/debate-jobs", {
       signal: undefined,
     })
+  })
+
+  it("rejects malformed debate history timestamps", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          debateJobs: [
+            {
+              debateJobId: "debate-id",
+              ideaJobId: "idea-job-id",
+              prompt: "Solve this problem",
+              stage: "ideas",
+              status: "running",
+              error: null,
+              createdAt: "yesterday",
+              completedAt: null,
+            },
+          ],
+        }),
+      ),
+    )
+
+    await expect(getDebateJobs()).rejects.toThrow()
   })
 })
