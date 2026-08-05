@@ -42,6 +42,7 @@ export async function* subscribeToNdjson<Schema extends z.ZodType>(
   url: string,
   schema: Schema,
   signal?: AbortSignal,
+  onOpen?: () => void,
 ): AsyncGenerator<z.output<Schema>> {
   const response = await fetch(url, { signal })
 
@@ -52,5 +53,6 @@ export async function* subscribeToNdjson<Schema extends z.ZodType>(
     throw new Error(`GET ${url} response has no body`)
   }
 
+  onOpen?.()
   yield* readNdjson(response.body, schema)
 }

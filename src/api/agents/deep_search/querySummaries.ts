@@ -11,6 +11,7 @@ type SummarizeSearchQueryInput = {
   researchRequest: string
   query: string
   results: QuerySummaryResult[]
+  maxRetries?: number
 }
 
 /** Registers a top-level synthesis stream for all content returned by one web search. */
@@ -43,6 +44,7 @@ export async function summarizeSearchQuery(
     const { id } = await generateTextStream({
       prompt,
       promptName: PromptName.SummarizeSearchQuery,
+      maxRetries: params.maxRetries,
     })
     return id
 }

@@ -9,6 +9,7 @@ import { db } from "../../db/index.ts"
 import { ideaJobs as ideaJobsTable } from "../../db/schema/index.ts"
 import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
 import { ideaJobs, type IdeaJobEvent } from "./index.ts"
+import { createIdeaJobManager } from "./manager.ts"
 import type { LiveIdeaJob } from "./schemas.ts"
 
 function createApp(): Hono {
@@ -17,7 +18,7 @@ function createApp(): Hono {
     start: vi.fn(),
     getLiveJob: vi.fn(),
   }
-  ideaJobs(app, manager)
+  ideaJobs(app, createIdeaJobManager(manager))
   return app
 }
 
@@ -33,6 +34,33 @@ describe("idea job routes", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     db.delete(ideaJobsTable).run()
+  })
+
+  it("rolls back the idea row and does not start work when owner creation fails", () => {
+    const deepSearchManager: DeepSearchJobManager = {
+      start: vi.fn(),
+      getLiveJob: vi.fn(),
+    }
+    const manager = createIdeaJobManager(deepSearchManager)
+
+    expect(() =>
+      manager.start(
+        {
+          prompt: "Generate owned ideas",
+          numberOfIdeas: 12,
+          deepSearchCount: 2,
+          maxSearches: 3,
+          maxResultsPerSearch: 3,
+        },
+        {
+          createRelated: () => {
+            throw new Error("Owner row failed")
+          },
+        },
+      ),
+    ).toThrow("Owner row failed")
+    expect(db.select().from(ideaJobsTable).all()).toEqual([])
+    expect(mocks.runIdeaJob).not.toHaveBeenCalled()
   })
 
   it("evicts a terminal live log and replays the durable job", async () => {

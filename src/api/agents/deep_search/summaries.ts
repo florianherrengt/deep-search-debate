@@ -27,6 +27,7 @@ type SummarizePageInput = {
   researchRequest: string
   url: string
   content: string
+  maxRetries?: number
 }
 
 /**
@@ -49,6 +50,7 @@ export async function summarizePage(
   const { id } = await generateTextStream({
     prompt,
     promptName: PromptName.SummarizeWebPage,
+    maxRetries: params.maxRetries,
   })
   return id
 }
@@ -57,6 +59,7 @@ type StartPageSummaryInput = {
   researchRequest: string
   url: string
   onEvent: (event: DeepSearchEvent) => void
+  maxRetries?: number
 }
 
 /** Extracts validated page content and reports extraction failures in place. */
@@ -89,6 +92,7 @@ async function createPageSummaryStream(
       researchRequest: params.researchRequest,
       url: params.url,
       content,
+      maxRetries: params.maxRetries,
     })
     params.onEvent({ type: "page-summary-stream", url: params.url, streamId })
     return streamId

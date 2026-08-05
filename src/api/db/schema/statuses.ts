@@ -49,3 +49,12 @@ export const deepSearchWebPageStatuses = [
 ] as const
 
 export const deepSearchWebPageErrorStages = ["extraction", "summary"] as const
+
+export const debateJobStages = [
+  "ideas",
+  "swiss",
+  "semifinal",
+  "final",
+] as const
+
+export const debateRoundStages = ["swiss", "semifinal", "final"] as const

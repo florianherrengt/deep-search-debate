@@ -8,6 +8,9 @@ const promptsDir = resolve(__dirname, "prompts")
 /** @public */
 export const PromptName = {
   AnswerResearchRequest: "answer-research-request",
+  DebateJudge: "debate-judge",
+  DebateOpening: "debate-opening",
+  DebateRebuttal: "debate-rebuttal",
   Default: "default",
   GenerateWebSearchQueries: "generate-websearch-queries",
   GenerateIdeaResearchPrompts: "generate-idea-research-prompts",

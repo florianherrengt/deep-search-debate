@@ -18,6 +18,7 @@ type StartDeepSearchJobInput = {
   maxSearches: number
   maxResultsPerSearch: number
   ideaJobId?: string
+  maxRetries?: number
 }
 
 type StartedDeepSearchJob = {
@@ -139,9 +140,10 @@ export function createDeepSearchJobManager(): DeepSearchJobManager {
     start(input) {
       const deepSearchJobId = randomUUID()
       const job = createReplayableEventLog<DeepSearchJobEvent>()
+      const { maxRetries, ...persistedInput } = input
 
       db.insert(deepSearchJobsTable)
-        .values({ deepSearchJobId, ...input })
+        .values({ deepSearchJobId, ...persistedInput })
         .run()
 
       // The route serving child events reads this same log while the durable
@@ -157,6 +159,7 @@ export function createDeepSearchJobManager(): DeepSearchJobManager {
         input.researchRequest,
         input.maxSearches,
         input.maxResultsPerSearch,
+        maxRetries,
       )
         .then(() => getCompletedAnswer(deepSearchJobId))
         .finally(() => {

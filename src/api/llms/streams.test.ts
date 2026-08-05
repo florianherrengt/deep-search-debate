@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 import { eq } from "drizzle-orm"
 import type { streamText } from "ai"
 import { db } from "../db/index.ts"
@@ -153,32 +153,41 @@ describe("text streams", () => {
     ])
   })
 
-  it("terminates subscribers when terminal persistence fails", async () => {
+  it("rolls back a failed completion hook and terminally fails the generation", async () => {
     const source = new AsyncQueue<SourceStreamPart>()
-    const id = registerTextStream(source)
+    const id = registerTextStream(source, {
+      onCompleted: () => {
+        throw new Error("SQLite unavailable")
+      },
+    })
     const subscribed = subscribeToTextStream(id)
     const completion = waitForTextStream(id)
-    const update = vi
-      .spyOn(db, "update")
-      .mockImplementationOnce(() => {
-        throw new Error("SQLite unavailable")
+
+    source.close()
+
+    await expect(completion).rejects.toThrow("SQLite unavailable")
+    await expect(drain(subscribed!)).resolves.toEqual([
+      { type: "error", message: "SQLite unavailable" },
+      { type: "done" },
+    ])
+    await expect(drain(subscribeToTextStream(id)!)).resolves.toEqual([
+      { type: "error", message: "SQLite unavailable" },
+      { type: "done" },
+    ])
+    const generation = db
+      .select({
+        status: llmGenerations.status,
+        error: llmGenerations.error,
+        completedAt: llmGenerations.completedAt,
       })
-
-    try {
-      source.close()
-
-      await expect(completion).rejects.toThrow("SQLite unavailable")
-      await expect(drain(subscribed!)).resolves.toEqual([
-        { type: "error", message: "SQLite unavailable" },
-        { type: "done" },
-      ])
-      await expect(drain(subscribeToTextStream(id)!)).resolves.toEqual([
-        { type: "error", message: "SQLite unavailable" },
-        { type: "done" },
-      ])
-    } finally {
-      update.mockRestore()
-    }
+      .from(llmGenerations)
+      .where(eq(llmGenerations.llmGenerationId, id))
+      .get()
+    expect(generation).toMatchObject({
+      status: "failed",
+      error: "SQLite unavailable",
+    })
+    expect(generation?.completedAt).toBeInstanceOf(Date)
   })
 
   it("returns undefined for unknown streams", () => {

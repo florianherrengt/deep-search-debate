@@ -1,5 +1,11 @@
 import { relations } from "drizzle-orm"
 
+import {
+  debateJobs,
+  debateMatches,
+  debateMessages,
+  debateRounds,
+} from "./debateJobs.ts"
 import { deepSearchJobs } from "./deepSearchJobs.ts"
 import {
   deepSearchGeneratedQueries,
@@ -11,6 +17,7 @@ import {
   deepSearchWebPages,
 } from "./deepSearchResults.ts"
 import { ideaJobs } from "./ideaJobs.ts"
+import { ideas } from "./ideas.ts"
 import { llmGenerations } from "./llmGenerations.ts"
 
 export const deepSearchJobsRelations = relations(
@@ -126,5 +133,85 @@ export const ideaJobsRelations = relations(
       relationName: "ideaJobIdeaGeneration",
     }),
     deepSearchJobs: many(deepSearchJobs),
+    ideas: many(ideas),
+    debateJob: one(debateJobs),
+  }),
+)
+
+export const ideasRelations = relations(ideas, ({ many, one }) => ({
+  job: one(ideaJobs, {
+    fields: [ideas.ideaJobId],
+    references: [ideaJobs.ideaJobId],
+  }),
+  matchesAsFirst: many(debateMatches, {
+    relationName: "debateMatchFirstIdea",
+  }),
+  matchesAsSecond: many(debateMatches, {
+    relationName: "debateMatchSecondIdea",
+  }),
+  matchWins: many(debateMatches, {
+    relationName: "debateMatchWinnerIdea",
+  }),
+}))
+
+export const debateJobsRelations = relations(
+  debateJobs,
+  ({ many, one }) => ({
+    ideaJob: one(ideaJobs, {
+      fields: [debateJobs.ideaJobId],
+      references: [ideaJobs.ideaJobId],
+    }),
+    rounds: many(debateRounds),
+  }),
+)
+
+export const debateRoundsRelations = relations(
+  debateRounds,
+  ({ many, one }) => ({
+    job: one(debateJobs, {
+      fields: [debateRounds.debateJobId],
+      references: [debateJobs.debateJobId],
+    }),
+    matches: many(debateMatches),
+  }),
+)
+
+export const debateMatchesRelations = relations(
+  debateMatches,
+  ({ many, one }) => ({
+    round: one(debateRounds, {
+      fields: [debateMatches.debateRoundId],
+      references: [debateRounds.debateRoundId],
+    }),
+    firstIdea: one(ideas, {
+      fields: [debateMatches.firstIdeaId],
+      references: [ideas.ideaId],
+      relationName: "debateMatchFirstIdea",
+    }),
+    secondIdea: one(ideas, {
+      fields: [debateMatches.secondIdeaId],
+      references: [ideas.ideaId],
+      relationName: "debateMatchSecondIdea",
+    }),
+    winnerIdea: one(ideas, {
+      fields: [debateMatches.winnerIdeaId],
+      references: [ideas.ideaId],
+      relationName: "debateMatchWinnerIdea",
+    }),
+    messages: many(debateMessages),
+  }),
+)
+
+export const debateMessagesRelations = relations(
+  debateMessages,
+  ({ one }) => ({
+    match: one(debateMatches, {
+      fields: [debateMessages.debateMatchId],
+      references: [debateMatches.debateMatchId],
+    }),
+    llmGeneration: one(llmGenerations, {
+      fields: [debateMessages.llmGenerationId],
+      references: [llmGenerations.llmGenerationId],
+    }),
   }),
 )

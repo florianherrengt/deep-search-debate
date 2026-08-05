@@ -10,6 +10,7 @@ import type {
 type GenerateWebSearchQueriesInput = {
   researchRequest: string
   onStreamCreated: (streamId: string) => void
+  maxRetries?: number
 }
 
 /**
@@ -23,6 +24,7 @@ export async function generateWebSearchQueries(
     prompt: params.researchRequest,
     promptName: PromptName.GenerateWebSearchQueries,
     element: z.string().trim().min(1),
+    maxRetries: params.maxRetries,
   })
   params.onStreamCreated(id)
 
@@ -34,6 +36,7 @@ type GenerateSearchResultsInput = {
   maxSearches: number
   onEvent: (event: DeepSearchEvent) => void
   onQueriesGenerated?: (queries: string[]) => void
+  maxRetries?: number
 }
 
 /**
@@ -48,6 +51,7 @@ export async function generateSearchResults(
     onStreamCreated: (streamId) => {
       params.onEvent({ type: "query-stream", streamId })
     },
+    maxRetries: params.maxRetries,
   })
   params.onQueriesGenerated?.(queries)
 

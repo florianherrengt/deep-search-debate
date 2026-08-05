@@ -28,6 +28,7 @@ describe("final research answer", () => {
           content: "Demand remains sensitive to interest rates.",
         },
       ],
+      maxRetries: 0,
     })
 
     expect(mocks.generateTextStream).toHaveBeenCalledWith({
@@ -49,6 +50,7 @@ describe("final research answer", () => {
         "</search_summaries>",
       ].join("\n"),
       promptName: "answer-research-request",
+      maxRetries: 0,
     })
     expect(streamId).toBe("final-answer-stream-id")
   })

@@ -1,15 +1,9 @@
-import { Container, CssBaseline } from "@mui/material"
-import { ThemeProvider, createTheme } from "@mui/material/styles"
+import { Container } from "@mui/material"
 import type { Meta, StoryObj } from "@storybook/react"
 import type { TextStreamEvent } from "../../../lib/textStreams.ts"
 import { TextStreamProvider } from "../../DeepSearch/useTextStream.ts"
 import type { IdeaJobRunState } from "../ideaJobState.ts"
 import { IdeaJobView } from "./IdeaJobView.tsx"
-
-const theme = createTheme({
-  colorSchemes: { dark: true },
-  cssVariables: true,
-})
 
 const prompt = "Create product ideas that help independent cafés reduce food waste."
 
@@ -83,14 +77,11 @@ const meta: Meta<typeof IdeaJobView> = {
   parameters: { layout: "fullscreen" },
   decorators: [
     (Story) => (
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
-        <TextStreamProvider subscribe={subscribeToStoryText}>
-          <Container maxWidth="sm" sx={{ py: 4 }}>
-            <Story />
-          </Container>
-        </TextStreamProvider>
-      </ThemeProvider>
+      <TextStreamProvider subscribe={subscribeToStoryText}>
+        <Container maxWidth="sm" sx={{ py: 4 }}>
+          <Story />
+        </Container>
+      </TextStreamProvider>
     ),
   ],
 }

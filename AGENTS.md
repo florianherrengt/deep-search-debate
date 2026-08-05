@@ -21,6 +21,18 @@ Area-specific guidance lives in per-folder `docs/` files (e.g. `src/api/llms/doc
 - ESLint flat config, type-checked (`recommendedTypeChecked`). Unused vars are allowed only when prefixed `_`.
 - Knip is configured (`knip.json`, with `src/api/db/index.ts` registered as an api entry) and is part of `gatekeep`.
 
+## Review checklists
+
+The repository has living checklists for recurring engineering mistakes. Read a checklist only when the current work touches its scope:
+
+- `gatekeep.md` — read for repository-wide configuration, tooling, shared contracts, or changes spanning multiple areas.
+- `src/api/gatekeep.md` — read for backend, orchestration, LLM, persistence, or streaming changes.
+- `src/api/db/schema/gatekeep.md` — read for relational design, Drizzle schema, migration, or DBML changes.
+- `src/web/gatekeep.md` — read for React, browser persistence, streaming UI, Storybook, accessibility, or frontend testing changes.
+- `docs/gatekeep.md` — read only when adding, removing, reorganizing, or updating gatekeep checklist entries.
+
+Do not load unrelated checklists. These files supplement scoped documentation and the executable `npm run gatekeep` command; they replace neither. Keep checklist entries feature-independent and update or remove them when the architecture changes.
+
 ## Area docs
 
 Detailed guidance lives in per-folder `docs/` files. Read the relevant one with your Read tool before working in that area — they hold gotchas you would otherwise miss:

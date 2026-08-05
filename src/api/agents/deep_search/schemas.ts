@@ -30,6 +30,7 @@ export type DeepSearchInput = {
   researchRequest: string
   maxSearches?: number
   maxResultsPerSearch?: number
+  maxRetries?: number
   onEvent: (event: DeepSearchEvent) => void
   onQueriesGenerated?: (queries: string[]) => void
 }

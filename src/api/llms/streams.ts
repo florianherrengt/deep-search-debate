@@ -23,6 +23,24 @@ type SourceStreamPart = ReturnType<
 
 type TextStream = ReplayableEventLog<TextStreamEvent>
 
+export type TextStreamPersistenceTransaction = Parameters<
+  Parameters<typeof db.transaction>[0]
+>[0]
+
+type CompletedTextStream = {
+  id: string
+  text: string
+  reasoning: string
+}
+
+type RegisterTextStreamOptions = {
+  /** Runs inside the same transaction as the generation's terminal write. */
+  onCompleted?: (
+    completed: CompletedTextStream,
+    transaction: TextStreamPersistenceTransaction,
+  ) => void
+}
+
 const streams = new Map<string, TextStream>()
 const completions = new Map<string, Promise<void>>()
 
@@ -34,6 +52,7 @@ async function consume(
   id: string,
   source: AsyncIterable<SourceStreamPart>,
   stream: TextStream,
+  options: RegisterTextStreamOptions,
 ): Promise<void> {
   let text = ""
   let reasoning = ""
@@ -63,20 +82,47 @@ async function consume(
   }
 
   try {
-    db.update(llmGenerations)
-      .set({
-        status: errorMessage ? "failed" : "completed",
-        text,
-        reasoning,
-        error: errorMessage ?? null,
-        completedAt: new Date(),
-      })
-      .where(eq(llmGenerations.llmGenerationId, id))
-      .run()
+    db.transaction((transaction) => {
+      transaction
+        .update(llmGenerations)
+        .set({
+          status: errorMessage ? "failed" : "completed",
+          text,
+          reasoning,
+          error: errorMessage ?? null,
+          completedAt: new Date(),
+        })
+        .where(eq(llmGenerations.llmGenerationId, id))
+        .run()
+
+      if (!errorMessage) {
+        options.onCompleted?.({ id, text, reasoning }, transaction)
+      }
+    })
   } catch (error) {
+    const message = getErrorMessage(error, "Text generation failed")
+    try {
+      // The generation/result transaction rolled back. Record a separate
+      // failure so recovery never mistakes this detached stream for live work.
+      db.update(llmGenerations)
+        .set({
+          status: "failed",
+          text,
+          reasoning,
+          error: message,
+          completedAt: new Date(),
+        })
+        .where(eq(llmGenerations.llmGenerationId, id))
+        .run()
+    } catch (fallbackError) {
+      console.error(
+        `Failed to persist text generation ${id} terminal failure`,
+        fallbackError,
+      )
+    }
     stream.publish({
       type: "error",
-      message: getErrorMessage(error, "Text generation failed"),
+      message,
     })
     throw error
   } finally {
@@ -94,13 +140,14 @@ async function consume(
  */
 export function registerTextStream(
   source: AsyncIterable<SourceStreamPart>,
+  options: RegisterTextStreamOptions = {},
 ): string {
   const id = randomUUID()
   const stream = createReplayableEventLog<TextStreamEvent>()
 
   db.insert(llmGenerations).values({ llmGenerationId: id }).run()
   streams.set(id, stream)
-  const completion = consume(id, source, stream)
+  const completion = consume(id, source, stream, options)
   completions.set(id, completion)
   void completion.then(
     () => {

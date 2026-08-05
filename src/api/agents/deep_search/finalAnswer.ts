@@ -9,6 +9,7 @@ type SearchSummary = {
 type AnswerResearchRequestInput = {
   researchRequest: string
   searchSummaries: SearchSummary[]
+  maxRetries?: number
 }
 
 /** Registers the final synthesis stream for a completed set of search summaries. */
@@ -39,6 +40,7 @@ export async function answerResearchRequest(
   const { id } = await generateTextStream({
     prompt,
     promptName: PromptName.AnswerResearchRequest,
+    maxRetries: params.maxRetries,
   })
   return id
 }

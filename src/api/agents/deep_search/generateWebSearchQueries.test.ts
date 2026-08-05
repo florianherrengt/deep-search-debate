@@ -35,6 +35,7 @@ describe("generateWebSearchQueries", () => {
     const result = await generateWebSearchQueries({
       researchRequest: "quantum computing",
       onStreamCreated,
+      maxRetries: 0,
     })
 
     const call = mocks.generateArrayStream.mock.calls[0]?.[0] as
@@ -42,6 +43,7 @@ describe("generateWebSearchQueries", () => {
           prompt: string
           promptName: string
           element: ZodType<string>
+          maxRetries?: number
         }
       | undefined
     expect(call).toBeDefined()
@@ -49,6 +51,7 @@ describe("generateWebSearchQueries", () => {
     expect(call).toMatchObject({
       prompt: "quantum computing",
       promptName: "generate-websearch-queries",
+      maxRetries: 0,
     })
     expect(call.element.parse(" valid query ")).toBe("valid query")
     expect(() => call.element.parse("  ")).toThrow()

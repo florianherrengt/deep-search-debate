@@ -13,7 +13,7 @@ vi.mock("../../llms/generateText.ts", () => ({
 }))
 
 import { db } from "../../db/index.ts"
-import { ideaJobs, llmGenerations } from "../../db/schema/index.ts"
+import { ideaJobs, ideas, llmGenerations } from "../../db/schema/index.ts"
 import { createReplayableEventLog } from "../../helpers/replayableEventLog.ts"
 import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
 import { runIdeaJob } from "./run.ts"
@@ -68,7 +68,7 @@ async function collectEvents(
   return result
 }
 
-function createInput() {
+function createInput(maxRetries?: number) {
   const job = createReplayableEventLog<IdeaJobEvent>()
   const ideaJobId = "11111111-1111-4111-8111-111111111111"
   db.insert(ideaJobs)
@@ -91,6 +91,7 @@ function createInput() {
       deepSearchCount: 2,
       maxSearches: 3,
       maxResultsPerSearch: 3,
+      ...(maxRetries === undefined ? {} : { maxRetries }),
       job,
       deepSearchManager: manager,
     },
@@ -116,7 +117,7 @@ describe("runIdeaJob", () => {
         deepSearchJobId: "search-two",
         completion: Promise.resolve("Second research result"),
       })
-    const { input, events } = createInput()
+    const { input, events } = createInput(0)
 
     await runIdeaJob(input)
 
@@ -126,9 +127,17 @@ describe("runIdeaJob", () => {
       maxSearches: 3,
       maxResultsPerSearch: 3,
       ideaJobId: input.ideaJobId,
+      maxRetries: 0,
     })
-    expect(mocks.generateTextStream).toHaveBeenCalledOnce()
     expect(mocks.generateArrayStream).toHaveBeenCalledTimes(2)
+    for (const [generationInput] of mocks.generateArrayStream.mock.calls) {
+      expect(generationInput).toEqual(
+        expect.objectContaining({ maxRetries: 0 }),
+      )
+    }
+    expect(mocks.generateTextStream).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ maxRetries: 0 }),
+    )
     const summaryInput = z.object({ prompt: z.string() }).parse(
       mocks.generateTextStream.mock.calls[0]?.[0] as unknown,
     )
@@ -159,6 +168,9 @@ describe("runIdeaJob", () => {
       status: "completed",
       error: null,
     })
+    expect(
+      db.select().from(ideas).orderBy(ideas.position).all(),
+    ).toMatchObject(generatedIdeas)
   })
 
   it("fails the whole pipeline without summarising when any research fails", async () => {

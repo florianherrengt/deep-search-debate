@@ -34,6 +34,7 @@ describe("selectWebSearchResults", () => {
       searchQuery: "quantum computing basics",
       results: sampleResults,
       onStreamCreated,
+      maxRetries: 0,
     })
 
     const callArgs = mocks.generateArrayStream.mock.calls[0]?.[0] as
@@ -41,11 +42,13 @@ describe("selectWebSearchResults", () => {
           prompt: string
           promptName: string
           element: ZodType<string>
+          maxRetries?: number
         }
       | undefined
     expect(callArgs).toBeDefined()
     if (!callArgs) throw new Error("generateArrayStream was not called")
     expect(callArgs.promptName).toBe("select-websearch-results")
+    expect(callArgs.maxRetries).toBe(0)
     expect(callArgs.prompt).toContain("user_query: What is quantum computing?")
     expect(callArgs.prompt).toContain("max_results_to_explore: 3")
     expect(callArgs.element.parse("result-0")).toBe("result-0")

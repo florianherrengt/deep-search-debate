@@ -72,6 +72,29 @@ describe("createDeepSearchJobManager", () => {
     expect(manager.getLiveJob(started.deepSearchJobId)).toBeUndefined()
   })
 
+  it("passes an internal retry policy to the deep-search runner", async () => {
+    mocks.runDeepSearchJob.mockImplementation((deepSearchJobId: string) => {
+      completeWithFailedPage(deepSearchJobId, "extraction")
+      return Promise.resolve()
+    })
+    const started = createDeepSearchJobManager().start({
+      researchRequest: "Research this",
+      maxSearches: 3,
+      maxResultsPerSearch: 3,
+      maxRetries: 0,
+    })
+
+    await expect(started.completion).resolves.toBe("Completed answer")
+    expect(mocks.runDeepSearchJob).toHaveBeenCalledWith(
+      started.deepSearchJobId,
+      expect.any(Object),
+      "Research this",
+      3,
+      3,
+      0,
+    )
+  })
+
   it("rejects a failed page-summary generation", async () => {
     mocks.runDeepSearchJob.mockImplementation((deepSearchJobId: string) => {
       completeWithFailedPage(deepSearchJobId, "summary")

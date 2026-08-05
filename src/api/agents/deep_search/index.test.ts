@@ -167,6 +167,26 @@ describe("deepSearch", () => {
     )
   })
 
+  it("passes the retry policy to every model-backed stage", async () => {
+    await deepSearch({
+      researchRequest: "Research this",
+      maxRetries: 0,
+      onEvent: ignoreEvent,
+    })
+
+    for (const modelStage of [
+      mocks.generateSearchResults,
+      mocks.selectSearchResults,
+      mocks.startPageSummary,
+      mocks.summarizeSearchQuery,
+      mocks.answerResearchRequest,
+    ]) {
+      expect(modelStage).toHaveBeenCalledWith(
+        expect.objectContaining({ maxRetries: 0 }),
+      )
+    }
+  })
+
   it("starts a summary only once for duplicate selected URLs", async () => {
     mocks.generateSearchResults.mockResolvedValueOnce([
       { query: "first query", results },

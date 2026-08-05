@@ -31,6 +31,7 @@ describe("query summaries", () => {
           content: "Search result description for cruising boards.",
         },
       ],
+      maxRetries: 0,
     })
 
     expect(mocks.generateTextStream).toHaveBeenCalledWith({
@@ -55,6 +56,7 @@ describe("query summaries", () => {
         "</results>",
       ].join("\n"),
       promptName: "summarize-search-query",
+      maxRetries: 0,
     })
     expect(streamId).toBe("query-summary-stream-id")
   })

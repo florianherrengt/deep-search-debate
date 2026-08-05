@@ -1,3 +1,69 @@
+table debate_jobs {
+  debate_job_id text [pk, not null]
+  idea_job_id text [not null, unique]
+  random_seed integer [not null]
+  stage text [not null, default: 'ideas']
+  status text [not null, default: 'running']
+  error text
+  created_at integer [not null, default: `(unixepoch())`]
+  completed_at integer
+
+  indexes {
+    created_at [name: 'debate_jobs_created_at_idx']
+
+
+
+
+  }
+}
+
+table debate_matches {
+  debate_match_id text [pk, not null]
+  debate_round_id text [not null]
+  position integer [not null]
+  first_idea_id text [not null]
+  second_idea_id text [not null]
+  winner_idea_id text
+  created_at integer [not null, default: `(unixepoch())`]
+  completed_at integer
+
+  indexes {
+    (debate_round_id, position) [name: 'debate_matches_round_position_idx', unique]
+
+
+
+  }
+}
+
+table debate_messages {
+  debate_message_id text [pk, not null]
+  debate_match_id text [not null]
+  position integer [not null]
+  speaker_slot integer [not null]
+  llm_generation_id text [not null, unique]
+  created_at integer [not null, default: `(unixepoch())`]
+
+  indexes {
+    (debate_match_id, position) [name: 'debate_messages_match_position_idx', unique]
+    // Partial unique index omitted: debate_match_id WHERE speaker_slot = 2.
+
+  }
+}
+
+table debate_rounds {
+  debate_round_id text [pk, not null]
+  debate_job_id text [not null]
+  stage text [not null]
+  stage_round_number integer [not null]
+  created_at integer [not null, default: `(unixepoch())`]
+
+  indexes {
+    (debate_job_id, stage, stage_round_number) [name: 'debate_rounds_job_stage_number_idx', unique]
+
+
+  }
+}
+
 table deep_search_generated_queries {
   deep_search_generated_query_id text [pk, not null]
   deep_search_query_generation_id text [not null]
@@ -111,6 +177,21 @@ table idea_jobs {
   }
 }
 
+table ideas {
+  idea_id text [pk, not null]
+  idea_job_id text [not null]
+  position integer [not null]
+  title text [not null]
+  description text [not null]
+  created_at integer [not null, default: `(unixepoch())`]
+
+  indexes {
+    (idea_job_id, position) [name: 'ideas_job_position_idx', unique]
+
+
+  }
+}
+
 table llm_generations {
   llm_generation_id text [pk, not null]
   status text [not null, default: 'running']
@@ -120,6 +201,22 @@ table llm_generations {
   started_at integer [not null, default: `(unixepoch())`]
   completed_at integer
 }
+
+ref debate_jobs_idea_job_id_idea_jobs_idea_job_id_fk: debate_jobs.idea_job_id > idea_jobs.idea_job_id [delete: cascade, update: no action]
+
+ref debate_matches_debate_round_id_debate_rounds_debate_round_id_fk: debate_matches.debate_round_id > debate_rounds.debate_round_id [delete: cascade, update: no action]
+
+ref debate_matches_first_idea_id_ideas_idea_id_fk: debate_matches.first_idea_id > ideas.idea_id [delete: no action, update: no action]
+
+ref debate_matches_second_idea_id_ideas_idea_id_fk: debate_matches.second_idea_id > ideas.idea_id [delete: no action, update: no action]
+
+ref debate_matches_winner_idea_id_ideas_idea_id_fk: debate_matches.winner_idea_id > ideas.idea_id [delete: no action, update: no action]
+
+ref debate_messages_debate_match_id_debate_matches_debate_match_id_fk: debate_messages.debate_match_id > debate_matches.debate_match_id [delete: cascade, update: no action]
+
+ref debate_messages_llm_generation_id_llm_generations_llm_generation_id_fk: debate_messages.llm_generation_id > llm_generations.llm_generation_id [delete: restrict, update: no action]
+
+ref debate_rounds_debate_job_id_debate_jobs_debate_job_id_fk: debate_rounds.debate_job_id > debate_jobs.debate_job_id [delete: cascade, update: no action]
 
 ref deep_search_generated_queries_deep_search_query_generation_id_deep_search_query_generations_deep_search_query_generation_id_fk: deep_search_generated_queries.deep_search_query_generation_id > deep_search_query_generations.deep_search_query_generation_id [delete: cascade, update: no action]
 
@@ -150,3 +247,5 @@ ref idea_jobs_research_prompt_generation_id_llm_generations_llm_generation_id_fk
 ref idea_jobs_research_summary_generation_id_llm_generations_llm_generation_id_fk: idea_jobs.research_summary_generation_id > llm_generations.llm_generation_id [delete: restrict, update: no action]
 
 ref idea_jobs_idea_generation_id_llm_generations_llm_generation_id_fk: idea_jobs.idea_generation_id > llm_generations.llm_generation_id [delete: restrict, update: no action]
+
+ref ideas_idea_job_id_idea_jobs_idea_job_id_fk: ideas.idea_job_id > idea_jobs.idea_job_id [delete: cascade, update: no action]

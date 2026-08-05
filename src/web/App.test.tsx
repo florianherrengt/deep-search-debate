@@ -6,5 +6,9 @@ describe("App", () => {
   it("renders the heading", () => {
     render(<App />)
     expect(screen.getByText("Deep Search Debate")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Debates" })).toHaveAttribute(
+      "href",
+      "/debates",
+    )
   })
 })

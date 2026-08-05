@@ -9,6 +9,10 @@ SQLite accessed through `better-sqlite3` and `drizzle-orm`.
 ## The DB file
 
 - `src/api/data.db` is **committed to git**. It is the real dev database, not a fixture.
+- Its debate history intentionally retains both the completed live tournament
+  `6dcf7c85-213f-4f6d-97c0-e3d0201c7429` and the earlier failed tournament
+  `04a64ef3-9e8f-46fb-a8c0-7ff62e85ade2`. The failed run preserves a useful
+  partial-round state for debugging failure snapshots and transcript replay.
 - It runs in WAL mode (`pragma journal_mode = WAL`), set in `src/api/db/index.ts`.
 - Foreign-key enforcement is enabled on the connection.
 
@@ -28,9 +32,11 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
 - `llm_generations` stores terminal text, reasoning, status, and errors for every model invocation. Live deltas remain in memory and are never written individually.
 - `deep_search_jobs` owns a deep-search request and may belong to an `idea_jobs` parent. Its normalized query, result, web-page, and generation rows preserve research progress without a JSON snapshot.
 - `idea_jobs` owns the user prompt, requested idea/search counts, current stage, lifecycle, and its planning, briefing, and idea-generation links.
+- `ideas` stores the validated, ordered output of a completed idea job with stable IDs. The linked LLM generation retains the raw structured model output for model-stream inspection and debugging.
+- `debate_jobs`, `debate_rounds`, `debate_matches`, and `debate_messages` store pairings, machine-readable winners, and transcript-generation links. Matches reference stable ideas directly; standings and Elo remain derived from completed matches.
 - An idea job does not copy child research output or sources. Its child `deep_search_jobs` keep their own durable state; only their final-answer texts are passed to the briefing generation.
 
-On startup, `recoverInterruptedWork()` marks orphaned running LLM generations, deep-search work, and idea jobs as interrupted or failed. External provider work is not resumable after process termination.
+On startup, `recoverInterruptedWork()` marks orphaned running LLM generations, deep-search work, idea jobs, and debate jobs as interrupted or failed. A debate whose final verdict already committed is instead recovered as completed, closing the small crash window before the parent job's terminal update. External provider work is not resumable after process termination; completed debate rounds, results, and transcript generations remain replayable.
 
 ## Tests
 

@@ -1,0 +1,102 @@
+import { randomBytes, randomUUID } from "node:crypto"
+import { eq } from "drizzle-orm"
+
+import { db } from "../../db/index.ts"
+import { debateJobs } from "../../db/schema/index.ts"
+import { createReplayableEventLog } from "../../helpers/replayableEventLog.ts"
+import type { IdeaJobManager } from "../ideas/manager.ts"
+import { runDebateJob } from "./run.ts"
+import type { DebateJobEvent, LiveDebateJob } from "./schemas.ts"
+import { DEBATE_TOURNAMENT_FORMAT } from "./tournament.ts"
+
+type StartedDebateJob = {
+  debateJobId: string
+  completion: Promise<void>
+}
+
+export type DebateJobManager = {
+  start(input: { prompt: string }): StartedDebateJob
+  getLiveJob(debateJobId: string): LiveDebateJob | undefined
+}
+
+function getRandomSeed(): number {
+  return randomBytes(4).readUInt32BE(0)
+}
+
+function requireCompletedDebateJob(debateJobId: string): void {
+  const job = db
+    .select({ status: debateJobs.status, error: debateJobs.error })
+    .from(debateJobs)
+    .where(eq(debateJobs.debateJobId, debateJobId))
+    .get()
+  if (!job) throw new Error("Debate job was not found")
+  if (job.status !== "completed") {
+    throw new Error(job.error ?? "Debate tournament did not complete")
+  }
+}
+
+function hasDurableTerminalState(debateJobId: string): boolean {
+  try {
+    const job = db
+      .select({ status: debateJobs.status })
+      .from(debateJobs)
+      .where(eq(debateJobs.debateJobId, debateJobId))
+      .get()
+    return job?.status !== undefined && job.status !== "running"
+  } catch {
+    return false
+  }
+}
+
+/** Owns the live orchestration log while SQLite remains the replay source. */
+export function createDebateJobManager(
+  ideaJobManager: IdeaJobManager,
+): DebateJobManager {
+  const liveJobs = new Map<string, LiveDebateJob>()
+
+  return {
+    start({ prompt }) {
+      const debateJobId = randomUUID()
+      const randomSeed = getRandomSeed()
+      const job = createReplayableEventLog<DebateJobEvent>()
+      const ideaJob = ideaJobManager.start(
+        {
+          prompt,
+          numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
+          deepSearchCount: 2,
+          maxSearches: 3,
+          maxResultsPerSearch: 3,
+          maxRetries: 0,
+        },
+        {
+          createRelated: (transaction, ideaJobId) => {
+            transaction
+              .insert(debateJobs)
+              .values({ debateJobId, ideaJobId, randomSeed })
+              .run()
+          },
+        },
+      )
+      liveJobs.set(debateJobId, job)
+
+      const completion = runDebateJob({
+        debateJobId,
+        ideaJobId: ideaJob.ideaJobId,
+        randomSeed,
+        ideaCompletion: ideaJob.completion,
+        job,
+      })
+        .then(() => requireCompletedDebateJob(debateJobId))
+        .finally(() => {
+          if (hasDurableTerminalState(debateJobId)) {
+            liveJobs.delete(debateJobId)
+          }
+        })
+
+      return { debateJobId, completion }
+    },
+    getLiveJob(debateJobId) {
+      return liveJobs.get(debateJobId)
+    },
+  }
+}

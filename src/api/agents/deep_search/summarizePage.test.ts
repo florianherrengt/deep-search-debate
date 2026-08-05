@@ -38,6 +38,7 @@ describe("page summaries", () => {
       researchRequest: "Research OpenAI products",
       url: "https://example.com/page",
       content: "Extracted page content",
+      maxRetries: 0,
     })
 
     expect(mocks.generateTextStream).toHaveBeenCalledWith({
@@ -50,6 +51,7 @@ describe("page summaries", () => {
         "</page_content>",
       ].join("\n"),
       promptName: "summarize-web-page",
+      maxRetries: 0,
     })
     expect(result).toBe("summary-stream-id")
   })

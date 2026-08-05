@@ -30,6 +30,7 @@ export async function deepSearch(params: DeepSearchInput): Promise<void> {
       maxResultsPerSearch,
       search,
       onEvent: params.onEvent,
+      maxRetries: params.maxRetries,
     })
 
     params.onEvent({
@@ -64,6 +65,7 @@ export async function deepSearch(params: DeepSearchInput): Promise<void> {
           url: result.link,
           content: pageSummaries.get(result.link) || result.shortText,
         })),
+        maxRetries: params.maxRetries,
       })
       params.onEvent({
         type: "query-summary-stream",
@@ -80,6 +82,7 @@ export async function deepSearch(params: DeepSearchInput): Promise<void> {
   const finalAnswerStreamId = await answerResearchRequest({
     researchRequest: params.researchRequest,
     searchSummaries,
+    maxRetries: params.maxRetries,
   })
   params.onEvent({
     type: "final-answer-stream",

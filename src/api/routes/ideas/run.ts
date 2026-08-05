@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm"
 import z from "zod"
 import { db } from "../../db/index.ts"
-import { ideaJobs } from "../../db/schema/index.ts"
+import { ideaJobs, ideas as ideaRecords } from "../../db/schema/index.ts"
 import { collectStreamText } from "../../helpers/collectStreamText.ts"
 import { getErrorMessage } from "../../helpers/getErrorMessage.ts"
 import {
@@ -24,6 +24,7 @@ type RunIdeaJobInput = {
   deepSearchCount: number
   maxSearches: number
   maxResultsPerSearch: number
+  maxRetries?: number
   job: LiveIdeaJob
   deepSearchManager: DeepSearchJobManager
 }
@@ -99,6 +100,7 @@ async function generateResearchPrompts(
     prompt: buildResearchPrompt(input.prompt, input.deepSearchCount),
     promptName: PromptName.GenerateIdeaResearchPrompts,
     element: z.string().trim().min(1),
+    maxRetries: input.maxRetries,
   })
   setGenerationId(
     input.ideaJobId,
@@ -140,6 +142,7 @@ async function runResearch(
       maxSearches: input.maxSearches,
       maxResultsPerSearch: input.maxResultsPerSearch,
       ideaJobId: input.ideaJobId,
+      maxRetries: input.maxRetries,
     })
     input.job.publish({
       type: "deep-search-started",
@@ -171,6 +174,7 @@ async function summarizeResearch(
   const generation = await generateTextStream({
     prompt: buildSummaryPrompt(input.prompt, research),
     promptName: PromptName.SummarizeIdeaResearch,
+    maxRetries: input.maxRetries,
   })
   setGenerationId(
     input.ideaJobId,
@@ -196,7 +200,7 @@ async function publishIdeas(
 async function generateIdeas(
   input: RunIdeaJobInput,
   researchSummary: string,
-): Promise<void> {
+): Promise<Idea[]> {
   const generation = await generateArrayStream({
     prompt: buildIdeaPrompt(
       input.prompt,
@@ -205,6 +209,7 @@ async function generateIdeas(
     ),
     promptName: PromptName.GenerateIdeas,
     element: ideaSchema,
+    maxRetries: input.maxRetries,
   })
   setGenerationId(input.ideaJobId, "ideaGenerationId", generation.id)
   input.job.publish({
@@ -229,6 +234,7 @@ async function generateIdeas(
   // Deliberate tradeoff: distinctness remains a prompt-level quality target.
   // Rejecting duplicates needs a product definition of whether equality means
   // identical fields, matching titles, or semantic similarity.
+  return ideas
 }
 
 /** Runs the all-or-nothing idea pipeline and publishes parent progress. */
@@ -247,12 +253,26 @@ export async function runIdeaJob(input: RunIdeaJobInput): Promise<void> {
 
     stage = "ideas"
     setStage(input.ideaJobId, stage)
-    await generateIdeas(input, summary)
+    const generatedIdeas = await generateIdeas(input, summary)
 
-    db.update(ideaJobs)
-      .set({ status: "completed", completedAt: new Date() })
-      .where(eq(ideaJobs.ideaJobId, input.ideaJobId))
-      .run()
+    db.transaction((transaction) => {
+      transaction
+        .insert(ideaRecords)
+        .values(
+          generatedIdeas.map((idea, position) => ({
+            ideaId: crypto.randomUUID(),
+            ideaJobId: input.ideaJobId,
+            position,
+            ...idea,
+          })),
+        )
+        .run()
+      transaction
+        .update(ideaJobs)
+        .set({ status: "completed", completedAt: new Date() })
+        .where(eq(ideaJobs.ideaJobId, input.ideaJobId))
+        .run()
+    })
   } catch (error) {
     const message = getErrorMessage(error, "Idea generation failed")
     try {

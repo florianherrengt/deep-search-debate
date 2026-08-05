@@ -16,6 +16,7 @@ type SelectWebSearchResultsInput = {
   results: IndexedSearchResult[]
   maxResultsToExplore?: number
   onStreamCreated: (streamId: string) => void
+  maxRetries?: number
 }
 
 /**
@@ -45,6 +46,7 @@ export async function selectWebSearchResults(
     prompt,
     promptName: PromptName.SelectWebSearchResults,
     element: z.string().min(1),
+    maxRetries: params.maxRetries,
   })
   params.onStreamCreated(id)
 
@@ -56,6 +58,7 @@ type SelectSearchResultsInput = {
   maxResultsPerSearch: number
   onEvent: (event: DeepSearchEvent) => void
   search: DeepSearchSearch
+  maxRetries?: number
 }
 
 type SelectedSearchResults = DeepSearchSearch & { selectedLinks: string[] }
@@ -82,6 +85,7 @@ export async function selectSearchResults(
     onStreamCreated: (streamId) => {
       params.onEvent({ type: "selection-stream", query, streamId })
     },
+    maxRetries: params.maxRetries,
   })
   const linksById = new Map(
     indexedResults.map((result) => [result.id, result.url]),

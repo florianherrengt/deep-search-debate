@@ -27,12 +27,14 @@ export async function runDeepSearchJob(
   researchRequest: string,
   maxSearches: number,
   maxResultsPerSearch: number,
+  maxRetries?: number,
 ): Promise<void> {
       try {
         await deepSearch({
           researchRequest,
           maxSearches,
           maxResultsPerSearch,
+          maxRetries,
           onQueriesGenerated: (queries) => {
             const queryGeneration = db
               .select()
