@@ -8,6 +8,8 @@ import type {
 } from "./schemas.ts"
 
 type GenerateWebSearchQueriesInput = {
+  userId: string
+  deepSearchJobId: string
   researchRequest: string
   onStreamCreated: (streamId: string) => void
   maxRetries?: number
@@ -21,6 +23,8 @@ export async function generateWebSearchQueries(
   params: GenerateWebSearchQueriesInput,
 ): Promise<string[]> {
   const { id, output } = await generateArrayStream({
+    userId: params.userId,
+    owner: { deepSearchJobId: params.deepSearchJobId },
     prompt: params.researchRequest,
     promptName: PromptName.GenerateWebSearchQueries,
     element: z.string().trim().min(1),
@@ -32,6 +36,8 @@ export async function generateWebSearchQueries(
 }
 
 type GenerateSearchResultsInput = {
+  userId: string
+  deepSearchJobId: string
   researchRequest: string
   maxSearches: number
   onEvent: (event: DeepSearchEvent) => void
@@ -47,6 +53,8 @@ export async function generateSearchResults(
   params: GenerateSearchResultsInput,
 ): Promise<DeepSearchSearchResults> {
   const queries = await generateWebSearchQueries({
+    userId: params.userId,
+    deepSearchJobId: params.deepSearchJobId,
     researchRequest: params.researchRequest,
     onStreamCreated: (streamId) => {
       params.onEvent({ type: "query-stream", streamId })

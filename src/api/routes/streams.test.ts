@@ -15,15 +15,25 @@ vi.mock("../llms/streams.ts", () => ({
 }))
 
 import { streams } from "./streams.ts"
+import type { AppEnv } from "../types/auth.ts"
+import { db } from "../db/index.ts"
+import { llmGenerations } from "../db/schema/index.ts"
 
-function createApp(): Hono {
-  const app = new Hono()
+function createApp(): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
+  app.use("*", async (c, next) => {
+    c.set("userId", "test-user-id")
+    await next()
+  })
   streams(app)
   return app
 }
 
 describe("stream routes", () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    db.delete(llmGenerations).run()
+  })
 
   const streamId = "11111111-1111-4111-8111-111111111111"
 
@@ -40,12 +50,17 @@ describe("stream routes", () => {
     expect(response.headers.get("Location")).toBe("/api/streams/stream-id")
     await expect(response.json()).resolves.toEqual({ id: "stream-id" })
     expect(mocks.generateTextStream).toHaveBeenCalledWith({
+      userId: "test-user-id",
+      owner: { standalone: true },
       prompt: "Hello",
       promptName: "default",
     })
   })
 
   it("replays and follows a text stream as NDJSON", async () => {
+    db.insert(llmGenerations)
+      .values({ userId: "test-user-id", llmGenerationId: streamId })
+      .run()
     async function* events() {
       await Promise.resolve()
       yield { type: "reasoning", text: "Thinking" }

@@ -11,6 +11,8 @@ type IndexedSearchResult = {
 }
 
 type SelectWebSearchResultsInput = {
+  userId: string
+  deepSearchJobId: string
   userQuery: string
   searchQuery: string
   results: IndexedSearchResult[]
@@ -43,6 +45,8 @@ export async function selectWebSearchResults(
   ].join("\n")
 
   const { id, output } = await generateArrayStream({
+    userId: params.userId,
+    owner: { deepSearchJobId: params.deepSearchJobId },
     prompt,
     promptName: PromptName.SelectWebSearchResults,
     element: z.string().min(1),
@@ -54,6 +58,8 @@ export async function selectWebSearchResults(
 }
 
 type SelectSearchResultsInput = {
+  userId: string
+  deepSearchJobId: string
   researchRequest: string
   maxResultsPerSearch: number
   onEvent: (event: DeepSearchEvent) => void
@@ -78,6 +84,8 @@ export async function selectSearchResults(
     snippet: result.shortText,
   }))
   const selectedIds = await selectWebSearchResults({
+    userId: params.userId,
+    deepSearchJobId: params.deepSearchJobId,
     userQuery: params.researchRequest,
     searchQuery: query,
     results: indexedResults,

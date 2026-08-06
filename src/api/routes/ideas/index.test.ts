@@ -11,9 +11,14 @@ import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
 import { ideaJobs, type IdeaJobEvent } from "./index.ts"
 import { createIdeaJobManager } from "./manager.ts"
 import type { LiveIdeaJob } from "./schemas.ts"
+import type { AppEnv } from "../../types/auth.ts"
 
-function createApp(): Hono {
-  const app = new Hono()
+function createApp(): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
+  app.use("*", async (c, next) => {
+    c.set("userId", "test-user-id")
+    await next()
+  })
   const manager: DeepSearchJobManager = {
     start: vi.fn(),
     getLiveJob: vi.fn(),
@@ -45,6 +50,7 @@ describe("idea job routes", () => {
 
     expect(() =>
       manager.start(
+        "test-user-id",
         {
           prompt: "Generate owned ideas",
           numberOfIdeas: 12,
@@ -53,7 +59,7 @@ describe("idea job routes", () => {
           maxResultsPerSearch: 3,
         },
         {
-          createRelated: () => {
+          createParent: () => {
             throw new Error("Owner row failed")
           },
         },

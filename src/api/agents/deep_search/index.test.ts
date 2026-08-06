@@ -97,6 +97,8 @@ describe("deepSearch", () => {
 
     await expect(
       deepSearch({
+        userId: "test-user-id",
+        deepSearchJobId: "deep-search-job-id",
         researchRequest: "Research this",
         onEvent: (event) => {
           events.push(event)
@@ -140,19 +142,29 @@ describe("deepSearch", () => {
   it("generates an explicit final answer when no searches are returned", async () => {
     mocks.generateSearchResults.mockResolvedValueOnce([])
 
-    await deepSearch({ researchRequest: "Research this", onEvent: ignoreEvent })
+    await deepSearch({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
+      researchRequest: "Research this",
+      onEvent: ignoreEvent,
+    })
 
     expect(mocks.selectSearchResults).not.toHaveBeenCalled()
     expect(mocks.startPageSummary).not.toHaveBeenCalled()
     expect(mocks.summarizeSearchQuery).not.toHaveBeenCalled()
     expect(mocks.answerResearchRequest).toHaveBeenCalledWith({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
       researchRequest: "Research this",
       searchSummaries: [],
+      maxRetries: undefined,
     })
   })
 
   it("passes configured limits to each pipeline stage", async () => {
     await deepSearch({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
       researchRequest: "Research this",
       maxSearches: 5,
       maxResultsPerSearch: 2,
@@ -169,6 +181,8 @@ describe("deepSearch", () => {
 
   it("passes the retry policy to every model-backed stage", async () => {
     await deepSearch({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
       researchRequest: "Research this",
       maxRetries: 0,
       onEvent: ignoreEvent,
@@ -204,16 +218,24 @@ describe("deepSearch", () => {
         selectedLinks: ["https://example.com/result"],
       })
 
-    await deepSearch({ researchRequest: "Research this", onEvent: ignoreEvent })
+    await deepSearch({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
+      researchRequest: "Research this",
+      onEvent: ignoreEvent,
+    })
 
     expect(mocks.startPageSummary).toHaveBeenCalledTimes(1)
     expect(mocks.summarizeSearchQuery).toHaveBeenCalledTimes(2)
     expect(mocks.answerResearchRequest).toHaveBeenCalledWith({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
       researchRequest: "Research this",
       searchSummaries: [
         { query: "first query", content: "Completed query summary" },
         { query: "second query", content: "Completed query summary" },
       ],
+      maxRetries: undefined,
     })
   })
 
@@ -223,6 +245,8 @@ describe("deepSearch", () => {
     let completed = false
 
     const run = deepSearch({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
       researchRequest: "Research this",
       onEvent: ignoreEvent,
     }).then(() => {
@@ -276,9 +300,16 @@ describe("deepSearch", () => {
         ),
     )
 
-    await deepSearch({ researchRequest: "Research this", onEvent: ignoreEvent })
+    await deepSearch({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
+      researchRequest: "Research this",
+      onEvent: ignoreEvent,
+    })
 
     expect(mocks.summarizeSearchQuery).toHaveBeenCalledWith({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
       researchRequest: "Research this",
       query: "mixed query",
       results: [
@@ -298,6 +329,7 @@ describe("deepSearch", () => {
           content: "Unselected result description",
         },
       ],
+      maxRetries: undefined,
     })
   })
 
@@ -306,6 +338,8 @@ describe("deepSearch", () => {
     mocks.collectStreamText.mockReturnValueOnce(completion.promise)
 
     const run = deepSearch({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
       researchRequest: "Research this",
       onEvent: ignoreEvent,
     })
@@ -317,10 +351,13 @@ describe("deepSearch", () => {
     await run
 
     expect(mocks.answerResearchRequest).toHaveBeenCalledWith({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
       researchRequest: "Research this",
       searchSummaries: [
         { query: "test query", content: "Top-level findings" },
       ],
+      maxRetries: undefined,
     })
   })
 })

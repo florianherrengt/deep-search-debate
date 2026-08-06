@@ -20,6 +20,8 @@ function completeWithFailedPage(
 ): void {
   db.insert(llmGenerations)
     .values({
+      userId: "test-user-id",
+      deepSearchJobId,
       llmGenerationId: "final-answer-id",
       status: "completed",
       text: "Completed answer",
@@ -62,7 +64,7 @@ describe("createDeepSearchJobManager", () => {
       return Promise.resolve()
     })
     const manager = createDeepSearchJobManager()
-    const started = manager.start({
+    const started = manager.start("test-user-id", {
       researchRequest: "Research this",
       maxSearches: 3,
       maxResultsPerSearch: 3,
@@ -77,7 +79,7 @@ describe("createDeepSearchJobManager", () => {
       completeWithFailedPage(deepSearchJobId, "extraction")
       return Promise.resolve()
     })
-    const started = createDeepSearchJobManager().start({
+    const started = createDeepSearchJobManager().start("test-user-id", {
       researchRequest: "Research this",
       maxSearches: 3,
       maxResultsPerSearch: 3,
@@ -87,6 +89,7 @@ describe("createDeepSearchJobManager", () => {
     await expect(started.completion).resolves.toBe("Completed answer")
     expect(mocks.runDeepSearchJob).toHaveBeenCalledWith(
       started.deepSearchJobId,
+      "test-user-id",
       expect.any(Object),
       "Research this",
       3,
@@ -101,7 +104,7 @@ describe("createDeepSearchJobManager", () => {
       return Promise.resolve()
     })
     const manager = createDeepSearchJobManager()
-    const started = manager.start({
+    const started = manager.start("test-user-id", {
       researchRequest: "Research this",
       maxSearches: 3,
       maxResultsPerSearch: 3,
@@ -113,7 +116,11 @@ describe("createDeepSearchJobManager", () => {
 
   it("retains its terminal live log when durable terminal persistence failed", async () => {
     mocks.runDeepSearchJob.mockImplementation(
-      (_deepSearchJobId: string, job: LiveDeepSearchJob) => {
+      (
+        _deepSearchJobId: string,
+        _userId: string,
+        job: LiveDeepSearchJob,
+      ) => {
         job.publish({ type: "error", message: "SQLite unavailable" })
         job.publish({ type: "done" })
         job.close()
@@ -121,7 +128,7 @@ describe("createDeepSearchJobManager", () => {
       },
     )
     const manager = createDeepSearchJobManager()
-    const started = manager.start({
+    const started = manager.start("test-user-id", {
       researchRequest: "Research this",
       maxSearches: 3,
       maxResultsPerSearch: 3,

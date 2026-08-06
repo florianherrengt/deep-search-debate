@@ -7,7 +7,9 @@ import {
   debateMatches,
   debateMessages,
   debateRounds,
+  ideaJobs,
   ideas,
+  llmGenerations,
 } from "../../db/schema/index.ts"
 import type { TextStreamPersistenceTransaction } from "../../llms/streams.ts"
 import { DEBATE_TOURNAMENT_FORMAT } from "./tournament.ts"
@@ -24,6 +26,35 @@ type CreatedMatch = {
 
 function canonicalPair(firstIdeaId: string, secondIdeaId: string): string {
   return [firstIdeaId, secondIdeaId].sort().join(":")
+}
+
+function assertGenerationOwnedByMatch(
+  debateMatchId: string,
+  llmGenerationId: string,
+): void {
+  const ownedGeneration = db
+    .select({ llmGenerationId: llmGenerations.llmGenerationId })
+    .from(debateMatches)
+    .innerJoin(
+      debateRounds,
+      eq(debateMatches.debateRoundId, debateRounds.debateRoundId),
+    )
+    .innerJoin(
+      debateJobs,
+      eq(debateRounds.debateJobId, debateJobs.debateJobId),
+    )
+    .innerJoin(
+      llmGenerations,
+      and(
+        eq(llmGenerations.llmGenerationId, llmGenerationId),
+        eq(llmGenerations.debateJobId, debateJobs.debateJobId),
+      ),
+    )
+    .where(eq(debateMatches.debateMatchId, debateMatchId))
+    .get()
+  if (!ownedGeneration) {
+    throw new Error("LLM generation must belong to the debate job owner")
+  }
 }
 
 function expectedMatchCount(stage: DebateRoundStage): number {
@@ -131,11 +162,12 @@ export function createDebateRound(input: {
 }): CreatedMatch[] {
   const job = db
     .select({
-      ideaJobId: debateJobs.ideaJobId,
+      ideaJobId: ideaJobs.ideaJobId,
       stage: debateJobs.stage,
       status: debateJobs.status,
     })
     .from(debateJobs)
+    .innerJoin(ideaJobs, eq(ideaJobs.debateJobId, debateJobs.debateJobId))
     .where(eq(debateJobs.debateJobId, input.debateJobId))
     .get()
   if (!job) throw new Error("Debate job was not found")
@@ -238,6 +270,7 @@ export function createAgentMessage(input: {
   speakerSlot: 0 | 1
   llmGenerationId: string
 }): string {
+  assertGenerationOwnedByMatch(input.debateMatchId, input.llmGenerationId)
   const debateMessageId = randomUUID()
   db.insert(debateMessages)
     .values({ debateMessageId, ...input })
@@ -251,6 +284,10 @@ export function completeDebateMatch(input: {
   winnerIdeaId: string
   judgeGenerationId: string
 }, transaction: TextStreamPersistenceTransaction): void {
+  assertGenerationOwnedByMatch(
+    input.debateMatchId,
+    input.judgeGenerationId,
+  )
   transaction
     .insert(debateMessages)
     .values({

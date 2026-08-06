@@ -61,7 +61,7 @@ async function drain(
 describe("text streams", () => {
   it("replays buffered events before following live events", async () => {
     const source = new AsyncQueue<SourceStreamPart>()
-    const id = registerTextStream(source)
+    const id = registerTextStream("test-user-id", { standalone: true }, source)
     source.push({ type: "reasoning-delta", id: "reasoning", text: "Think" })
     await Promise.resolve()
 
@@ -88,7 +88,7 @@ describe("text streams", () => {
 
   it("supports concurrent readers and repeated completed reads", async () => {
     const source = new AsyncQueue<SourceStreamPart>()
-    const id = registerTextStream(source)
+    const id = registerTextStream("test-user-id", { standalone: true }, source)
     const first = subscribeToTextStream(id)
     const second = subscribeToTextStream(id)
     expect(first).toBeDefined()
@@ -128,7 +128,7 @@ describe("text streams", () => {
 
   it("evicts a completed live log and replays its durable output", async () => {
     const source = new AsyncQueue<SourceStreamPart>()
-    const id = registerTextStream(source)
+    const id = registerTextStream("test-user-id", { standalone: true }, source)
     source.push({ type: "text-delta", id: "text", text: "First " })
     source.push({ type: "text-delta", id: "text", text: "second" })
     source.close()
@@ -142,7 +142,7 @@ describe("text streams", () => {
 
   it("buffers failures for current and later readers", async () => {
     const source = new AsyncQueue<SourceStreamPart>()
-    const id = registerTextStream(source)
+    const id = registerTextStream("test-user-id", { standalone: true }, source)
     source.push({ type: "error", error: new Error("Provider failed") })
     source.close()
     await Promise.resolve()
@@ -153,9 +153,34 @@ describe("text streams", () => {
     ])
   })
 
+  it("fails a provider stream that completes without text", async () => {
+    const source = new AsyncQueue<SourceStreamPart>()
+    const id = registerTextStream("test-user-id", { standalone: true }, source)
+
+    source.close()
+    await waitForTextStream(id)
+
+    await expect(drain(subscribeToTextStream(id)!)).resolves.toEqual([
+      { type: "error", message: "Text generation returned no content" },
+      { type: "done" },
+    ])
+    expect(
+      db
+        .select()
+        .from(llmGenerations)
+        .where(eq(llmGenerations.llmGenerationId, id))
+        .get(),
+    ).toMatchObject({
+      status: "failed",
+      text: "",
+      reasoning: "",
+      error: "Text generation returned no content",
+    })
+  })
+
   it("rolls back a failed completion hook and terminally fails the generation", async () => {
     const source = new AsyncQueue<SourceStreamPart>()
-    const id = registerTextStream(source, {
+    const id = registerTextStream("test-user-id", { standalone: true }, source, {
       onCompleted: () => {
         throw new Error("SQLite unavailable")
       },
@@ -163,14 +188,17 @@ describe("text streams", () => {
     const subscribed = subscribeToTextStream(id)
     const completion = waitForTextStream(id)
 
+    source.push({ type: "text-delta", id: "text", text: "Result" })
     source.close()
 
     await expect(completion).rejects.toThrow("SQLite unavailable")
     await expect(drain(subscribed!)).resolves.toEqual([
+      { type: "text", text: "Result" },
       { type: "error", message: "SQLite unavailable" },
       { type: "done" },
     ])
     await expect(drain(subscribeToTextStream(id)!)).resolves.toEqual([
+      { type: "text", text: "Result" },
       { type: "error", message: "SQLite unavailable" },
       { type: "done" },
     ])
@@ -198,6 +226,7 @@ describe("text streams", () => {
     const llmGenerationId = "database-only-generation"
     db.insert(llmGenerations)
       .values({
+        userId: "test-user-id",
         llmGenerationId,
         status: "completed",
         text: "Persisted answer",

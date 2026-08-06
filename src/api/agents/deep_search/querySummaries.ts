@@ -8,6 +8,8 @@ type QuerySummaryResult = {
 }
 
 type SummarizeSearchQueryInput = {
+  userId: string
+  deepSearchJobId: string
   researchRequest: string
   query: string
   results: QuerySummaryResult[]
@@ -42,6 +44,8 @@ export async function summarizeSearchQuery(
     ].join("\n")
 
     const { id } = await generateTextStream({
+      userId: params.userId,
+      owner: { deepSearchJobId: params.deepSearchJobId },
       prompt,
       promptName: PromptName.SummarizeSearchQuery,
       maxRetries: params.maxRetries,

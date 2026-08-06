@@ -5,11 +5,14 @@ import { db } from "../../db/index.ts"
 import {
   debateJobs,
   debateMatches,
+  debateMessages,
   debateRounds,
   ideaJobs,
   ideas,
+  llmGenerations,
 } from "../../db/schema/index.ts"
 import {
+  createAgentMessage,
   createDebateRound,
   type DebateRoundStage,
   type IdeaPair,
@@ -35,18 +38,25 @@ function createFixture(stage: DebateRoundStage = "swiss"): Fixture {
     }),
   )
 
+  db.insert(debateJobs)
+    .values({
+      debateJobId,
+      userId: "test-user-id",
+      randomSeed: 42,
+      stage,
+    })
+    .run()
   db.insert(ideaJobs)
     .values({
+      userId: "test-user-id",
       ideaJobId,
+      debateJobId,
       prompt: "Choose a product",
       numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
       deepSearchCount: 2,
     })
     .run()
   db.insert(ideas).values(ideaRows).run()
-  db.insert(debateJobs)
-    .values({ debateJobId, ideaJobId, randomSeed: 42, stage })
-    .run()
 
   return { debateJobId, ideaIds: ideaRows.map(({ ideaId }) => ideaId) }
 }
@@ -60,7 +70,7 @@ function sequentialPairs(ideaIds: readonly string[]): IdeaPair[] {
 
 describe("debate round persistence", () => {
   beforeEach(() => {
-    db.delete(ideaJobs).run()
+    db.delete(debateJobs).run()
   })
 
   it("rejects an idea owned by another idea job", () => {
@@ -181,6 +191,41 @@ describe("debate round persistence", () => {
         .select()
         .from(debateRounds)
         .where(eq(debateRounds.debateJobId, fixture.debateJobId))
+        .all(),
+    ).toEqual([])
+  })
+
+  it("rejects a transcript generation owned by another debate", () => {
+    const fixture = createFixture()
+    const [match] = createDebateRound({
+      debateJobId: fixture.debateJobId,
+      stage: "swiss",
+      stageRoundNumber: 1,
+      pairs: sequentialPairs(fixture.ideaIds),
+    })
+    const foreignDebateJobId = createFixture().debateJobId
+    const llmGenerationId = crypto.randomUUID()
+    db.insert(llmGenerations)
+      .values({
+        llmGenerationId,
+        userId: "test-user-id",
+        debateJobId: foreignDebateJobId,
+      })
+      .run()
+
+    expect(() =>
+      createAgentMessage({
+        debateMatchId: match.debateMatchId,
+        position: 0,
+        speakerSlot: 0,
+        llmGenerationId,
+      }),
+    ).toThrow("LLM generation must belong to the debate job owner")
+    expect(
+      db
+        .select()
+        .from(debateMessages)
+        .where(eq(debateMessages.debateMatchId, match.debateMatchId))
         .all(),
     ).toEqual([])
   })

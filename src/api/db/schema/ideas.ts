@@ -6,8 +6,9 @@ import { ideaJobs } from "./ideaJobs.ts"
 /**
  * One stable idea produced by an idea-generation job. Ideas are normalized so
  * tournament rows reference durable IDs instead of brittle JSON array offsets.
- * position preserves generation order as metadata, not identity. Completed-job
- * idea content is immutable so a replay sees exactly what debate agents saw.
+ * position preserves generation order as metadata, not identity. Idea rows are
+ * immutable after insertion so replay sees exactly what debate agents saw;
+ * terminal jobs reject additions to the completed collection.
  */
 export const ideas = sqliteTable(
   "ideas",
@@ -19,9 +20,9 @@ export const ideas = sqliteTable(
     position: integer("position").notNull(),
     title: text("title").notNull(),
     description: text("description").notNull(),
-    createdAt: integer("created_at", { mode: "timestamp" })
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
-      .default(sql`(unixepoch())`),
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
   },
   (table) => [
     uniqueIndex("ideas_job_position_idx").on(table.ideaJobId, table.position),

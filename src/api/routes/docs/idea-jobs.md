@@ -7,7 +7,7 @@ Closing the page does not cancel the run. While it is running, another subscribe
 ## Pipeline
 
 1. One fresh planning generation creates exactly `deepSearchCount` distinct, non-empty research prompts.
-2. One durable deep-search job starts immediately for each prompt. All child jobs run in parallel.
+2. One durable deep-search job starts immediately for each prompt. All child jobs run in parallel, while a scoped position preserves prompt order for replay and briefing construction.
 3. The parent waits for every launched child to settle. If any child fails, the parent fails and no summary or idea generation starts.
 4. One fresh summary generation receives the original user prompt and only each child's final-answer text. Page records, source metadata, and intermediate output are not copied into this call.
 5. One fresh idea generation receives the original user prompt, the research briefing, and `numberOfIdeas`. It streams schema-validated `{ title, description }` objects as they complete, then persists them with stable IDs and their generation order before completing the job.
@@ -15,6 +15,11 @@ Closing the page does not cancel the run. While it is running, another subscribe
 Any planning, child-search, summary, or idea-generation failure fails the parent. Individual page-extraction failures inside a child search are non-fatal when the search result description can be used as a fallback. Once child searches have started, the parent waits for all of them to finish even if one fails so it never reports a terminal state while visible children are still running.
 
 ## HTTP contract
+
+Every endpoint requires a Better Auth session. Creation records the authenticated
+user as owner; history includes only that user's jobs, and foreign detail/event
+UUIDs return 404. Planning, summary, idea, and child-search generations inherit
+the same owner.
 
 ### `POST /api/idea-jobs`
 
@@ -67,9 +72,15 @@ Each stream ID is read through `GET /api/streams/:id`, which exposes reasoning a
 ## Persistence model
 
 - `idea_jobs` owns the request, requested counts, current stage, lifecycle, timestamps, and three LLM generation links.
+- A debate-created idea job points to its owning debate with `ON DELETE
+  CASCADE`; standalone idea jobs leave that owner null. Deleting an idea job
+  deletes its child searches and all generations owned by either level.
 - Planning prompts, the research briefing, and the raw structured idea output live in their linked `llm_generations` rows.
+- Each generation link is constrained to the exact idea job and user that own
+  it. A completed idea job must be in the `ideas` stage with all three generation
+  links and a terminal timestamp.
 - `ideas` is the normalized canonical representation of the validated idea set, with stable IDs and generation order. Its insert and the parent job's completion update are atomic.
-- Child `deep_search_jobs` reference the parent and retain their complete normalized research state.
+- Child `deep_search_jobs` reference the parent with a matching owner and retain both their planning order and complete normalized research state.
 - Completed idea cards replay only from normalized `ideas` rows. The raw structured generation output remains available for model-stream inspection, not as domain state.
 
 On API startup, orphaned running idea jobs become `interrupted` because their provider calls and child orchestration cannot resume. Completed and failed terminal runs remain replayable after restart.

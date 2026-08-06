@@ -36,6 +36,11 @@ default retry behavior.
 
 ## HTTP contract
 
+Every endpoint requires a Better Auth session. Creation records the authenticated
+user on the debate and its atomic idea-job parent; history includes only that
+user's jobs, and foreign detail/event UUIDs return 404. Every nested model stream
+inherits the same owner.
+
 ### `POST /api/debate-jobs`
 
 Starts idea generation and the automatic tournament. It returns `202 Accepted`:
@@ -72,10 +77,13 @@ ends with `done`. After restart, terminal events are synthesized from SQLite.
 
 ## Persistence and recovery
 
-- `debate_jobs` links one tournament to its one idea job and stores lifecycle,
-  stage, and deterministic random seed.
+- `debate_jobs` owns one same-owner `idea_jobs` child and stores lifecycle,
+  stage, and deterministic random seed. The child carries the FK so deleting a
+  debate cascades through its ideas, child searches, normalized research rows,
+  tournament rows, and every job-owned LLM generation.
 - `debate_rounds` and `debate_matches` store pairings and machine-readable winners.
-- `debate_messages` links ordered transcript entries to durable LLM generations.
+- `debate_messages` links ordered transcript entries to durable, same-owner LLM
+  generations; ownership is validated before each transcript link is written.
 - A judge generation's terminal output, verdict-message link, winner, and match
   completion timestamp commit in one transaction. A failed completion hook rolls
   the generation terminal write back instead of leaving a half-linked verdict.
@@ -84,8 +92,9 @@ ends with `done`. After restart, terminal events are synthesized from SQLite.
 - Round creation validates same-job membership, unique round appearances, stage
   match counts, prior-stage completion, and non-repeating Swiss opponents before
   inserting the complete round transactionally.
-- The idea job and its owning debate job are created in one transaction before
-  provider work starts, so a parent-row failure cannot leave an orphan idea run.
+- The debate row is created first and its owned idea row is inserted in the same
+  transaction before provider work starts, so a parent-row failure cannot leave
+  an orphan idea run.
 
 Provider work cannot resume after an API-process restart. Startup recovery marks
 orphaned running debate jobs and generations interrupted while preserving completed

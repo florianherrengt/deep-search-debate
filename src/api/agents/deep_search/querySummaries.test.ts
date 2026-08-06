@@ -17,6 +17,8 @@ describe("query summaries", () => {
     })
 
     const streamId = await summarizeSearchQuery({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
       researchRequest: "Find the best longboard for a beginner",
       query: "best beginner longboards",
       results: [
@@ -35,6 +37,8 @@ describe("query summaries", () => {
     })
 
     expect(mocks.generateTextStream).toHaveBeenCalledWith({
+      userId: "test-user-id",
+      owner: { deepSearchJobId: "deep-search-job-id" },
       prompt: [
         "user_query: Find the best longboard for a beginner",
         "search_query: best beginner longboards",
@@ -68,6 +72,8 @@ describe("query summaries", () => {
 
     await expect(
       summarizeSearchQuery({
+        userId: "test-user-id",
+        deepSearchJobId: "deep-search-job-id",
         researchRequest: "Research this",
         query: "search this",
         results: [],

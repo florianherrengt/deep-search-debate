@@ -18,6 +18,7 @@ type StartDeepSearchJobInput = {
   maxSearches: number
   maxResultsPerSearch: number
   ideaJobId?: string
+  ideaJobPosition?: number
   maxRetries?: number
 }
 
@@ -72,7 +73,7 @@ function getInternalFailure(deepSearchJobId: string): string | undefined {
 }
 
 export type DeepSearchJobManager = {
-  start(input: StartDeepSearchJobInput): StartedDeepSearchJob
+  start(userId: string, input: StartDeepSearchJobInput): StartedDeepSearchJob
   getLiveJob(deepSearchJobId: string): LiveDeepSearchJob | undefined
 }
 
@@ -137,13 +138,13 @@ export function createDeepSearchJobManager(): DeepSearchJobManager {
   const liveJobs = new Map<string, LiveDeepSearchJob>()
 
   return {
-    start(input) {
+    start(userId, input) {
       const deepSearchJobId = randomUUID()
       const job = createReplayableEventLog<DeepSearchJobEvent>()
       const { maxRetries, ...persistedInput } = input
 
       db.insert(deepSearchJobsTable)
-        .values({ deepSearchJobId, ...persistedInput })
+        .values({ deepSearchJobId, userId, ...persistedInput })
         .run()
 
       // The route serving child events reads this same log while the durable
@@ -155,6 +156,7 @@ export function createDeepSearchJobManager(): DeepSearchJobManager {
       // an owning idea pipeline can enforce its all-or-nothing contract.
       const completion = runDeepSearchJob(
         deepSearchJobId,
+        userId,
         job,
         input.researchRequest,
         input.maxSearches,

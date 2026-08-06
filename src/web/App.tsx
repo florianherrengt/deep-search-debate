@@ -8,9 +8,12 @@ import {
 import { useEffect, useRef } from "react"
 import {
   AppBar,
+  Alert,
+  Avatar,
   Box,
   Button,
   Container,
+  Stack,
   Toolbar,
   Typography,
 } from "@mui/material"
@@ -20,6 +23,8 @@ import { DeepSearch } from "./pages/DeepSearch/index.tsx"
 import { Ideas } from "./pages/Ideas/index.tsx"
 import { Debates } from "./pages/Debates/index.tsx"
 import { NotFound } from "./components/NotFound.tsx"
+import { AuthGate } from "./components/auth/AuthGate.tsx"
+import type { AuthSession } from "./lib/authClient.ts"
 
 const navigationItems = [
   { label: "Home", to: "/" },
@@ -34,7 +39,14 @@ function isCurrentRoute(pathname: string, destination: string): boolean {
   return pathname === destination || pathname.startsWith(`${destination}/`)
 }
 
-function AppNavigation() {
+interface AppNavigationProps {
+  authError?: string
+  session: AuthSession
+  signingOut: boolean
+  signOut: () => Promise<void>
+}
+
+function AppNavigation({ session, signingOut, signOut }: AppNavigationProps) {
   const location = useLocation()
 
   return (
@@ -72,6 +84,31 @@ function AppNavigation() {
         >
           Deep Search Debate
         </Typography>
+        <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+          <Avatar
+            alt=""
+            src={session.user.image ?? undefined}
+            sx={{ height: 30, width: 30 }}
+          >
+            {session.user.name.slice(0, 1).toUpperCase()}
+          </Avatar>
+          <Typography
+            color="text.secondary"
+            sx={{ display: { xs: "none", md: "block" }, maxWidth: 180 }}
+            noWrap
+            variant="body2"
+          >
+            {session.user.name}
+          </Typography>
+          <Button
+            color="inherit"
+            disabled={signingOut}
+            onClick={() => void signOut()}
+            size="small"
+          >
+            {signingOut ? "Signing out…" : "Sign out"}
+          </Button>
+        </Stack>
         <Box
           aria-label="Primary navigation"
           component="nav"
@@ -169,15 +206,29 @@ function RoutedContent() {
   )
 }
 
+function AuthenticatedApp({
+  authError,
+  session,
+  signingOut,
+  signOut,
+}: AppNavigationProps) {
+  return (
+    <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100dvh" }}>
+      <AppNavigation session={session} signingOut={signingOut} signOut={signOut} />
+      {authError === undefined ? null : (
+        <Alert severity="error">{authError}</Alert>
+      )}
+      <RoutedContent />
+    </Box>
+  )
+}
+
 export function App() {
   return (
     <BrowserRouter>
-      <Box
-        sx={{ display: "flex", flexDirection: "column", minHeight: "100dvh" }}
-      >
-        <AppNavigation />
-        <RoutedContent />
-      </Box>
+      <AuthGate>
+        {(props) => <AuthenticatedApp {...props} />}
+      </AuthGate>
     </BrowserRouter>
   )
 }

@@ -37,7 +37,7 @@ export function reconstructIdeaJobEvents(
     })
     .from(deepSearchJobs)
     .where(eq(deepSearchJobs.ideaJobId, ideaJobId))
-    .orderBy(asc(deepSearchJobs.createdAt))
+    .orderBy(asc(deepSearchJobs.ideaJobPosition))
     .all()
 
   return [

@@ -1,5 +1,5 @@
 import { zValidator } from "@hono/zod-validator"
-import { desc, eq } from "drizzle-orm"
+import { and, desc, eq } from "drizzle-orm"
 import type { Hono } from "hono"
 import { stream } from "hono/streaming"
 import { db } from "../../db/index.ts"
@@ -12,6 +12,7 @@ import {
   listIdeaJobsInputSchema,
   type IdeaJobEvent,
 } from "./schemas.ts"
+import type { AppEnv } from "../../types/auth.ts"
 
 export type { IdeaJobEvent } from "./schemas.ts"
 
@@ -25,13 +26,13 @@ async function writeEvents(
 }
 
 /** Registers durable idea-pipeline creation, history, detail, and events. */
-export function ideaJobs(app: Hono, manager: IdeaJobManager) {
+export function ideaJobs(app: Hono<AppEnv>, manager: IdeaJobManager) {
   app.post(
     "/idea-jobs",
     zValidator("json", createIdeaJobInputSchema),
     (c) => {
       const input = c.req.valid("json")
-      const { ideaJobId, completion } = manager.start(input)
+      const { ideaJobId, completion } = manager.start(c.get("userId"), input)
       void completion.catch((error: unknown) => {
         console.error(`Idea job ${ideaJobId} background task failed`, error)
       })
@@ -49,7 +50,11 @@ export function ideaJobs(app: Hono, manager: IdeaJobManager) {
       const jobs = db
         .select()
         .from(ideaJobsTable)
-        .orderBy(desc(ideaJobsTable.createdAt))
+        .where(eq(ideaJobsTable.userId, c.get("userId")))
+        .orderBy(
+          desc(ideaJobsTable.createdAt),
+          desc(ideaJobsTable.ideaJobId),
+        )
         .limit(limit)
         .all()
       return c.json({ ideaJobs: jobs })
@@ -61,6 +66,17 @@ export function ideaJobs(app: Hono, manager: IdeaJobManager) {
     zValidator("param", ideaJobParamsSchema),
     (c) => {
       const { ideaJobId } = c.req.valid("param")
+      const ownedJob = db
+        .select({ id: ideaJobsTable.ideaJobId })
+        .from(ideaJobsTable)
+        .where(
+          and(
+            eq(ideaJobsTable.ideaJobId, ideaJobId),
+            eq(ideaJobsTable.userId, c.get("userId")),
+          ),
+        )
+        .get()
+      if (!ownedJob) return c.json({ error: "Idea job not found" }, 404)
       const liveJob = manager.getLiveJob(ideaJobId)
       const persistedEvents = liveJob
         ? undefined
@@ -84,7 +100,12 @@ export function ideaJobs(app: Hono, manager: IdeaJobManager) {
       const job = db
         .select()
         .from(ideaJobsTable)
-        .where(eq(ideaJobsTable.ideaJobId, ideaJobId))
+        .where(
+          and(
+            eq(ideaJobsTable.ideaJobId, ideaJobId),
+            eq(ideaJobsTable.userId, c.get("userId")),
+          ),
+        )
         .get()
       if (!job) return c.json({ error: "Idea job not found" }, 404)
       return c.json({ ideaJob: job })

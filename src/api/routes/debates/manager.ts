@@ -15,7 +15,7 @@ type StartedDebateJob = {
 }
 
 export type DebateJobManager = {
-  start(input: { prompt: string }): StartedDebateJob
+  start(userId: string, input: { prompt: string }): StartedDebateJob
   getLiveJob(debateJobId: string): LiveDebateJob | undefined
 }
 
@@ -55,11 +55,12 @@ export function createDebateJobManager(
   const liveJobs = new Map<string, LiveDebateJob>()
 
   return {
-    start({ prompt }) {
+    start(userId, { prompt }) {
       const debateJobId = randomUUID()
       const randomSeed = getRandomSeed()
       const job = createReplayableEventLog<DebateJobEvent>()
       const ideaJob = ideaJobManager.start(
+        userId,
         {
           prompt,
           numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
@@ -69,11 +70,12 @@ export function createDebateJobManager(
           maxRetries: 0,
         },
         {
-          createRelated: (transaction, ideaJobId) => {
+          createParent: (transaction) => {
             transaction
               .insert(debateJobs)
-              .values({ debateJobId, ideaJobId, randomSeed })
+              .values({ debateJobId, userId, randomSeed })
               .run()
+            return { debateJobId }
           },
         },
       )
@@ -81,6 +83,7 @@ export function createDebateJobManager(
 
       const completion = runDebateJob({
         debateJobId,
+        userId,
         ideaJobId: ideaJob.ideaJobId,
         randomSeed,
         ideaCompletion: ideaJob.completion,

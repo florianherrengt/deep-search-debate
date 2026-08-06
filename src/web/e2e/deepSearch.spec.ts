@@ -1,4 +1,6 @@
-import { expect, test, type Response } from "@playwright/test"
+import type { Response } from "@playwright/test"
+
+import { expect, test } from "./fixtures.ts"
 import type { DeepSearchJobEvent } from "../lib/deepSearchJobs.ts"
 import type { TextStreamEvent } from "../lib/textStreams.ts"
 

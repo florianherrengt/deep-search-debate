@@ -18,9 +18,29 @@ function createFinalStageJob(finalMatchCompleted: boolean): string {
   const generationIds = Array.from({ length: 3 }, () => crypto.randomUUID())
   const completedAt = new Date()
 
+  db.insert(debateJobs)
+    .values({
+      debateJobId,
+      userId: "test-user-id",
+      randomSeed: 42,
+      stage: "final",
+    })
+    .run()
+  db.insert(ideaJobs)
+    .values({
+      userId: "test-user-id",
+      ideaJobId,
+      debateJobId,
+      prompt: "Choose a building energy product",
+      numberOfIdeas: 2,
+      deepSearchCount: 1,
+    })
+    .run()
   db.insert(llmGenerations)
     .values(
       generationIds.map((llmGenerationId) => ({
+        userId: "test-user-id",
+        ideaJobId,
         llmGenerationId,
         status: "completed" as const,
         text: "Completed output",
@@ -29,21 +49,6 @@ function createFinalStageJob(finalMatchCompleted: boolean): string {
       })),
     )
     .run()
-  db.insert(ideaJobs)
-    .values({
-      ideaJobId,
-      prompt: "Choose a building energy product",
-      stage: "ideas",
-      numberOfIdeas: 2,
-      deepSearchCount: 1,
-      researchPromptGenerationId: generationIds[0],
-      researchSummaryGenerationId: generationIds[1],
-      ideaGenerationId: generationIds[2],
-      status: "completed",
-      completedAt,
-    })
-    .run()
-
   const ideaRows = [0, 1].map((position) => ({
     ideaId: crypto.randomUUID(),
     ideaJobId,
@@ -52,10 +57,17 @@ function createFinalStageJob(finalMatchCompleted: boolean): string {
     description: `Description ${position + 1}`,
   }))
   db.insert(ideas).values(ideaRows).run()
-  db.insert(debateJobs)
-    .values({ debateJobId, ideaJobId, randomSeed: 42, stage: "final" })
+  db.update(ideaJobs)
+    .set({
+      stage: "ideas",
+      researchPromptGenerationId: generationIds[0],
+      researchSummaryGenerationId: generationIds[1],
+      ideaGenerationId: generationIds[2],
+      status: "completed",
+      completedAt,
+    })
+    .where(eq(ideaJobs.ideaJobId, ideaJobId))
     .run()
-
   const debateRoundId = crypto.randomUUID()
   db.insert(debateRounds)
     .values({
@@ -82,7 +94,7 @@ function createFinalStageJob(finalMatchCompleted: boolean): string {
 
 describe("restart recovery", () => {
   beforeEach(() => {
-    db.delete(ideaJobs).run()
+    db.delete(debateJobs).run()
     db.delete(llmGenerations).run()
   })
 

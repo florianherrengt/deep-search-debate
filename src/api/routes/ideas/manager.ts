@@ -28,15 +28,19 @@ type IdeaJobCreationTransaction = Parameters<
 >[0]
 
 type StartIdeaJobOptions = {
-  /** Creates an owning row atomically before the idea runner can start. */
-  createRelated?: (
+  /** Creates an optional parent before the owned idea row is inserted. */
+  createParent?: (
     transaction: IdeaJobCreationTransaction,
     ideaJobId: string,
-  ) => void
+  ) => { debateJobId: string }
 }
 
 export type IdeaJobManager = {
-  start(input: StartIdeaJobInput, options?: StartIdeaJobOptions): StartedIdeaJob
+  start(
+    userId: string,
+    input: StartIdeaJobInput,
+    options?: StartIdeaJobOptions,
+  ): StartedIdeaJob
   getLiveJob(ideaJobId: string): LiveIdeaJob | undefined
 }
 
@@ -74,26 +78,29 @@ export function createIdeaJobManager(
   const liveJobs = new Map<string, LiveIdeaJob>()
 
   return {
-    start(input, options) {
+    start(userId, input, options) {
       const ideaJobId = randomUUID()
       const job = createReplayableEventLog<IdeaJobEvent>()
 
       db.transaction((transaction) => {
+        const parent = options?.createParent?.(transaction, ideaJobId)
         transaction
           .insert(ideaJobs)
           .values({
             ideaJobId,
+            userId,
+            ...parent,
             prompt: input.prompt,
             numberOfIdeas: input.numberOfIdeas,
             deepSearchCount: input.deepSearchCount,
           })
           .run()
-        options?.createRelated?.(transaction, ideaJobId)
       })
       liveJobs.set(ideaJobId, job)
 
       const completion = runIdeaJob({
         ideaJobId,
+        userId,
         ...input,
         job,
         deepSearchManager,

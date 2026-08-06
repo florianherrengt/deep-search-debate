@@ -1,19 +1,29 @@
 import { sql } from "drizzle-orm"
-import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
+import {
+  check,
+  index,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+  type AnySQLiteColumn,
+} from "drizzle-orm/sqlite-core"
 
-import { ideaJobs } from "./ideaJobs.ts"
 import { ideas } from "./ideas.ts"
-import { llmGenerations } from "./llmGenerations.ts"
+import { getLlmGenerationIdColumn } from "./llmGenerations.ts"
 import {
   debateJobStages,
   debateRoundStages,
   jobStatuses,
 } from "./statuses.ts"
+import { user } from "./auth.ts"
 
 /**
  * Debate persistence deliberately stores facts, not projections:
  *
- * - One debate job owns one idea job and all of that job's ideas compete. There
+ * - One debate job owns one idea job and all of that job's ideas compete. The
+ *   child idea_jobs row carries that ownership foreign key so deleting the
+ *   debate cascades through the complete generated pipeline. There
  *   is no participant table because tournament membership adds no information.
  * - There is no format version while only one persisted format exists. Add one
  *   only when incompatible tournament formats must coexist in the database.
@@ -27,10 +37,9 @@ export const debateJobs = sqliteTable(
   "debate_jobs",
   {
     debateJobId: text("debate_job_id").primaryKey(),
-    ideaJobId: text("idea_job_id")
+    userId: text("user_id")
       .notNull()
-      .unique()
-      .references(() => ideaJobs.ideaJobId, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "cascade" }),
     /** Makes initial pairing and final tie-breaking reproducible. */
     randomSeed: integer("random_seed").notNull(),
     stage: text("stage", { enum: debateJobStages })
@@ -40,13 +49,21 @@ export const debateJobs = sqliteTable(
       .notNull()
       .default("running"),
     error: text("error"),
-    createdAt: integer("created_at", { mode: "timestamp" })
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
-      .default(sql`(unixepoch())`),
-    completedAt: integer("completed_at", { mode: "timestamp" }),
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
+    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
   },
   (table) => [
-    index("debate_jobs_created_at_idx").on(table.createdAt),
+    index("debate_jobs_user_created_at_idx").on(
+      table.userId,
+      table.createdAt,
+      table.debateJobId,
+    ),
+    uniqueIndex("debate_jobs_id_user_id_idx").on(
+      table.debateJobId,
+      table.userId,
+    ),
     check(
       "debate_jobs_config_check",
       sql`${table.randomSeed} >= 0 and ${table.randomSeed} <= 4294967295`,
@@ -86,9 +103,9 @@ export const debateRounds = sqliteTable(
       .references(() => debateJobs.debateJobId, { onDelete: "cascade" }),
     stage: text("stage", { enum: debateRoundStages }).notNull(),
     stageRoundNumber: integer("stage_round_number").notNull(),
-    createdAt: integer("created_at", { mode: "timestamp" })
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
-      .default(sql`(unixepoch())`),
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
   },
   (table) => [
     uniqueIndex("debate_rounds_job_stage_number_idx").on(
@@ -135,16 +152,19 @@ export const debateMatches = sqliteTable(
     winnerIdeaId: text("winner_idea_id").references(() => ideas.ideaId, {
       onDelete: "no action",
     }),
-    createdAt: integer("created_at", { mode: "timestamp" })
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
-      .default(sql`(unixepoch())`),
-    completedAt: integer("completed_at", { mode: "timestamp" }),
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
+    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
   },
   (table) => [
     uniqueIndex("debate_matches_round_position_idx").on(
       table.debateRoundId,
       table.position,
     ),
+    index("debate_matches_first_idea_id_idx").on(table.firstIdeaId),
+    index("debate_matches_second_idea_id_idx").on(table.secondIdeaId),
+    index("debate_matches_winner_idea_id_idx").on(table.winnerIdeaId),
     check(
       "debate_matches_ideas_check",
       sql`${table.position} >= 0 and ${table.firstIdeaId} != ${table.secondIdeaId}`,
@@ -171,8 +191,8 @@ export const debateMatches = sqliteTable(
  *
  * speakerSlot 0 and 1 refer to the match's first and second idea; slot 2 is the
  * judge. Message kind is intentionally not stored because the UI only displays
- * the transcript. Position is durable because SQLite's unixepoch timestamps
- * have one-second resolution; timestamps alone cannot preserve reply order.
+ * the transcript. Position is durable because timestamps can tie under
+ * concurrency and therefore cannot preserve reply order.
  */
 export const debateMessages = sqliteTable(
   "debate_messages",
@@ -186,12 +206,12 @@ export const debateMessages = sqliteTable(
     llmGenerationId: text("llm_generation_id")
       .notNull()
       .unique()
-      .references(() => llmGenerations.llmGenerationId, {
-        onDelete: "restrict",
+      .references(getLlmGenerationIdColumn, {
+        onDelete: "no action",
       }),
-    createdAt: integer("created_at", { mode: "timestamp" })
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
-      .default(sql`(unixepoch())`),
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
   },
   (table) => [
     uniqueIndex("debate_messages_match_position_idx").on(
@@ -208,3 +228,11 @@ export const debateMessages = sqliteTable(
     ),
   ],
 )
+
+/** Lets owner FKs target the debate root without importing its inferred type. */
+export function getDebateJobOwnerColumns(): [
+  AnySQLiteColumn,
+  AnySQLiteColumn,
+] {
+  return [debateJobs.debateJobId, debateJobs.userId]
+}

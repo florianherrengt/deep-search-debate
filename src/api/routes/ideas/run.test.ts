@@ -20,6 +20,7 @@ import { runIdeaJob } from "./run.ts"
 import type { Idea, IdeaJobEvent } from "./schemas.ts"
 
 const researchPrompts = ["Research market constraints", "Research user needs"]
+const ideaJobId = "11111111-1111-4111-8111-111111111111"
 const generatedIdeas: Idea[] = [
   { title: "First idea", description: "First description" },
   { title: "Second idea", description: "Second description" },
@@ -28,6 +29,8 @@ const generatedIdeas: Idea[] = [
 function insertGeneration(id: string, text: string): void {
   db.insert(llmGenerations)
     .values({
+      userId: "test-user-id",
+      ideaJobId,
       llmGenerationId: id,
       status: "completed",
       text,
@@ -70,9 +73,9 @@ async function collectEvents(
 
 function createInput(maxRetries?: number) {
   const job = createReplayableEventLog<IdeaJobEvent>()
-  const ideaJobId = "11111111-1111-4111-8111-111111111111"
   db.insert(ideaJobs)
     .values({
+      userId: "test-user-id",
       ideaJobId,
       prompt: "Generate useful concepts",
       numberOfIdeas: 2,
@@ -86,6 +89,7 @@ function createInput(maxRetries?: number) {
   return {
     input: {
       ideaJobId,
+      userId: "test-user-id",
       prompt: "Generate useful concepts",
       numberOfIdeas: 2,
       deepSearchCount: 2,
@@ -107,6 +111,7 @@ describe("runIdeaJob", () => {
   })
 
   it("runs all research in parallel before summarising and streams ideas", async () => {
+    const { input, events } = createInput(0)
     setupGenerations()
     mocks.startDeepSearch
       .mockReturnValueOnce({
@@ -117,18 +122,21 @@ describe("runIdeaJob", () => {
         deepSearchJobId: "search-two",
         completion: Promise.resolve("Second research result"),
       })
-    const { input, events } = createInput(0)
-
     await runIdeaJob(input)
 
     expect(mocks.startDeepSearch).toHaveBeenCalledTimes(2)
-    expect(mocks.startDeepSearch).toHaveBeenNthCalledWith(1, {
-      researchRequest: researchPrompts[0],
-      maxSearches: 3,
-      maxResultsPerSearch: 3,
-      ideaJobId: input.ideaJobId,
-      maxRetries: 0,
-    })
+    expect(mocks.startDeepSearch).toHaveBeenNthCalledWith(
+      1,
+      "test-user-id",
+      {
+        researchRequest: researchPrompts[0],
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        ideaJobId: input.ideaJobId,
+        ideaJobPosition: 0,
+        maxRetries: 0,
+      },
+    )
     expect(mocks.generateArrayStream).toHaveBeenCalledTimes(2)
     for (const [generationInput] of mocks.generateArrayStream.mock.calls) {
       expect(generationInput).toEqual(
@@ -174,6 +182,7 @@ describe("runIdeaJob", () => {
   })
 
   it("fails the whole pipeline without summarising when any research fails", async () => {
+    const { input, events } = createInput()
     insertGeneration("planning-id", JSON.stringify(researchPrompts))
     mocks.generateArrayStream.mockResolvedValue({
       id: "planning-id",
@@ -189,8 +198,6 @@ describe("runIdeaJob", () => {
         deepSearchJobId: "search-two",
         completion: Promise.reject(new Error("Second research failed")),
       })
-    const { input, events } = createInput()
-
     await runIdeaJob(input)
 
     expect(mocks.generateTextStream).not.toHaveBeenCalled()
@@ -222,6 +229,7 @@ describe("runIdeaJob", () => {
   })
 
   it("persists the stage that fails before its stream is created", async () => {
+    const { input, events } = createInput()
     insertGeneration("planning-id", JSON.stringify(researchPrompts))
     mocks.generateArrayStream.mockResolvedValue({
       id: "planning-id",
@@ -240,8 +248,6 @@ describe("runIdeaJob", () => {
     mocks.generateTextStream.mockRejectedValue(
       new Error("Summary failed before streaming"),
     )
-    const { input, events } = createInput()
-
     await runIdeaJob(input)
 
     await expect(events).resolves.toContainEqual({

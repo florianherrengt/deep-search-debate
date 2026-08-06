@@ -5,6 +5,7 @@ import { config } from "../config.ts"
 import { type PromptName, loadPrompt } from "./prompts.ts"
 import {
   registerTextStream,
+  type LlmGenerationOwner,
   type TextStreamPersistenceTransaction,
 } from "./streams.ts"
 
@@ -24,6 +25,8 @@ const thinkingDisabled = {
 }
 
 type GenerateTextStreamInput = {
+  userId: string
+  owner: LlmGenerationOwner
   prompt: string
   promptName: PromptName
   model?: string
@@ -45,7 +48,9 @@ export async function generateTextStream(
     providerOptions: thinkingEnabled,
   })
 
-  return { id: registerTextStream(result.stream) }
+  return {
+    id: registerTextStream(params.userId, params.owner, result.stream),
+  }
 }
 
 export async function generateArrayStream<Element>(
@@ -67,7 +72,7 @@ export async function generateArrayStream<Element>(
   })
 
   return {
-    id: registerTextStream(result.stream),
+    id: registerTextStream(params.userId, params.owner, result.stream),
     output: Promise.resolve(result.output),
     // `output` resolves once with the full array; this iterable yields each
     // schema-validated element as soon as that element is complete.
@@ -96,7 +101,7 @@ export async function generateObjectStream<Result>(
   })
 
   const id = params.onCompleted
-    ? registerTextStream(result.stream, {
+    ? registerTextStream(params.userId, params.owner, result.stream, {
         onCompleted: (completed, transaction) => {
           const output = params.schema.parse(
             JSON.parse(completed.text) as unknown,
@@ -107,7 +112,7 @@ export async function generateObjectStream<Result>(
           )
         },
       })
-    : registerTextStream(result.stream)
+    : registerTextStream(params.userId, params.owner, result.stream)
 
   return { id, output: Promise.resolve(result.output) }
 }

@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm"
 import {
   check,
+  index,
   integer,
   sqliteTable,
   text,
@@ -32,25 +33,32 @@ export const deepSearchWebPages = sqliteTable(
       .default("pending"),
     summaryGenerationId: text("summary_generation_id").references(
       () => llmGenerations.llmGenerationId,
-      { onDelete: "restrict" },
+      { onDelete: "no action" },
     ),
     errorStage: text("error_stage", {
       enum: deepSearchWebPageErrorStages,
     }),
     errorMessage: text("error_message"),
-    createdAt: integer("created_at", { mode: "timestamp" })
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
-      .default(sql`(unixepoch())`),
-    completedAt: integer("completed_at", { mode: "timestamp" }),
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
+    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
   },
   (table) => [
     uniqueIndex("deep_search_web_pages_job_url_idx").on(
       table.deepSearchJobId,
       table.url,
     ),
+    index("deep_search_web_pages_summary_generation_id_idx").on(
+      table.summaryGenerationId,
+    ),
     check(
       "deep_search_web_pages_status_check",
       sql`${table.status} in ('pending', 'extracting', 'summarizing', 'completed', 'failed')`,
+    ),
+    check(
+      "deep_search_web_pages_url_content_check",
+      sql`length(trim(${table.url})) > 0`,
     ),
     check(
       "deep_search_web_pages_error_stage_check",
@@ -62,6 +70,18 @@ export const deepSearchWebPages = sqliteTable(
         (${table.errorStage} is null and ${table.errorMessage} is null)
         or
         (${table.errorStage} is not null and ${table.errorMessage} is not null)
+      )`,
+    ),
+    check(
+      "deep_search_web_pages_lifecycle_check",
+      sql`(
+        (${table.status} in ('pending', 'extracting') and ${table.summaryGenerationId} is null and ${table.completedAt} is null and ${table.errorStage} is null and ${table.errorMessage} is null)
+        or
+        (${table.status} = 'summarizing' and ${table.summaryGenerationId} is not null and ${table.completedAt} is null and ${table.errorStage} is null and ${table.errorMessage} is null)
+        or
+        (${table.status} = 'completed' and ${table.summaryGenerationId} is not null and ${table.completedAt} is not null and ${table.errorStage} is null and ${table.errorMessage} is null)
+        or
+        (${table.status} = 'failed' and ${table.completedAt} is not null and ${table.errorStage} is not null and ${table.errorMessage} is not null and (${table.errorStage} = 'summary' or ${table.summaryGenerationId} is null))
       )`,
     ),
   ],
@@ -88,21 +108,38 @@ export const deepSearchResults = sqliteTable(
       .default("pending"),
     deepSearchWebPageId: text("deep_search_web_page_id").references(
       () => deepSearchWebPages.deepSearchWebPageId,
-      { onDelete: "set null" },
+      // Block partial page deletion while allowing a root-job cascade to
+      // remove both the result and page before the statement is checked.
+      { onDelete: "no action" },
     ),
-    createdAt: integer("created_at", { mode: "timestamp" })
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
-      .default(sql`(unixepoch())`),
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
   },
   (table) => [
     uniqueIndex("deep_search_results_query_position_idx").on(
       table.deepSearchQueryId,
       table.position,
     ),
+    index("deep_search_results_web_page_id_idx").on(
+      table.deepSearchWebPageId,
+    ),
     check("deep_search_results_position_check", sql`${table.position} >= 0`),
+    check(
+      "deep_search_results_content_check",
+      sql`length(trim(${table.title})) > 0 and length(trim(${table.shortText})) > 0 and length(trim(${table.url})) > 0`,
+    ),
     check(
       "deep_search_results_selection_status_check",
       sql`${table.selectionStatus} in ('pending', 'selected', 'rejected')`,
+    ),
+    check(
+      "deep_search_results_selection_page_check",
+      sql`(
+        (${table.selectionStatus} = 'selected' and ${table.deepSearchWebPageId} is not null)
+        or
+        (${table.selectionStatus} in ('pending', 'rejected') and ${table.deepSearchWebPageId} is null)
+      )`,
     ),
   ],
 )

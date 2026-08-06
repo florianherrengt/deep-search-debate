@@ -7,6 +7,8 @@ type SearchSummary = {
 }
 
 type AnswerResearchRequestInput = {
+  userId: string
+  deepSearchJobId: string
   researchRequest: string
   searchSummaries: SearchSummary[]
   maxRetries?: number
@@ -38,6 +40,8 @@ export async function answerResearchRequest(
   ].join("\n")
 
   const { id } = await generateTextStream({
+    userId: params.userId,
+    owner: { deepSearchJobId: params.deepSearchJobId },
     prompt,
     promptName: PromptName.AnswerResearchRequest,
     maxRetries: params.maxRetries,

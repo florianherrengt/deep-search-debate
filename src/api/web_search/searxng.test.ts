@@ -92,4 +92,20 @@ describe("searxng", () => {
 
     await expect(searxng({ query: "test" })).rejects.toThrow();
   });
+
+  it("rejects empty search facts and invalid result URLs", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: () =>
+        Promise.resolve(JSON.stringify({
+          query: "test",
+          results: [
+            { title: "   ", content: "", url: "not-a-url" },
+          ],
+        })),
+    });
+
+    await expect(searxng({ query: "test" })).rejects.toThrow();
+  });
 });

@@ -23,6 +23,7 @@ import {
 /** Runs and persists one job while retaining its exact live event sequence. */
 export async function runDeepSearchJob(
   deepSearchJobId: string,
+  userId: string,
   job: LiveDeepSearchJob,
   researchRequest: string,
   maxSearches: number,
@@ -31,6 +32,8 @@ export async function runDeepSearchJob(
 ): Promise<void> {
       try {
         await deepSearch({
+          userId,
+          deepSearchJobId,
           researchRequest,
           maxSearches,
           maxResultsPerSearch,

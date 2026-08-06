@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./fixtures.ts"
 
 test.describe("Application shell", () => {
   test("stays dark, responsive, and keyboard accessible", async ({ page }) => {
@@ -59,6 +59,8 @@ test.describe("Application shell", () => {
     ).toBe("solid")
 
     const home = page.getByRole("link", { name: "Home", exact: true })
+    await page.keyboard.press("Tab")
+    await expect(page.getByRole("button", { name: "Sign out" })).toBeFocused()
     await page.keyboard.press("Tab")
     await expect(home).toBeFocused()
     expect(

@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm"
 import {
   check,
+  index,
   integer,
   sqliteTable,
   text,
@@ -31,11 +32,11 @@ export const deepSearchQueryGenerations = sqliteTable(
       .notNull()
       .unique()
       .references(() => llmGenerations.llmGenerationId, {
-        onDelete: "restrict",
+        onDelete: "no action",
       }),
-    createdAt: integer("created_at", { mode: "timestamp" })
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
-      .default(sql`(unixepoch())`),
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
   },
 )
 
@@ -54,9 +55,9 @@ export const deepSearchGeneratedQueries = sqliteTable(
       ),
     position: integer("position").notNull(),
     query: text("query").notNull(),
-    createdAt: integer("created_at", { mode: "timestamp" })
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
-      .default(sql`(unixepoch())`),
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
   },
   (table) => [
     uniqueIndex("deep_search_generated_queries_generation_position_idx").on(
@@ -66,6 +67,10 @@ export const deepSearchGeneratedQueries = sqliteTable(
     check(
       "deep_search_generated_queries_position_check",
       sql`${table.position} >= 0`,
+    ),
+    check(
+      "deep_search_generated_queries_content_check",
+      sql`length(trim(${table.query})) > 0`,
     ),
   ],
 )
@@ -86,22 +91,28 @@ export const deepSearchQueries = sqliteTable(
       .default("pending"),
     selectionGenerationId: text("selection_generation_id").references(
       () => llmGenerations.llmGenerationId,
-      { onDelete: "restrict" },
+      { onDelete: "no action" },
     ),
     summaryGenerationId: text("summary_generation_id").references(
       () => llmGenerations.llmGenerationId,
-      { onDelete: "restrict" },
+      { onDelete: "no action" },
     ),
     errorStage: text("error_stage", {
       enum: deepSearchQueryErrorStages,
     }),
     errorMessage: text("error_message"),
-    createdAt: integer("created_at", { mode: "timestamp" })
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
-      .default(sql`(unixepoch())`),
-    completedAt: integer("completed_at", { mode: "timestamp" }),
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
+    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
   },
   (table) => [
+    index("deep_search_queries_selection_generation_id_idx").on(
+      table.selectionGenerationId,
+    ),
+    index("deep_search_queries_summary_generation_id_idx").on(
+      table.summaryGenerationId,
+    ),
     check(
       "deep_search_queries_status_check",
       sql`${table.status} in ('pending', 'searching', 'selecting', 'summarizing', 'completed', 'failed')`,
@@ -116,6 +127,26 @@ export const deepSearchQueries = sqliteTable(
         (${table.errorStage} is null and ${table.errorMessage} is null)
         or
         (${table.errorStage} is not null and ${table.errorMessage} is not null)
+      )`,
+    ),
+    check(
+      "deep_search_queries_lifecycle_check",
+      sql`(
+        (${table.status} in ('pending', 'searching') and ${table.selectionGenerationId} is null and ${table.summaryGenerationId} is null and ${table.completedAt} is null and ${table.errorStage} is null and ${table.errorMessage} is null)
+        or
+        (${table.status} = 'selecting' and ${table.summaryGenerationId} is null and ${table.completedAt} is null and ${table.errorStage} is null and ${table.errorMessage} is null)
+        or
+        (${table.status} = 'summarizing' and ${table.selectionGenerationId} is not null and ${table.completedAt} is null and ${table.errorStage} is null and ${table.errorMessage} is null)
+        or
+        (${table.status} = 'completed' and ${table.selectionGenerationId} is not null and ${table.summaryGenerationId} is not null and ${table.completedAt} is not null and ${table.errorStage} is null and ${table.errorMessage} is null)
+        or
+        (${table.status} = 'failed' and ${table.completedAt} is not null and ${table.errorStage} is not null and ${table.errorMessage} is not null and (
+          (${table.errorStage} = 'search' and ${table.selectionGenerationId} is null and ${table.summaryGenerationId} is null)
+          or
+          (${table.errorStage} = 'selection' and ${table.summaryGenerationId} is null)
+          or
+          (${table.errorStage} = 'summary' and ${table.selectionGenerationId} is not null)
+        ))
       )`,
     ),
   ],

@@ -1,46 +1,89 @@
 import { sql } from "drizzle-orm"
-import { check, index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
+import {
+  check,
+  foreignKey,
+  index,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+  type AnySQLiteColumn,
+} from "drizzle-orm/sqlite-core"
 
-import { llmGenerations } from "./llmGenerations.ts"
+import { getDebateJobOwnerColumns } from "./debateJobs.ts"
+import { getLlmGenerationIdeaOwnerColumns } from "./llmGenerations.ts"
 import { ideaJobStages, jobStatuses } from "./statuses.ts"
+import { user } from "./auth.ts"
 
-/** One durable idea-generation pipeline initiated from a user's prompt. */
+/** A standalone or debate-owned durable idea-generation pipeline. */
 export const ideaJobs = sqliteTable(
   "idea_jobs",
   {
     ideaJobId: text("idea_job_id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    debateJobId: text("debate_job_id").unique(),
     prompt: text("prompt").notNull(),
     stage: text("stage", { enum: ideaJobStages })
       .notNull()
       .default("planning"),
     numberOfIdeas: integer("number_of_ideas").notNull(),
     deepSearchCount: integer("deep_search_count").notNull(),
-    researchPromptGenerationId: text("research_prompt_generation_id")
-      .unique()
-      .references(() => llmGenerations.llmGenerationId, {
-        onDelete: "restrict",
-      }),
-    researchSummaryGenerationId: text("research_summary_generation_id")
-      .unique()
-      .references(() => llmGenerations.llmGenerationId, {
-        onDelete: "restrict",
-      }),
-    ideaGenerationId: text("idea_generation_id")
-      .unique()
-      .references(() => llmGenerations.llmGenerationId, {
-        onDelete: "restrict",
-      }),
+    researchPromptGenerationId: text(
+      "research_prompt_generation_id",
+    ).unique(),
+    researchSummaryGenerationId: text(
+      "research_summary_generation_id",
+    ).unique(),
+    ideaGenerationId: text("idea_generation_id").unique(),
     status: text("status", { enum: jobStatuses })
       .notNull()
       .default("running"),
     error: text("error"),
-    createdAt: integer("created_at", { mode: "timestamp" })
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
-      .default(sql`(unixepoch())`),
-    completedAt: integer("completed_at", { mode: "timestamp" }),
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
+    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
   },
   (table) => [
-    index("idea_jobs_created_at_idx").on(table.createdAt),
+    index("idea_jobs_user_created_at_idx").on(
+      table.userId,
+      table.createdAt,
+      table.ideaJobId,
+    ),
+    uniqueIndex("idea_jobs_id_user_id_idx").on(
+      table.ideaJobId,
+      table.userId,
+    ),
+    foreignKey({
+      name: "idea_jobs_debate_job_owner_fk",
+      columns: [table.debateJobId, table.userId],
+      foreignColumns: getDebateJobOwnerColumns(),
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "idea_jobs_research_prompt_generation_owner_fk",
+      columns: [
+        table.researchPromptGenerationId,
+        table.userId,
+        table.ideaJobId,
+      ],
+      foreignColumns: getLlmGenerationIdeaOwnerColumns(),
+    }).onDelete("no action"),
+    foreignKey({
+      name: "idea_jobs_research_summary_generation_owner_fk",
+      columns: [
+        table.researchSummaryGenerationId,
+        table.userId,
+        table.ideaJobId,
+      ],
+      foreignColumns: getLlmGenerationIdeaOwnerColumns(),
+    }).onDelete("no action"),
+    foreignKey({
+      name: "idea_jobs_idea_generation_owner_fk",
+      columns: [table.ideaGenerationId, table.userId, table.ideaJobId],
+      foreignColumns: getLlmGenerationIdeaOwnerColumns(),
+    }).onDelete("no action"),
     check(
       "idea_jobs_limits_check",
       sql`${table.numberOfIdeas} > 0 and ${table.deepSearchCount} > 0`,
@@ -49,19 +92,34 @@ export const ideaJobs = sqliteTable(
       "idea_jobs_stage_check",
       sql`${table.stage} in ('planning', 'research', 'summary', 'ideas')`,
     ),
+    // Stage-to-generation progression deliberately stays in runIdeaJob(). A
+    // generation is linked while its stage is still active, and a failed or
+    // interrupted job may retain any successfully persisted pipeline prefix.
     check(
       "idea_jobs_status_check",
       sql`${table.status} in ('running', 'completed', 'failed', 'interrupted')`,
+    ),
+    check(
+      "idea_jobs_prompt_content_check",
+      sql`length(trim(${table.prompt})) > 0`,
     ),
     check(
       "idea_jobs_terminal_fields_check",
       sql`(
         (${table.status} = 'running' and ${table.completedAt} is null and ${table.error} is null)
         or
-        (${table.status} = 'completed' and ${table.completedAt} is not null and ${table.error} is null and ${table.researchPromptGenerationId} is not null and ${table.researchSummaryGenerationId} is not null and ${table.ideaGenerationId} is not null)
+        (${table.status} = 'completed' and ${table.stage} = 'ideas' and ${table.completedAt} is not null and ${table.error} is null and ${table.researchPromptGenerationId} is not null and ${table.researchSummaryGenerationId} is not null and ${table.ideaGenerationId} is not null)
         or
         (${table.status} in ('failed', 'interrupted') and ${table.completedAt} is not null and ${table.error} is not null)
       )`,
     ),
   ],
 )
+
+/** Lets owned-generation FKs target an idea job without an inference cycle. */
+export function getIdeaJobOwnerColumns(): [
+  AnySQLiteColumn,
+  AnySQLiteColumn,
+] {
+  return [ideaJobs.ideaJobId, ideaJobs.userId]
+}

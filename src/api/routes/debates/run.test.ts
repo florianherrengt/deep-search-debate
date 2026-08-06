@@ -49,7 +49,7 @@ async function collectEvents(
 describe("runDebateJob", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    db.delete(ideaJobs).run()
+    db.delete(debateJobs).run()
 
     let generationNumber = 0
     mocks.generateTextStream.mockImplementation(() =>
@@ -89,9 +89,18 @@ describe("runDebateJob", () => {
   it("fails without starting another round when an advocate returns only whitespace", async () => {
     const ideaJobId = crypto.randomUUID()
     const debateJobId = crypto.randomUUID()
+    db.insert(debateJobs)
+      .values({
+        debateJobId,
+        userId: "test-user-id",
+        randomSeed: 42,
+      })
+      .run()
     db.insert(ideaJobs)
       .values({
+        userId: "test-user-id",
         ideaJobId,
+        debateJobId,
         prompt: "Choose a product",
         numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
         deepSearchCount: 1,
@@ -111,14 +120,11 @@ describe("runDebateJob", () => {
         ),
       )
       .run()
-    db.insert(debateJobs)
-      .values({ debateJobId, ideaJobId, randomSeed: 42 })
-      .run()
-
     const job = createReplayableEventLog<DebateJobEvent>()
     const events = collectEvents(job.subscribe())
     await runDebateJob({
       debateJobId,
+      userId: "test-user-id",
       ideaJobId,
       randomSeed: 42,
       ideaCompletion: Promise.resolve(),

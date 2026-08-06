@@ -1,2 +1,0 @@
-ALTER TABLE `deep_search_jobs` ADD `final_answer_generation_id` text REFERENCES llm_generations(llm_generation_id);--> statement-breakpoint
-CREATE UNIQUE INDEX `deep_search_jobs_final_answer_generation_id_unique` ON `deep_search_jobs` (`final_answer_generation_id`);

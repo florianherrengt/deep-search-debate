@@ -30,6 +30,8 @@ describe("selectWebSearchResults", () => {
     })
 
     const result = await selectWebSearchResults({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
       userQuery: "What is quantum computing?",
       searchQuery: "quantum computing basics",
       results: sampleResults,
@@ -64,6 +66,8 @@ describe("selectWebSearchResults", () => {
     })
 
     const result = await selectWebSearchResults({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
       userQuery: "test",
       searchQuery: "test",
       results: sampleResults,
@@ -81,6 +85,8 @@ describe("selectWebSearchResults", () => {
     })
 
     const result = await selectWebSearchResults({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
       userQuery: "test",
       searchQuery: "test",
       results: [],
@@ -98,6 +104,8 @@ describe("selectWebSearchResults", () => {
 
     await expect(
       selectWebSearchResults({
+        userId: "test-user-id",
+        deepSearchJobId: "deep-search-job-id",
         userQuery: "test",
         searchQuery: "test",
         results: sampleResults,
@@ -114,6 +122,8 @@ describe("selectWebSearchResults", () => {
     })
 
     const selected = await selectSearchResults({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
       researchRequest: "What is quantum computing?",
       maxResultsPerSearch: 2,
       search: {

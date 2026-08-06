@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Hono } from "hono"
 
 vi.mock("../web_search/index.ts", () => ({
   webSearch: vi.fn(),
@@ -23,9 +24,36 @@ vi.mock("deep-search-core/search-extract", () => ({
 
 import { webSearch } from "../web_search/index.ts";
 import { extractDeps } from "../web_search/webExtract.ts";
-import { app } from "../index.ts";
+import { debug } from "./debug.ts"
+import type { AppEnv } from "../types/auth.ts"
 
-beforeEach(() => vi.clearAllMocks());
+function createApp(isDebugUser: boolean): Hono<AppEnv> {
+  const app = new Hono<AppEnv>().basePath("/api")
+  app.use("*", async (c, next) => {
+    c.set("isDebugUser", isDebugUser)
+    c.set("userId", "test-user-id")
+    await next()
+  })
+  debug(app)
+  return app
+}
+
+const app = createApp(true)
+const regularUserApp = createApp(false)
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  vi.spyOn(console, "error").mockImplementation(() => {})
+});
+
+afterEach(() => vi.restoreAllMocks())
+
+it("hides debug routes from ordinary authenticated users", async () => {
+  const response = await regularUserApp.request("/api/debug/search?query=hello")
+
+  expect(response.status).toBe(404)
+  expect(webSearch).not.toHaveBeenCalled()
+})
 
 describe("GET /api/debug/search", () => {
   it("returns search results", async () => {
@@ -48,6 +76,7 @@ describe("GET /api/debug/search", () => {
 
     const res = await app.request("/api/debug/search?query=fail");
     expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({ error: "Search failed" })
   });
 });
 
@@ -86,15 +115,14 @@ describe("GET /api/debug/extract", () => {
     );
   });
 
-  it("returns 500 with the error message when extraction fails", async () => {
+  it("returns a sanitized 500 when extraction fails", async () => {
     extractMocks.extractPage.mockRejectedValueOnce(new Error("fetch failed"));
 
     const res = await app.request(
       "/api/debug/extract?url=https%3A%2F%2Fexample.com",
     );
     expect(res.status).toBe(500);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body).toMatchObject({ error: "fetch failed" });
+    await expect(res.json()).resolves.toEqual({ error: "Extraction failed" })
   });
 
   it("rejects non-URL inputs", async () => {

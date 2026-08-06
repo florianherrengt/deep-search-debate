@@ -44,6 +44,7 @@ import {
 
 type RunDebateJobInput = {
   debateJobId: string
+  userId: string
   ideaJobId: string
   randomSeed: number
   ideaCompletion: Promise<void>
@@ -97,6 +98,8 @@ function loadIdeas(ideaJobId: string): PersistedDebateIdea[] {
 }
 
 async function runAgentMessage(input: {
+  userId: string
+  debateJobId: string
   match: CreatedMatch
   position: 0 | 1 | 2 | 3
   speakerSlot: 0 | 1
@@ -105,6 +108,8 @@ async function runAgentMessage(input: {
   job: LiveDebateJob
 }): Promise<string> {
   const generation = await generateTextStream({
+    userId: input.userId,
+    owner: { debateJobId: input.debateJobId },
     prompt: input.prompt,
     promptName: input.promptName,
     maxRetries: 0,
@@ -124,6 +129,8 @@ async function runAgentMessage(input: {
 }
 
 async function runMatch(input: {
+  userId: string
+  debateJobId: string
   match: CreatedMatch
   ideasById: ReadonlyMap<string, DebateCandidate>
   context: DebateContext
@@ -137,6 +144,8 @@ async function runMatch(input: {
 
   const [firstOpening, secondOpening] = await settleAll([
     runAgentMessage({
+      userId: input.userId,
+      debateJobId: input.debateJobId,
       match: input.match,
       position: 0,
       speakerSlot: 0,
@@ -145,6 +154,8 @@ async function runMatch(input: {
       job: input.job,
     }),
     runAgentMessage({
+      userId: input.userId,
+      debateJobId: input.debateJobId,
       match: input.match,
       position: 1,
       speakerSlot: 1,
@@ -156,6 +167,8 @@ async function runMatch(input: {
 
   const [firstRebuttal, secondRebuttal] = await settleAll([
     runAgentMessage({
+      userId: input.userId,
+      debateJobId: input.debateJobId,
       match: input.match,
       position: 2,
       speakerSlot: 0,
@@ -170,6 +183,8 @@ async function runMatch(input: {
       job: input.job,
     }),
     runAgentMessage({
+      userId: input.userId,
+      debateJobId: input.debateJobId,
       match: input.match,
       position: 3,
       speakerSlot: 1,
@@ -186,6 +201,8 @@ async function runMatch(input: {
   ])
 
   const judge = await generateObjectStream({
+    userId: input.userId,
+    owner: { debateJobId: input.debateJobId },
     prompt: buildJudgePrompt(input.context, first, second, [
       firstOpening,
       secondOpening,
@@ -227,6 +244,7 @@ async function runMatch(input: {
 }
 
 async function runRound(input: {
+  userId: string
   debateJobId: string
   stage: DebateRoundStage
   stageRoundNumber: number
@@ -251,6 +269,8 @@ async function runRound(input: {
   return settleAll(
     matches.map((match) =>
       runMatch({
+        userId: input.userId,
+        debateJobId: input.debateJobId,
         match,
         ideasById: input.ideasById,
         context: input.context,
@@ -291,6 +311,7 @@ async function executeTournament(input: RunDebateJobInput): Promise<void> {
       randomSeed: input.randomSeed,
     })
     const results = await runRound({
+      userId: input.userId,
       debateJobId: input.debateJobId,
       stage: "swiss",
       stageRoundNumber: roundNumber,
@@ -310,6 +331,7 @@ async function executeTournament(input: RunDebateJobInput): Promise<void> {
   setStage(input.debateJobId, "semifinal")
   input.job.publish({ type: "updated" })
   const semifinalResults = await runRound({
+    userId: input.userId,
     debateJobId: input.debateJobId,
     stage: "semifinal",
     stageRoundNumber: 1,
@@ -322,6 +344,7 @@ async function executeTournament(input: RunDebateJobInput): Promise<void> {
   setStage(input.debateJobId, "final")
   input.job.publish({ type: "updated" })
   await runRound({
+    userId: input.userId,
     debateJobId: input.debateJobId,
     stage: "final",
     stageRoundNumber: 1,

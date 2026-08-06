@@ -12,7 +12,32 @@ import {
   deepSearchQueryGenerations,
   deepSearchResults,
   deepSearchWebPages,
+  llmGenerations,
 } from "../../db/schema/index.ts"
+
+function assertGenerationOwnedByJob(
+  deepSearchJobId: string,
+  llmGenerationId: string,
+): void {
+  const ownedGeneration = db
+    .select({ llmGenerationId: llmGenerations.llmGenerationId })
+    .from(deepSearchJobs)
+    .innerJoin(
+      llmGenerations,
+      and(
+        eq(llmGenerations.llmGenerationId, llmGenerationId),
+        eq(
+          llmGenerations.deepSearchJobId,
+          deepSearchJobs.deepSearchJobId,
+        ),
+      ),
+    )
+    .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+    .get()
+  if (!ownedGeneration) {
+    throw new Error("LLM generation must belong to the deep-search job owner")
+  }
+}
 
 function findQueryExecution(deepSearchJobId: string, query: string) {
   return db
@@ -183,6 +208,7 @@ export function persistDeepSearchEvent(
 ): void {
   switch (event.type) {
     case "query-stream":
+      assertGenerationOwnedByJob(deepSearchJobId, event.streamId)
       db.insert(deepSearchQueryGenerations)
         .values({
           deepSearchQueryGenerationId: randomUUID(),
@@ -195,6 +221,7 @@ export function persistDeepSearchEvent(
       persistSearchResults(deepSearchJobId, event.searches)
       break
     case "selection-stream": {
+      assertGenerationOwnedByJob(deepSearchJobId, event.streamId)
       const execution = findQueryExecution(deepSearchJobId, event.query)
       if (!execution) {
         throw new Error(`Search query was not persisted: ${event.query}`)
@@ -214,6 +241,7 @@ export function persistDeepSearchEvent(
       persistSelectedResults(deepSearchJobId, event.query, event.selectedLinks)
       break
     case "page-summary-stream":
+      assertGenerationOwnedByJob(deepSearchJobId, event.streamId)
       db.update(deepSearchWebPages)
         .set({ status: "summarizing", summaryGenerationId: event.streamId })
         .where(
@@ -241,6 +269,7 @@ export function persistDeepSearchEvent(
         .run()
       break
     case "query-summary-stream": {
+      assertGenerationOwnedByJob(deepSearchJobId, event.streamId)
       const execution = findQueryExecution(deepSearchJobId, event.query)
       if (!execution) {
         throw new Error(`Search query was not persisted: ${event.query}`)
@@ -254,6 +283,7 @@ export function persistDeepSearchEvent(
       break
     }
     case "final-answer-stream":
+      assertGenerationOwnedByJob(deepSearchJobId, event.streamId)
       db.update(deepSearchJobs)
         .set({ finalAnswerGenerationId: event.streamId })
         .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))

@@ -6,6 +6,10 @@ Closing a browser tab does not stop a job. While it is running, reopening its UR
 
 ## HTTP contract
 
+Every endpoint requires a Better Auth session. Creation records the authenticated
+user as owner; history includes only that user's jobs, and foreign detail/event
+UUIDs return 404. Child jobs created by an idea pipeline inherit the same owner.
+
 ### `POST /api/deep-search-jobs`
 
 Starts a job and returns `202 Accepted`:
@@ -52,12 +56,29 @@ A deep-search job may belong to an idea job. It keeps the same extraction and fa
 
 ## Persistence model
 
-- `deep_search_jobs` owns request, limits, lifecycle, timestamps, and the final-answer generation link.
+- `deep_search_jobs` owns request, limits, lifecycle, timestamps, the final-answer generation link, and an optional parent-scoped position for idea-pipeline searches.
 - `deep_search_query_generations` links the job to the LLM invocation that generated queries.
 - `deep_search_generated_queries` stores the complete ordered generated list.
 - `deep_search_queries` represents only generated queries actually executed and links selection and synthesis generations.
 - `deep_search_results` stores ordered web-search results and typed selection state.
 - `deep_search_web_pages` deduplicates selected URLs within a job and links page-summary generation.
 - `llm_generations` stores one terminal text/reasoning pair per invocation.
+
+Every workflow generation points back to the deep-search job that created it.
+Deleting the job cascades through its normalized query/page/result rows and all
+of those generations. Generation-use and selected-result page links use `NO
+ACTION`, which blocks partial leaf deletion but allows the complete job cascade
+to remove both sides in one statement.
+
+Root generation and idea-parent links use composite foreign keys containing the
+exact job and user owner. Nested query and page generation links validate the
+exact deep-search job owner before the relationship is written. SQLite triggers
+also require every selected result page to belong to the same deep-search job as
+the result's query.
+
+Lifecycle checks require completed jobs to have a final-answer generation,
+completed queries to have selection and summary generations, completed pages to
+have a summary generation, and selected results to have a page. Active and
+terminal timestamp/error fields cannot be mixed.
 
 On API startup, orphaned running jobs, LLM generations, queries, and web pages are converted to typed interrupted or failed terminal states because external provider/search work cannot be resumed after a process restart.

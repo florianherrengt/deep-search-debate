@@ -4,6 +4,7 @@ import { extractPage } from "deep-search-core/search-extract"
 import z from "zod"
 import { extractDeps } from "../web_search/webExtract.ts"
 import { webSearch } from "../web_search/index.ts"
+import type { AppEnv } from "../types/auth.ts"
 
 const debugSearchQuerySchema = z.object({
   query: z.string(),
@@ -13,13 +14,25 @@ const debugExtractQuerySchema = z.object({
   url: z.url(),
 })
 
-export function debug(app: Hono) {
+export function debug(app: Hono<AppEnv>) {
+  app.use("/debug/*", async (c, next) => {
+    if (!c.get("isDebugUser")) {
+      return c.json({ error: "Not found" }, 404)
+    }
+    await next()
+  })
+
   app.get(
     "/debug/search",
     zValidator("query", debugSearchQuerySchema),
     async (c) => {
-      const results = await webSearch(c.req.valid("query"))
-      return c.json({ results })
+      try {
+        const results = await webSearch(c.req.valid("query"))
+        return c.json({ results })
+      } catch (error) {
+        console.error("Debug search failed", error)
+        return c.json({ error: "Search failed" }, 500)
+      }
     },
   )
 
@@ -42,9 +55,8 @@ export function debug(app: Hono) {
           htmlLength: result.html?.length ?? 0,
         })
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        const stack = error instanceof Error ? error.stack : undefined
-        return c.json({ error: message, stack }, 500)
+        console.error("Debug extraction failed", error)
+        return c.json({ error: "Extraction failed" }, 500)
       }
     },
   )

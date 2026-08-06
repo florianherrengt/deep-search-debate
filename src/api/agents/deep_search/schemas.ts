@@ -27,6 +27,8 @@ export type DeepSearchEvent =
   | { type: "final-answer-stream"; streamId: string }
 
 export type DeepSearchInput = {
+  userId: string
+  deepSearchJobId: string
   researchRequest: string
   maxSearches?: number
   maxResultsPerSearch?: number

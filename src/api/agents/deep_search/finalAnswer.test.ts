@@ -17,6 +17,8 @@ describe("final research answer", () => {
     })
 
     const streamId = await answerResearchRequest({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
       researchRequest: "What changed in the market?",
       searchSummaries: [
         {
@@ -32,6 +34,8 @@ describe("final research answer", () => {
     })
 
     expect(mocks.generateTextStream).toHaveBeenCalledWith({
+      userId: "test-user-id",
+      owner: { deepSearchJobId: "deep-search-job-id" },
       prompt: [
         "user_query: What changed in the market?",
         "search_summaries:",
@@ -62,6 +66,8 @@ describe("final research answer", () => {
 
     await expect(
       answerResearchRequest({
+        userId: "test-user-id",
+        deepSearchJobId: "deep-search-job-id",
         researchRequest: "Research this",
         searchSummaries: [],
       }),

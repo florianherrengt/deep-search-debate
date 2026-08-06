@@ -1,5 +1,5 @@
 import { zValidator } from "@hono/zod-validator"
-import { desc, eq, sql } from "drizzle-orm"
+import { and, desc, eq } from "drizzle-orm"
 import type { Hono } from "hono"
 import { stream } from "hono/streaming"
 
@@ -17,6 +17,7 @@ import {
   type DebateJobEvent,
 } from "./schemas.ts"
 import { getDebateJobSnapshot } from "./snapshot.ts"
+import type { AppEnv } from "../../types/auth.ts"
 
 function reconstructDebateJobEvents(
   debateJobId: string,
@@ -45,12 +46,15 @@ async function writeEvents(
 }
 
 /** Registers durable debate creation, snapshot, and replay-and-follow routes. */
-export function debateJobs(app: Hono, manager: DebateJobManager): void {
+export function debateJobs(app: Hono<AppEnv>, manager: DebateJobManager): void {
   app.post(
     "/debate-jobs",
     zValidator("json", createDebateJobInputSchema),
     (c) => {
-      const { debateJobId, completion } = manager.start(c.req.valid("json"))
+      const { debateJobId, completion } = manager.start(
+        c.get("userId"),
+        c.req.valid("json"),
+      )
       void completion.catch((error: unknown) => {
         console.error(`Debate job ${debateJobId} background task failed`, error)
       })
@@ -68,7 +72,7 @@ export function debateJobs(app: Hono, manager: DebateJobManager): void {
       const summaries = db
         .select({
           debateJobId: debateJobsTable.debateJobId,
-          ideaJobId: debateJobsTable.ideaJobId,
+          ideaJobId: ideaJobsTable.ideaJobId,
           prompt: ideaJobsTable.prompt,
           stage: debateJobsTable.stage,
           status: debateJobsTable.status,
@@ -79,13 +83,12 @@ export function debateJobs(app: Hono, manager: DebateJobManager): void {
         .from(debateJobsTable)
         .innerJoin(
           ideaJobsTable,
-          eq(debateJobsTable.ideaJobId, ideaJobsTable.ideaJobId),
+          eq(debateJobsTable.debateJobId, ideaJobsTable.debateJobId),
         )
+        .where(eq(debateJobsTable.userId, c.get("userId")))
         .orderBy(
           desc(debateJobsTable.createdAt),
-          // unixepoch timestamps have one-second resolution. SQLite rowid
-          // preserves insertion order for jobs created within the same second.
-          desc(sql`${debateJobsTable}._rowid_`),
+          desc(debateJobsTable.debateJobId),
         )
         .limit(limit)
         .all()
@@ -106,6 +109,17 @@ export function debateJobs(app: Hono, manager: DebateJobManager): void {
     zValidator("param", debateJobParamsSchema),
     (c) => {
       const { debateJobId } = c.req.valid("param")
+      const ownedJob = db
+        .select({ id: debateJobsTable.debateJobId })
+        .from(debateJobsTable)
+        .where(
+          and(
+            eq(debateJobsTable.debateJobId, debateJobId),
+            eq(debateJobsTable.userId, c.get("userId")),
+          ),
+        )
+        .get()
+      if (!ownedJob) return c.json({ error: "Debate job not found" }, 404)
       const liveJob = manager.getLiveJob(debateJobId)
       const persistedEvents = liveJob
         ? undefined
@@ -126,6 +140,17 @@ export function debateJobs(app: Hono, manager: DebateJobManager): void {
     zValidator("param", debateJobParamsSchema),
     (c) => {
       const { debateJobId } = c.req.valid("param")
+      const ownedJob = db
+        .select({ id: debateJobsTable.debateJobId })
+        .from(debateJobsTable)
+        .where(
+          and(
+            eq(debateJobsTable.debateJobId, debateJobId),
+            eq(debateJobsTable.userId, c.get("userId")),
+          ),
+        )
+        .get()
+      if (!ownedJob) return c.json({ error: "Debate job not found" }, 404)
       const debateJob = getDebateJobSnapshot(debateJobId)
       if (!debateJob) return c.json({ error: "Debate job not found" }, 404)
       return c.json({ debateJob })

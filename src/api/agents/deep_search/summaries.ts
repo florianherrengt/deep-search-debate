@@ -24,6 +24,8 @@ function fitPageContent(content: string): string {
 }
 
 type SummarizePageInput = {
+  userId: string
+  deepSearchJobId: string
   researchRequest: string
   url: string
   content: string
@@ -48,6 +50,8 @@ export async function summarizePage(
   ].join("\n")
 
   const { id } = await generateTextStream({
+    userId: params.userId,
+    owner: { deepSearchJobId: params.deepSearchJobId },
     prompt,
     promptName: PromptName.SummarizeWebPage,
     maxRetries: params.maxRetries,
@@ -56,6 +60,8 @@ export async function summarizePage(
 }
 
 type StartPageSummaryInput = {
+  userId: string
+  deepSearchJobId: string
   researchRequest: string
   url: string
   onEvent: (event: DeepSearchEvent) => void
@@ -89,6 +95,8 @@ async function createPageSummaryStream(
 ): Promise<string | undefined> {
   try {
     const streamId = await summarizePage({
+      userId: params.userId,
+      deepSearchJobId: params.deepSearchJobId,
       researchRequest: params.researchRequest,
       url: params.url,
       content,

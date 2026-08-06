@@ -99,10 +99,10 @@ export function completeDeepSearchJob(deepSearchJobId: string): void {
     const finalAnswerGeneration = findLlmGeneration(
       job?.finalAnswerGenerationId ?? null,
     )
-    if (
-      job?.finalAnswerGenerationId &&
-      finalAnswerGeneration?.status !== "completed"
-    ) {
+    if (!job?.finalAnswerGenerationId) {
+      throw new Error("Final answer generation was not registered")
+    }
+    if (finalAnswerGeneration?.status !== "completed") {
       throw new Error(
         finalAnswerGeneration?.error ?? "Final answer did not complete",
       )

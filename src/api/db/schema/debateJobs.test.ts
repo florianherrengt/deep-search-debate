@@ -16,18 +16,23 @@ function createDebateJob() {
   const ideaJobId = crypto.randomUUID()
   const debateJobId = crypto.randomUUID()
 
+  db.insert(debateJobs)
+    .values({
+      debateJobId,
+      userId: "test-user-id",
+      randomSeed: 1234567890,
+    })
+    .run()
   db.insert(ideaJobs)
     .values({
+      userId: "test-user-id",
       ideaJobId,
+      debateJobId,
       prompt: "Which urban transport idea should be built?",
       numberOfIdeas: 12,
       deepSearchCount: 2,
     })
     .run()
-  db.insert(debateJobs)
-    .values({ debateJobId, ideaJobId, randomSeed: 1234567890 })
-    .run()
-
   return { debateJobId, ideaJobId }
 }
 
@@ -176,7 +181,11 @@ describe("debate tournament schema", () => {
 
     db.insert(llmGenerations)
       .values(
-        generationIds.map((llmGenerationId) => ({ llmGenerationId })),
+        generationIds.map((llmGenerationId) => ({
+          userId: "test-user-id",
+          debateJobId,
+          llmGenerationId,
+        })),
       )
       .run()
     db.insert(debateMessages)
@@ -212,7 +221,11 @@ describe("debate tournament schema", () => {
 
     const duplicateVerdictGenerationId = crypto.randomUUID()
     db.insert(llmGenerations)
-      .values({ llmGenerationId: duplicateVerdictGenerationId })
+      .values({
+        userId: "test-user-id",
+        debateJobId,
+        llmGenerationId: duplicateVerdictGenerationId,
+      })
       .run()
     expect(() =>
       db
@@ -246,8 +259,16 @@ describe("debate tournament schema", () => {
 
     db.insert(llmGenerations)
       .values([
-        { llmGenerationId: firstGenerationId },
-        { llmGenerationId: secondGenerationId },
+        {
+          userId: "test-user-id",
+          debateJobId,
+          llmGenerationId: firstGenerationId,
+        },
+        {
+          userId: "test-user-id",
+          debateJobId,
+          llmGenerationId: secondGenerationId,
+        },
       ])
       .run()
     db.insert(debateMessages)
@@ -284,7 +305,7 @@ describe("debate tournament schema", () => {
     ])
   })
 
-  it("deletes a tournament when its idea job is deleted", () => {
+  it("deletes the owned idea pipeline when its debate is deleted", () => {
     const { debateJobId, ideaJobId } = createDebateJob()
     const firstIdeaId = createIdea(ideaJobId, 0)
     const secondIdeaId = createIdea(ideaJobId, 1)
@@ -294,18 +315,22 @@ describe("debate tournament schema", () => {
 
     expect(() =>
       db.delete(ideas).where(eq(ideas.ideaId, firstIdeaId)).run(),
-    ).toThrow(/FOREIGN KEY constraint failed/)
-    expect(() =>
-      db
-        .delete(ideaJobs)
-        .where(eq(ideaJobs.ideaJobId, ideaJobId))
-        .run(),
-    ).not.toThrow()
+    ).toThrow(/idea rows are immutable/)
+    db.delete(debateJobs)
+      .where(eq(debateJobs.debateJobId, debateJobId))
+      .run()
     expect(
       db
         .select()
         .from(debateJobs)
         .where(eq(debateJobs.debateJobId, debateJobId))
+        .get(),
+    ).toBeUndefined()
+    expect(
+      db
+        .select()
+        .from(ideaJobs)
+        .where(eq(ideaJobs.ideaJobId, ideaJobId))
         .get(),
     ).toBeUndefined()
   })

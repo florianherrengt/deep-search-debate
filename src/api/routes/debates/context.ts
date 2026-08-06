@@ -62,7 +62,7 @@ export function loadDebateContext(ideaJobId: string): DebateContext {
       ),
     )
     .where(eq(deepSearchJobs.ideaJobId, ideaJobId))
-    .orderBy(asc(deepSearchJobs.createdAt))
+    .orderBy(asc(deepSearchJobs.ideaJobPosition))
     .all()
 
   if (

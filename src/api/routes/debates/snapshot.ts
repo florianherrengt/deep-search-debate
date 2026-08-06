@@ -83,7 +83,7 @@ export function getDebateJobSnapshot(
   const job = db
     .select({
       debateJobId: debateJobs.debateJobId,
-      ideaJobId: debateJobs.ideaJobId,
+      ideaJobId: ideaJobs.ideaJobId,
       randomSeed: debateJobs.randomSeed,
       stage: debateJobs.stage,
       status: debateJobs.status,
@@ -91,7 +91,7 @@ export function getDebateJobSnapshot(
       prompt: ideaJobs.prompt,
     })
     .from(debateJobs)
-    .innerJoin(ideaJobs, eq(debateJobs.ideaJobId, ideaJobs.ideaJobId))
+    .innerJoin(ideaJobs, eq(debateJobs.debateJobId, ideaJobs.debateJobId))
     .where(eq(debateJobs.debateJobId, debateJobId))
     .get()
   if (!job) return

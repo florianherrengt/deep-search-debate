@@ -1,5 +1,5 @@
 import { zValidator } from "@hono/zod-validator"
-import { desc, eq, isNull } from "drizzle-orm"
+import { and, desc, eq, isNull } from "drizzle-orm"
 import type { Hono } from "hono"
 import { stream } from "hono/streaming"
 import { db } from "../../db/index.ts"
@@ -15,6 +15,7 @@ import {
   listDeepSearchJobsInputSchema,
   type DeepSearchJobEvent,
 } from "./schemas.ts"
+import type { AppEnv } from "../../types/auth.ts"
 
 export type { DeepSearchJobEvent } from "./schemas.ts"
 
@@ -33,7 +34,7 @@ async function writeEvents(
 
 /** Registers creation, history, detail, and replay-and-follow endpoints. */
 export function deepSearchJobs(
-  app: Hono,
+  app: Hono<AppEnv>,
   manager: DeepSearchJobManager = createDeepSearchJobManager(),
 ) {
 
@@ -42,7 +43,10 @@ export function deepSearchJobs(
     zValidator("json", createDeepSearchJobInputSchema),
     (c) => {
       const input = c.req.valid("json")
-      const { deepSearchJobId, completion } = manager.start(input)
+      const { deepSearchJobId, completion } = manager.start(
+        c.get("userId"),
+        input,
+      )
       void completion.catch(() => {})
 
       c.header("Location", `/api/deep-search-jobs/${deepSearchJobId}`)
@@ -58,8 +62,16 @@ export function deepSearchJobs(
       const deepSearchJobs = db
         .select()
         .from(deepSearchJobsTable)
-        .where(isNull(deepSearchJobsTable.ideaJobId))
-        .orderBy(desc(deepSearchJobsTable.createdAt))
+        .where(
+          and(
+            eq(deepSearchJobsTable.userId, c.get("userId")),
+            isNull(deepSearchJobsTable.ideaJobId),
+          ),
+        )
+        .orderBy(
+          desc(deepSearchJobsTable.createdAt),
+          desc(deepSearchJobsTable.deepSearchJobId),
+        )
         .limit(input.limit)
         .all()
       return c.json({ deepSearchJobs })
@@ -71,6 +83,19 @@ export function deepSearchJobs(
     zValidator("param", deepSearchJobParamsSchema),
     (c) => {
       const { deepSearchJobId } = c.req.valid("param")
+      const ownedJob = db
+        .select({ id: deepSearchJobsTable.deepSearchJobId })
+        .from(deepSearchJobsTable)
+        .where(
+          and(
+            eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId),
+            eq(deepSearchJobsTable.userId, c.get("userId")),
+          ),
+        )
+        .get()
+      if (!ownedJob) {
+        return c.json({ error: "Deep search job not found" }, 404)
+      }
       const liveJob = manager.getLiveJob(deepSearchJobId)
       const persistedEvents = liveJob
         ? undefined
@@ -95,7 +120,12 @@ export function deepSearchJobs(
       const deepSearchJob = db
         .select()
         .from(deepSearchJobsTable)
-        .where(eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId))
+        .where(
+          and(
+            eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId),
+            eq(deepSearchJobsTable.userId, c.get("userId")),
+          ),
+        )
         .get()
       if (!deepSearchJob) {
         return c.json({ error: "Deep search job not found" }, 404)

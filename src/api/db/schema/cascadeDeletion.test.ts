@@ -1,0 +1,228 @@
+import { eq } from "drizzle-orm"
+import { describe, expect, it } from "vitest"
+
+import { db } from "../index.ts"
+import {
+  debateJobs,
+  debateMatches,
+  debateMessages,
+  debateRounds,
+  deepSearchGeneratedQueries,
+  deepSearchJobs,
+  deepSearchQueries,
+  deepSearchQueryGenerations,
+  deepSearchResults,
+  deepSearchWebPages,
+  ideaJobs,
+  ideas,
+  llmGenerations,
+} from "./index.ts"
+
+describe("aggregate deletion", () => {
+  it("deletes every generation owned by a standalone deep search", () => {
+    const deepSearchJobId = crypto.randomUUID()
+    const llmGenerationId = crypto.randomUUID()
+    db.insert(deepSearchJobs)
+      .values({
+        deepSearchJobId,
+        userId: "test-user-id",
+        researchRequest: "Research a standalone question",
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+      })
+      .run()
+    db.insert(llmGenerations)
+      .values({
+        llmGenerationId,
+        userId: "test-user-id",
+        deepSearchJobId,
+      })
+      .run()
+    db.update(deepSearchJobs)
+      .set({ finalAnswerGenerationId: llmGenerationId })
+      .run()
+
+    db.delete(deepSearchJobs).run()
+
+    expect(db.select().from(deepSearchJobs).all()).toEqual([])
+    expect(db.select().from(llmGenerations).all()).toEqual([])
+  })
+
+  it("deletes every record and generation created for a debate", () => {
+    const debateJobId = crypto.randomUUID()
+    const ideaJobId = crypto.randomUUID()
+    const deepSearchJobId = crypto.randomUUID()
+    const ideaGenerationId = crypto.randomUUID()
+    const finalAnswerGenerationId = crypto.randomUUID()
+    const queryGenerationId = crypto.randomUUID()
+    const debateGenerationId = crypto.randomUUID()
+
+    db.insert(debateJobs)
+      .values({
+        debateJobId,
+        userId: "test-user-id",
+        randomSeed: 42,
+        stage: "swiss",
+      })
+      .run()
+    db.insert(ideaJobs)
+      .values({
+        ideaJobId,
+        debateJobId,
+        userId: "test-user-id",
+        prompt: "Generate and debate products",
+        numberOfIdeas: 2,
+        deepSearchCount: 1,
+      })
+      .run()
+    db.insert(deepSearchJobs)
+      .values({
+        deepSearchJobId,
+        ideaJobId,
+        ideaJobPosition: 0,
+        userId: "test-user-id",
+        researchRequest: "Research the product market",
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+      })
+      .run()
+    db.insert(llmGenerations)
+      .values([
+        {
+          llmGenerationId: ideaGenerationId,
+          userId: "test-user-id",
+          ideaJobId,
+        },
+        {
+          llmGenerationId: finalAnswerGenerationId,
+          userId: "test-user-id",
+          deepSearchJobId,
+        },
+        {
+          llmGenerationId: queryGenerationId,
+          userId: "test-user-id",
+          deepSearchJobId,
+        },
+        {
+          llmGenerationId: debateGenerationId,
+          userId: "test-user-id",
+          debateJobId,
+        },
+      ])
+      .run()
+    db.update(ideaJobs)
+      .set({ researchPromptGenerationId: ideaGenerationId })
+      .run()
+    db.update(deepSearchJobs)
+      .set({ finalAnswerGenerationId })
+      .run()
+
+    const ideaRows = [0, 1].map((position) => ({
+      ideaId: crypto.randomUUID(),
+      ideaJobId,
+      position,
+      title: `Idea ${position + 1}`,
+      description: `Description ${position + 1}`,
+    }))
+    db.insert(ideas).values(ideaRows).run()
+
+    const debateRoundId = crypto.randomUUID()
+    const debateMatchId = crypto.randomUUID()
+    db.insert(debateRounds)
+      .values({
+        debateRoundId,
+        debateJobId,
+        stage: "swiss",
+        stageRoundNumber: 1,
+      })
+      .run()
+    db.insert(debateMatches)
+      .values({
+        debateMatchId,
+        debateRoundId,
+        position: 0,
+        firstIdeaId: ideaRows[0].ideaId,
+        secondIdeaId: ideaRows[1].ideaId,
+      })
+      .run()
+    db.insert(debateMessages)
+      .values({
+        debateMessageId: crypto.randomUUID(),
+        debateMatchId,
+        position: 0,
+        speakerSlot: 0,
+        llmGenerationId: debateGenerationId,
+      })
+      .run()
+
+    const deepSearchQueryGenerationId = crypto.randomUUID()
+    const deepSearchGeneratedQueryId = crypto.randomUUID()
+    const deepSearchQueryId = crypto.randomUUID()
+    const deepSearchWebPageId = crypto.randomUUID()
+    db.insert(deepSearchQueryGenerations)
+      .values({
+        deepSearchQueryGenerationId,
+        deepSearchJobId,
+        llmGenerationId: queryGenerationId,
+      })
+      .run()
+    db.insert(deepSearchGeneratedQueries)
+      .values({
+        deepSearchGeneratedQueryId,
+        deepSearchQueryGenerationId,
+        position: 0,
+        query: "product market",
+      })
+      .run()
+    db.insert(deepSearchQueries)
+      .values({
+        deepSearchQueryId,
+        deepSearchGeneratedQueryId,
+      })
+      .run()
+    db.insert(deepSearchWebPages)
+      .values({
+        deepSearchWebPageId,
+        deepSearchJobId,
+        url: "https://example.com/research",
+      })
+      .run()
+    db.insert(deepSearchResults)
+      .values({
+        deepSearchResultId: crypto.randomUUID(),
+        deepSearchQueryId,
+        position: 0,
+        title: "Research result",
+        shortText: "Useful evidence",
+        url: "https://example.com/research",
+        selectionStatus: "selected",
+        deepSearchWebPageId,
+      })
+      .run()
+
+    expect(() =>
+      db
+        .delete(deepSearchWebPages)
+        .where(
+          eq(deepSearchWebPages.deepSearchWebPageId, deepSearchWebPageId),
+        )
+        .run(),
+    ).toThrow(/FOREIGN KEY constraint failed/)
+
+    db.delete(debateJobs).run()
+
+    expect(db.select().from(debateJobs).all()).toEqual([])
+    expect(db.select().from(ideaJobs).all()).toEqual([])
+    expect(db.select().from(deepSearchJobs).all()).toEqual([])
+    expect(db.select().from(ideas).all()).toEqual([])
+    expect(db.select().from(debateRounds).all()).toEqual([])
+    expect(db.select().from(debateMatches).all()).toEqual([])
+    expect(db.select().from(debateMessages).all()).toEqual([])
+    expect(db.select().from(deepSearchQueryGenerations).all()).toEqual([])
+    expect(db.select().from(deepSearchGeneratedQueries).all()).toEqual([])
+    expect(db.select().from(deepSearchQueries).all()).toEqual([])
+    expect(db.select().from(deepSearchWebPages).all()).toEqual([])
+    expect(db.select().from(deepSearchResults).all()).toEqual([])
+    expect(db.select().from(llmGenerations).all()).toEqual([])
+  })
+})

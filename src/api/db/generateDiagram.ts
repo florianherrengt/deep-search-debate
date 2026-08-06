@@ -12,8 +12,15 @@ if (!generated.includes(unconditionalJudgeIndex)) {
 // drizzle-dbml-generator drops SQLite partial-index predicates. Omitting the
 // rendered index is more accurate than claiming every message has a globally
 // unique match ID; the canonical schema limits uniqueness to judge rows.
-const dbml = generated.replace(
+const dbml = `${generated.replace(
   unconditionalJudgeIndex,
   "    // Partial unique index omitted: debate_match_id WHERE speaker_slot = 2.",
-).replace(/[ \t]+$/gm, "")
+).replace(/[ \t]+$/gm, "")}
+
+// The baseline migration also defines triggers that require a selected result
+// and page to share a URL and deep-search job, freeze the ownership chain used
+// by that check and every LLM generation, and freeze ideas after their job
+// completes. DBML cannot represent SQLite triggers; the migration and schema
+// regression tests are authoritative.
+`
 writeFileSync(new URL("./schema.dbml", import.meta.url), dbml)

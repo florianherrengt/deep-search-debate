@@ -35,6 +35,8 @@ describe("page summaries", () => {
     mocks.generateTextStream.mockResolvedValueOnce({ id: "summary-stream-id" })
 
     const result = await summarizePage({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
       researchRequest: "Research OpenAI products",
       url: "https://example.com/page",
       content: "Extracted page content",
@@ -42,6 +44,8 @@ describe("page summaries", () => {
     })
 
     expect(mocks.generateTextStream).toHaveBeenCalledWith({
+      userId: "test-user-id",
+      owner: { deepSearchJobId: "deep-search-job-id" },
       prompt: [
         "user_query: Research OpenAI products",
         "source_url: https://example.com/page",
@@ -61,6 +65,8 @@ describe("page summaries", () => {
     const content = `document-start-${"x".repeat(150_000)}-document-end`
 
     await summarizePage({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
       researchRequest: "Research a long document",
       url: "https://example.com/report.pdf",
       content,
@@ -83,6 +89,8 @@ describe("page summaries", () => {
 
     await expect(
       summarizePage({
+        userId: "test-user-id",
+        deepSearchJobId: "deep-search-job-id",
         researchRequest: "Research this",
         url: "https://example.com/page",
         content: "Extracted page content",
@@ -95,6 +103,8 @@ describe("page summaries", () => {
     mocks.generateTextStream.mockResolvedValueOnce({ id: "summary-stream-id" })
 
     const result = await startPageSummary({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
       researchRequest: "Research this",
       url: "https://example.com/page",
       onEvent,
@@ -116,6 +126,8 @@ describe("page summaries", () => {
     mocks.webExtract.mockRejectedValueOnce(new Error("Extraction failed"))
 
     await startPageSummary({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
       researchRequest: "Research this",
       url: "https://example.com/page",
       onEvent,
@@ -138,6 +150,8 @@ describe("page summaries", () => {
     )
 
     await startPageSummary({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
       researchRequest: "Research this",
       url: "https://example.com/page",
       onEvent,
@@ -161,6 +175,8 @@ describe("page summaries", () => {
 
     await expect(
       startPageSummary({
+        userId: "test-user-id",
+        deepSearchJobId: "deep-search-job-id",
         researchRequest: "Research this",
         url: "https://example.com/page",
         onEvent,

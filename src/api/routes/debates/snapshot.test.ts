@@ -29,18 +29,25 @@ describe("debate job snapshot", () => {
       }),
     )
 
+    db.insert(debateJobs)
+      .values({
+        debateJobId,
+        userId: "test-user-id",
+        randomSeed: 42,
+        stage: "swiss",
+      })
+      .run()
     db.insert(ideaJobs)
       .values({
+        userId: "test-user-id",
         ideaJobId,
+        debateJobId,
         prompt: "Choose an energy-saving product",
         numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
         deepSearchCount: 2,
       })
       .run()
     db.insert(ideas).values(ideaRows).run()
-    db.insert(debateJobs)
-      .values({ debateJobId, ideaJobId, randomSeed: 42, stage: "swiss" })
-      .run()
     db.insert(debateRounds)
       .values({
         debateRoundId,
@@ -70,6 +77,8 @@ describe("debate job snapshot", () => {
     db.insert(llmGenerations)
       .values([
         {
+          userId: "test-user-id",
+          debateJobId,
           llmGenerationId: openingGenerationId,
           status: "completed",
           text: "Opening argument",
@@ -77,6 +86,8 @@ describe("debate job snapshot", () => {
           completedAt,
         },
         {
+          userId: "test-user-id",
+          debateJobId,
           llmGenerationId: judgeGenerationId,
           status: "completed",
           text: JSON.stringify({
@@ -139,18 +150,23 @@ describe("debate job snapshot", () => {
   it("returns an empty projection while the idea stage has no ideas yet", () => {
     const ideaJobId = crypto.randomUUID()
     const debateJobId = crypto.randomUUID()
+    db.insert(debateJobs)
+      .values({
+        debateJobId,
+        userId: "test-user-id",
+        randomSeed: 7,
+      })
+      .run()
     db.insert(ideaJobs)
       .values({
+        userId: "test-user-id",
         ideaJobId,
+        debateJobId,
         prompt: "Generate then debate ideas",
         numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
         deepSearchCount: 2,
       })
       .run()
-    db.insert(debateJobs)
-      .values({ debateJobId, ideaJobId, randomSeed: 7 })
-      .run()
-
     expect(getDebateJobSnapshot(debateJobId)).toMatchObject({
       stage: "ideas",
       rounds: [],

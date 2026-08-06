@@ -14,6 +14,7 @@ import {
   llmGenerations,
 } from "../../db/schema/index.ts"
 import { deepSearchJobs, type DeepSearchJobEvent } from "./index.ts"
+import type { AppEnv } from "../../types/auth.ts"
 
 const searches = [
   {
@@ -66,13 +67,19 @@ const progressEvents: DeepSearchEvent[] = [
 ]
 
 type MockDeepSearchInput = {
+  deepSearchJobId: string
   onEvent: (event: DeepSearchEvent) => void
   onQueriesGenerated?: (queries: string[]) => void
 }
 
-function insertCompletedGeneration(llmGenerationId: string): void {
+function insertCompletedGeneration(
+  deepSearchJobId: string,
+  llmGenerationId: string,
+): void {
   db.insert(llmGenerations)
     .values({
+      userId: "test-user-id",
+      deepSearchJobId,
       llmGenerationId,
       status: "completed",
       text: `Output for ${llmGenerationId}`,
@@ -83,11 +90,14 @@ function insertCompletedGeneration(llmGenerationId: string): void {
 }
 
 function insertFailedGeneration(
+  deepSearchJobId: string,
   llmGenerationId: string,
   error: string,
 ): void {
   db.insert(llmGenerations)
     .values({
+      userId: "test-user-id",
+      deepSearchJobId,
       llmGenerationId,
       status: "failed",
       text: "",
@@ -98,7 +108,7 @@ function insertFailedGeneration(
     .run()
 }
 
-function prepareProgressGenerations(): void {
+function prepareProgressGenerations(deepSearchJobId: string): void {
   for (const streamId of [
     "query-stream-id",
     "selection-stream-id",
@@ -106,7 +116,7 @@ function prepareProgressGenerations(): void {
     "query-summary-stream-id",
     "final-answer-stream-id",
   ]) {
-    insertCompletedGeneration(streamId)
+    insertCompletedGeneration(deepSearchJobId, streamId)
   }
 }
 
@@ -116,14 +126,32 @@ function emitProgress(input: MockDeepSearchInput): void {
   for (const event of progressEvents.slice(1)) input.onEvent(event)
 }
 
-function createApp(): Hono {
-  const app = new Hono()
+function expectDurableProgress(
+  events: DeepSearchJobEvent[],
+  terminalEvents: DeepSearchJobEvent[],
+): void {
+  expect(events.slice(0, 4)).toEqual(progressEvents.slice(0, 4))
+  expect(events.slice(4, 6)).toEqual(
+    expect.arrayContaining(progressEvents.slice(4, 6)),
+  )
+  expect(events.slice(6)).toEqual([
+    ...progressEvents.slice(6),
+    ...terminalEvents,
+  ])
+}
+
+function createApp(): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
+  app.use("*", async (c, next) => {
+    c.set("userId", "test-user-id")
+    await next()
+  })
   deepSearchJobs(app)
   return app
 }
 
 function createJob(
-  app: Hono,
+  app: Hono<AppEnv>,
   body: object = { researchRequest: "Research this" },
 ) {
   return app.request("/deep-search-jobs", {
@@ -148,8 +176,8 @@ describe("deep search job routes", () => {
   })
 
   it("returns a durable job ID and retains all published events", async () => {
-    prepareProgressGenerations()
     mocks.deepSearch.mockImplementation((input: MockDeepSearchInput) => {
+      prepareProgressGenerations(input.deepSearchJobId)
       emitProgress(input)
       return Promise.resolve()
     })
@@ -175,10 +203,7 @@ describe("deep search job routes", () => {
     expect(subscribed.headers.get("Content-Type")).toContain(
       "application/x-ndjson",
     )
-    await expect(readEvents(subscribed)).resolves.toEqual([
-      ...progressEvents,
-      { type: "done" },
-    ])
+    expectDurableProgress(await readEvents(subscribed), [{ type: "done" }])
 
     const detail = await app.request(`/deep-search-jobs/${deepSearchJobId}`)
     expect(detail.status).toBe(200)
@@ -224,7 +249,6 @@ describe("deep search job routes", () => {
   })
 
   it("follows events published after subscription", async () => {
-    prepareProgressGenerations()
     const completion = Promise.withResolvers<void>()
     const inputReady = Promise.withResolvers<MockDeepSearchInput>()
     mocks.deepSearch.mockImplementation(async (next: MockDeepSearchInput) => {
@@ -242,6 +266,7 @@ describe("deep search job routes", () => {
     const events = readEvents(subscribed)
 
     const input = await inputReady.promise
+    prepareProgressGenerations(input.deepSearchJobId)
     emitProgress(input)
     completion.resolve()
 
@@ -252,8 +277,8 @@ describe("deep search job routes", () => {
   })
 
   it("reconstructs completed progress exclusively from typed rows", async () => {
-    prepareProgressGenerations()
     mocks.deepSearch.mockImplementation((input: MockDeepSearchInput) => {
+      prepareProgressGenerations(input.deepSearchJobId)
       emitProgress(input)
       return Promise.resolve()
     })
@@ -267,41 +292,8 @@ describe("deep search job routes", () => {
     const replayed = await createApp().request(
       `/deep-search-jobs/${deepSearchJobId}/events`,
     )
-    await expect(readEvents(replayed)).resolves.toEqual([
-      { type: "query-stream", streamId: "query-stream-id" },
-      { type: "search-results", searches },
-      {
-        type: "selection-stream",
-        query: "test query",
-        streamId: "selection-stream-id",
-      },
-      {
-        type: "selected-search-results",
-        query: "test query",
-        selectedLinks: ["https://example.com", "https://example.com/failed"],
-      },
-      {
-        type: "page-summary-stream",
-        url: "https://example.com",
-        streamId: "summary-stream-id",
-      },
-      {
-        type: "page-summary-error",
-        url: "https://example.com/failed",
-        stage: "extraction",
-        message: "Extraction failed",
-      },
-      {
-        type: "query-summary-stream",
-        query: "test query",
-        streamId: "query-summary-stream-id",
-      },
-      {
-        type: "final-answer-stream",
-        streamId: "final-answer-stream-id",
-      },
-      { type: "done" },
-    ])
+    expect(replayed.status).toBe(200)
+    expectDurableProgress(await readEvents(replayed), [{ type: "done" }])
   })
 
   it("retains failed job events", async () => {
@@ -323,19 +315,20 @@ describe("deep search job routes", () => {
   })
 
   it("fails the job when its final-answer generation fails", async () => {
-    for (const streamId of [
-      "query-stream-id",
-      "selection-stream-id",
-      "summary-stream-id",
-      "query-summary-stream-id",
-    ]) {
-      insertCompletedGeneration(streamId)
-    }
-    insertFailedGeneration(
-      "final-answer-stream-id",
-      "Final answer generation failed",
-    )
     mocks.deepSearch.mockImplementation((input: MockDeepSearchInput) => {
+      for (const streamId of [
+        "query-stream-id",
+        "selection-stream-id",
+        "summary-stream-id",
+        "query-summary-stream-id",
+      ]) {
+        insertCompletedGeneration(input.deepSearchJobId, streamId)
+      }
+      insertFailedGeneration(
+        input.deepSearchJobId,
+        "final-answer-stream-id",
+        "Final answer generation failed",
+      )
       emitProgress(input)
       return Promise.resolve()
     })
@@ -349,8 +342,7 @@ describe("deep search job routes", () => {
       `/deep-search-jobs/${deepSearchJobId}/events`,
     )
 
-    await expect(readEvents(subscribed)).resolves.toEqual([
-      ...progressEvents,
+    expectDurableProgress(await readEvents(subscribed), [
       { type: "error", message: "Final answer generation failed" },
       { type: "done" },
     ])
@@ -366,7 +358,11 @@ describe("deep search job routes", () => {
 
   it("terminates with an error when terminal job persistence fails", async () => {
     const completion = Promise.withResolvers<void>()
-    mocks.deepSearch.mockImplementation(() => completion.promise)
+    const inputReady = Promise.withResolvers<MockDeepSearchInput>()
+    mocks.deepSearch.mockImplementation(async (input: MockDeepSearchInput) => {
+      inputReady.resolve(input)
+      await completion.promise
+    })
     const app = createApp()
     const created = await createJob(app)
     const { deepSearchJobId } = (await created.json()) as {
@@ -376,6 +372,12 @@ describe("deep search job routes", () => {
       `/deep-search-jobs/${deepSearchJobId}/events`,
     )
     const events = readEvents(subscribed)
+    const input = await inputReady.promise
+    insertCompletedGeneration(deepSearchJobId, "final-answer-stream-id")
+    input.onEvent({
+      type: "final-answer-stream",
+      streamId: "final-answer-stream-id",
+    })
     const update = vi.spyOn(db, "update").mockImplementation(() => {
       throw new Error("SQLite unavailable")
     })
@@ -385,6 +387,10 @@ describe("deep search job routes", () => {
       completion.resolve()
 
       await expect(events).resolves.toEqual([
+        {
+          type: "final-answer-stream",
+          streamId: "final-answer-stream-id",
+        },
         { type: "error", message: "SQLite unavailable" },
         { type: "done" },
       ])

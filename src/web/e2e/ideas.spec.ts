@@ -1,4 +1,6 @@
-import { expect, test, type APIRequestContext } from "@playwright/test"
+import type { APIRequestContext } from "@playwright/test"
+
+import { expect, test } from "./fixtures.ts"
 import type { DeepSearchJobEvent } from "../lib/deepSearchJobs.ts"
 import type { IdeaJobEvent } from "../lib/ideaJobs.ts"
 import type { TextStreamEvent } from "../lib/textStreams.ts"

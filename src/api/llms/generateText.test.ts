@@ -47,11 +47,17 @@ describe("generateTextStream", () => {
     mocks.registerTextStream.mockReturnValue("stream-id")
 
     const result = await generateTextStream({
+      userId: "test-user-id",
+      owner: { standalone: true },
       prompt: "Hello",
       promptName: "default",
     })
 
-    expect(mocks.registerTextStream).toHaveBeenCalledWith(stream)
+    expect(mocks.registerTextStream).toHaveBeenCalledWith(
+      "test-user-id",
+      { standalone: true },
+      stream,
+    )
     expect(mocks.streamText).toHaveBeenCalledWith(
       expect.objectContaining({
         providerOptions: {
@@ -72,6 +78,8 @@ describe("generateTextStream", () => {
     mocks.registerTextStream.mockReturnValue("stream-id")
 
     const result = await generateArrayStream({
+      userId: "test-user-id",
+      owner: { standalone: true },
       prompt: "Hello",
       promptName: "generate-websearch-queries",
       element: element as never,
@@ -100,6 +108,8 @@ describe("generateTextStream", () => {
     mocks.registerTextStream.mockReturnValue("stream-id")
 
     const result = await generateObjectStream({
+      userId: "test-user-id",
+      owner: { standalone: true },
       prompt: "Judge this",
       promptName: "default",
       schema: schema as never,
@@ -129,13 +139,15 @@ describe("generateTextStream", () => {
     mocks.registerTextStream.mockReturnValue("stream-id")
 
     await generateObjectStream({
+      userId: "test-user-id",
+      owner: { standalone: true },
       prompt: "Judge this",
       promptName: "default",
       schema,
       onCompleted,
     })
 
-    const options = mocks.registerTextStream.mock.calls[0]?.[1] as {
+    const options = mocks.registerTextStream.mock.calls[0]?.[3] as {
       onCompleted: (
         completed: { id: string; text: string; reasoning: string },
         transaction: unknown,

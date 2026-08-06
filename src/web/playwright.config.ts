@@ -1,8 +1,15 @@
 import { defineConfig, devices } from "@playwright/test"
 import { fileURLToPath } from "node:url"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
 
 const API = "http://localhost:3100"
 const WEB = "http://localhost:5174"
+const e2eDatabase = join(
+  tmpdir(),
+  `deep-search-debate-e2e-${process.pid}.db`,
+)
+process.env.PLAYWRIGHT_E2E_DATABASE_URL = e2eDatabase
 const mockExternalServices = fileURLToPath(
   new URL("../api/e2e/mockExternalServices.mjs", import.meta.url),
 )
@@ -13,6 +20,7 @@ export default defineConfig({
   workers: 1,
   retries: process.env.CI ? 1 : 0,
   reporter: "list",
+  globalTeardown: "./e2e/globalTeardown.ts",
   use: {
     baseURL: WEB,
     trace: "on-first-retry",
@@ -30,9 +38,18 @@ export default defineConfig({
       env: {
         API_HOST: "127.0.0.1",
         PORT: "3100",
+        DATABASE_URL: e2eDatabase,
         DEEPSEEK_API_KEY: "e2e-deepseek-key",
         SEARXNG_URL: "https://e2e-search.test",
         SCRAPINGANT_API_KEY: "e2e-scrapingant-key",
+        NODE_ENV: "test",
+        BETTER_AUTH_URL: WEB,
+        BETTER_AUTH_SECRET:
+          "e2e-secret-that-is-at-least-thirty-two-characters",
+        GITHUB_CLIENT_ID: "e2e-github-client-id",
+        GITHUB_CLIENT_SECRET: "e2e-github-client-secret",
+        AUTH_DEBUG_USER_ENABLED: "true",
+        AUTH_DEBUG_USER_PASSWORD: "e2e-debug-password",
         NODE_OPTIONS: `--import=${mockExternalServices}`,
       },
     },

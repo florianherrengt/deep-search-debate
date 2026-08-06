@@ -33,6 +33,8 @@ describe("generateWebSearchQueries", () => {
     })
 
     const result = await generateWebSearchQueries({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
       researchRequest: "quantum computing",
       onStreamCreated,
       maxRetries: 0,
@@ -70,6 +72,8 @@ describe("generateWebSearchQueries", () => {
 
     await expect(
       generateWebSearchQueries({
+        userId: "test-user-id",
+        deepSearchJobId: "deep-search-job-id",
         researchRequest: "test",
         onStreamCreated: ignoreStream,
       }),
@@ -86,6 +90,8 @@ describe("generateWebSearchQueries", () => {
     mocks.webSearch.mockResolvedValue([])
 
     const searches = await generateSearchResults({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
       researchRequest: "test",
       maxSearches: 2,
       onEvent,

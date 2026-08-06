@@ -147,7 +147,10 @@ export function reconstructDeepSearchJobEvents(
       .select()
       .from(deepSearchWebPages)
       .where(eq(deepSearchWebPages.deepSearchJobId, deepSearchJobId))
-      .orderBy(asc(deepSearchWebPages.createdAt))
+      .orderBy(
+        asc(deepSearchWebPages.createdAt),
+        asc(deepSearchWebPages.deepSearchWebPageId),
+      )
       .all()
     const pageEvents = pages.flatMap<DeepSearchJobEvent>((page) => {
       if (page.summaryGenerationId) {

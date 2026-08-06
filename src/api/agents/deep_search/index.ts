@@ -26,6 +26,8 @@ export async function deepSearch(params: DeepSearchInput): Promise<void> {
   const selectedSearches = []
   for (const search of searchResults) {
     const selected = await selectSearchResults({
+      userId: params.userId,
+      deepSearchJobId: params.deepSearchJobId,
       researchRequest: params.researchRequest,
       maxResultsPerSearch,
       search,
@@ -58,6 +60,8 @@ export async function deepSearch(params: DeepSearchInput): Promise<void> {
   const searchSummaries = await Promise.all(
     selectedSearches.map(async (search) => {
       const streamId = await summarizeSearchQuery({
+        userId: params.userId,
+        deepSearchJobId: params.deepSearchJobId,
         researchRequest: params.researchRequest,
         query: search.query,
         results: search.results.map((result) => ({
@@ -80,6 +84,8 @@ export async function deepSearch(params: DeepSearchInput): Promise<void> {
   )
 
   const finalAnswerStreamId = await answerResearchRequest({
+    userId: params.userId,
+    deepSearchJobId: params.deepSearchJobId,
     researchRequest: params.researchRequest,
     searchSummaries,
     maxRetries: params.maxRetries,

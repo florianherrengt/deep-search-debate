@@ -8,6 +8,7 @@ An npm workspaces monorepo with a Hono API and a Vite/React web client.
 - A DeepSeek API key
 - A running SearXNG instance
 - A ScrapingAnt API key for rendered page extraction
+- A GitHub OAuth app
 
 Create the ignored local environment file from the tracked template:
 
@@ -15,9 +16,10 @@ Create the ignored local environment file from the tracked template:
 cp src/api/.env.example src/api/.env
 ```
 
-Then replace the placeholder provider keys in `src/api/.env`. The template contains:
+Then replace every placeholder in `src/api/.env`. The template contains:
 
 ```dotenv
+NODE_ENV=development
 DEEPSEEK_API_KEY=your-key
 SEARXNG_URL=http://127.0.0.1:8090
 SCRAPINGANT_API_KEY=your-key
@@ -27,7 +29,19 @@ SCRAPINGANT_RETRY_DELAY_MS=1000
 DATABASE_URL=data.db
 API_HOST=127.0.0.1
 PORT=3000
+BETTER_AUTH_URL=http://localhost:5173
+BETTER_AUTH_SECRET=replace-with-at-least-32-random-characters
+GITHUB_CLIENT_ID=replace-with-your-github-oauth-client-id
+GITHUB_CLIENT_SECRET=replace-with-your-github-oauth-client-secret
+AUTH_DEBUG_USER_ENABLED=false
+AUTH_DEBUG_USER_EMAIL=debug@local.invalid
+AUTH_DEBUG_USER_PASSWORD=replace-with-a-local-debug-password
 ```
+
+Configure the GitHub OAuth callback as
+`http://localhost:5173/api/auth/callback/github`. Debug sign-in is optional and
+is accepted only when both the API binding and `BETTER_AUTH_URL` are loopback
+addresses.
 
 Set `SCRAPINGANT_PROXY_TYPE=residential` for sites that repeatedly return HTTP
 423 anti-bot detections. Residential browser renders use substantially more
@@ -53,9 +67,10 @@ npm run dev:web
 ```
 
 The API listens on `127.0.0.1:3000` by default. Vite serves the web client and
-proxies `/api` requests to it. A network deployment can override `API_HOST`, but
-must add authentication, quotas, request-size limits, and concurrency controls at
-its gateway before exposing the API.
+proxies `/api` requests to it. API startup applies pending Drizzle migrations
+before serving. A network deployment can override `API_HOST`, but must define an
+authorization policy plus quotas, request-size limits, and concurrency controls
+at its gateway before exposing the API.
 
 ## Text streams
 

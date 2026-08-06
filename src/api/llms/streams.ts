@@ -23,6 +23,24 @@ type SourceStreamPart = ReturnType<
 
 type TextStream = ReplayableEventLog<TextStreamEvent>
 
+export type LlmGenerationOwner =
+  | { standalone: true }
+  | {
+      debateJobId: string
+      ideaJobId?: never
+      deepSearchJobId?: never
+    }
+  | {
+      debateJobId?: never
+      ideaJobId: string
+      deepSearchJobId?: never
+    }
+  | {
+      debateJobId?: never
+      ideaJobId?: never
+      deepSearchJobId: string
+    }
+
 export type TextStreamPersistenceTransaction = Parameters<
   Parameters<typeof db.transaction>[0]
 >[0]
@@ -78,6 +96,11 @@ async function consume(
     }
   } catch (error) {
     errorMessage ??= getErrorMessage(error, "Text generation failed")
+    stream.publish({ type: "error", message: errorMessage })
+  }
+
+  if (!errorMessage && !text.trim()) {
+    errorMessage = "Text generation returned no content"
     stream.publish({ type: "error", message: errorMessage })
   }
 
@@ -139,13 +162,18 @@ async function consume(
  * immediately, and returns the stable ID used by all current and future readers.
  */
 export function registerTextStream(
+  userId: string,
+  owner: LlmGenerationOwner,
   source: AsyncIterable<SourceStreamPart>,
   options: RegisterTextStreamOptions = {},
 ): string {
   const id = randomUUID()
   const stream = createReplayableEventLog<TextStreamEvent>()
+  const ownerColumns = "standalone" in owner ? {} : owner
 
-  db.insert(llmGenerations).values({ llmGenerationId: id }).run()
+  db.insert(llmGenerations)
+    .values({ llmGenerationId: id, userId, ...ownerColumns })
+    .run()
   streams.set(id, stream)
   const completion = consume(id, source, stream, options)
   completions.set(id, completion)

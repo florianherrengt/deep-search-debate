@@ -19,6 +19,7 @@ import {
 
 type RunIdeaJobInput = {
   ideaJobId: string
+  userId: string
   prompt: string
   numberOfIdeas: number
   deepSearchCount: number
@@ -97,6 +98,8 @@ async function generateResearchPrompts(
   input: RunIdeaJobInput,
 ): Promise<string[]> {
   const generation = await generateArrayStream({
+    userId: input.userId,
+    owner: { ideaJobId: input.ideaJobId },
     prompt: buildResearchPrompt(input.prompt, input.deepSearchCount),
     promptName: PromptName.GenerateIdeaResearchPrompts,
     element: z.string().trim().min(1),
@@ -136,12 +139,13 @@ async function runResearch(
 ): Promise<string[]> {
   // start() launches immediately. Mapping every prompt before awaiting any
   // completion is what makes these durable child jobs run in parallel.
-  const searches = prompts.map((researchRequest) => {
-    const search = input.deepSearchManager.start({
+  const searches = prompts.map((researchRequest, ideaJobPosition) => {
+    const search = input.deepSearchManager.start(input.userId, {
       researchRequest,
       maxSearches: input.maxSearches,
       maxResultsPerSearch: input.maxResultsPerSearch,
       ideaJobId: input.ideaJobId,
+      ideaJobPosition,
       maxRetries: input.maxRetries,
     })
     input.job.publish({
@@ -172,6 +176,8 @@ async function summarizeResearch(
   // Only the child jobs' final answer texts enter this call. Their intermediate
   // pages and source records remain available through the nested job views.
   const generation = await generateTextStream({
+    userId: input.userId,
+    owner: { ideaJobId: input.ideaJobId },
     prompt: buildSummaryPrompt(input.prompt, research),
     promptName: PromptName.SummarizeIdeaResearch,
     maxRetries: input.maxRetries,
@@ -202,6 +208,8 @@ async function generateIdeas(
   researchSummary: string,
 ): Promise<Idea[]> {
   const generation = await generateArrayStream({
+    userId: input.userId,
+    owner: { ideaJobId: input.ideaJobId },
     prompt: buildIdeaPrompt(
       input.prompt,
       researchSummary,
