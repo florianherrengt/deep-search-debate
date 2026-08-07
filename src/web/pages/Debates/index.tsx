@@ -9,7 +9,7 @@ import {
 } from "@mui/material"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
-import { useNavigate, useParams } from "react-router-dom"
+import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { createDebateJob, getDebateJobs } from "../../lib/debateJobs.ts"
 import { DebatePromptForm } from "./components/DebatePromptForm.tsx"
 import { DebateView } from "./components/DebateView.tsx"
@@ -30,6 +30,7 @@ function formatCreatedAt(value: Date): string {
 
 function DebateStart() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const queryClient = useQueryClient()
   const history = useQuery({
     queryKey: debateJobsQueryKey,
@@ -50,6 +51,7 @@ function DebateStart() {
           creation.error ? getRequestErrorMessage(creation.error) : undefined
         }
         isStarting={creation.isPending}
+        initialPrompt={searchParams.get("prompt") ?? ""}
         onSubmit={(prompt) => creation.mutate(prompt)}
       />
 

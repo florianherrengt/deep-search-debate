@@ -1,5 +1,9 @@
 import { isIP } from "node:net"
 import z from "zod"
+import {
+  loadKeePassSecrets,
+  resolveKeePassFilePath,
+} from "./keepassSecrets.ts"
 
 function isLoopbackHostname(hostname: string): boolean {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "")
@@ -10,11 +14,35 @@ function isLoopbackHostname(hostname: string): boolean {
   return new URL(`http://[${normalized}]`).hostname === "[::1]"
 }
 
-const environmentSchema = z.object({
+const nonWhitespaceSecretSchema = z.string().refine(
+  (value) => value.trim().length > 0,
+  "Secret must not be empty or whitespace-only",
+)
+
+const secretSchemas = {
+  BRAVE_SEARCH_API_KEY: nonWhitespaceSecretSchema,
+  DEEPSEEK_API_KEY: nonWhitespaceSecretSchema,
+  SCRAPINGANT_API_KEY: nonWhitespaceSecretSchema,
+  BETTER_AUTH_SECRET: z
+    .string()
+    .min(32)
+    .refine(
+      (value) => value.trim().length > 0,
+      "Secret must not be empty or whitespace-only",
+    ),
+  GITHUB_CLIENT_SECRET: nonWhitespaceSecretSchema,
+  AUTH_DEBUG_USER_PASSWORD: z
+    .string()
+    .min(12)
+    .refine(
+      (value) => value.trim().length > 0,
+      "Secret must not be empty or whitespace-only",
+    ),
+} as const
+
+const nonSecretEnvironmentShape = {
   NODE_ENV: z.enum(["development", "test", "production"]),
-  SEARXNG_URL: z.url(),
-  DEEPSEEK_API_KEY: z.string().min(1),
-  SCRAPINGANT_API_KEY: z.string().min(1),
+  SEARXNG_URL: z.url().optional(),
   SCRAPINGANT_PROXY_TYPE: z
     .enum(["datacenter", "residential"])
     .default("datacenter"),
@@ -29,13 +57,54 @@ const environmentSchema = z.object({
   API_HOST: z.string().trim().min(1).default("127.0.0.1"),
   PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
   BETTER_AUTH_URL: z.url(),
-  BETTER_AUTH_SECRET: z.string().min(32),
   GITHUB_CLIENT_ID: z.string().min(1),
-  GITHUB_CLIENT_SECRET: z.string().min(1),
   AUTH_DEBUG_USER_ENABLED: z.stringbool().default(false),
   AUTH_DEBUG_USER_EMAIL: z.email().default("debug@local.invalid"),
-  AUTH_DEBUG_USER_PASSWORD: z.string().min(12).optional(),
+} as const
+
+const rawEnvironmentSchema = z.object({
+  ...nonSecretEnvironmentShape,
+  KDBX_PASSWORD: nonWhitespaceSecretSchema,
+  BRAVE_SEARCH_API_KEY: secretSchemas.BRAVE_SEARCH_API_KEY.optional(),
+  DEEPSEEK_API_KEY: secretSchemas.DEEPSEEK_API_KEY.optional(),
+  SCRAPINGANT_API_KEY: secretSchemas.SCRAPINGANT_API_KEY.optional(),
+  BETTER_AUTH_SECRET: secretSchemas.BETTER_AUTH_SECRET.optional(),
+  GITHUB_CLIENT_SECRET: secretSchemas.GITHUB_CLIENT_SECRET.optional(),
+  AUTH_DEBUG_USER_PASSWORD:
+    secretSchemas.AUTH_DEBUG_USER_PASSWORD.optional(),
+})
+
+const environmentSchema = z.object({
+  ...nonSecretEnvironmentShape,
+  AUTH_DEBUG_USER_ENABLED: z.boolean(),
+  BRAVE_SEARCH_API_KEY: secretSchemas.BRAVE_SEARCH_API_KEY.optional(),
+  DEEPSEEK_API_KEY: secretSchemas.DEEPSEEK_API_KEY,
+  SCRAPINGANT_API_KEY: secretSchemas.SCRAPINGANT_API_KEY,
+  BETTER_AUTH_SECRET: secretSchemas.BETTER_AUTH_SECRET,
+  GITHUB_CLIENT_SECRET: secretSchemas.GITHUB_CLIENT_SECRET,
+  AUTH_DEBUG_USER_PASSWORD:
+    secretSchemas.AUTH_DEBUG_USER_PASSWORD.optional(),
 }).superRefine((environment, context) => {
+  if (
+    environment.NODE_ENV === "production" &&
+    environment.BRAVE_SEARCH_API_KEY === undefined
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "BRAVE_SEARCH_API_KEY is required in production",
+      path: ["BRAVE_SEARCH_API_KEY"],
+    })
+  }
+  if (
+    environment.NODE_ENV !== "production" &&
+    environment.SEARXNG_URL === undefined
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "SEARXNG_URL is required outside production",
+      path: ["SEARXNG_URL"],
+    })
+  }
   if (environment.NODE_ENV === "production") {
     if (new URL(environment.BETTER_AUTH_URL).protocol !== "https:") {
       context.addIssue({
@@ -101,7 +170,61 @@ const environmentSchema = z.object({
   }
 })
 
-const environment = environmentSchema.parse(process.env)
+const rawEnvironment = rawEnvironmentSchema.parse(process.env)
+const requiredSecretTitles = [
+  "DEEPSEEK_API_KEY",
+  "SCRAPINGANT_API_KEY",
+  "BETTER_AUTH_SECRET",
+  "GITHUB_CLIENT_SECRET",
+] as (
+  | "BRAVE_SEARCH_API_KEY"
+  | "DEEPSEEK_API_KEY"
+  | "SCRAPINGANT_API_KEY"
+  | "BETTER_AUTH_SECRET"
+  | "GITHUB_CLIENT_SECRET"
+  | "AUTH_DEBUG_USER_PASSWORD"
+)[]
+
+if (rawEnvironment.NODE_ENV === "production") {
+  requiredSecretTitles.push("BRAVE_SEARCH_API_KEY")
+}
+if (rawEnvironment.AUTH_DEBUG_USER_ENABLED) {
+  requiredSecretTitles.push("AUTH_DEBUG_USER_PASSWORD")
+}
+
+const keepassRequiredTitles = requiredSecretTitles.filter(
+  (title) => rawEnvironment[title] === undefined,
+)
+// Production-mode unit tests must never open an operator-owned database.
+const keepassEnvironment =
+  process.env.VITEST === "true" ? "test" : rawEnvironment.NODE_ENV
+const keepassSecrets: Partial<
+  Record<(typeof requiredSecretTitles)[number], string>
+> = await loadKeePassSecrets({
+  filePath: resolveKeePassFilePath(keepassEnvironment),
+  password: rawEnvironment.KDBX_PASSWORD,
+  requiredTitles: keepassRequiredTitles,
+})
+
+const environment = environmentSchema.parse({
+  ...rawEnvironment,
+  BRAVE_SEARCH_API_KEY:
+    rawEnvironment.BRAVE_SEARCH_API_KEY ??
+    keepassSecrets.BRAVE_SEARCH_API_KEY,
+  DEEPSEEK_API_KEY:
+    rawEnvironment.DEEPSEEK_API_KEY ?? keepassSecrets.DEEPSEEK_API_KEY,
+  SCRAPINGANT_API_KEY:
+    rawEnvironment.SCRAPINGANT_API_KEY ??
+    keepassSecrets.SCRAPINGANT_API_KEY,
+  BETTER_AUTH_SECRET:
+    rawEnvironment.BETTER_AUTH_SECRET ?? keepassSecrets.BETTER_AUTH_SECRET,
+  GITHUB_CLIENT_SECRET:
+    rawEnvironment.GITHUB_CLIENT_SECRET ??
+    keepassSecrets.GITHUB_CLIENT_SECRET,
+  AUTH_DEBUG_USER_PASSWORD:
+    rawEnvironment.AUTH_DEBUG_USER_PASSWORD ??
+    keepassSecrets.AUTH_DEBUG_USER_PASSWORD,
+})
 
 export const config = {
   environment: environment.NODE_ENV,
@@ -122,6 +245,11 @@ export const config = {
     },
   },
   webSearch: {
+    provider:
+      environment.NODE_ENV === "production"
+        ? ("brave" as const)
+        : ("searxng" as const),
+    brave: { apiKey: environment.BRAVE_SEARCH_API_KEY },
     searxng: { url: environment.SEARXNG_URL },
   },
   extraction: {

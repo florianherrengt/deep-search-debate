@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { App } from "./App"
@@ -75,38 +81,38 @@ describe("App", () => {
 
   it("renders the product entry point", () => {
     renderApp()
-    expect(screen.getByText("Deep Search Debate")).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Deep Search Debate home" }),
+    ).toBeInTheDocument()
     expect(
       screen.getByRole("heading", {
         level: 1,
-        name: "Research, generate, and decide",
+        name: "One answer is not enough.",
       }),
     ).toBeVisible()
+    const landingNavigation = screen.getByRole("navigation", {
+      name: "Landing page navigation",
+    })
     expect(
-      screen.getByRole("link", { name: "Start a tournament" }),
+      within(landingNavigation).getByRole("link", { name: "Start a debate" }),
     ).toHaveAttribute("href", "/debates")
-    expect(
-      screen.queryByRole("heading", {
-        name: /Move from an open question to grounded ideas/,
-      }),
-    ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("heading", { name: "Deep Search Debate" }),
     ).not.toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Debates" })).toHaveAttribute(
-      "href",
-      "/debates",
-    )
-    expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    )
-    expect(screen.getByRole("link", { name: "Debates" })).not.toHaveAttribute(
-      "aria-current",
-    )
+    expect(
+      within(landingNavigation).getByRole("link", { name: "How it works" }),
+    ).toHaveAttribute("href", "/#how-it-works")
+    expect(
+      screen.getByRole("link", { name: "Terms & Conditions" }),
+    ).toHaveAttribute("href", "/terms")
+    expect(
+      screen.getByRole("link", { name: "Privacy Policy" }),
+    ).toHaveAttribute("href", "/privacy")
+    expect(screen.queryByText("Debug User")).not.toBeInTheDocument()
   })
 
   it("resets scroll and moves focus into the new route", async () => {
+    window.history.replaceState({}, "", "/deep-search")
     renderApp()
 
     fireEvent.click(screen.getByRole("link", { name: "About" }))
@@ -140,6 +146,7 @@ describe("App", () => {
   })
 
   it("gates the application behind GitHub or debug sign-in", async () => {
+    window.history.replaceState({}, "", "/debates")
     authMocks.useSession.mockReturnValue({
       data: null,
       error: null,
@@ -160,6 +167,45 @@ describe("App", () => {
       await screen.findByRole("button", { name: "Continue as debug user" }),
     ).toBeVisible()
     expect(screen.queryByRole("link", { name: "Deep Search" })).toBeNull()
+  })
+
+  it("keeps the landing page public without loading a session", () => {
+    authMocks.useSession.mockReturnValue({
+      data: null,
+      error: null,
+      isPending: false,
+      isRefetching: false,
+      refetch: authMocks.refetch,
+    })
+
+    renderApp()
+
+    expect(
+      screen.getByRole("heading", { name: "One answer is not enough." }),
+    ).toBeVisible()
+    expect(
+      screen.queryByRole("heading", { name: "Sign in to continue" }),
+    ).not.toBeInTheDocument()
+    expect(authMocks.useSession).not.toHaveBeenCalled()
+  })
+
+  it("keeps the placeholder legal pages public", () => {
+    window.history.replaceState({}, "", "/privacy")
+    authMocks.useSession.mockReturnValue({
+      data: null,
+      error: null,
+      isPending: false,
+      isRefetching: false,
+      refetch: authMocks.refetch,
+    })
+
+    renderApp()
+
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Privacy Policy" }),
+    ).toBeVisible()
+    expect(screen.getByText("Policy coming soon")).toBeVisible()
+    expect(authMocks.useSession).not.toHaveBeenCalled()
   })
 
   it("starts GitHub sign-in with the current route as its callback", async () => {

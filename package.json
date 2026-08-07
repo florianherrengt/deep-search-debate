@@ -7,6 +7,14 @@
     "src/api",
     "src/web"
   ],
+  "overrides": {
+    "kdbxweb": {
+      "@xmldom/xmldom": "0.8.13"
+    }
+  },
+  "dependencies": {
+    "kdbxweb": "^2.1.1"
+  },
   "scripts": {
     "dev": "npm run dev -w @deep-search-debate/api",
     "dev:web": "npm run dev -w @deep-search-debate/web",
