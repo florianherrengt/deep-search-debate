@@ -9,3 +9,5 @@ storybook-static
 .playwright-mcp/
 playwright-report/
 test-results/
+coolify_token
+src/api/secrets/

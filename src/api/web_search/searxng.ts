@@ -1,25 +1,19 @@
 import { createSearXNGFetchSearch } from "deep-search-core/search-extract"
-import z from "zod"
 import { config } from "../config.ts"
+import { webSearchResultsSchema, type WebSearchResult } from "./types.ts"
 
-const webSearchResultsSchema = z.array(
-  z.object({
-    title: z.string().trim().min(1),
-    shortText: z.string().trim().min(1),
-    link: z.url(),
-  }),
-)
-
-export type WebSearchResult = z.infer<typeof webSearchResultsSchema>[number]
-
-const search = createSearXNGFetchSearch({
-  baseUrl: config.webSearch.searxng.url,
-  fetch: (input, init) => globalThis.fetch(input, init),
-})
+const search =
+  config.webSearch.searxng.url === undefined
+    ? undefined
+    : createSearXNGFetchSearch({
+        baseUrl: config.webSearch.searxng.url,
+        fetch: (input, init) => globalThis.fetch(input, init),
+      })
 
 export async function searxng(params: {
   query: string
 }): Promise<WebSearchResult[]> {
+  if (search === undefined) throw new Error("SearXNG is not configured")
   const results = await search(params.query)
   return webSearchResultsSchema.parse(
     results.map((result) => ({

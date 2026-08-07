@@ -16,14 +16,16 @@ export type DebatePromptFormProps = {
   onSubmit: (prompt: string) => void
   isStarting?: boolean
   error?: string | null
+  initialPrompt?: string
 }
 
 export function DebatePromptForm({
   onSubmit,
   isStarting = false,
   error = null,
+  initialPrompt = "",
 }: DebatePromptFormProps) {
-  const [prompt, setPrompt] = useState("")
+  const [prompt, setPrompt] = useState(initialPrompt)
 
   function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()

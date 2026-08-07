@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 afterEach(() => {
   vi.unstubAllEnvs()
+  vi.doUnmock("./keepassSecrets.ts")
   vi.resetModules()
 })
 
@@ -94,6 +95,81 @@ describe("config", () => {
 
     await expect(import("./config.ts")).rejects.toThrow(
       "BETTER_AUTH_URL must use HTTPS in production",
+    )
+  })
+
+  it("uses Brave without SearXNG in production", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("SEARXNG_URL", undefined)
+    vi.stubEnv("BRAVE_SEARCH_API_KEY", "production-brave-key")
+    vi.stubEnv("BETTER_AUTH_URL", "https://app.example.com")
+    vi.stubEnv("BETTER_AUTH_SECRET", "production-secret-with-at-least-32-characters")
+    vi.stubEnv("GITHUB_CLIENT_ID", "production-github-client-id")
+    vi.stubEnv("GITHUB_CLIENT_SECRET", "production-github-client-secret")
+    vi.stubEnv("AUTH_DEBUG_USER_ENABLED", "false")
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.webSearch.provider).toBe("brave")
+    expect(config.webSearch.brave.apiKey).toBe("production-brave-key")
+  })
+
+  it("requires a Brave API key in production", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("BRAVE_SEARCH_API_KEY", "")
+    vi.stubEnv("BETTER_AUTH_URL", "https://app.example.com")
+    vi.stubEnv("BETTER_AUTH_SECRET", "production-secret-with-at-least-32-characters")
+    vi.stubEnv("AUTH_DEBUG_USER_ENABLED", "false")
+    vi.resetModules()
+
+    await expect(import("./config.ts")).rejects.toThrow(
+      "BRAVE_SEARCH_API_KEY",
+    )
+  })
+
+  it("falls back to the environment-specific KeePass database", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", undefined)
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.llm.deepseek.apiKey).toBe("keepass-deepseek-key")
+  })
+
+  it("prefers a nonblank environment secret", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "environment-deepseek-key")
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.llm.deepseek.apiKey).toBe("environment-deepseek-key")
+  })
+
+  it("rejects a blank environment secret instead of falling back", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "   ")
+    vi.resetModules()
+
+    await expect(import("./config.ts")).rejects.toThrow("DEEPSEEK_API_KEY")
+  })
+
+  it("loads KeePass once even when every secret has an override", async () => {
+    const actual = await vi.importActual<typeof import("./keepassSecrets.ts")>(
+      "./keepassSecrets.ts",
+    )
+    const loadKeePassSecrets = vi.fn().mockResolvedValue({})
+    vi.doMock("./keepassSecrets.ts", () => ({
+      ...actual,
+      loadKeePassSecrets,
+    }))
+    vi.resetModules()
+
+    const firstImport = await import("./config.ts")
+    const secondImport = await import("./config.ts")
+
+    expect(firstImport.config).toBe(secondImport.config)
+    expect(loadKeePassSecrets).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ requiredTitles: [] }),
     )
   })
 })

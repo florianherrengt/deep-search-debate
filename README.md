@@ -5,24 +5,42 @@ An npm workspaces monorepo with a Hono API and a Vite/React web client.
 ## Requirements
 
 - Node.js 22 or newer
-- A DeepSeek API key
-- A running SearXNG instance
-- A ScrapingAnt API key for rendered page extraction
+- A KeePass 2 `.kdbx` database and its master password
+- A running SearXNG instance for local development
 - A GitHub OAuth app
 
-Create the ignored local environment file from the tracked template:
+The Node.js process opens and decrypts the KeePass database directly. There is
+no additional container or KeePass service. For local development, create
+`src/api/secrets/dev.kdbx` with one entry per secret. Each entry must use the
+exact configuration name as its standard `Title` and the value as its standard
+`Password`:
+
+| KeePass title | Required when |
+| --- | --- |
+| `DEEPSEEK_API_KEY` | Always |
+| `SCRAPINGANT_API_KEY` | Always |
+| `BETTER_AUTH_SECRET` | Always; at least 32 characters |
+| `GITHUB_CLIENT_SECRET` | Always |
+| `BRAVE_SEARCH_API_KEY` | Production only |
+| `AUTH_DEBUG_USER_PASSWORD` | Debug sign-in is enabled; at least 12 characters |
+
+Entries may be in any group or nested group. Titles are exact and
+case-sensitive, and duplicates fail startup. Username, URL, notes, tags, and
+custom fields are ignored.
+
+Create the ignored local environment file from the tracked template and set the
+KeePass master password:
 
 ```sh
 cp src/api/.env.example src/api/.env
 ```
 
-Then replace every placeholder in `src/api/.env`. The template contains:
+The template contains:
 
 ```dotenv
 NODE_ENV=development
-DEEPSEEK_API_KEY=your-key
+KDBX_PASSWORD=
 SEARXNG_URL=http://127.0.0.1:8090
-SCRAPINGANT_API_KEY=your-key
 SCRAPINGANT_PROXY_TYPE=datacenter
 SCRAPINGANT_MAX_RETRIES=2
 SCRAPINGANT_RETRY_DELAY_MS=1000
@@ -30,13 +48,15 @@ DATABASE_URL=data.db
 API_HOST=127.0.0.1
 PORT=3000
 BETTER_AUTH_URL=http://localhost:5173
-BETTER_AUTH_SECRET=replace-with-at-least-32-random-characters
 GITHUB_CLIENT_ID=replace-with-your-github-oauth-client-id
-GITHUB_CLIENT_SECRET=replace-with-your-github-oauth-client-secret
 AUTH_DEBUG_USER_ENABLED=false
 AUTH_DEBUG_USER_EMAIL=debug@local.invalid
-AUTH_DEBUG_USER_PASSWORD=replace-with-a-local-debug-password
 ```
+
+Do not put the real master password in `.env.example`; set it only in the
+ignored `src/api/.env` or the deployment platform. A nonblank sensitive
+environment variable still overrides the KeePass entry with the same name. A
+blank or whitespace-only override fails startup instead of falling back.
 
 Configure the GitHub OAuth callback as
 `http://localhost:5173/api/auth/callback/github`. Debug sign-in is optional and
@@ -56,6 +76,14 @@ docker compose up -d searxng
 ```
 
 The development Compose service listens only on `127.0.0.1:8090` and enables the JSON search format used by the API.
+
+Production uses Brave Search and does not read `SEARXNG_URL`. See
+[the Coolify operations guide](coolify/README.md) for the container, persistent
+SQLite volume, required runtime variables, and deployment procedure.
+
+KeePass protects the secret collection at rest. It does not protect secrets from
+an attacker who can read both `KDBX_PASSWORD` and the database file, or from an
+attacker who can inspect the Node.js process after decryption.
 
 ## Development
 

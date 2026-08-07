@@ -11,6 +11,15 @@ describe("GET /api/ping", () => {
   })
 })
 
+describe("GET /api/health", () => {
+  it("is public and reports that the process is healthy", async () => {
+    const res = await app.request("/api/health")
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({ status: "ok" })
+  })
+})
+
 describe("authentication", () => {
   it("keeps auth discovery public and protects application routes", async () => {
     const configResponse = await app.request("/api/auth/config")

@@ -1,5 +1,8 @@
 import { Hono } from "hono"
+import { serveStatic } from "@hono/node-server/serve-static"
+import { fileURLToPath } from "node:url"
 import { ping } from "./routes/ping.ts"
+import { health } from "./routes/health.ts"
 import { debug } from "./routes/debug.ts"
 import { streams } from "./routes/streams.ts"
 import { deepSearchJobs } from "./routes/deepSearch/index.ts"
@@ -21,6 +24,7 @@ const app = new Hono<AppEnv>()
 const api = app.basePath("/api")
 
 ping(api)
+health(api)
 authRoutes(api)
 api.use("*", requireTrustedOrigin)
 api.use("*", requireSession)
@@ -32,5 +36,16 @@ const debateJobManager = createDebateJobManager(ideaJobManager)
 deepSearchJobs(api, deepSearchManager)
 ideaJobs(api, ideaJobManager)
 debateJobs(api, debateJobManager)
+
+if (config.environment === "production") {
+  const webRoot = fileURLToPath(new URL("../web/dist", import.meta.url))
+  const serveWebIndex = serveStatic({ path: "index.html", root: webRoot })
+
+  app.get("*", serveStatic({ root: webRoot }))
+  app.get("*", (c, next) => {
+    if (c.req.path === "/api" || c.req.path.startsWith("/api/")) return next()
+    return serveWebIndex(c, next)
+  })
+}
 
 export { app }

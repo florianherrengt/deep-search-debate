@@ -3,9 +3,12 @@ import { defineConfig } from "vitest/config"
 export default defineConfig({
   test: {
     include: ["**/*.test.ts"],
+    globalSetup: ["./testGlobalSetup.ts"],
     setupFiles: ["./db/testSetup.ts"],
     env: {
+      KDBX_PASSWORD: "test-keepass-master-password",
       SEARXNG_URL: "http://localhost:8090/",
+      BRAVE_SEARCH_API_KEY: "test-key",
       DEEPSEEK_API_KEY: "test-key",
       SCRAPINGANT_API_KEY: "test-key",
       SCRAPINGANT_RETRY_DELAY_MS: "0",

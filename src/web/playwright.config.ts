@@ -43,6 +43,7 @@ export default defineConfig({
         SEARXNG_URL: "https://e2e-search.test",
         SCRAPINGANT_API_KEY: "e2e-scrapingant-key",
         NODE_ENV: "test",
+        KDBX_PASSWORD: "e2e-keepass-password",
         BETTER_AUTH_URL: WEB,
         BETTER_AUTH_SECRET:
           "e2e-secret-that-is-at-least-thirty-two-characters",

@@ -6,18 +6,19 @@ import {
   useLocation,
 } from "react-router-dom"
 import { useEffect, useRef } from "react"
-import {
-  AppBar,
-  Alert,
-  Avatar,
-  Box,
-  Button,
-  Container,
-  Stack,
-  Toolbar,
-  Typography,
-} from "@mui/material"
-import { Home } from "./pages/Home.tsx"
+import Alert from "@mui/material/Alert"
+import AppBar from "@mui/material/AppBar"
+import Avatar from "@mui/material/Avatar"
+import Box from "@mui/material/Box"
+import Button from "@mui/material/Button"
+import Container from "@mui/material/Container"
+import Stack from "@mui/material/Stack"
+import Toolbar from "@mui/material/Toolbar"
+import Typography from "@mui/material/Typography"
+import { BrandLink } from "./components/layout/BrandLink.tsx"
+import { PublicLayout } from "./components/layout/PublicLayout.tsx"
+import { Home } from "./pages/Home/Home.tsx"
+import { LegalPage } from "./pages/Legal.tsx"
 import { About } from "./pages/About.tsx"
 import { DeepSearch } from "./pages/DeepSearch/index.tsx"
 import { Ideas } from "./pages/Ideas/index.tsx"
@@ -62,28 +63,7 @@ function AppNavigation({ session, signingOut, signOut }: AppNavigationProps) {
           width: "100%",
         }}
       >
-        <Typography
-          aria-label="Deep Search Debate home"
-          color="text.primary"
-          component={Link}
-          sx={{
-            flexGrow: 1,
-            fontWeight: 650,
-            letterSpacing: "-0.02em",
-            textDecoration: "none",
-            whiteSpace: "nowrap",
-            "&:focus-visible": {
-              borderRadius: 1,
-              outline: "2px solid",
-              outlineColor: "primary.main",
-              outlineOffset: 2,
-            },
-          }}
-          to="/"
-          variant="h6"
-        >
-          Deep Search Debate
-        </Typography>
+        <BrandLink />
         <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
           <Avatar
             alt=""
@@ -189,7 +169,6 @@ function RoutedContent() {
       tabIndex={-1}
     >
       <Routes>
-        <Route path="/" element={<Home />} />
         <Route path="/deep-search" element={<DeepSearch />} />
         <Route
           path="/deep-search/:deepSearchJobId"
@@ -226,9 +205,40 @@ function AuthenticatedApp({
 export function App() {
   return (
     <BrowserRouter>
-      <AuthGate>
-        {(props) => <AuthenticatedApp {...props} />}
-      </AuthGate>
+      <Routes>
+        <Route
+          path="/"
+          element={
+            <PublicLayout>
+              <Home />
+            </PublicLayout>
+          }
+        />
+        <Route
+          path="/terms"
+          element={
+            <PublicLayout maxWidth="md">
+              <LegalPage title="Terms & Conditions" />
+            </PublicLayout>
+          }
+        />
+        <Route
+          path="/privacy"
+          element={
+            <PublicLayout maxWidth="md">
+              <LegalPage title="Privacy Policy" />
+            </PublicLayout>
+          }
+        />
+        <Route
+          path="*"
+          element={
+            <AuthGate>
+              {(props) => <AuthenticatedApp {...props} />}
+            </AuthGate>
+          }
+        />
+      </Routes>
     </BrowserRouter>
   )
 }

@@ -155,6 +155,14 @@ describe("Debates", () => {
     )
   })
 
+  it("prefills a question handed off from the landing page", () => {
+    renderDebates("/debates?prompt=Should%20we%20enter%20this%20market%3F")
+
+    expect(screen.getByLabelText("What should the ideas solve?")).toHaveValue(
+      "Should we enter this market?",
+    )
+  })
+
   it("restores a completed tournament from its durable snapshot", async () => {
     const first = tournament().rounds[0].matches[0].firstIdea
     const second = tournament().rounds[0].matches[0].secondIdea

@@ -52,6 +52,7 @@ test.describe("Application shell", () => {
     ).toBe(true)
 
     const brand = page.getByRole("link", { name: "Deep Search Debate home" })
+    await expect(brand).toHaveCSS("color", "rgb(241, 243, 245)")
     await page.keyboard.press("Tab")
     await expect(brand).toBeFocused()
     expect(
