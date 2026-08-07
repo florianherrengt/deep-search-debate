@@ -23,7 +23,7 @@ export function DebatePromptSection() {
     <Paper
       component="section"
       sx={(theme) => {
-        const { palette } = theme.vars
+        const palette = (theme.vars ?? theme).palette
         return {
           background: `radial-gradient(circle at 88% 20%, color-mix(in srgb, ${palette.secondary.main} 18%, transparent), transparent 34%), linear-gradient(135deg, color-mix(in srgb, ${palette.primary.main} 14%, ${palette.background.paper}), ${palette.background.paper} 58%)`,
           border: 1,

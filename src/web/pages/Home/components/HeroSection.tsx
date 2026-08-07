@@ -12,7 +12,7 @@ export function HeroSection() {
     <Box
       component="section"
       sx={(theme) => {
-        const { palette } = theme.vars
+        const palette = (theme.vars ?? theme).palette
         return {
           alignItems: "center",
           display: "grid",

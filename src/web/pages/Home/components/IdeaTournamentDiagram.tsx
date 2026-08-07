@@ -8,6 +8,23 @@ import Paper from "@mui/material/Paper"
 import Stack from "@mui/material/Stack"
 import Typography from "@mui/material/Typography"
 
+const ideaLabels = ["A", "B", "C", "…"] as const
+
+const debateInputs = [
+  {
+    description: "Facts checked first",
+    icon: <FactCheckOutlined color="primary" fontSize="small" />,
+    label: "Research",
+  },
+  {
+    description: "Debate each matchup",
+    icon: <GavelRounded color="secondary" fontSize="small" />,
+    label: "AI agents",
+  },
+] as const
+
+const winnerDetails = ["Match record", "Why it won", "Full debates"] as const
+
 export function IdeaTournamentDiagram() {
   return (
     <Paper
@@ -44,11 +61,11 @@ export function IdeaTournamentDiagram() {
         >
           <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
             <CircleRounded sx={{ color: "primary.main", fontSize: 8 }} />
-            <Typography color="textSecondary" variant="overline">
+            <Typography color="text.secondary" variant="overline">
               Tournament flow
             </Typography>
           </Stack>
-          <Typography color="textDisabled" variant="caption">
+          <Typography color="text.disabled" variant="caption">
             Ideas → Rounds → Winner
           </Typography>
         </Stack>
@@ -62,7 +79,7 @@ export function IdeaTournamentDiagram() {
           variant="outlined"
         >
           <Stack spacing={1.5}>
-            <Typography color="textSecondary" variant="overline">
+            <Typography color="text.secondary" variant="overline">
               Multiple ideas enter
             </Typography>
             <Box
@@ -72,7 +89,7 @@ export function IdeaTournamentDiagram() {
                 gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
               }}
             >
-              {["A", "B", "C", "…"].map((label, index) => (
+              {ideaLabels.map((label, index) => (
                 <Box
                   key={label}
                   sx={{
@@ -86,7 +103,7 @@ export function IdeaTournamentDiagram() {
                     justifyContent: "center",
                   }}
                 >
-                  <Typography color="textSecondary" variant="caption">
+                  <Typography color="text.secondary" variant="caption">
                     {label}
                   </Typography>
                 </Box>
@@ -102,28 +119,27 @@ export function IdeaTournamentDiagram() {
             gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
           }}
         >
-          <Paper sx={{ bgcolor: "background.default", p: 1.75 }} variant="outlined">
-            <Stack direction="row" spacing={1.25} sx={{ alignItems: "center" }}>
-              <FactCheckOutlined color="primary" fontSize="small" />
-              <Box>
-                <Typography color="textSecondary" variant="overline">
-                  Research
-                </Typography>
-                <Typography variant="body2">Facts checked first</Typography>
-              </Box>
-            </Stack>
-          </Paper>
-          <Paper sx={{ bgcolor: "background.default", p: 1.75 }} variant="outlined">
-            <Stack direction="row" spacing={1.25} sx={{ alignItems: "center" }}>
-              <GavelRounded color="secondary" fontSize="small" />
-              <Box>
-                <Typography color="textSecondary" variant="overline">
-                  AI agents
-                </Typography>
-                <Typography variant="body2">Debate each matchup</Typography>
-              </Box>
-            </Stack>
-          </Paper>
+          {debateInputs.map((input) => (
+            <Paper
+              key={input.label}
+              sx={{ bgcolor: "background.default", p: 1.75 }}
+              variant="outlined"
+            >
+              <Stack
+                direction="row"
+                spacing={1.25}
+                sx={{ alignItems: "center" }}
+              >
+                {input.icon}
+                <Box>
+                  <Typography color="text.secondary" variant="overline">
+                    {input.label}
+                  </Typography>
+                  <Typography variant="body2">{input.description}</Typography>
+                </Box>
+              </Stack>
+            </Paper>
+          ))}
         </Box>
 
         <ArrowDownwardRounded
@@ -152,27 +168,30 @@ export function IdeaTournamentDiagram() {
             <Typography color="inherit" variant="h5">
               A winner emerges
             </Typography>
-            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
-              {["Match record", "Why it won", "Full debates"].map(
-                (label) => (
-                  <Box
-                    key={label}
-                    sx={{
-                      bgcolor: "color-mix(in srgb, currentColor 10%, transparent)",
-                      border: "1px solid",
-                      borderColor:
-                        "color-mix(in srgb, currentColor 24%, transparent)",
-                      borderRadius: 999,
-                      px: 1.25,
-                      py: 0.5,
-                    }}
-                  >
-                    <Typography color="inherit" variant="caption">
-                      {label}
-                    </Typography>
-                  </Box>
-                ),
-              )}
+            <Stack
+              direction="row"
+              spacing={1}
+              useFlexGap
+              sx={{ flexWrap: "wrap" }}
+            >
+              {winnerDetails.map((label) => (
+                <Box
+                  key={label}
+                  sx={{
+                    bgcolor: "color-mix(in srgb, currentColor 10%, transparent)",
+                    border: "1px solid",
+                    borderColor:
+                      "color-mix(in srgb, currentColor 24%, transparent)",
+                    borderRadius: 999,
+                    px: 1.25,
+                    py: 0.5,
+                  }}
+                >
+                  <Typography color="inherit" variant="caption">
+                    {label}
+                  </Typography>
+                </Box>
+              ))}
             </Stack>
           </Stack>
         </Paper>

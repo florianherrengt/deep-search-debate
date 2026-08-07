@@ -1,3 +1,4 @@
+import AppBar from "@mui/material/AppBar"
 import Box from "@mui/material/Box"
 import Button from "@mui/material/Button"
 import Container from "@mui/material/Container"
@@ -5,7 +6,6 @@ import Link from "@mui/material/Link"
 import Stack from "@mui/material/Stack"
 import Toolbar from "@mui/material/Toolbar"
 import Typography from "@mui/material/Typography"
-import AppBar from "@mui/material/AppBar"
 import type { ReactNode } from "react"
 import { Link as RouterLink } from "react-router-dom"
 import { BrandLink } from "./BrandLink.tsx"
@@ -95,7 +95,9 @@ export function PublicLayout({
   maxWidth = "lg",
 }: PublicLayoutProps) {
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100dvh" }}>
+    <Box
+      sx={{ display: "flex", flexDirection: "column", minHeight: "100dvh" }}
+    >
       <PublicHeader />
       <Container component="main" maxWidth={maxWidth} sx={{ flex: 1 }}>
         {children}

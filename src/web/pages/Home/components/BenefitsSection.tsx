@@ -56,7 +56,7 @@ export function BenefitsSection() {
             <Paper
               key={benefit.title}
               sx={(theme) => {
-                const { palette } = theme.vars
+                const palette = (theme.vars ?? theme).palette
                 return {
                   background:
                     index === 0
