@@ -8,8 +8,12 @@ export type DeepSearchJobEvent =
   | { type: "done" }
 export type LiveDeepSearchJob = ReplayableEventLog<DeepSearchJobEvent>
 
-export const deepSearchJobParamsSchema = z.object({
+export const deepSearchJobEventParamsSchema = z.object({
   deepSearchJobId: z.uuid(),
+})
+
+export const deepSearchJobParamsSchema = z.object({
+  slug: z.string().trim().min(1).max(80),
 })
 
 export const createDeepSearchJobInputSchema = z.object({

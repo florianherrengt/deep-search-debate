@@ -34,7 +34,7 @@ export function DebateView({
           <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexGrow: 1 }}>
             <AutoAwesomeRounded color="primary" />
             <Typography component="h1" variant="h4">
-              Agent debate
+              {tournament.title}
             </Typography>
           </Stack>
           <Chip
@@ -56,7 +56,7 @@ export function DebateView({
           component={Link}
           startIcon={<LightbulbOutlined />}
           sx={{ alignSelf: "flex-start" }}
-          to={`/ideas/${tournament.ideaJobId}`}
+          to={`/ideas/${tournament.slug}`}
         >
           View the underlying idea generation
         </Button>

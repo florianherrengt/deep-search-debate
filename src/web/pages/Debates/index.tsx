@@ -26,9 +26,9 @@ function DebateStart() {
   })
   const creation = useMutation({
     mutationFn: (prompt: string) => createDebateJob(prompt),
-    onSuccess: (debateJobId) => {
+    onSuccess: ({ slug }) => {
       void queryClient.invalidateQueries({ queryKey: debateJobsQueryKey })
-      void navigate(`/debates/${debateJobId}`)
+      void navigate(`/debates/${slug}`)
     },
   })
 
@@ -54,7 +54,8 @@ function DebateStart() {
           return {
             createdAt: job.createdAt,
             id: job.debateJobId,
-            label: job.prompt,
+            label: job.title,
+            prompt: job.prompt,
             status: (
               <Chip
                 color={status.color}
@@ -63,7 +64,7 @@ function DebateStart() {
                 variant="outlined"
               />
             ),
-            to: `/debates/${job.debateJobId}`,
+            to: `/debates/${job.slug}`,
           }
         })}
         onRetry={() => void history.refetch()}
@@ -72,9 +73,9 @@ function DebateStart() {
   )
 }
 
-function DebateDetail({ debateJobId }: { debateJobId: string }) {
+function DebateDetail({ slug }: { slug: string }) {
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null)
-  const job = useDebateJob(debateJobId)
+  const job = useDebateJob(slug)
 
   if (job.isPending) return <CircularProgress />
   if (job.error) {
@@ -103,9 +104,9 @@ function DebateDetail({ debateJobId }: { debateJobId: string }) {
 }
 
 export function Debates() {
-  const { debateJobId } = useParams<{ debateJobId: string }>()
-  return debateJobId ? (
-    <DebateDetail debateJobId={debateJobId} />
+  const { slug } = useParams<{ slug: string }>()
+  return slug ? (
+    <DebateDetail slug={slug} />
   ) : (
     <DebateStart />
   )

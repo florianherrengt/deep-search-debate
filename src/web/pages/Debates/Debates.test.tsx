@@ -44,6 +44,8 @@ function tournament(
   return {
     debateJobId: "debate-id",
     ideaJobId: "idea-job-id",
+    title: "Better Café Ideas",
+    slug: "better-cafe-ideas",
     prompt: "Design a better café",
     stage: "swiss",
     status: "running",
@@ -93,7 +95,7 @@ function renderDebates(initialEntry = "/debates") {
       <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/debates" element={<Debates />} />
-          <Route path="/debates/:debateJobId" element={<Debates />} />
+          <Route path="/debates/:slug" element={<Debates />} />
           <Route path="/ideas" element={<div>Idea generator</div>} />
         </Routes>
       </MemoryRouter>
@@ -104,7 +106,10 @@ function renderDebates(initialEntry = "/debates") {
 describe("Debates", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.createDebateJob.mockResolvedValue("debate-id")
+    mocks.createDebateJob.mockResolvedValue({
+      debateJobId: "debate-id",
+      slug: "better-cafe-ideas",
+    })
     mocks.getDebateJob.mockResolvedValue(tournament())
     mocks.getDebateJobs.mockResolvedValue([])
     mocks.subscribeToDebateJob.mockImplementation(async function* (
@@ -147,10 +152,10 @@ describe("Debates", () => {
       screen.getByRole("link", {
         name: "View the underlying idea generation",
       }),
-    ).toHaveAttribute("href", "/ideas/idea-job-id")
+    ).toHaveAttribute("href", "/ideas/better-cafe-ideas")
     expect(mocks.createDebateJob).toHaveBeenCalledWith("Design a better café")
     expect(mocks.getDebateJob).toHaveBeenCalledWith(
-      "debate-id",
+      "better-cafe-ideas",
       expect.any(AbortSignal),
     )
     expect(mocks.subscribeToDebateJob).toHaveBeenCalledWith(
@@ -210,7 +215,7 @@ describe("Debates", () => {
       }),
     )
 
-    renderDebates("/debates/debate-id")
+    renderDebates("/debates/better-cafe-ideas")
 
     expect(
       await screen.findByRole("heading", { name: "First idea" }),
@@ -220,7 +225,7 @@ describe("Debates", () => {
       screen.getByRole("link", {
         name: "View the underlying idea generation",
       }),
-    ).toHaveAttribute("href", "/ideas/idea-job-id")
+    ).toHaveAttribute("href", "/ideas/better-cafe-ideas")
     await waitFor(() => expect(mocks.subscribeToDebateJob).not.toHaveBeenCalled())
     expect(mocks.subscribeToTextStream).not.toHaveBeenCalled()
   })
@@ -259,6 +264,10 @@ describe("Debates", () => {
   })
 
   it("reconnects after a subscription failure and clears the recovered error", async () => {
+    let openReconnect: () => void = () => undefined
+    const reconnectOpened = new Promise<void>((resolve) => {
+      openReconnect = resolve
+    })
     mocks.subscribeToDebateJob
       .mockImplementationOnce(async function* () {
         await Promise.resolve()
@@ -270,6 +279,7 @@ describe("Debates", () => {
         signal?: AbortSignal,
         onOpen?: () => void,
       ) {
+        await reconnectOpened
         onOpen?.()
         await new Promise<void>((resolve) => {
           if (signal?.aborted) resolve()
@@ -288,6 +298,7 @@ describe("Debates", () => {
     await waitFor(() =>
       expect(mocks.subscribeToDebateJob).toHaveBeenCalledTimes(2),
     )
+    openReconnect()
     await waitFor(() =>
       expect(
         screen.queryByText("Live updates were interrupted. Reconnecting…"),
@@ -364,6 +375,8 @@ describe("Debates", () => {
       {
         debateJobId: "previous-debate",
         ideaJobId: "previous-ideas",
+        title: "Previous Tournament",
+        slug: "previous-tournament",
         prompt: "A previous tournament prompt",
         stage: "final",
         status: "completed",
@@ -376,8 +389,8 @@ describe("Debates", () => {
     renderDebates()
 
     expect(
-      await screen.findByRole("link", { name: /A previous tournament prompt/ }),
-    ).toHaveAttribute("href", "/debates/previous-debate")
+      await screen.findByRole("link", { name: /Previous Tournament/ }),
+    ).toHaveAttribute("href", "/debates/previous-tournament")
     expect(screen.getByText("Debate complete")).toBeVisible()
   })
 })

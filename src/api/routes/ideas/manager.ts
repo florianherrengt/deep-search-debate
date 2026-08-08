@@ -3,12 +3,18 @@ import { eq } from "drizzle-orm"
 
 import { db } from "../../db/index.ts"
 import { ideaJobs } from "../../db/schema/index.ts"
+import {
+  createPromptIdentity,
+  type PromptIdentity,
+} from "../../helpers/promptTitles.ts"
 import { createReplayableEventLog } from "../../helpers/replayableEventLog.ts"
+import { generatePromptTitle } from "../../llms/generateText.ts"
 import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
 import { runIdeaJob } from "./run.ts"
 import type { IdeaJobEvent, LiveIdeaJob } from "./schemas.ts"
 
 type StartIdeaJobInput = {
+  title?: string
   prompt: string
   numberOfIdeas: number
   deepSearchCount: number
@@ -19,6 +25,8 @@ type StartIdeaJobInput = {
 
 type StartedIdeaJob = {
   ideaJobId: string
+  title: string
+  slug: string
   /** Rejects with the persisted pipeline error when idea generation fails. */
   completion: Promise<void>
 }
@@ -40,8 +48,21 @@ export type IdeaJobManager = {
     userId: string,
     input: StartIdeaJobInput,
     options?: StartIdeaJobOptions,
-  ): StartedIdeaJob
+  ): Promise<StartedIdeaJob>
   getLiveJob(ideaJobId: string): LiveIdeaJob | undefined
+}
+
+function createIdeaIdentity(
+  userId: string,
+  generatedTitle: string,
+): PromptIdentity {
+  const usedSlugs = db
+    .select({ slug: ideaJobs.slug })
+    .from(ideaJobs)
+    .where(eq(ideaJobs.userId, userId))
+    .all()
+    .map(({ slug }) => slug)
+  return createPromptIdentity(generatedTitle, usedSlugs)
 }
 
 function requireCompletedIdeaJob(ideaJobId: string): void {
@@ -78,9 +99,13 @@ export function createIdeaJobManager(
   const liveJobs = new Map<string, LiveIdeaJob>()
 
   return {
-    start(userId, input, options) {
+    async start(userId, input, options) {
       const ideaJobId = randomUUID()
       const job = createReplayableEventLog<IdeaJobEvent>()
+      const { title: suppliedTitle, ...runInput } = input
+      const generatedTitle =
+        suppliedTitle ?? (await generatePromptTitle(input.prompt))
+      const identity = createIdeaIdentity(userId, generatedTitle)
 
       db.transaction((transaction) => {
         const parent = options?.createParent?.(transaction, ideaJobId)
@@ -90,6 +115,7 @@ export function createIdeaJobManager(
             ideaJobId,
             userId,
             ...parent,
+            ...identity,
             prompt: input.prompt,
             numberOfIdeas: input.numberOfIdeas,
             deepSearchCount: input.deepSearchCount,
@@ -101,7 +127,7 @@ export function createIdeaJobManager(
       const completion = runIdeaJob({
         ideaJobId,
         userId,
-        ...input,
+        ...runInput,
         job,
         deepSearchManager,
       })
@@ -110,7 +136,7 @@ export function createIdeaJobManager(
           if (hasDurableTerminalState(ideaJobId)) liveJobs.delete(ideaJobId)
         })
 
-      return { ideaJobId, completion }
+      return { ideaJobId, ...identity, completion }
     },
     getLiveJob(ideaJobId) {
       return liveJobs.get(ideaJobId)

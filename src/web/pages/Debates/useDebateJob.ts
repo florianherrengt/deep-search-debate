@@ -6,23 +6,23 @@ import {
 } from "../../lib/debateJobs.ts"
 import { followReplayableStream } from "../../lib/replayStream.ts"
 
-const debateJobQueryKey = (debateJobId: string) =>
-  ["debate-jobs", debateJobId] as const
+const debateJobQueryKey = (slug: string) => ["debate-jobs", slug] as const
 
 /** Reads the durable snapshot, then follows lightweight invalidation events. */
-export function useDebateJob(debateJobId: string) {
+export function useDebateJob(slug: string) {
   const queryClient = useQueryClient()
   const [subscriptionFailure, setSubscriptionFailure] = useState<{
     debateJobId: string
     message: string
   } | null>(null)
   const query = useQuery({
-    queryKey: debateJobQueryKey(debateJobId),
-    queryFn: ({ signal }) => getDebateJob(debateJobId, signal),
+    queryKey: debateJobQueryKey(slug),
+    queryFn: ({ signal }) => getDebateJob(slug, signal),
   })
+  const debateJobId = query.data?.debateJobId
 
   useEffect(() => {
-    if (query.data?.status !== "running") return
+    if (!debateJobId || query.data?.status !== "running") return
 
     const controller = new AbortController()
 
@@ -43,7 +43,7 @@ export function useDebateJob(debateJobId: string) {
         }
 
         void queryClient.invalidateQueries({
-          queryKey: debateJobQueryKey(debateJobId),
+          queryKey: debateJobQueryKey(slug),
         })
       },
       onDisconnect: (_error, willRetry) => {
@@ -57,12 +57,13 @@ export function useDebateJob(debateJobId: string) {
     })
 
     return () => controller.abort()
-  }, [debateJobId, query.data?.status, queryClient])
+  }, [debateJobId, query.data?.status, queryClient, slug])
 
   return {
     ...query,
     subscriptionError:
       query.data?.status === "running" &&
+      debateJobId &&
       subscriptionFailure?.debateJobId === debateJobId
         ? subscriptionFailure.message
         : null,

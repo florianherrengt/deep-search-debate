@@ -10,6 +10,7 @@ import {
   createDeepSearchJob,
   getDeepSearchJob,
   getDeepSearchJobs,
+  type DeepSearchJob,
 } from "../../lib/deepSearchJobs.ts"
 import { DeepSearchHeader } from "./components/DeepSearchHeader.tsx"
 import { DeepSearchView } from "./components/DeepSearchView.tsx"
@@ -27,9 +28,9 @@ function DeepSearchHistory() {
   const creation = useMutation({
     mutationFn: (request: string) =>
       createDeepSearchJob({ researchRequest: request }),
-    onSuccess: (deepSearchJobId) => {
+    onSuccess: ({ slug }) => {
       void queryClient.invalidateQueries({ queryKey: deepSearchJobsQueryKey })
-      void navigate(`/deep-search/${deepSearchJobId}`)
+      void navigate(`/deep-search/${slug}`)
     },
   })
 
@@ -53,9 +54,10 @@ function DeepSearchHistory() {
         items={history.data?.map((job) => ({
           createdAt: job.createdAt,
           id: job.deepSearchJobId,
-          label: job.researchRequest,
+          label: job.title,
+          prompt: job.researchRequest,
           status: <JobStatusBadge status={job.status} />,
-          to: `/deep-search/${job.deepSearchJobId}`,
+          to: `/deep-search/${job.slug}`,
         }))}
         onRetry={() => void history.refetch()}
       />
@@ -63,12 +65,22 @@ function DeepSearchHistory() {
   )
 }
 
-function DeepSearchDetail({ deepSearchJobId }: { deepSearchJobId: string }) {
+function DeepSearchJobContent({ job }: { job: DeepSearchJob }) {
+  const run = useDeepSearchJob(job.deepSearchJobId)
+  return (
+    <DeepSearchView
+      researchRequest={job.researchRequest}
+      run={run}
+      title={job.title}
+    />
+  )
+}
+
+function DeepSearchDetail({ slug }: { slug: string }) {
   const job = useQuery({
-    queryKey: [...deepSearchJobsQueryKey, deepSearchJobId],
-    queryFn: ({ signal }) => getDeepSearchJob(deepSearchJobId, signal),
+    queryKey: [...deepSearchJobsQueryKey, slug],
+    queryFn: ({ signal }) => getDeepSearchJob(slug, signal),
   })
-  const run = useDeepSearchJob(deepSearchJobId)
 
   if (job.isPending) return <CircularProgress />
   if (job.error) {
@@ -82,15 +94,13 @@ function DeepSearchDetail({ deepSearchJobId }: { deepSearchJobId: string }) {
     )
   }
 
-  return (
-    <DeepSearchView researchRequest={job.data.researchRequest} run={run} />
-  )
+  return <DeepSearchJobContent job={job.data} />
 }
 
 export function DeepSearch() {
-  const { deepSearchJobId } = useParams<{ deepSearchJobId: string }>()
-  if (deepSearchJobId) {
-    return <DeepSearchDetail deepSearchJobId={deepSearchJobId} />
+  const { slug } = useParams<{ slug: string }>()
+  if (slug) {
+    return <DeepSearchDetail slug={slug} />
   }
   return <DeepSearchHistory />
 }

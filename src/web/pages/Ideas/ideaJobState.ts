@@ -7,6 +7,8 @@ import type {
 
 export type IdeaResearchState = {
   deepSearchJobId: string
+  title: string
+  slug: string
   researchRequest: string
 }
 
@@ -48,6 +50,8 @@ export const ideaJobReducer = produce<IdeaJobRunState, [IdeaJobAction]>(
       case "deep-search-started":
         state.research.push({
           deepSearchJobId: action.deepSearchJobId,
+          title: action.title,
+          slug: action.slug,
           researchRequest: action.researchRequest,
         })
         break

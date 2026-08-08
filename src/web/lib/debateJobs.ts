@@ -43,6 +43,8 @@ const debateStandingSchema = z.object({
 const debateTournamentSchema = z.object({
   debateJobId: z.string().min(1),
   ideaJobId: z.string().min(1),
+  title: z.string().min(1),
+  slug: z.string().min(1),
   prompt: z.string().min(1),
   stage: z.enum(["ideas", "swiss", "semifinal", "final"]),
   status: z.enum(["running", "completed", "failed", "interrupted"]),
@@ -55,6 +57,8 @@ const debateTournamentSchema = z.object({
 const debateJobSummarySchema = z.object({
   debateJobId: z.string().min(1),
   ideaJobId: z.string().min(1),
+  title: z.string().min(1),
+  slug: z.string().min(1),
   prompt: z.string().min(1),
   stage: debateTournamentSchema.shape.stage,
   status: debateTournamentSchema.shape.status,
@@ -71,6 +75,7 @@ const debateJobEventSchema = z.discriminatedUnion("type", [
 
 const createDebateJobResponseSchema = z.object({
   debateJobId: z.string().min(1),
+  slug: z.string().min(1),
 })
 
 const debateJobResponseSchema = z.object({
@@ -87,22 +92,22 @@ export type DebateJobSummary = z.output<typeof debateJobSummarySchema>
 export async function createDebateJob(
   prompt: string,
   signal?: AbortSignal,
-): Promise<string> {
+): Promise<z.infer<typeof createDebateJobResponseSchema>> {
   const response = await postJson(
     "/api/debate-jobs",
     { prompt },
     createDebateJobResponseSchema,
     signal,
   )
-  return response.debateJobId
+  return response
 }
 
 export async function getDebateJob(
-  debateJobId: string,
+  slug: string,
   signal?: AbortSignal,
 ): Promise<DebateTournamentSnapshot> {
   const response = await getJson(
-    `/api/debate-jobs/${encodeURIComponent(debateJobId)}`,
+    `/api/debate-jobs/${encodeURIComponent(slug)}`,
     debateJobResponseSchema,
     signal,
   )

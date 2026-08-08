@@ -11,6 +11,7 @@ import {
   createIdeaJob,
   getIdeaJob,
   getIdeaJobs,
+  type IdeaJob,
 } from "../../lib/ideaJobs.ts"
 import { IdeaJobView } from "./components/IdeaJobView.tsx"
 import { useIdeaJob } from "./useIdeaJob.ts"
@@ -26,9 +27,9 @@ function IdeaHistory() {
   })
   const creation = useMutation({
     mutationFn: (prompt: string) => createIdeaJob({ prompt }),
-    onSuccess: (ideaJobId) => {
+    onSuccess: ({ slug }) => {
       void queryClient.invalidateQueries({ queryKey: ideaJobsQueryKey })
-      void navigate(`/ideas/${ideaJobId}`)
+      void navigate(`/ideas/${slug}`)
     },
   })
 
@@ -54,9 +55,10 @@ function IdeaHistory() {
         items={history.data?.map((job) => ({
           createdAt: job.createdAt,
           id: job.ideaJobId,
-          label: job.prompt,
+          label: job.title,
+          prompt: job.prompt,
           status: <JobStatusBadge status={job.status} />,
-          to: `/ideas/${job.ideaJobId}`,
+          to: `/ideas/${job.slug}`,
         }))}
         onRetry={() => void history.refetch()}
       />
@@ -64,12 +66,16 @@ function IdeaHistory() {
   )
 }
 
-function IdeaDetail({ ideaJobId }: { ideaJobId: string }) {
+function IdeaJobContent({ job }: { job: IdeaJob }) {
+  const run = useIdeaJob(job.ideaJobId)
+  return <IdeaJobView prompt={job.prompt} run={run} title={job.title} />
+}
+
+function IdeaDetail({ slug }: { slug: string }) {
   const job = useQuery({
-    queryKey: [...ideaJobsQueryKey, ideaJobId],
-    queryFn: ({ signal }) => getIdeaJob(ideaJobId, signal),
+    queryKey: [...ideaJobsQueryKey, slug],
+    queryFn: ({ signal }) => getIdeaJob(slug, signal),
   })
-  const run = useIdeaJob(ideaJobId)
 
   if (job.isPending) return <CircularProgress />
   if (job.error) {
@@ -82,10 +88,10 @@ function IdeaDetail({ ideaJobId }: { ideaJobId: string }) {
       />
     )
   }
-  return <IdeaJobView prompt={job.data.prompt} run={run} />
+  return <IdeaJobContent job={job.data} />
 }
 
 export function Ideas() {
-  const { ideaJobId } = useParams<{ ideaJobId: string }>()
-  return ideaJobId ? <IdeaDetail ideaJobId={ideaJobId} /> : <IdeaHistory />
+  const { slug } = useParams<{ slug: string }>()
+  return slug ? <IdeaDetail slug={slug} /> : <IdeaHistory />
 }

@@ -284,6 +284,8 @@ const finalComplete = createKnockoutMatch({
 export const swissTournament: DebateTournament = {
   debateJobId: "debate-swiss",
   ideaJobId: "ideas-swiss",
+  title: "Independent Café Energy Ideas",
+  slug: "independent-cafe-energy-ideas",
   prompt: debatePrompt,
   stage: "swiss",
   status: "running",
@@ -299,6 +301,8 @@ export const swissTournament: DebateTournament = {
 export const semifinalTournament: DebateTournament = {
   debateJobId: "debate-semifinal",
   ideaJobId: "ideas-semifinal",
+  title: "Independent Café Energy Ideas",
+  slug: "independent-cafe-energy-ideas",
   prompt: debatePrompt,
   stage: "semifinal",
   status: "running",
@@ -319,6 +323,8 @@ export const semifinalTournament: DebateTournament = {
 export const completedTournament: DebateTournament = {
   debateJobId: "debate-completed",
   ideaJobId: "ideas-completed",
+  title: "Independent Café Energy Ideas",
+  slug: "independent-cafe-energy-ideas",
   prompt: debatePrompt,
   stage: "final",
   status: "completed",

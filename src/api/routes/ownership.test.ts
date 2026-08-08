@@ -26,18 +26,30 @@ const foreignDeepSearchJobId = "22222222-2222-4222-8222-222222222222"
 const foreignDebateJobId = "33333333-3333-4333-8333-333333333333"
 const foreignStreamId = "44444444-4444-4444-8444-444444444444"
 
-const deepSearchStart = vi.fn<DeepSearchJobManager["start"]>(() => ({
-  deepSearchJobId: "55555555-5555-4555-8555-555555555555",
-  completion: Promise.resolve("answer"),
-}))
-const ideaStart = vi.fn<IdeaJobManager["start"]>(() => ({
-  ideaJobId: "66666666-6666-4666-8666-666666666666",
-  completion: Promise.resolve(),
-}))
-const debateStart = vi.fn<DebateJobManager["start"]>(() => ({
-  debateJobId: "77777777-7777-4777-8777-777777777777",
-  completion: Promise.resolve(),
-}))
+const deepSearchStart = vi.fn<DeepSearchJobManager["start"]>(() =>
+  Promise.resolve({
+    deepSearchJobId: "55555555-5555-4555-8555-555555555555",
+    title: "Research This",
+    slug: "research-this",
+    completion: Promise.resolve("answer"),
+  }),
+)
+const ideaStart = vi.fn<IdeaJobManager["start"]>(() =>
+  Promise.resolve({
+    ideaJobId: "66666666-6666-4666-8666-666666666666",
+    title: "Ideas",
+    slug: "ideas",
+    completion: Promise.resolve(),
+  }),
+)
+const debateStart = vi.fn<DebateJobManager["start"]>(() =>
+  Promise.resolve({
+    debateJobId: "77777777-7777-4777-8777-777777777777",
+    title: "Debate",
+    slug: "debate",
+    completion: Promise.resolve(),
+  }),
+)
 
 function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>()

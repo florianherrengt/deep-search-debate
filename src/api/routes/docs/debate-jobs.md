@@ -50,24 +50,26 @@ Starts idea generation and the automatic tournament. It returns `202 Accepted`:
 ```
 
 ```json
-{ "debateJobId": "<uuid>" }
+{ "debateJobId": "<uuid>", "slug": "low-friction-energy-products" }
 ```
 
-The `Location` header points to `/api/debate-jobs/:debateJobId`.
+The `Location` header points to `/api/debate-jobs/:slug`. Debate creation reuses
+the generated title and slug stored by its owned idea job.
 
 ### `GET /api/debate-jobs`
 
 Returns newest-first history as `{ "debateJobs": [...] }`. Each summary contains
-`debateJobId`, `ideaJobId`, `prompt`, `stage`, `status`, `error`, `createdAt`, and
-`completedAt`. The optional `limit` query defaults to 100 and is capped at 200.
+`debateJobId`, `ideaJobId`, `title`, `slug`, `prompt`, `stage`, `status`, `error`,
+`createdAt`, and `completedAt`. The optional `limit` query defaults to 100 and is
+capped at 200.
 
-### `GET /api/debate-jobs/:debateJobId`
+### `GET /api/debate-jobs/:slug`
 
 Returns `{ "debateJob": ... }`, containing the durable job state plus every round,
 match, transcript message, current derived Swiss standings, and the expected match
 count. Transcript messages link to `/api/streams/:llmGenerationId` while live and
 contain terminal text after persistence. The final match's winner is the tournament
-winner. Unknown UUIDs return 404.
+winner. Unknown slugs return 404.
 
 ### `GET /api/debate-jobs/:debateJobId/events`
 
@@ -81,6 +83,8 @@ ends with `done`. After restart, terminal events are synthesized from SQLite.
   stage, and deterministic random seed. The child carries the FK so deleting a
   debate cascades through its ideas, child searches, normalized research rows,
   tournament rows, and every job-owned LLM generation.
+- The owned idea job also stores the debate's generated title and slug, avoiding
+  a duplicate copy on `debate_jobs`.
 - `debate_rounds` and `debate_matches` store pairings and machine-readable winners.
 - `debate_messages` links ordered transcript entries to durable, same-owner LLM
   generations; ownership is validated before each transcript link is written.

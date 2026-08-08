@@ -1,9 +1,15 @@
 import { Hono } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const mocks = vi.hoisted(() => ({ runIdeaJob: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  generatePromptTitle: vi.fn().mockResolvedValue("Generate Ideas"),
+  runIdeaJob: vi.fn(),
+}))
 
 vi.mock("./run.ts", () => ({ runIdeaJob: mocks.runIdeaJob }))
+vi.mock("../../llms/generateText.ts", () => ({
+  generatePromptTitle: mocks.generatePromptTitle,
+}))
 
 import { db } from "../../db/index.ts"
 import { ideaJobs as ideaJobsTable } from "../../db/schema/index.ts"
@@ -41,14 +47,14 @@ describe("idea job routes", () => {
     db.delete(ideaJobsTable).run()
   })
 
-  it("rolls back the idea row and does not start work when owner creation fails", () => {
+  it("rolls back the idea row and does not start work when owner creation fails", async () => {
     const deepSearchManager: DeepSearchJobManager = {
       start: vi.fn(),
       getLiveJob: vi.fn(),
     }
     const manager = createIdeaJobManager(deepSearchManager)
 
-    expect(() =>
+    await expect(
       manager.start(
         "test-user-id",
         {
@@ -64,7 +70,7 @@ describe("idea job routes", () => {
           },
         },
       ),
-    ).toThrow("Owner row failed")
+    ).rejects.toThrow("Owner row failed")
     expect(db.select().from(ideaJobsTable).all()).toEqual([])
     expect(mocks.runIdeaJob).not.toHaveBeenCalled()
   })

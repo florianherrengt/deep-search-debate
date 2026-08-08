@@ -22,6 +22,8 @@ describe("debate jobs client", () => {
     const snapshot = {
       debateJobId: "debate-id",
       ideaJobId: "idea-job-id",
+      title: "Solve This Problem",
+      slug: "solve-this-problem",
       prompt: "Solve this problem",
       stage: "swiss",
       status: "running",
@@ -70,7 +72,10 @@ describe("debate jobs client", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        Response.json({ debateJobId: "debate-id" }, { status: 202 }),
+        Response.json(
+          { debateJobId: "debate-id", slug: "solve-this-problem" },
+          { status: 202 },
+        ),
       )
       .mockResolvedValueOnce(Response.json({ debateJob: snapshot }))
       .mockResolvedValueOnce(
@@ -81,10 +86,11 @@ describe("debate jobs client", () => {
     vi.stubGlobal("fetch", fetchMock)
     const onOpen = vi.fn()
 
-    await expect(createDebateJob("Solve this problem")).resolves.toBe(
-      "debate-id",
-    )
-    const job = await getDebateJob("debate-id")
+    await expect(createDebateJob("Solve this problem")).resolves.toEqual({
+      debateJobId: "debate-id",
+      slug: "solve-this-problem",
+    })
+    const job = await getDebateJob("solve-this-problem")
     await expect(
       drain(subscribeToDebateJob("debate-id", undefined, onOpen)),
     ).resolves.toEqual(events)
@@ -100,7 +106,7 @@ describe("debate jobs client", () => {
     })
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      "/api/debate-jobs/debate-id",
+      "/api/debate-jobs/solve-this-problem",
       { signal: undefined },
     )
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -131,6 +137,8 @@ describe("debate jobs client", () => {
       {
         debateJobId: "debate-id",
         ideaJobId: "idea-job-id",
+        title: "Solve This Problem",
+        slug: "solve-this-problem",
         prompt: "Solve this problem",
         stage: "final",
         status: "completed",
@@ -165,6 +173,8 @@ describe("debate jobs client", () => {
             {
               debateJobId: "debate-id",
               ideaJobId: "idea-job-id",
+              title: "Solve This Problem",
+              slug: "solve-this-problem",
               prompt: "Solve this problem",
               stage: "ideas",
               status: "running",

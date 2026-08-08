@@ -1,8 +1,8 @@
 import { createDeepSeek } from "@ai-sdk/deepseek"
-import { Output, streamText } from "ai"
-import type z from "zod"
+import { generateText, Output, streamText } from "ai"
+import z from "zod"
 import { config } from "../config.ts"
-import { type PromptName, loadPrompt } from "./prompts.ts"
+import { PromptName, loadPrompt } from "./prompts.ts"
 import {
   registerTextStream,
   type LlmGenerationOwner,
@@ -23,6 +23,10 @@ const thinkingEnabled = {
 const thinkingDisabled = {
   deepseek: { thinking: { type: "disabled" as const } },
 }
+
+const promptTitleSchema = z.object({
+  title: z.string().trim().min(1).max(80),
+})
 
 type GenerateTextStreamInput = {
   userId: string
@@ -51,6 +55,20 @@ export async function generateTextStream(
   return {
     id: registerTextStream(params.userId, params.owner, result.stream),
   }
+}
+
+/** Generates the immutable display title used before a durable job starts. */
+export async function generatePromptTitle(prompt: string): Promise<string> {
+  const result = await generateText({
+    model: deepseek(config.llm.deepseek.model),
+    prompt: `<user_request>\n${prompt}\n</user_request>`,
+    system: await loadPrompt(PromptName.GeneratePromptTitle),
+    maxOutputTokens: 50,
+    providerOptions: thinkingDisabled,
+    output: Output.object({ schema: promptTitleSchema }),
+  })
+
+  return result.output.title
 }
 
 export async function generateArrayStream<Element>(

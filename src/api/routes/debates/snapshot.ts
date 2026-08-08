@@ -53,6 +53,8 @@ type DebateRoundSnapshot = {
 export type DebateJobSnapshot = {
   debateJobId: string
   ideaJobId: string
+  title: string
+  slug: string
   prompt: string
   stage: "ideas" | "swiss" | "semifinal" | "final"
   status: "running" | "completed" | "failed" | "interrupted"
@@ -88,6 +90,8 @@ export function getDebateJobSnapshot(
       stage: debateJobs.stage,
       status: debateJobs.status,
       error: debateJobs.error,
+      title: ideaJobs.title,
+      slug: ideaJobs.slug,
       prompt: ideaJobs.prompt,
     })
     .from(debateJobs)
@@ -244,6 +248,8 @@ export function getDebateJobSnapshot(
   return {
     debateJobId: job.debateJobId,
     ideaJobId: job.ideaJobId,
+    title: job.title,
+    slug: job.slug,
     prompt: job.prompt,
     stage: job.stage,
     status: job.status,

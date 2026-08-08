@@ -2,10 +2,16 @@ import { Hono } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { DeepSearchEvent } from "../../agents/deep_search/index.ts"
 
-const mocks = vi.hoisted(() => ({ deepSearch: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  deepSearch: vi.fn(),
+  generatePromptTitle: vi.fn().mockResolvedValue("Research This"),
+}))
 
 vi.mock("../../agents/deep_search/index.ts", () => ({
   deepSearch: mocks.deepSearch,
+}))
+vi.mock("../../llms/generateText.ts", () => ({
+  generatePromptTitle: mocks.generatePromptTitle,
 }))
 
 import { db } from "../../db/index.ts"
@@ -184,8 +190,9 @@ describe("deep search job routes", () => {
     const app = createApp()
 
     const created = await createJob(app)
-    const { deepSearchJobId } = (await created.json()) as {
+    const { deepSearchJobId, slug } = (await created.json()) as {
       deepSearchJobId: string
+      slug: string
     }
 
     expect(created.status).toBe(202)
@@ -193,7 +200,7 @@ describe("deep search job routes", () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     )
     expect(created.headers.get("Location")).toBe(
-      `/api/deep-search-jobs/${deepSearchJobId}`,
+      `/api/deep-search-jobs/${slug}`,
     )
 
     const subscribed = await app.request(
@@ -205,7 +212,7 @@ describe("deep search job routes", () => {
     )
     expectDurableProgress(await readEvents(subscribed), [{ type: "done" }])
 
-    const detail = await app.request(`/deep-search-jobs/${deepSearchJobId}`)
+    const detail = await app.request(`/deep-search-jobs/${slug}`)
     expect(detail.status).toBe(200)
     await expect(detail.json()).resolves.toMatchObject({
       deepSearchJob: {
@@ -334,8 +341,9 @@ describe("deep search job routes", () => {
     })
     const app = createApp()
     const created = await createJob(app)
-    const { deepSearchJobId } = (await created.json()) as {
+    const { deepSearchJobId, slug } = (await created.json()) as {
       deepSearchJobId: string
+      slug: string
     }
 
     const subscribed = await app.request(
@@ -346,7 +354,7 @@ describe("deep search job routes", () => {
       { type: "error", message: "Final answer generation failed" },
       { type: "done" },
     ])
-    const detail = await app.request(`/deep-search-jobs/${deepSearchJobId}`)
+    const detail = await app.request(`/deep-search-jobs/${slug}`)
     await expect(detail.json()).resolves.toMatchObject({
       deepSearchJob: {
         deepSearchJobId,

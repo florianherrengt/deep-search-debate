@@ -3,6 +3,7 @@ import z from "zod"
 
 const mocks = vi.hoisted(() => ({
   deepseek: vi.fn((model: string) => model),
+  generateText: vi.fn(),
   loadPrompt: vi.fn(),
   outputArray: vi.fn((options: unknown) => ({ type: "array", options })),
   outputObject: vi.fn((options: unknown) => ({ type: "object", options })),
@@ -15,6 +16,7 @@ vi.mock("@ai-sdk/deepseek", () => ({
 }))
 
 vi.mock("ai", () => ({
+  generateText: mocks.generateText,
   Output: { array: mocks.outputArray, object: mocks.outputObject },
   streamText: mocks.streamText,
 }))
@@ -22,6 +24,7 @@ vi.mock("ai", () => ({
 vi.mock("./prompts.ts", () => ({
   PromptName: {
     Default: "default",
+    GeneratePromptTitle: "generate-prompt-title",
     GenerateWebSearchQueries: "generate-websearch-queries",
   },
   loadPrompt: mocks.loadPrompt,
@@ -34,8 +37,10 @@ vi.mock("./streams.ts", () => ({
 import {
   generateArrayStream,
   generateObjectStream,
+  generatePromptTitle,
   generateTextStream,
 } from "./generateText.ts"
+import { config } from "../config.ts"
 
 describe("generateTextStream", () => {
   beforeEach(() => vi.clearAllMocks())
@@ -66,6 +71,27 @@ describe("generateTextStream", () => {
       }),
     )
     expect(result).toEqual({ id: "stream-id" })
+  })
+
+  it("generates a structured title with the configured model", async () => {
+    mocks.loadPrompt.mockResolvedValue("Title system prompt")
+    mocks.generateText.mockResolvedValue({
+      output: { title: "London Renter Energy Options" },
+    })
+
+    await expect(generatePromptTitle("How can renters save energy?")).resolves.toBe(
+      "London Renter Energy Options",
+    )
+    expect(mocks.generateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerOptions: {
+          deepseek: { thinking: { type: "disabled" } },
+        },
+        system: "Title system prompt",
+      }),
+    )
+    expect(mocks.deepseek).toHaveBeenCalledWith(config.llm.deepseek.model)
+    expect(mocks.outputObject).toHaveBeenCalledOnce()
   })
 
   it("uses AI SDK structured array output and exposes its result", async () => {

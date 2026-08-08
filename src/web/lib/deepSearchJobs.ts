@@ -64,6 +64,8 @@ type CreateDeepSearchJobInput = {
 
 const deepSearchJobSchema = z.object({
   deepSearchJobId: z.string().min(1),
+  title: z.string().min(1),
+  slug: z.string().min(1),
   researchRequest: z.string(),
   maxSearches: z.number().int().positive(),
   maxResultsPerSearch: z.number().int().positive(),
@@ -75,6 +77,7 @@ const deepSearchJobSchema = z.object({
 
 const createDeepSearchJobResponseSchema = z.object({
   deepSearchJobId: z.string().min(1),
+  slug: z.string().min(1),
 })
 const deepSearchJobsResponseSchema = z.object({
   deepSearchJobs: z.array(deepSearchJobSchema),
@@ -88,7 +91,7 @@ export type DeepSearchJob = z.infer<typeof deepSearchJobSchema>
 export async function createDeepSearchJob(
   input: CreateDeepSearchJobInput,
   signal?: AbortSignal,
-): Promise<string> {
+): Promise<z.infer<typeof createDeepSearchJobResponseSchema>> {
   const url = "/api/deep-search-jobs"
   const response = await postJson(
     url,
@@ -100,7 +103,7 @@ export async function createDeepSearchJob(
     createDeepSearchJobResponseSchema,
     signal,
   )
-  return response.deepSearchJobId
+  return response
 }
 
 export async function getDeepSearchJobs(
@@ -115,11 +118,11 @@ export async function getDeepSearchJobs(
 }
 
 export async function getDeepSearchJob(
-  deepSearchJobId: string,
+  slug: string,
   signal?: AbortSignal,
 ): Promise<DeepSearchJob> {
   const response = await getJson(
-    `/api/deep-search-jobs/${encodeURIComponent(deepSearchJobId)}`,
+    `/api/deep-search-jobs/${encodeURIComponent(slug)}`,
     deepSearchJobResponseSchema,
     signal,
   )

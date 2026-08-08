@@ -30,9 +30,11 @@ function getProgressStatus({
 }
 
 export function IdeaJobView({
+  title,
   prompt,
   run,
 }: {
+  title: string
   prompt: string
   run: IdeaJobRunState & { subscriptionError?: string | null }
 }) {
@@ -78,9 +80,9 @@ export function IdeaJobView({
     <Stack spacing={3}>
       <Stack spacing={0.5}>
         <Typography component="h1" variant="h4">
-          Ideas
+          {title}
         </Typography>
-        <Typography component="p" variant="h6" sx={{ overflowWrap: "anywhere" }}>
+        <Typography color="text.secondary" sx={{ maxWidth: "85ch", overflowWrap: "anywhere" }}>
           {prompt}
         </Typography>
       </Stack>
