@@ -36,6 +36,37 @@ describe("config", () => {
     }
   })
 
+  it("derives development URLs and paths from NODE_ENV", async () => {
+    vi.stubEnv("NODE_ENV", "development")
+    vi.stubEnv("BETTER_AUTH_URL", undefined)
+    vi.stubEnv("DATABASE_URL", undefined)
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.auth.baseUrl).toBe("http://localhost:5173")
+    expect(config.db.url).toBe("data.db")
+  })
+
+  it("derives production URLs and paths from NODE_ENV", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("BETTER_AUTH_URL", undefined)
+    vi.stubEnv("DATABASE_URL", undefined)
+    vi.stubEnv(
+      "BETTER_AUTH_SECRET",
+      "production-secret-with-at-least-32-characters",
+    )
+    vi.stubEnv("GITHUB_CLIENT_ID", "production-github-client-id")
+    vi.stubEnv("GITHUB_CLIENT_SECRET", "production-github-client-secret")
+    vi.stubEnv("AUTH_DEBUG_USER_ENABLED", "false")
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.auth.baseUrl).toBe("https://rethinkloop.com")
+    expect(config.db.url).toBe("/app/data/data.db")
+  })
+
   it("rejects debug auth in production", async () => {
     vi.stubEnv("NODE_ENV", "production")
     vi.stubEnv("AUTH_DEBUG_USER_ENABLED", "true")
@@ -135,6 +166,24 @@ describe("config", () => {
     const { config } = await import("./config.ts")
 
     expect(config.llm.deepseek.apiKey).toBe("keepass-deepseek-key")
+  })
+
+  it("loads the GitHub client ID from KeePass", async () => {
+    vi.stubEnv("GITHUB_CLIENT_ID", undefined)
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.auth.github.clientId).toBe("keepass-github-client-id")
+  })
+
+  it("prefers a nonblank GitHub client ID environment override", async () => {
+    vi.stubEnv("GITHUB_CLIENT_ID", "environment-github-client-id")
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.auth.github.clientId).toBe("environment-github-client-id")
   })
 
   it("prefers a nonblank environment secret", async () => {

@@ -70,7 +70,7 @@ export function DebatePromptSection() {
             Start a debate
           </Button>
           <Typography color="text.secondary" variant="caption">
-            Sign in required. Your tournament is saved automatically.
+            Sign in required. Your debate is saved automatically.
           </Typography>
         </Stack>
       </Stack>

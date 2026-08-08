@@ -15,13 +15,13 @@ const steps = [
   },
   {
     description:
-      "The idea workflow uses that research to generate twelve distinct, practical concepts.",
+      "The idea workflow uses that research to build multiple distinct, practical ideas.",
     icon: <LightbulbOutlined color="primary" />,
     title: "2. Generate",
   },
   {
     description:
-      "A Swiss stage and knockout bracket compare every concept before an independent judge selects the winner.",
+      "AI agents defend and challenge the ideas over multiple rounds, then show which one wins.",
     icon: <AutoAwesomeRounded color="primary" />,
     title: "3. Debate",
   },
@@ -92,7 +92,7 @@ export function About() {
             Start with research
           </Button>
           <Button component={Link} to="/debates" variant="contained">
-            Start a tournament
+            Start a debate
           </Button>
         </Stack>
       </Stack>

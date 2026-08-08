@@ -1,12 +1,11 @@
-import {
-  CircularProgress,
-  List,
-  Paper,
-  Stack,
-  Typography,
-} from "@mui/material"
+import CircularProgress from "@mui/material/CircularProgress"
+import Stack from "@mui/material/Stack"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "react-router-dom"
+import { JobHistory } from "../../components/JobHistory.tsx"
+import { JobStatusBadge } from "../../components/JobStatusBadge.tsx"
+import { PromptForm } from "../../components/PromptForm.tsx"
+import { RequestError } from "../../components/RequestError.tsx"
 import {
   createDeepSearchJob,
   getDeepSearchJob,
@@ -14,20 +13,9 @@ import {
 } from "../../lib/deepSearchJobs.ts"
 import { DeepSearchHeader } from "./components/DeepSearchHeader.tsx"
 import { DeepSearchView } from "./components/DeepSearchView.tsx"
-import { ResearchRequestForm } from "./components/ResearchRequestForm.tsx"
 import { useDeepSearchJob } from "./useDeepSearchJob.ts"
-import { RequestError } from "../../components/RequestError.tsx"
-import { JobStatusBadge } from "../../components/JobStatusBadge.tsx"
-import { JobHistoryListItem } from "../../components/JobHistoryListItem.tsx"
 
 const deepSearchJobsQueryKey = ["deep-search-jobs"] as const
-
-function formatCreatedAt(value: Date): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(value)
-}
 
 function DeepSearchHistory() {
   const navigate = useNavigate()
@@ -48,44 +36,29 @@ function DeepSearchHistory() {
   return (
     <Stack spacing={3}>
       <DeepSearchHeader />
-      <ResearchRequestForm
-        isSearching={creation.isPending}
+      <PromptForm
+        label="Research request"
         onSubmit={(request) => creation.mutate(request)}
+        pending={creation.isPending}
+        submitLabel="Start deep search"
       />
-      {creation.error && (
-        <RequestError error={creation.error} />
-      )}
+      {creation.error && <RequestError error={creation.error} />}
 
-      <Stack component="section" spacing={1.5} aria-labelledby="search-history">
-        <Typography id="search-history" component="h2" variant="h5">
-          Previous searches
-        </Typography>
-        {history.isPending && <CircularProgress size={24} />}
-        {history.error && (
-          <RequestError
-            error={history.error}
-            onRetry={() => void history.refetch()}
-          />
-        )}
-        {history.data?.length === 0 && (
-          <Typography color="text.secondary">No deep searches yet.</Typography>
-        )}
-        {history.data && history.data.length > 0 && (
-          <Paper variant="outlined">
-            <List disablePadding>
-              {history.data.map((job) => (
-                <JobHistoryListItem
-                  key={job.deepSearchJobId}
-                  date={formatCreatedAt(job.createdAt)}
-                  label={job.researchRequest}
-                  status={<JobStatusBadge status={job.status} />}
-                  to={`/deep-search/${job.deepSearchJobId}`}
-                />
-              ))}
-            </List>
-          </Paper>
-        )}
-      </Stack>
+      <JobHistory
+        emptyMessage="No deep searches yet."
+        error={history.error}
+        heading="Previous searches"
+        headingId="search-history"
+        isPending={history.isPending}
+        items={history.data?.map((job) => ({
+          createdAt: job.createdAt,
+          id: job.deepSearchJobId,
+          label: job.researchRequest,
+          status: <JobStatusBadge status={job.status} />,
+          to: `/deep-search/${job.deepSearchJobId}`,
+        }))}
+        onRetry={() => void history.refetch()}
+      />
     </Stack>
   )
 }
@@ -110,10 +83,7 @@ function DeepSearchDetail({ deepSearchJobId }: { deepSearchJobId: string }) {
   }
 
   return (
-    <DeepSearchView
-      researchRequest={job.data.researchRequest}
-      run={run}
-    />
+    <DeepSearchView researchRequest={job.data.researchRequest} run={run} />
   )
 }
 

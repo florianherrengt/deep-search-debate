@@ -13,15 +13,15 @@ import { alpha } from "@mui/material/styles"
 import type { DebateStanding } from "../debateUiTypes.ts"
 
 export function StandingsTable({
+  advancedIdeaIds = new Set<string>(),
   standings,
-  qualification = "final",
 }: {
+  advancedIdeaIds?: ReadonlySet<string>
   standings: DebateStanding[]
-  qualification?: "hidden" | "provisional" | "final"
 }) {
   return (
     <TableContainer sx={{ maxHeight: 510 }}>
-      <Table aria-label="Swiss tournament standings" size="small" stickyHeader>
+      <Table aria-label="Debate standings" size="small" stickyHeader>
         <TableHead>
           <TableRow>
             <TableCell sx={{ width: 42 }}>Rank</TableCell>
@@ -33,26 +33,20 @@ export function StandingsTable({
         <TableBody>
           {standings.map((standing, index) => {
             const rank = index + 1
-            const highlighted = qualification !== "hidden" && rank <= 4
-            const finalized = qualification === "final"
+            const advanced = advancedIdeaIds.has(standing.idea.ideaId)
 
             return (
               <TableRow
                 key={standing.idea.ideaId}
                 sx={(theme) => ({
-                  bgcolor: highlighted
-                    ? alpha(
-                        finalized
-                          ? theme.palette.success.main
-                          : theme.palette.primary.main,
-                        0.055,
-                      )
+                  bgcolor: advanced
+                    ? alpha(theme.palette.success.main, 0.055)
                     : undefined,
                 })}
               >
                 <TableCell>
                   <Typography
-                    sx={{ fontWeight: highlighted ? 700 : 500 }}
+                    sx={{ fontWeight: advanced ? 700 : 500 }}
                     variant="body2"
                   >
                     {rank}
@@ -62,11 +56,11 @@ export function StandingsTable({
                   <Typography sx={{ fontWeight: 600 }} variant="body2">
                     {standing.idea.title}
                   </Typography>
-                  {highlighted && (
+                  {advanced && (
                     <Chip
-                      color={finalized ? "success" : "primary"}
+                      color="success"
                       icon={<EmojiEventsRounded />}
-                      label={finalized ? "Top four" : "Provisional top four"}
+                      label="Advanced"
                       size="small"
                       sx={{ mt: 0.5 }}
                       variant="outlined"

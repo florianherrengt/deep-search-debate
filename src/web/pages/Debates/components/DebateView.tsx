@@ -34,7 +34,7 @@ export function DebateView({
           <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexGrow: 1 }}>
             <AutoAwesomeRounded color="primary" />
             <Typography component="h1" variant="h4">
-              Idea tournament
+              Agent debate
             </Typography>
           </Stack>
           <Chip
@@ -66,8 +66,8 @@ export function DebateView({
         <Alert severity="error">
           <Stack spacing={1.5} sx={{ alignItems: "flex-start" }}>
             <Typography variant="body2">
-              The tournament stopped before it could finish. You can review the
-              completed matches below or start a new tournament.
+              The debate stopped before it could finish. You can review the
+              completed matches below or start a new debate.
             </Typography>
             <Button
               color="inherit"
@@ -75,7 +75,7 @@ export function DebateView({
               size="small"
               to="/debates"
             >
-              Start a new tournament
+              Start a new debate
             </Button>
           </Stack>
         </Alert>

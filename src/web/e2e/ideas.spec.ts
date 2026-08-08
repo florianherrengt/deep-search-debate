@@ -58,7 +58,7 @@ test.describe("Ideas", () => {
     )
 
     await page.getByLabel("What should we generate ideas for?").fill(prompt)
-    await page.getByRole("button", { name: "Generate 12 ideas" }).click()
+    await page.getByRole("button", { name: "Generate ideas" }).click()
 
     const created = await createdResponse
     expect(created.status()).toBe(202)

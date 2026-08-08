@@ -4,7 +4,6 @@ import {
   Button,
   Card,
   CardContent,
-  Chip,
   Stack,
   TextField,
   Typography,
@@ -43,8 +42,8 @@ export function DebatePromptForm({
           </Typography>
         </Stack>
         <Typography color="text.secondary" variant="body1">
-          Generate twelve ideas, debate every one, and let an independent judge
-          choose the winner.
+          AI agents debate multiple researched ideas head-to-head over multiple
+          rounds. See which one wins.
         </Typography>
       </Stack>
 
@@ -68,16 +67,13 @@ export function DebatePromptForm({
               spacing={1}
               sx={{ alignItems: { sm: "center" } }}
             >
-              <Stack
-                direction="row"
-                spacing={1}
-                useFlexGap
-                sx={{ flexGrow: 1, flexWrap: "wrap" }}
+              <Typography
+                color="text.secondary"
+                sx={{ flexGrow: 1 }}
+                variant="body2"
               >
-                <Chip label="12 ideas" size="small" variant="outlined" />
-                <Chip label="33 matches" size="small" variant="outlined" />
-                <Chip label="Runs automatically" size="small" variant="outlined" />
-              </Stack>
+                Research, debates, and results stay open to inspect.
+              </Typography>
               <Button
                 disabled={isStarting || !prompt.trim()}
                 loading={isStarting}
@@ -85,7 +81,7 @@ export function DebatePromptForm({
                 type="submit"
                 variant="contained"
               >
-                Start tournament
+                Start a debate
               </Button>
             </Stack>
           </Stack>

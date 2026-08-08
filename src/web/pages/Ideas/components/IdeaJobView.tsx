@@ -142,7 +142,7 @@ export function IdeaJobView({
             >
               <CircularProgress aria-hidden="true" size={20} />
               <Typography color="text.secondary">
-                Generating 12 ideas…
+                Generating ideas…
               </Typography>
             </Stack>
           )}

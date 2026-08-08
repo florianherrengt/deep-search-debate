@@ -57,7 +57,7 @@ export function HeroSection() {
           }}
         >
           <BalanceRounded color="primary" fontSize="small" />
-          <Typography variant="caption">AI idea tournament</Typography>
+          <Typography variant="caption">AI agents debating</Typography>
         </Stack>
 
         <Typography
@@ -87,8 +87,8 @@ export function HeroSection() {
           component="p"
           sx={{ fontSize: { xs: "1.05rem", sm: "1.2rem" }, maxWidth: "56ch" }}
         >
-          Give them a problem. They generate distinct, researched ideas and
-          test them head-to-head over multiple rounds.
+          Give them a problem. They build multiple distinct ideas, grounded in
+          research, and test them head-to-head over multiple rounds.
         </Typography>
 
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>

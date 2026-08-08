@@ -30,6 +30,7 @@ const secretSchemas = {
       (value) => value.trim().length > 0,
       "Secret must not be empty or whitespace-only",
     ),
+  GITHUB_CLIENT_ID: nonWhitespaceSecretSchema,
   GITHUB_CLIENT_SECRET: nonWhitespaceSecretSchema,
   AUTH_DEBUG_USER_PASSWORD: z
     .string()
@@ -53,11 +54,10 @@ const nonSecretEnvironmentShape = {
     .min(0)
     .max(60_000)
     .default(1_000),
-  DATABASE_URL: z.string().min(1).default("data.db"),
+  DATABASE_URL: z.string().min(1).optional(),
   API_HOST: z.string().trim().min(1).default("127.0.0.1"),
   PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
-  BETTER_AUTH_URL: z.url(),
-  GITHUB_CLIENT_ID: z.string().min(1),
+  BETTER_AUTH_URL: z.url().optional(),
   AUTH_DEBUG_USER_ENABLED: z.stringbool().default(false),
   AUTH_DEBUG_USER_EMAIL: z.email().default("debug@local.invalid"),
 } as const
@@ -69,6 +69,7 @@ const rawEnvironmentSchema = z.object({
   DEEPSEEK_API_KEY: secretSchemas.DEEPSEEK_API_KEY.optional(),
   SCRAPINGANT_API_KEY: secretSchemas.SCRAPINGANT_API_KEY.optional(),
   BETTER_AUTH_SECRET: secretSchemas.BETTER_AUTH_SECRET.optional(),
+  GITHUB_CLIENT_ID: secretSchemas.GITHUB_CLIENT_ID.optional(),
   GITHUB_CLIENT_SECRET: secretSchemas.GITHUB_CLIENT_SECRET.optional(),
   AUTH_DEBUG_USER_PASSWORD:
     secretSchemas.AUTH_DEBUG_USER_PASSWORD.optional(),
@@ -76,11 +77,14 @@ const rawEnvironmentSchema = z.object({
 
 const environmentSchema = z.object({
   ...nonSecretEnvironmentShape,
+  DATABASE_URL: z.string().min(1),
+  BETTER_AUTH_URL: z.url(),
   AUTH_DEBUG_USER_ENABLED: z.boolean(),
   BRAVE_SEARCH_API_KEY: secretSchemas.BRAVE_SEARCH_API_KEY.optional(),
   DEEPSEEK_API_KEY: secretSchemas.DEEPSEEK_API_KEY,
   SCRAPINGANT_API_KEY: secretSchemas.SCRAPINGANT_API_KEY,
   BETTER_AUTH_SECRET: secretSchemas.BETTER_AUTH_SECRET,
+  GITHUB_CLIENT_ID: secretSchemas.GITHUB_CLIENT_ID,
   GITHUB_CLIENT_SECRET: secretSchemas.GITHUB_CLIENT_SECRET,
   AUTH_DEBUG_USER_PASSWORD:
     secretSchemas.AUTH_DEBUG_USER_PASSWORD.optional(),
@@ -175,12 +179,14 @@ const requiredSecretTitles = [
   "DEEPSEEK_API_KEY",
   "SCRAPINGANT_API_KEY",
   "BETTER_AUTH_SECRET",
+  "GITHUB_CLIENT_ID",
   "GITHUB_CLIENT_SECRET",
 ] as (
   | "BRAVE_SEARCH_API_KEY"
   | "DEEPSEEK_API_KEY"
   | "SCRAPINGANT_API_KEY"
   | "BETTER_AUTH_SECRET"
+  | "GITHUB_CLIENT_ID"
   | "GITHUB_CLIENT_SECRET"
   | "AUTH_DEBUG_USER_PASSWORD"
 )[]
@@ -206,8 +212,22 @@ const keepassSecrets: Partial<
   requiredTitles: keepassRequiredTitles,
 })
 
+const environmentDefaults =
+  rawEnvironment.NODE_ENV === "production"
+    ? {
+        databaseUrl: "/app/data/data.db",
+        betterAuthUrl: "https://rethinkloop.com",
+      }
+    : {
+        databaseUrl: "data.db",
+        betterAuthUrl: "http://localhost:5173",
+      }
+
 const environment = environmentSchema.parse({
   ...rawEnvironment,
+  DATABASE_URL: rawEnvironment.DATABASE_URL ?? environmentDefaults.databaseUrl,
+  BETTER_AUTH_URL:
+    rawEnvironment.BETTER_AUTH_URL ?? environmentDefaults.betterAuthUrl,
   BRAVE_SEARCH_API_KEY:
     rawEnvironment.BRAVE_SEARCH_API_KEY ??
     keepassSecrets.BRAVE_SEARCH_API_KEY,
@@ -218,6 +238,8 @@ const environment = environmentSchema.parse({
     keepassSecrets.SCRAPINGANT_API_KEY,
   BETTER_AUTH_SECRET:
     rawEnvironment.BETTER_AUTH_SECRET ?? keepassSecrets.BETTER_AUTH_SECRET,
+  GITHUB_CLIENT_ID:
+    rawEnvironment.GITHUB_CLIENT_ID ?? keepassSecrets.GITHUB_CLIENT_ID,
   GITHUB_CLIENT_SECRET:
     rawEnvironment.GITHUB_CLIENT_SECRET ??
     keepassSecrets.GITHUB_CLIENT_SECRET,

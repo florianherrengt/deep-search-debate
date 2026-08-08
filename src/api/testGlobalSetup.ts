@@ -18,6 +18,7 @@ export default async function setup() {
     DEEPSEEK_API_KEY: "keepass-deepseek-key",
     SCRAPINGANT_API_KEY: "keepass-scrapingant-key",
     BETTER_AUTH_SECRET: "keepass-auth-secret-with-at-least-32-characters",
+    GITHUB_CLIENT_ID: "keepass-github-client-id",
     GITHUB_CLIENT_SECRET: "keepass-github-client-secret",
     AUTH_DEBUG_USER_PASSWORD: "keepass-debug-password",
   }

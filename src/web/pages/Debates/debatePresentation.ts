@@ -2,9 +2,9 @@ import type { DebateStage, DebateTournament } from "./debateUiTypes.ts"
 
 export const debateStatusPresentation = {
   running: { label: "Running automatically", color: "primary" },
-  completed: { label: "Tournament complete", color: "success" },
-  failed: { label: "Tournament failed", color: "error" },
-  interrupted: { label: "Tournament interrupted", color: "warning" },
+  completed: { label: "Debate complete", color: "success" },
+  failed: { label: "Debate failed", color: "error" },
+  interrupted: { label: "Debate interrupted", color: "warning" },
 } as const satisfies Record<
   DebateTournament["status"],
   {
@@ -14,8 +14,8 @@ export const debateStatusPresentation = {
 >
 
 export const debateStageLabels = {
-  ideas: "Generating ideas",
-  swiss: "Swiss stage",
-  semifinal: "Semifinals",
+  ideas: "Building ideas",
+  swiss: "Debate rounds",
+  semifinal: "Knockout round",
   final: "Final",
 } as const satisfies Record<DebateStage, string>

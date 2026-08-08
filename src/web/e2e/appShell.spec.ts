@@ -80,11 +80,11 @@ test.describe("Application shell", () => {
         .evaluate((element) => getComputedStyle(element).textTransform),
     ).toBe("none")
 
-    const tournamentLink = page
+    const debateLink = page
       .getByRole("main")
-      .getByRole("link", { name: "Start a tournament" })
-    await tournamentLink.scrollIntoViewIfNeeded()
-    await tournamentLink.click()
+      .getByRole("link", { name: "Start a debate" })
+    await debateLink.scrollIntoViewIfNeeded()
+    await debateLink.click()
 
     const debateHeading = page.getByRole("heading", { name: "Debate ideas" })
     await expect(debateHeading).toBeFocused()

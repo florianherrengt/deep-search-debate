@@ -132,7 +132,7 @@ export function AuthGate({ children }: AuthGateProps) {
       <Paper sx={{ maxWidth: 440, p: { xs: 3, sm: 4 }, width: "100%" }} variant="outlined">
         <Stack spacing={3}>
           <Stack spacing={1}>
-            <Typography color="primary" variant="overline">
+            <Typography color="text.secondary" variant="overline">
               Deep Search Debate
             </Typography>
             <Typography component="h1" variant="h4">

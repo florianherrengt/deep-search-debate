@@ -81,7 +81,7 @@ test.describe("Debate tournament", () => {
     )
 
     await page.getByLabel("What should the ideas solve?").fill(prompt)
-    await page.getByRole("button", { name: "Start tournament" }).click()
+    await page.getByRole("button", { name: "Start a debate" }).click()
 
     const created = await createdResponse
     expect(created.status()).toBe(202)
@@ -128,7 +128,7 @@ test.describe("Debate tournament", () => {
       /makes the stronger opening case|answers the opposing case/,
     )
 
-    await expect(page.getByText("Tournament complete")).toBeVisible({
+    await expect(page.getByText("Debate complete")).toBeVisible({
       timeout: 60_000,
     })
     await expect(page.getByText("33/33 matches", { exact: true })).toBeVisible()
@@ -219,14 +219,14 @@ test.describe("Debate tournament", () => {
     await expect(transcript).toContainText(
       selectedFirstIdea ?? "missing idea title",
     )
-    await expect(transcript).toContainText("Tournament judge")
+    await expect(transcript).toContainText("Judge")
 
     await page.goto("/debates")
     const historyLink = page.locator(`a[href="/debates/${debateJobId}"]`)
     await expect(historyLink).toContainText(prompt)
     await historyLink.click()
     await expect(page).toHaveURL(new RegExp(`/debates/${debateJobId}$`))
-    await expect(page.getByText("Tournament complete")).toBeVisible()
+    await expect(page.getByText("Debate complete")).toBeVisible()
 
     expect(createRequestCount).toBe(1)
     expect(browserStreamRequests.every((path) => uuidPattern.test(path.slice(-36)))).toBe(
@@ -259,19 +259,19 @@ test.describe("Debate tournament", () => {
         new URL(response.url()).pathname === "/api/debate-jobs",
     )
     await page.getByLabel("What should the ideas solve?").fill(failurePrompt)
-    await page.getByRole("button", { name: "Start tournament" }).click()
+    await page.getByRole("button", { name: "Start a debate" }).click()
 
     const created = await createdResponse
     const { debateJobId } = (await created.json()) as { debateJobId: string }
     expect(created.status()).toBe(202)
     expect(debateJobId).toMatch(uuidPattern)
     await expect(page).toHaveURL(new RegExp(`/debates/${debateJobId}$`))
-    await expect(page.getByText("Tournament failed")).toBeVisible({
+    await expect(page.getByText("Debate failed")).toBeVisible({
       timeout: 60_000,
     })
     await expect(
       page.getByText(
-        "The tournament stopped before it could finish. You can review the completed matches below or start a new tournament.",
+        "The debate stopped before it could finish. You can review the completed matches below or start a new debate.",
         { exact: true },
       ),
     ).toBeVisible()
@@ -279,7 +279,7 @@ test.describe("Debate tournament", () => {
       page.getByText(injectedFailureMessage, { exact: true }),
     ).toHaveCount(0)
     await expect(
-      page.getByRole("link", { name: "Start a new tournament" }),
+      page.getByRole("link", { name: "Start a new debate" }),
     ).toHaveAttribute("href", "/debates")
     await expect(page.getByText("Winning idea", { exact: true })).toHaveCount(0)
 

@@ -49,7 +49,8 @@ add `SEARXNG_URL` to this Coolify application.
 
 Before the first deployment:
 
-1. Configure an HTTPS primary domain in Coolify. `BETTER_AUTH_URL` must match it.
+1. Configure `https://rethinkloop.com` as the primary domain in Coolify. The
+   application derives `BETTER_AUTH_URL` from `NODE_ENV=production`.
 2. Add a persistent volume named `deep-search-data` with destination path
    `/app/data`. SQLite is stored at `/app/data/data.db`.
 3. Add these literal, runtime-only production variables in the Coolify UI:
@@ -57,12 +58,9 @@ Before the first deployment:
 | Variable | Requirement |
 | --- | --- |
 | `KDBX_PASSWORD` | Protected master password for `prod.kdbx` |
-| `GITHUB_CLIENT_ID` | Production GitHub OAuth app client ID |
-
 Set `is_runtime=true`, `is_buildtime=false`, and `is_preview=false`. The
-configuration script derives `BETTER_AUTH_URL` from the primary HTTPS domain and
-sets the remaining non-secret runtime values. It never reads, creates, rotates,
-or prints the KeePass master password.
+configuration script sets the container and health-check settings. It never
+reads, creates, rotates, or prints the KeePass master password.
 
 `prod.kdbx` must contain these exact, case-sensitive entry titles. Each value
 must be stored only in the entry's standard `Password` field:
@@ -73,6 +71,7 @@ must be stored only in the entry's standard `Password` field:
 | `DEEPSEEK_API_KEY` | DeepSeek credential |
 | `SCRAPINGANT_API_KEY` | ScrapingAnt credential |
 | `BETTER_AUTH_SECRET` | Better Auth signing secret, at least 32 characters |
+| `GITHUB_CLIENT_ID` | Production GitHub OAuth app client ID |
 | `GITHUB_CLIENT_SECRET` | Production GitHub OAuth app client secret |
 
 `AUTH_DEBUG_USER_PASSWORD` is also a supported KeePass title, but production
@@ -80,15 +79,15 @@ sets `AUTH_DEBUG_USER_ENABLED=false`, so it is not required there. The loader
 recursively searches every group and rejects a missing title, duplicate title,
 or blank password before the server starts.
 
-The six sensitive names above, including `AUTH_DEBUG_USER_PASSWORD`, remain
-supported as optional runtime environment overrides. A present environment
-variable takes precedence over KeePass; a blank override fails validation. Do
-not configure an override when the KeePass value should be used.
+The seven KeePass-backed names above, including `AUTH_DEBUG_USER_PASSWORD`,
+remain supported as optional runtime environment overrides. A present
+environment variable takes precedence over KeePass; a blank override fails
+validation. Do not configure an override when the KeePass value should be used.
 
 Configure the production GitHub OAuth callback as:
 
 ```text
-https://YOUR-PRODUCTION-DOMAIN/api/auth/callback/github
+https://rethinkloop.com/api/auth/callback/github
 ```
 
 Then apply and validate the remaining settings:
@@ -104,6 +103,7 @@ The required application settings are:
 | Build pack | Dockerfile |
 | Base directory | `/` |
 | Dockerfile | `/Dockerfile` |
+| Primary domain | `https://rethinkloop.com` |
 | Exposed container port | `3000` |
 | Host port mapping | none |
 | Health check | enabled |
@@ -160,7 +160,7 @@ locally and do not paste them into tickets or chat without review.
 These commands act immediately. They do not prompt for confirmation.
 
 ```sh
-# Apply port, health-check, runtime defaults, and auth URL
+# Apply port and health-check settings
 ./coolify/configure-production.sh
 
 # Queue a normal deployment
@@ -235,8 +235,9 @@ its output.
 - Startup reports a KeePass decryption or entry error: verify `KDBX_PASSWORD`,
   then check exact title casing, duplicate titles across all groups, and that
   the standard `Password` field is nonblank.
-- Authentication callback failure: the Coolify HTTPS domain, `BETTER_AUTH_URL`,
-  and GitHub OAuth callback do not match exactly.
+- Authentication callback failure: confirm the Coolify primary domain is
+  `https://rethinkloop.com` and the GitHub OAuth callback is
+  `https://rethinkloop.com/api/auth/callback/github`.
 - Connection errors: confirm that `http://helium:8000` is reachable and the API
   is enabled in Coolify under **Settings > Advanced > API Settings**.
 

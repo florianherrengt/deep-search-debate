@@ -1,32 +1,20 @@
-import {
-  Alert,
-  Chip,
-  CircularProgress,
-  List,
-  Paper,
-  Stack,
-  Typography,
-} from "@mui/material"
+import Alert from "@mui/material/Alert"
+import Chip from "@mui/material/Chip"
+import CircularProgress from "@mui/material/CircularProgress"
+import Stack from "@mui/material/Stack"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
+import { JobHistory } from "../../components/JobHistory.tsx"
+import { RequestError } from "../../components/RequestError.tsx"
 import { createDebateJob, getDebateJobs } from "../../lib/debateJobs.ts"
+import { getRequestErrorMessage } from "../../lib/requestErrors.ts"
 import { DebatePromptForm } from "./components/DebatePromptForm.tsx"
 import { DebateView } from "./components/DebateView.tsx"
 import { debateStatusPresentation } from "./debatePresentation.ts"
 import { useDebateJob } from "./useDebateJob.ts"
-import { RequestError } from "../../components/RequestError.tsx"
-import { getRequestErrorMessage } from "../../lib/requestErrors.ts"
-import { JobHistoryListItem } from "../../components/JobHistoryListItem.tsx"
 
 const debateJobsQueryKey = ["debate-jobs"] as const
-
-function formatCreatedAt(value: Date): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(value)
-}
 
 function DebateStart() {
   const navigate = useNavigate()
@@ -55,46 +43,31 @@ function DebateStart() {
         onSubmit={(prompt) => creation.mutate(prompt)}
       />
 
-      <Stack component="section" spacing={1.5} aria-labelledby="debate-history">
-        <Typography id="debate-history" component="h2" variant="h5">
-          Previous tournaments
-        </Typography>
-        {history.isPending && <CircularProgress size={24} />}
-        {history.error && (
-          <RequestError
-            error={history.error}
-            onRetry={() => void history.refetch()}
-          />
-        )}
-        {history.data?.length === 0 && (
-          <Typography color="text.secondary">No tournaments yet.</Typography>
-        )}
-        {history.data && history.data.length > 0 && (
-          <Paper variant="outlined">
-            <List disablePadding>
-              {history.data.map((job) => {
-                const status = debateStatusPresentation[job.status]
-                return (
-                  <JobHistoryListItem
-                    key={job.debateJobId}
-                    date={formatCreatedAt(job.createdAt)}
-                    label={job.prompt}
-                    status={
-                      <Chip
-                        color={status.color}
-                        label={status.label}
-                        size="small"
-                        variant="outlined"
-                      />
-                    }
-                    to={`/debates/${job.debateJobId}`}
-                  />
-                )
-              })}
-            </List>
-          </Paper>
-        )}
-      </Stack>
+      <JobHistory
+        emptyMessage="No debates yet."
+        error={history.error}
+        heading="Previous debates"
+        headingId="debate-history"
+        isPending={history.isPending}
+        items={history.data?.map((job) => {
+          const status = debateStatusPresentation[job.status]
+          return {
+            createdAt: job.createdAt,
+            id: job.debateJobId,
+            label: job.prompt,
+            status: (
+              <Chip
+                color={status.color}
+                label={status.label}
+                size="small"
+                variant="outlined"
+              />
+            ),
+            to: `/debates/${job.debateJobId}`,
+          }
+        })}
+        onRetry={() => void history.refetch()}
+      />
     </Stack>
   )
 }
@@ -108,8 +81,8 @@ function DebateDetail({ debateJobId }: { debateJobId: string }) {
     return (
       <RequestError
         error={job.error}
-        notFoundMessage="This tournament does not exist or is no longer available."
-        notFoundTitle="Tournament not found"
+        notFoundMessage="This debate does not exist or is no longer available."
+        notFoundTitle="Debate not found"
         onRetry={() => void job.refetch()}
       />
     )

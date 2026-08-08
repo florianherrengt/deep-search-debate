@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   completedTournament,
+  semifinalTournament,
   swissTournament,
 } from "../stories/fixtures.ts"
 import { TournamentBoard } from "./TournamentBoard.tsx"
@@ -17,18 +18,59 @@ describe("TournamentBoard", () => {
     expect(screen.getAllByText("Stopped").length).toBeGreaterThan(0)
   })
 
-  it("distinguishes provisional leaders from finalized qualifiers", () => {
+  it("marks the ideas returned in the knockout round as advanced", () => {
     const { rerender } = render(
       <TournamentBoard tournament={swissTournament} />,
     )
 
-    expect(screen.getAllByText("Provisional top four")).toHaveLength(4)
-    expect(screen.queryByText("Top four")).not.toBeInTheDocument()
+    expect(screen.queryByText("Advanced")).not.toBeInTheDocument()
 
-    rerender(<TournamentBoard tournament={completedTournament} />)
+    rerender(<TournamentBoard tournament={semifinalTournament} />)
 
-    expect(screen.getAllByText("Top four")).toHaveLength(4)
-    expect(screen.queryByText("Provisional top four")).not.toBeInTheDocument()
+    expect(screen.getAllByText("Advanced")).toHaveLength(4)
+  })
+
+  it("renders every match returned for the knockout round", () => {
+    const knockoutRound = semifinalTournament.rounds.find(
+      (round) => round.stage === "semifinal",
+    )
+    if (!knockoutRound) throw new Error("Missing knockout fixture")
+
+    const extraMatch = {
+      ...knockoutRound.matches[0],
+      debateMatchId: "extra-knockout-match",
+      position: 2,
+      firstIdea: {
+        ...knockoutRound.matches[0].firstIdea,
+        ideaId: "extra-first-idea",
+        title: "Extra first idea",
+      },
+      secondIdea: {
+        ...knockoutRound.matches[0].secondIdea,
+        ideaId: "extra-second-idea",
+        title: "Extra second idea",
+      },
+      winnerIdeaId: null,
+    }
+
+    render(
+      <TournamentBoard
+        tournament={{
+          ...semifinalTournament,
+          rounds: semifinalTournament.rounds.map((round) =>
+            round.stage === "semifinal"
+              ? { ...round, matches: [...round.matches, extraMatch] }
+              : round,
+          ),
+        }}
+      />,
+    )
+
+    expect(
+      screen.getByRole("button", {
+        name: "Open Extra first idea versus Extra second idea",
+      }),
+    ).toBeVisible()
   })
 
   it("rounds Elo only for presentation", () => {

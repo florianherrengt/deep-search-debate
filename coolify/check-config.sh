@@ -46,9 +46,9 @@ fi
 
 public_url="$(jq -r '.fqdn | split(",")[0]' <<<"${application_json}")"
 public_url="${public_url%/}"
-if [[ "${public_url}" != https://* ]]; then
+if [[ "${public_url}" != "${COOLIFY_APPLICATION_URL}" ]]; then
   configuration_ok=false
-  echo "The primary Coolify domain must use HTTPS for Better Auth: ${public_url}" >&2
+  echo "The primary Coolify domain must be ${COOLIFY_APPLICATION_URL}; found ${public_url}." >&2
 fi
 
 encoded_labels="$(jq -r '.custom_labels // ""' <<<"${application_json}")"
@@ -67,8 +67,6 @@ fi
 
 required_runtime_keys=(
   KDBX_PASSWORD
-  BETTER_AUTH_URL
-  GITHUB_CLIENT_ID
 )
 
 for key in "${required_runtime_keys[@]}"; do
@@ -87,22 +85,13 @@ for key in "${required_runtime_keys[@]}"; do
   fi
 done
 
-if ! jq -e --arg public_url "${public_url}" '
-  any(.[];
-    .key == "BETTER_AUTH_URL" and
-    .is_preview == false and
-    ((.real_value // .value // "") | rtrimstr("/")) == $public_url
-  )
-' >/dev/null <<<"${environment_json}"; then
-  configuration_ok=false
-  echo "BETTER_AUTH_URL does not match the primary Coolify HTTPS domain." >&2
-fi
-
-check_expected_environment() {
+check_optional_environment() {
   local key="$1"
   local expected_value="$2"
 
-  if ! jq -e --arg key "${key}" --arg value "${expected_value}" '
+  if jq -e --arg key "${key}" '
+    any(.[]; .key == $key and .is_preview == false)
+  ' >/dev/null <<<"${environment_json}" && ! jq -e --arg key "${key}" --arg value "${expected_value}" '
     any(.[];
       .key == $key and
       .is_preview == false and
@@ -113,15 +102,27 @@ check_expected_environment() {
     )
   ' >/dev/null <<<"${environment_json}"; then
     configuration_ok=false
-    echo "${key} is not configured with the required production value." >&2
+    echo "${key} overrides the image or inferred production default with an invalid value." >&2
   fi
 }
 
-check_expected_environment "NODE_ENV" "production"
-check_expected_environment "API_HOST" "0.0.0.0"
-check_expected_environment "PORT" "3000"
-check_expected_environment "DATABASE_URL" "/app/data/data.db"
-check_expected_environment "AUTH_DEBUG_USER_ENABLED" "false"
+check_optional_environment "NODE_ENV" "production"
+check_optional_environment "API_HOST" "0.0.0.0"
+check_optional_environment "PORT" "3000"
+check_optional_environment "DATABASE_URL" "/app/data/data.db"
+check_optional_environment "AUTH_DEBUG_USER_ENABLED" "false"
+
+if jq -e 'any(.[]; .key == "BETTER_AUTH_URL" and .is_preview == false)' >/dev/null <<<"${environment_json}" &&
+  ! jq -e --arg public_url "${public_url}" '
+    any(.[];
+      .key == "BETTER_AUTH_URL" and
+      .is_preview == false and
+      ((.real_value // .value // "") | rtrimstr("/")) == $public_url
+    )
+  ' >/dev/null <<<"${environment_json}"; then
+  configuration_ok=false
+  echo "BETTER_AUTH_URL overrides the configured production default but does not match the primary Coolify HTTPS domain." >&2
+fi
 
 if jq -e 'any(.[]; .key == "SEARXNG_URL" and .is_preview == false)' >/dev/null <<<"${environment_json}"; then
   configuration_ok=false

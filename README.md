@@ -20,6 +20,7 @@ its standard `Title` and the value as its standard `Password`:
 | `DEEPSEEK_API_KEY` | Always |
 | `SCRAPINGANT_API_KEY` | Always |
 | `BETTER_AUTH_SECRET` | Always; at least 32 characters |
+| `GITHUB_CLIENT_ID` | Always |
 | `GITHUB_CLIENT_SECRET` | Always |
 | `BRAVE_SEARCH_API_KEY` | Production only |
 | `AUTH_DEBUG_USER_PASSWORD` | Debug sign-in is enabled; at least 12 characters |
@@ -44,12 +45,6 @@ SEARXNG_URL=http://127.0.0.1:8090
 SCRAPINGANT_PROXY_TYPE=datacenter
 SCRAPINGANT_MAX_RETRIES=2
 SCRAPINGANT_RETRY_DELAY_MS=1000
-DATABASE_URL=data.db
-API_HOST=127.0.0.1
-PORT=3000
-BETTER_AUTH_URL=http://localhost:5173
-GITHUB_CLIENT_ID=replace-with-your-github-oauth-client-id
-AUTH_DEBUG_USER_ENABLED=false
 AUTH_DEBUG_USER_EMAIL=debug@local.invalid
 ```
 
@@ -57,6 +52,12 @@ Do not put the real master password in `.env.example`; set it only in the
 ignored `src/api/.env` or the deployment platform. A nonblank sensitive
 environment variable still overrides the KeePass entry with the same name. A
 blank or whitespace-only override fails startup instead of falling back.
+
+`NODE_ENV` selects the application defaults. Development and test use
+`BETTER_AUTH_URL=http://localhost:5173` and `DATABASE_URL=data.db`; production
+uses `BETTER_AUTH_URL=https://rethinkloop.com` and
+`DATABASE_URL=/app/data/data.db`. Explicit environment values still override
+the URL or database path for isolated tests and alternate deployments.
 
 The encrypted development and production databases are bundled into the
 production image; generated test databases remain ignored. Never commit

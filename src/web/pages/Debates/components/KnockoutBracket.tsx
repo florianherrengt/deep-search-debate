@@ -4,7 +4,7 @@ import type { DebateIdea, DebateMatch } from "../debateUiTypes.ts"
 import { MatchCard } from "./MatchCard.tsx"
 
 type KnockoutBracketProps = {
-  semifinalMatches: DebateMatch[]
+  knockoutMatches: DebateMatch[]
   finalMatch?: DebateMatch
   champion?: DebateIdea
   active?: boolean
@@ -25,7 +25,7 @@ function EmptyMatch({ label }: { label: string }) {
 }
 
 export function KnockoutBracket({
-  semifinalMatches,
+  knockoutMatches,
   finalMatch,
   champion,
   active = true,
@@ -47,11 +47,10 @@ export function KnockoutBracket({
       >
         <Stack spacing={1.5}>
           <Typography color="text.secondary" variant="overline">
-            Semifinals
+            Knockout round
           </Typography>
-          {[0, 1].map((position) => {
-            const match = semifinalMatches[position]
-            return match ? (
+          {knockoutMatches.length > 0 ? (
+            knockoutMatches.map((match) => (
               <MatchCard
                 key={match.debateMatchId}
                 active={active}
@@ -59,13 +58,12 @@ export function KnockoutBracket({
                 onSelect={onSelectMatch}
                 selected={selectedMatchId === match.debateMatchId}
               />
-            ) : (
-              <EmptyMatch
-                key={position}
-                label={active ? "Waiting for Swiss results" : "Tournament stopped"}
-              />
-            )
-          })}
+            ))
+          ) : (
+            <EmptyMatch
+              label={active ? "Waiting for debate results" : "Debate stopped"}
+            />
+          )}
         </Stack>
 
         <Stack
@@ -84,7 +82,7 @@ export function KnockoutBracket({
             />
           ) : (
             <EmptyMatch
-              label={active ? "Waiting for semifinal winners" : "Tournament stopped"}
+              label={active ? "Waiting for knockout winners" : "Debate stopped"}
             />
           )}
         </Stack>
