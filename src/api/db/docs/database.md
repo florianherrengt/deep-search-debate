@@ -66,8 +66,8 @@ ignores this one documented peer-resolution shim.
   as their final tie-breaker.
 - After editing the schema, regenerate and apply (run from the api workspace, or via the root proxy):
   ```
-  npm run db:generate -w @deep-search-debate/api
-  npm run db:migrate   -w @deep-search-debate/api
+  npm run db:generate -w @rethinkloop/api
+  npm run db:migrate   -w @rethinkloop/api
   ```
 - The API workspace's `predev` and `prestart` lifecycle scripts apply pending
   migrations before either development or production startup.

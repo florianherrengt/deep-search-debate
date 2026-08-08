@@ -32,7 +32,7 @@ export function About() {
     <Stack spacing={{ xs: 4, sm: 5 }}>
       <Stack spacing={1.5} sx={{ maxWidth: "72ch" }}>
         <Typography component="h1" variant="h3">
-          About Deep Search Debate
+          About RethinkLoop
         </Typography>
         <Typography color="text.secondary" component="p" variant="h6">
           A research and decision workspace for questions that need more than

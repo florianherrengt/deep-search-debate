@@ -65,7 +65,7 @@ function PublicFooter() {
         >
           <Stack spacing={0.5}>
             <Typography component="p" variant="subtitle2">
-              Deep Search Debate
+              RethinkLoop
             </Typography>
             <Typography color="text.secondary" variant="caption">
               Better ideas through debate.

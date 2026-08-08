@@ -133,7 +133,7 @@ export function AuthGate({ children }: AuthGateProps) {
         <Stack spacing={3}>
           <Stack spacing={1}>
             <Typography color="text.secondary" variant="overline">
-              Deep Search Debate
+              RethinkLoop
             </Typography>
             <Typography component="h1" variant="h4">
               Sign in to continue

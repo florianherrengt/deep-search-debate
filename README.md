@@ -1,10 +1,10 @@
-# Deep Search Debate
+# RethinkLoop
 
 An npm workspaces monorepo with a Hono API and a Vite/React web client.
 
 ## Requirements
 
-- Node.js 22 or newer
+- Node.js 26 or newer
 - A running SearXNG instance for local development
 - A GitHub OAuth app
 

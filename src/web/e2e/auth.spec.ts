@@ -7,7 +7,7 @@ test("signs in and out with the local debug user", async ({ page }) => {
     page.getByRole("heading", { name: "One answer is not enough." }),
   ).toBeVisible()
   await expect(
-    page.getByRole("link", { name: "Deep Search Debate home" }),
+    page.getByRole("link", { name: "RethinkLoop home" }),
   ).toHaveCSS("color", "rgb(241, 243, 245)")
   await expect(
     page.getByRole("heading", { name: "Sign in to continue" }),

@@ -4,7 +4,7 @@ import { Link } from "react-router-dom"
 export function BrandLink() {
   return (
     <Typography
-      aria-label="Deep Search Debate home"
+      aria-label="RethinkLoop home"
       component={Link}
       sx={{
         color: "text.primary",
@@ -23,7 +23,7 @@ export function BrandLink() {
       to="/"
       variant="h6"
     >
-      Deep Search Debate
+      RethinkLoop
     </Typography>
   )
 }

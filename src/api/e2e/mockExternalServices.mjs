@@ -10,7 +10,7 @@ globalThis.AI_SDK_LOG_WARNINGS = false
 
 const databasePath = join(
   tmpdir(),
-  `deep-search-debate-e2e-${process.pid}.db`,
+  `rethinkloop-e2e-${process.pid}.db`,
 )
 const databaseFiles = [databasePath, `${databasePath}-shm`, `${databasePath}-wal`]
 for (const path of databaseFiles) rmSync(path, { force: true })

@@ -1,6 +1,6 @@
 # Coolify operations
 
-Local helper scripts for the `deep-search-debate` production application hosted
+Local helper scripts for the `rethinkloop` production application hosted
 by the Coolify instance at [http://helium:8000](http://helium:8000). This file is
 the operational source of truth for the live Coolify resource.
 
@@ -37,7 +37,7 @@ deploy/restart/stop operations.
 - `bash`
 - `curl`
 - `jq`
-- Node.js 22 or newer
+- Node.js 26 or newer
 
 Run every command from the repository root.
 
@@ -51,7 +51,7 @@ Before the first deployment:
 
 1. Configure `https://rethinkloop.com` as the primary domain in Coolify. The
    application derives `BETTER_AUTH_URL` from `NODE_ENV=production`.
-2. Add a persistent volume named `deep-search-data` with destination path
+2. Add a persistent volume named `rethinkloop-data` with destination path
    `/app/data`. SQLite is stored at `/app/data/data.db`.
 3. Add these literal, runtime-only production variables in the Coolify UI:
 
@@ -176,7 +176,7 @@ are not deployed. Push the intended commit before starting this procedure.
 ```sh
 # 1. Confirm the image and repository pass locally.
 npm run gatekeep
-docker build -t deep-search-debate:local .
+docker build -t rethinkloop:local .
 
 # 2. Confirm production configuration. Configure it if this fails.
 ./coolify/check-config.sh || ./coolify/configure-production.sh
@@ -201,7 +201,7 @@ secrets out of process arguments.
 
 ```sh
 ./coolify/api.sh GET "/applications/hgv8mv8vamha35yjrzm2uu03"
-printf '%s\n' '{"name":"deep-search-debate"}' | \
+printf '%s\n' '{"name":"rethinkloop"}' | \
   ./coolify/api.sh PATCH "/applications/hgv8mv8vamha35yjrzm2uu03" -
 ```
 

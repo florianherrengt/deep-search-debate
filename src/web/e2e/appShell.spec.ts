@@ -51,7 +51,7 @@ test.describe("Application shell", () => {
       mobileLayout.navigationTargetHeights.every((height) => height >= 44),
     ).toBe(true)
 
-    const brand = page.getByRole("link", { name: "Deep Search Debate home" })
+    const brand = page.getByRole("link", { name: "RethinkLoop home" })
     await expect(brand).toHaveCSS("color", "rgb(241, 243, 245)")
     await page.keyboard.press("Tab")
     await expect(brand).toBeFocused()

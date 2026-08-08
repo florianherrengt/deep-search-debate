@@ -1,19 +1,19 @@
 # AGENTS.md
 
-npm workspaces monorepo for a "deep search debate" app: a Hono + SQLite API (`src/api`) and a Vite + React 19 web client (`src/web`).
+npm workspaces monorepo for the RethinkLoop app: a Hono + SQLite API (`src/api`) and a Vite + React 19 web client (`src/web`).
 
 Area-specific guidance lives in per-folder `docs/` files (e.g. `src/api/llms/docs/`). This file holds only cross-cutting orientation and indexes the scoped documents that must be read before changing those areas.
 
 ## Layout
 
-- `src/api` → `@deep-search-debate/api`: Hono backend. Entry `server.ts` → `index.ts` (app). All routes mount under the `/api` basePath.
-- `src/web` → `@deep-search-debate/web`: Vite + React 19 + MUI + React Query + React Router. Entry `main.tsx` → `App.tsx`.
-- Root `package.json` scripts proxy into workspaces with `-w @deep-search-debate/{api,web}`.
+- `src/api` → `@rethinkloop/api`: Hono backend. Entry `server.ts` → `index.ts` (app). All routes mount under the `/api` basePath.
+- `src/web` → `@rethinkloop/web`: Vite + React 19 + MUI + React Query + React Router. Entry `main.tsx` → `App.tsx`.
+- Root `package.json` scripts proxy into workspaces with `-w @rethinkloop/{api,web}`.
 
 ## Commands
 
 - **Pre-PR gate:** `npm run gatekeep` — runs `lint → typecheck → knip → test` in that order. This is the canonical verification step.
-- **Per-workspace:** e.g. `npm run test -w @deep-search-debate/api`, `npm run dev -w @deep-search-debate/web`.
+- **Per-workspace:** e.g. `npm run test -w @rethinkloop/api`, `npm run dev -w @rethinkloop/web`.
 - **Dev (full stack):** run `npm run dev` (API on `PORT`, default `:3000`) **and** `npm run dev:web` (Vite on `VITE_PORT`, default `:5173`) together. Vite proxies `/api` to `VITE_API_TARGET` (default `http://localhost:3000`).
 
 ## Lint / style

@@ -8,7 +8,7 @@ The API runs TypeScript directly via `node --experimental-strip-types`. Conseque
 
 - Imports keep the `.ts` extension **at runtime**, e.g. `./index.ts` (not `./index`). `allowImportingTsExtensions` is enabled in the api `tsconfig.json`.
 - Do **not** strip extensions, add path alias rewrites, or introduce a compile/build step.
-- Requires Node 22+ (the `--experimental-strip-types` flag).
+- Requires Node 26+ (the `--experimental-strip-types` flag).
 
 ## Configuration validation at import time
 
@@ -80,7 +80,7 @@ The listening port is parsed from `PORT` and defaults to `3000`.
 ## Container runtime
 
 The root `Dockerfile` builds the Vite client and runs the API TypeScript directly
-on Node.js 22. In production, the Hono process serves the built client and its SPA
+on Node.js 26. In production, the Hono process serves the built client and its SPA
 fallback in addition to `/api`. `/api/health` is public so container and Coolify
 health checks do not depend on a browser session.
 
