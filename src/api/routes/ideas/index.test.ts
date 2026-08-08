@@ -1,14 +1,20 @@
 import { Hono } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const mocks = vi.hoisted(() => ({ runIdeaJob: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  generatePromptTitle: vi.fn().mockResolvedValue("Generate Ideas"),
+  runIdeaJob: vi.fn(),
+}))
 
 vi.mock("./run.ts", () => ({ runIdeaJob: mocks.runIdeaJob }))
+vi.mock("../../llms/generateText.ts", () => ({
+  generatePromptTitle: mocks.generatePromptTitle,
+}))
 
 import { db } from "../../db/index.ts"
 import { ideaJobs as ideaJobsTable } from "../../db/schema/index.ts"
 import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
-import { ideaJobs, type IdeaJobEvent } from "./index.ts"
+import { ideaJobReads, ideaJobs, type IdeaJobEvent } from "./index.ts"
 import { createIdeaJobManager } from "./manager.ts"
 import type { LiveIdeaJob } from "./schemas.ts"
 import type { AppEnv } from "../../types/auth.ts"
@@ -17,13 +23,16 @@ function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
   app.use("*", async (c, next) => {
     c.set("userId", "test-user-id")
+    c.set("viewerUserId", "test-user-id")
     await next()
   })
   const manager: DeepSearchJobManager = {
     start: vi.fn(),
     getLiveJob: vi.fn(),
   }
-  ideaJobs(app, createIdeaJobManager(manager))
+  const ideaJobManager = createIdeaJobManager(manager)
+  ideaJobReads(app, ideaJobManager)
+  ideaJobs(app, ideaJobManager)
   return app
 }
 
@@ -41,14 +50,14 @@ describe("idea job routes", () => {
     db.delete(ideaJobsTable).run()
   })
 
-  it("rolls back the idea row and does not start work when owner creation fails", () => {
+  it("rolls back the idea row and does not start work when owner creation fails", async () => {
     const deepSearchManager: DeepSearchJobManager = {
       start: vi.fn(),
       getLiveJob: vi.fn(),
     }
     const manager = createIdeaJobManager(deepSearchManager)
 
-    expect(() =>
+    await expect(
       manager.start(
         "test-user-id",
         {
@@ -64,7 +73,7 @@ describe("idea job routes", () => {
           },
         },
       ),
-    ).toThrow("Owner row failed")
+    ).rejects.toThrow("Owner row failed")
     expect(db.select().from(ideaJobsTable).all()).toEqual([])
     expect(mocks.runIdeaJob).not.toHaveBeenCalled()
   })

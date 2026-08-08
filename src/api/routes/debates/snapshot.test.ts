@@ -130,12 +130,14 @@ describe("debate job snapshot", () => {
       ])
       .run()
 
-    const snapshot = getDebateJobSnapshot(debateJobId)
+    const snapshot = getDebateJobSnapshot(debateJobId, "test-user-id")
 
     expect(snapshot).toMatchObject({
       debateJobId,
       ideaJobId,
       prompt: "Choose an energy-saving product",
+      isPublic: false,
+      isOwner: true,
       expectedMatchCount: DEBATE_TOURNAMENT_FORMAT.totalMatchCount,
       stage: "swiss",
       status: "running",
@@ -177,7 +179,7 @@ describe("debate job snapshot", () => {
         deepSearchCount: 2,
       })
       .run()
-    expect(getDebateJobSnapshot(debateJobId)).toMatchObject({
+    expect(getDebateJobSnapshot(debateJobId, "test-user-id")).toMatchObject({
       stage: "ideas",
       rounds: [],
       standings: [],

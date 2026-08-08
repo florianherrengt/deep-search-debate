@@ -40,10 +40,15 @@ password-reset HTTP endpoints are blocked; password auth exists only behind the
 trusted local debug sign-in endpoint. Provider-debug routes are registered only
 when debug auth is enabled and accept only the configured debug user's session.
 
-All application routes after `/api/auth/*` require an opaque database-backed
-Better Auth session. The middleware stores the authenticated `user.id` in the
-Hono context. Job and stream routes then enforce that ID in their database query;
-foreign UUIDs return 404 rather than disclosing resource existence.
+Application mutations and history routes after `/api/auth/*` require an opaque
+database-backed Better Auth session. The middleware stores the authenticated
+`user.id` in the Hono context. Debate, nested idea/deep-search, and owned-stream
+detail reads also accept anonymous requests when the debate is public. Private,
+revoked, foreign, and unknown UUIDs return 404 rather than disclosing resource
+existence, and public responses omit creator identity. Reusable Drizzle read
+scopes put ownership and inherited public access into the query retrieving each
+protected root row; routes do not load a resource and then recursively query its
+parents to authorize it.
 Unsafe application requests carrying a foreign browser `Origin` (or an explicit
 cross-site fetch marker) are rejected before session or provider work, adding a
 CSRF boundary around job creation. Non-browser API clients may omit `Origin`.

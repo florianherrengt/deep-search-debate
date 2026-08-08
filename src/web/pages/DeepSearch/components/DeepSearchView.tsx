@@ -5,6 +5,7 @@ import { GenerationOutput } from "../../../components/streaming/GenerationOutput
 import { SearchResults } from "./SearchResults.tsx"
 
 export type DeepSearchViewProps = {
+  title: string
   researchRequest: string
   run: DeepSearchRunState & { subscriptionError?: string | null }
   showHeader?: boolean
@@ -19,6 +20,7 @@ function getProgressMessage(run: DeepSearchRunState): string | undefined {
 }
 
 export function DeepSearchView({
+  title,
   researchRequest,
   run,
   showHeader = true,
@@ -27,8 +29,8 @@ export function DeepSearchView({
 
   return (
     <Stack spacing={3}>
-      {showHeader && <DeepSearchHeader />}
-      <Typography component="p" variant="h6" sx={{ overflowWrap: "anywhere" }}>
+      {showHeader && <DeepSearchHeader title={title} />}
+      <Typography color="text.secondary" sx={{ maxWidth: "85ch", overflowWrap: "anywhere" }}>
         {researchRequest}
       </Typography>
       {run.error && <Alert severity="error">{run.error}</Alert>}

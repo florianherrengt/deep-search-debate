@@ -11,21 +11,31 @@ import {
 import type { DebateJobManager } from "./manager.ts"
 import {
   createDebateJobInputSchema,
+  debateJobEventParamsSchema,
   debateJobParamsSchema,
   listDebateJobsInputSchema,
   listDebateJobsResponseSchema,
+  mutableDebateJobFieldsSchema,
+  updateDebateJobInputSchema,
   type DebateJobEvent,
 } from "./schemas.ts"
 import { getDebateJobSnapshot } from "./snapshot.ts"
 import type { AppEnv } from "../../types/auth.ts"
+import { debateJobReadScope } from "../readAccess.ts"
 
 function reconstructDebateJobEvents(
   debateJobId: string,
+  viewerUserId: string | null,
 ): DebateJobEvent[] | undefined {
   const job = db
     .select({ status: debateJobsTable.status, error: debateJobsTable.error })
     .from(debateJobsTable)
-    .where(eq(debateJobsTable.debateJobId, debateJobId))
+    .where(
+      and(
+        eq(debateJobsTable.debateJobId, debateJobId),
+        debateJobReadScope(viewerUserId),
+      ),
+    )
     .get()
   if (!job) return
 
@@ -45,13 +55,69 @@ async function writeEvents(
   }
 }
 
-/** Registers durable debate creation, snapshot, and replay-and-follow routes. */
+/** Registers debate reads available to owners and anonymous public viewers. */
+export function debateJobReads(
+  app: Hono<AppEnv>,
+  manager: DebateJobManager,
+): void {
+  app.get(
+    "/debate-jobs/:debateJobId/events",
+    zValidator("param", debateJobEventParamsSchema),
+    (c) => {
+      const { debateJobId } = c.req.valid("param")
+      const persistedEvents = reconstructDebateJobEvents(
+        debateJobId,
+        c.get("viewerUserId"),
+      )
+      if (!persistedEvents) {
+        return c.json({ error: "Debate job not found" }, 404)
+      }
+      const liveJob = manager.getLiveJob(debateJobId)
+
+      c.header("Content-Type", "application/x-ndjson")
+      return stream(c, async (output) => {
+        await writeEvents(output, liveJob?.subscribe() ?? persistedEvents)
+      })
+    },
+  )
+
+  app.get(
+    "/debate-jobs/:slug",
+    zValidator("param", debateJobParamsSchema),
+    (c) => {
+      const { slug } = c.req.valid("param")
+      const visibleJob = db
+        .select({ id: debateJobsTable.debateJobId })
+        .from(debateJobsTable)
+        .innerJoin(
+          ideaJobsTable,
+          eq(debateJobsTable.debateJobId, ideaJobsTable.debateJobId),
+        )
+        .where(
+          and(
+            eq(ideaJobsTable.slug, slug),
+            debateJobReadScope(c.get("viewerUserId")),
+          ),
+        )
+        .get()
+      if (!visibleJob) return c.json({ error: "Debate job not found" }, 404)
+      const debateJob = getDebateJobSnapshot(
+        visibleJob.id,
+        c.get("viewerUserId"),
+      )
+      if (!debateJob) return c.json({ error: "Debate job not found" }, 404)
+      return c.json({ debateJob })
+    },
+  )
+}
+
+/** Registers authenticated debate creation, history, and owner mutations. */
 export function debateJobs(app: Hono<AppEnv>, manager: DebateJobManager): void {
   app.post(
     "/debate-jobs",
     zValidator("json", createDebateJobInputSchema),
-    (c) => {
-      const { debateJobId, completion } = manager.start(
+    async (c) => {
+      const { debateJobId, slug, completion } = await manager.start(
         c.get("userId"),
         c.req.valid("json"),
       )
@@ -59,8 +125,8 @@ export function debateJobs(app: Hono<AppEnv>, manager: DebateJobManager): void {
         console.error(`Debate job ${debateJobId} background task failed`, error)
       })
 
-      c.header("Location", `/api/debate-jobs/${debateJobId}`)
-      return c.json({ debateJobId }, 202)
+      c.header("Location", `/api/debate-jobs/${slug}`)
+      return c.json({ debateJobId, slug }, 202)
     },
   )
 
@@ -73,7 +139,10 @@ export function debateJobs(app: Hono<AppEnv>, manager: DebateJobManager): void {
         .select({
           debateJobId: debateJobsTable.debateJobId,
           ideaJobId: ideaJobsTable.ideaJobId,
+          title: ideaJobsTable.title,
+          slug: ideaJobsTable.slug,
           prompt: ideaJobsTable.prompt,
+          isPublic: debateJobsTable.isPublic,
           stage: debateJobsTable.stage,
           status: debateJobsTable.status,
           error: debateJobsTable.error,
@@ -85,7 +154,7 @@ export function debateJobs(app: Hono<AppEnv>, manager: DebateJobManager): void {
           ideaJobsTable,
           eq(debateJobsTable.debateJobId, ideaJobsTable.debateJobId),
         )
-        .where(eq(debateJobsTable.userId, c.get("userId")))
+        .where(debateJobReadScope(c.get("userId")))
         .orderBy(
           desc(debateJobsTable.createdAt),
           desc(debateJobsTable.debateJobId),
@@ -104,56 +173,26 @@ export function debateJobs(app: Hono<AppEnv>, manager: DebateJobManager): void {
     },
   )
 
-  app.get(
-    "/debate-jobs/:debateJobId/events",
-    zValidator("param", debateJobParamsSchema),
-    (c) => {
-      const { debateJobId } = c.req.valid("param")
-      const ownedJob = db
-        .select({ id: debateJobsTable.debateJobId })
-        .from(debateJobsTable)
-        .where(
-          and(
-            eq(debateJobsTable.debateJobId, debateJobId),
-            eq(debateJobsTable.userId, c.get("userId")),
-          ),
-        )
-        .get()
-      if (!ownedJob) return c.json({ error: "Debate job not found" }, 404)
-      const liveJob = manager.getLiveJob(debateJobId)
-      const persistedEvents = liveJob
-        ? undefined
-        : reconstructDebateJobEvents(debateJobId)
-      if (!liveJob && !persistedEvents) {
-        return c.json({ error: "Debate job not found" }, 404)
-      }
-
-      c.header("Content-Type", "application/x-ndjson")
-      return stream(c, async (output) => {
-        await writeEvents(output, liveJob?.subscribe() ?? persistedEvents!)
-      })
-    },
-  )
-
-  app.get(
+  app.patch(
     "/debate-jobs/:debateJobId",
-    zValidator("param", debateJobParamsSchema),
+    zValidator("param", debateJobEventParamsSchema),
+    zValidator("json", updateDebateJobInputSchema),
     (c) => {
       const { debateJobId } = c.req.valid("param")
-      const ownedJob = db
-        .select({ id: debateJobsTable.debateJobId })
-        .from(debateJobsTable)
+      const update = c.req.valid("json")
+      const updated = db
+        .update(debateJobsTable)
+        .set(update)
         .where(
           and(
             eq(debateJobsTable.debateJobId, debateJobId),
             eq(debateJobsTable.userId, c.get("userId")),
           ),
         )
+        .returning({ isPublic: debateJobsTable.isPublic })
         .get()
-      if (!ownedJob) return c.json({ error: "Debate job not found" }, 404)
-      const debateJob = getDebateJobSnapshot(debateJobId)
-      if (!debateJob) return c.json({ error: "Debate job not found" }, 404)
-      return c.json({ debateJob })
+      if (!updated) return c.json({ error: "Debate job not found" }, 404)
+      return c.json(mutableDebateJobFieldsSchema.parse(updated))
     },
   )
 }

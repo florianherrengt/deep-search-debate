@@ -4,6 +4,7 @@ import {
   getDebateJob,
   getDebateJobs,
   subscribeToDebateJob,
+  updateDebateJob,
   type DebateJobEvent,
 } from "./debateJobs.ts"
 
@@ -22,7 +23,11 @@ describe("debate jobs client", () => {
     const snapshot = {
       debateJobId: "debate-id",
       ideaJobId: "idea-job-id",
+      title: "Solve This Problem",
+      slug: "solve-this-problem",
       prompt: "Solve this problem",
+      isPublic: true,
+      isOwner: true,
       stage: "swiss",
       status: "running",
       expectedMatchCount: 33,
@@ -70,7 +75,10 @@ describe("debate jobs client", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        Response.json({ debateJobId: "debate-id" }, { status: 202 }),
+        Response.json(
+          { debateJobId: "debate-id", slug: "solve-this-problem" },
+          { status: 202 },
+        ),
       )
       .mockResolvedValueOnce(Response.json({ debateJob: snapshot }))
       .mockResolvedValueOnce(
@@ -81,10 +89,13 @@ describe("debate jobs client", () => {
     vi.stubGlobal("fetch", fetchMock)
     const onOpen = vi.fn()
 
-    await expect(createDebateJob("Solve this problem")).resolves.toBe(
-      "debate-id",
-    )
-    const job = await getDebateJob("debate-id")
+    await expect(
+      createDebateJob({ prompt: "Solve this problem", isPublic: true }),
+    ).resolves.toEqual({
+      debateJobId: "debate-id",
+      slug: "solve-this-problem",
+    })
+    const job = await getDebateJob("solve-this-problem")
     await expect(
       drain(subscribeToDebateJob("debate-id", undefined, onOpen)),
     ).resolves.toEqual(events)
@@ -95,12 +106,12 @@ describe("debate jobs client", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/debate-jobs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: "Solve this problem" }),
+      body: JSON.stringify({ prompt: "Solve this problem", isPublic: true }),
       signal: undefined,
     })
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      "/api/debate-jobs/debate-id",
+      "/api/debate-jobs/solve-this-problem",
       { signal: undefined },
     )
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -131,7 +142,10 @@ describe("debate jobs client", () => {
       {
         debateJobId: "debate-id",
         ideaJobId: "idea-job-id",
+        title: "Solve This Problem",
+        slug: "solve-this-problem",
         prompt: "Solve this problem",
+        isPublic: false,
         stage: "final",
         status: "completed",
         error: null,
@@ -156,6 +170,26 @@ describe("debate jobs client", () => {
     })
   })
 
+  it("updates debate fields", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(Response.json({ isPublic: true }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(
+      updateDebateJob("debate/id", { isPublic: true }),
+    ).resolves.toEqual({ isPublic: true })
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/debate-jobs/debate%2Fid",
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isPublic: true }),
+        signal: undefined,
+      },
+    )
+  })
+
   it("rejects malformed debate history timestamps", async () => {
     vi.stubGlobal(
       "fetch",
@@ -165,6 +199,8 @@ describe("debate jobs client", () => {
             {
               debateJobId: "debate-id",
               ideaJobId: "idea-job-id",
+              title: "Solve This Problem",
+              slug: "solve-this-problem",
               prompt: "Solve this problem",
               stage: "ideas",
               status: "running",

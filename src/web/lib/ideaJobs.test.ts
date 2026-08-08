@@ -7,8 +7,10 @@ describe("idea jobs client", () => {
   it("validates and transforms durable job timestamps", async () => {
     const job = {
       ideaJobId: "idea-id",
+      title: "Generate Ideas",
+      slug: "generate-ideas",
       prompt: "Generate ideas",
-      stage: "critique",
+      stage: "ideas",
       numberOfIdeas: 12,
       deepSearchCount: 2,
       status: "completed",
@@ -38,6 +40,8 @@ describe("idea jobs client", () => {
           ideaJobs: [
             {
               ideaJobId: "idea-id",
+              title: "Generate Ideas",
+              slug: "generate-ideas",
               prompt: "Generate ideas",
               stage: "ideas",
               numberOfIdeas: 12,

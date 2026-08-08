@@ -6,12 +6,15 @@ const ideaSchema = z.object({
   description: z.string().min(1),
 })
 
-const ideaStageSchema = z.enum([
+const ideaJobStageSchema = z.enum([
   "planning",
   "research",
   "summary",
   "ideas",
-  "critique",
+])
+const ideaEventStageSchema = z.union([
+  ideaJobStageSchema,
+  z.literal("critique"),
 ])
 
 const ideaJobEventSchema = z.discriminatedUnion("type", [
@@ -22,6 +25,8 @@ const ideaJobEventSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("deep-search-started"),
     deepSearchJobId: z.string().min(1),
+    title: z.string().min(1),
+    slug: z.string().min(1),
     researchRequest: z.string().min(1),
   }),
   z.object({
@@ -41,15 +46,17 @@ const ideaJobEventSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("error"),
     message: z.string(),
-    stage: ideaStageSchema,
+    stage: ideaEventStageSchema,
   }),
   z.object({ type: z.literal("done") }),
 ])
 
 const ideaJobSchema = z.object({
   ideaJobId: z.string().min(1),
+  title: z.string().min(1),
+  slug: z.string().min(1),
   prompt: z.string(),
-  stage: ideaStageSchema,
+  stage: ideaJobStageSchema,
   numberOfIdeas: z.number().int().positive(),
   deepSearchCount: z.number().int().positive(),
   status: z.enum(["running", "completed", "failed", "interrupted"]),
@@ -60,12 +67,13 @@ const ideaJobSchema = z.object({
 
 const createIdeaJobResponseSchema = z.object({
   ideaJobId: z.string().min(1),
+  slug: z.string().min(1),
 })
 const ideaJobsResponseSchema = z.object({ ideaJobs: z.array(ideaJobSchema) })
 const ideaJobResponseSchema = z.object({ ideaJob: ideaJobSchema })
 
 export type Idea = z.infer<typeof ideaSchema>
-export type IdeaStage = z.infer<typeof ideaStageSchema>
+export type IdeaStage = z.infer<typeof ideaEventStageSchema>
 export type IdeaJobEvent = z.infer<typeof ideaJobEventSchema>
 export type IdeaJob = z.infer<typeof ideaJobSchema>
 
@@ -78,7 +86,7 @@ export async function createIdeaJob(
     maxResultsPerSearch?: number
   },
   signal?: AbortSignal,
-): Promise<string> {
+): Promise<z.infer<typeof createIdeaJobResponseSchema>> {
   const response = await postJson(
     "/api/idea-jobs",
     {
@@ -91,7 +99,7 @@ export async function createIdeaJob(
     createIdeaJobResponseSchema,
     signal,
   )
-  return response.ideaJobId
+  return response
 }
 
 export async function getIdeaJobs(signal?: AbortSignal): Promise<IdeaJob[]> {
@@ -104,11 +112,11 @@ export async function getIdeaJobs(signal?: AbortSignal): Promise<IdeaJob[]> {
 }
 
 export async function getIdeaJob(
-  ideaJobId: string,
+  slug: string,
   signal?: AbortSignal,
 ): Promise<IdeaJob> {
   const response = await getJson(
-    `/api/idea-jobs/${encodeURIComponent(ideaJobId)}`,
+    `/api/idea-jobs/${encodeURIComponent(slug)}`,
     ideaJobResponseSchema,
     signal,
   )

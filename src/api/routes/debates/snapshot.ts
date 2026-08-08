@@ -1,4 +1,4 @@
-import { asc, eq, inArray } from "drizzle-orm"
+import { and, asc, eq, inArray } from "drizzle-orm"
 
 import { db } from "../../db/index.ts"
 import {
@@ -11,6 +11,7 @@ import {
   llmGenerations,
 } from "../../db/schema/index.ts"
 import { judgeVerdictSchema } from "./schemas.ts"
+import { debateJobReadScope } from "../readAccess.ts"
 import {
   DEBATE_TOURNAMENT_FORMAT,
   deriveSwissStandings,
@@ -53,7 +54,11 @@ type DebateRoundSnapshot = {
 export type DebateJobSnapshot = {
   debateJobId: string
   ideaJobId: string
+  title: string
+  slug: string
   prompt: string
+  isPublic: boolean
+  isOwner: boolean
   stage: "ideas" | "swiss" | "semifinal" | "final"
   status: "running" | "completed" | "failed" | "interrupted"
   expectedMatchCount: number
@@ -79,20 +84,30 @@ function parseMessageText(speakerSlot: number, rawText: string | null): string {
 /** Rebuilds the complete UI projection from durable tournament facts. */
 export function getDebateJobSnapshot(
   debateJobId: string,
+  viewerUserId: string | null,
 ): DebateJobSnapshot | undefined {
   const job = db
     .select({
       debateJobId: debateJobs.debateJobId,
       ideaJobId: ideaJobs.ideaJobId,
       randomSeed: debateJobs.randomSeed,
+      isPublic: debateJobs.isPublic,
       stage: debateJobs.stage,
       status: debateJobs.status,
       error: debateJobs.error,
+      title: ideaJobs.title,
+      slug: ideaJobs.slug,
       prompt: ideaJobs.prompt,
+      userId: debateJobs.userId,
     })
     .from(debateJobs)
     .innerJoin(ideaJobs, eq(debateJobs.debateJobId, ideaJobs.debateJobId))
-    .where(eq(debateJobs.debateJobId, debateJobId))
+    .where(
+      and(
+        eq(debateJobs.debateJobId, debateJobId),
+        debateJobReadScope(viewerUserId),
+      ),
+    )
     .get()
   if (!job) return
 
@@ -244,7 +259,11 @@ export function getDebateJobSnapshot(
   return {
     debateJobId: job.debateJobId,
     ideaJobId: job.ideaJobId,
+    title: job.title,
+    slug: job.slug,
     prompt: job.prompt,
+    isPublic: job.isPublic,
+    isOwner: job.userId === viewerUserId,
     stage: job.stage,
     status: job.status,
     expectedMatchCount: DEBATE_TOURNAMENT_FORMAT.totalMatchCount,

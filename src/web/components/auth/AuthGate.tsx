@@ -13,6 +13,7 @@ import { useState, type ReactNode } from "react"
 import { authClient, getAuthConfig, type AuthSession } from "../../lib/authClient.ts"
 
 interface AuthGateProps {
+  anonymous?: ReactNode
   children: (props: {
     authError?: string
     session: AuthSession
@@ -42,7 +43,7 @@ function sessionErrorMessage(error: Error): string {
   return error.message || "The session could not be loaded."
 }
 
-export function AuthGate({ children }: AuthGateProps) {
+export function AuthGate({ anonymous, children }: AuthGateProps) {
   const sessionQuery = authClient.useSession()
   const queryClient = useQueryClient()
   const [signingIn, setSigningIn] = useState(false)
@@ -51,6 +52,7 @@ export function AuthGate({ children }: AuthGateProps) {
   const authConfigQuery = useQuery({
     queryKey: ["auth", "config"],
     queryFn: ({ signal }) => getAuthConfig(signal),
+    enabled: anonymous === undefined,
     staleTime: Infinity,
   })
 
@@ -85,6 +87,8 @@ export function AuthGate({ children }: AuthGateProps) {
   }
 
   if (sessionQuery.data === null) {
+    if (anonymous !== undefined) return anonymous
+
     const signInWithGitHub = async () => {
       setActionError(undefined)
       setSigningIn(true)

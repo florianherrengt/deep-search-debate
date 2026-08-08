@@ -14,7 +14,7 @@ vi.mock("../llms/streams.ts", () => ({
   subscribeToTextStream: mocks.subscribeToTextStream,
 }))
 
-import { streams } from "./streams.ts"
+import { streamReads, streams } from "./streams.ts"
 import type { AppEnv } from "../types/auth.ts"
 import { db } from "../db/index.ts"
 import { llmGenerations } from "../db/schema/index.ts"
@@ -23,8 +23,10 @@ function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
   app.use("*", async (c, next) => {
     c.set("userId", "test-user-id")
+    c.set("viewerUserId", "test-user-id")
     await next()
   })
+  streamReads(app)
   streams(app)
   return app
 }
@@ -80,7 +82,10 @@ describe("stream routes", () => {
         '{"type":"text","text":"Answer"}\n' +
         '{"type":"done"}\n',
     )
-    expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(streamId)
+    expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(
+      streamId,
+      expect.anything(),
+    )
   })
 
   it("returns 404 for an unknown stream", async () => {

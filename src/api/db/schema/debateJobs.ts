@@ -42,6 +42,10 @@ export const debateJobs = sqliteTable(
       .references(() => user.id, { onDelete: "cascade" }),
     /** Makes initial pairing and final tie-breaking reproducible. */
     randomSeed: integer("random_seed").notNull(),
+    /** Public debates grant anonymous read access to this complete aggregate. */
+    isPublic: integer("is_public", { mode: "boolean" })
+      .notNull()
+      .default(false),
     stage: text("stage", { enum: debateJobStages })
       .notNull()
       .default("ideas"),
@@ -67,6 +71,10 @@ export const debateJobs = sqliteTable(
     check(
       "debate_jobs_config_check",
       sql`${table.randomSeed} >= 0 and ${table.randomSeed} <= 4294967295`,
+    ),
+    check(
+      "debate_jobs_visibility_check",
+      sql`${table.isPublic} in (0, 1)`,
     ),
     check(
       "debate_jobs_stage_check",

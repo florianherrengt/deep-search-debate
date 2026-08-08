@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "fadb0a01-b9be-47c6-ad2c-af48976983c9",
+  "id": "c1e0c785-3861-4d54-aef8-fde88a729101",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "deep_search_jobs": {
@@ -811,6 +811,14 @@
           "notNull": true,
           "autoincrement": false
         },
+        "is_public": {
+          "name": "is_public",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
         "stage": {
           "name": "stage",
           "type": "text",
@@ -890,6 +898,10 @@
         "debate_jobs_config_check": {
           "name": "debate_jobs_config_check",
           "value": "\"debate_jobs\".\"random_seed\" >= 0 and \"debate_jobs\".\"random_seed\" <= 4294967295"
+        },
+        "debate_jobs_visibility_check": {
+          "name": "debate_jobs_visibility_check",
+          "value": "\"debate_jobs\".\"is_public\" in (0, 1)"
         },
         "debate_jobs_stage_check": {
           "name": "debate_jobs_stage_check",
@@ -1498,7 +1510,7 @@
         },
         "idea_jobs_stage_check": {
           "name": "idea_jobs_stage_check",
-          "value": "\"idea_jobs\".\"stage\" in ('planning', 'research', 'summary', 'ideas', 'critique')"
+          "value": "\"idea_jobs\".\"stage\" in ('planning', 'research', 'summary', 'ideas')"
         },
         "idea_jobs_status_check": {
           "name": "idea_jobs_status_check",
@@ -1510,7 +1522,7 @@
         },
         "idea_jobs_terminal_fields_check": {
           "name": "idea_jobs_terminal_fields_check",
-          "value": "(\n        (\"idea_jobs\".\"status\" = 'running' and \"idea_jobs\".\"completed_at\" is null and \"idea_jobs\".\"error\" is null)\n        or\n        (\"idea_jobs\".\"status\" = 'completed' and \"idea_jobs\".\"stage\" = 'critique' and \"idea_jobs\".\"completed_at\" is not null and \"idea_jobs\".\"error\" is null and \"idea_jobs\".\"research_prompt_generation_id\" is not null and \"idea_jobs\".\"research_summary_generation_id\" is not null and \"idea_jobs\".\"idea_generation_id\" is not null)\n        or\n        (\"idea_jobs\".\"status\" in ('failed', 'interrupted') and \"idea_jobs\".\"completed_at\" is not null and \"idea_jobs\".\"error\" is not null)\n      )"
+          "value": "(\n        (\"idea_jobs\".\"status\" = 'running' and \"idea_jobs\".\"completed_at\" is null and \"idea_jobs\".\"error\" is null)\n        or\n        (\"idea_jobs\".\"status\" = 'completed' and \"idea_jobs\".\"stage\" = 'ideas' and \"idea_jobs\".\"completed_at\" is not null and \"idea_jobs\".\"error\" is null and \"idea_jobs\".\"research_prompt_generation_id\" is not null and \"idea_jobs\".\"research_summary_generation_id\" is not null and \"idea_jobs\".\"idea_generation_id\" is not null)\n        or\n        (\"idea_jobs\".\"status\" in ('failed', 'interrupted') and \"idea_jobs\".\"completed_at\" is not null and \"idea_jobs\".\"error\" is not null)\n      )"
         }
       }
     },
@@ -1552,13 +1564,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "critique_generation_id": {
-          "name": "critique_generation_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -1569,13 +1574,6 @@
         }
       },
       "indexes": {
-        "ideas_critique_generation_id_unique": {
-          "name": "ideas_critique_generation_id_unique",
-          "columns": [
-            "critique_generation_id"
-          ],
-          "isUnique": true
-        },
         "ideas_job_position_idx": {
           "name": "ideas_job_position_idx",
           "columns": [
@@ -1597,19 +1595,6 @@
             "idea_job_id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "ideas_critique_generation_id_llm_generations_llm_generation_id_fk": {
-          "name": "ideas_critique_generation_id_llm_generations_llm_generation_id_fk",
-          "tableFrom": "ideas",
-          "tableTo": "llm_generations",
-          "columnsFrom": [
-            "critique_generation_id"
-          ],
-          "columnsTo": [
-            "llm_generation_id"
-          ],
-          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },

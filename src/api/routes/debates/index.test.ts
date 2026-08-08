@@ -1,4 +1,5 @@
 import { Hono } from "hono"
+import { eq } from "drizzle-orm"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { db } from "../../db/index.ts"
@@ -84,7 +85,10 @@ describe("debate job routes", () => {
         {
           debateJobId: newerDebateJobId,
           ideaJobId: newerIdeaJobId,
+          title: "Untitled",
+          slug: "untitled",
           prompt: "Newer prompt",
+          isPublic: false,
           stage: "final",
           status: "completed",
           error: null,
@@ -97,6 +101,49 @@ describe("debate job routes", () => {
 
   it("validates the history limit", async () => {
     const response = await createApp().request("/debate-jobs?limit=0")
+
+    expect(response.status).toBe(400)
+  })
+
+  it("lets the owner change debate visibility", async () => {
+    const debateJobId = crypto.randomUUID()
+    db.insert(debateJobsTable)
+      .values({
+        userId: "test-user-id",
+        debateJobId,
+        randomSeed: 1,
+      })
+      .run()
+
+    const response = await createApp().request(
+      `/debate-jobs/${debateJobId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isPublic: true }),
+      },
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ isPublic: true })
+    expect(
+      db
+        .select({ isPublic: debateJobsTable.isPublic })
+        .from(debateJobsTable)
+        .where(eq(debateJobsTable.debateJobId, debateJobId))
+        .get()?.isPublic,
+    ).toBe(true)
+  })
+
+  it("rejects an empty debate update", async () => {
+    const response = await createApp().request(
+      `/debate-jobs/${crypto.randomUUID()}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      },
+    )
 
     expect(response.status).toBe(400)
   })

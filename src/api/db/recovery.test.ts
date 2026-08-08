@@ -60,7 +60,7 @@ function createFinalStageJob(finalMatchCompleted: boolean): string {
   db.insert(ideas).values(ideaRows).run()
   db.update(ideaJobs)
     .set({
-      stage: "critique",
+      stage: "ideas",
       researchPromptGenerationId: generationIds[0],
       researchSummaryGenerationId: generationIds[1],
       ideaGenerationId: generationIds[2],

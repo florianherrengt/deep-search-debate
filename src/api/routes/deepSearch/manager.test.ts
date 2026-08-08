@@ -1,8 +1,15 @@
+import { eq } from "drizzle-orm"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const mocks = vi.hoisted(() => ({ runDeepSearchJob: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  generatePromptTitle: vi.fn().mockResolvedValue("Research This"),
+  runDeepSearchJob: vi.fn(),
+}))
 
 vi.mock("./run.ts", () => ({ runDeepSearchJob: mocks.runDeepSearchJob }))
+vi.mock("../../llms/generateText.ts", () => ({
+  generatePromptTitle: mocks.generatePromptTitle,
+}))
 
 import { db } from "../../db/index.ts"
 import {
@@ -64,7 +71,7 @@ describe("createDeepSearchJobManager", () => {
       return Promise.resolve()
     })
     const manager = createDeepSearchJobManager()
-    const started = manager.start("test-user-id", {
+    const started = await manager.start("test-user-id", {
       researchRequest: "Research this",
       maxSearches: 3,
       maxResultsPerSearch: 3,
@@ -79,7 +86,7 @@ describe("createDeepSearchJobManager", () => {
       completeWithFailedPage(deepSearchJobId, "extraction")
       return Promise.resolve()
     })
-    const started = createDeepSearchJobManager().start("test-user-id", {
+    const started = await createDeepSearchJobManager().start("test-user-id", {
       researchRequest: "Research this",
       maxSearches: 3,
       maxResultsPerSearch: 3,
@@ -98,13 +105,51 @@ describe("createDeepSearchJobManager", () => {
     )
   })
 
+  it("numbers repeated generated titles and slugs", async () => {
+    mocks.runDeepSearchJob.mockImplementation((deepSearchJobId: string) => {
+      db.update(deepSearchJobs)
+        .set({
+          status: "failed",
+          error: "Stopped for identity test",
+          completedAt: new Date(),
+        })
+        .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+        .run()
+      return Promise.resolve()
+    })
+    const manager = createDeepSearchJobManager()
+    const first = await manager.start("test-user-id", {
+      title: "London Energy Options",
+      researchRequest: "Research this",
+      maxSearches: 3,
+      maxResultsPerSearch: 3,
+    })
+    await expect(first.completion).rejects.toThrow("Stopped for identity test")
+    const second = await manager.start("test-user-id", {
+      title: "London Energy Options",
+      researchRequest: "Research this again",
+      maxSearches: 3,
+      maxResultsPerSearch: 3,
+    })
+    await expect(second.completion).rejects.toThrow("Stopped for identity test")
+
+    expect(first).toMatchObject({
+      title: "London Energy Options",
+      slug: "london-energy-options",
+    })
+    expect(second).toMatchObject({
+      title: "London Energy Options 2",
+      slug: "london-energy-options-2",
+    })
+  })
+
   it("rejects a failed page-summary generation", async () => {
     mocks.runDeepSearchJob.mockImplementation((deepSearchJobId: string) => {
       completeWithFailedPage(deepSearchJobId, "summary")
       return Promise.resolve()
     })
     const manager = createDeepSearchJobManager()
-    const started = manager.start("test-user-id", {
+    const started = await manager.start("test-user-id", {
       researchRequest: "Research this",
       maxSearches: 3,
       maxResultsPerSearch: 3,
@@ -128,7 +173,7 @@ describe("createDeepSearchJobManager", () => {
       },
     )
     const manager = createDeepSearchJobManager()
-    const started = manager.start("test-user-id", {
+    const started = await manager.start("test-user-id", {
       researchRequest: "Research this",
       maxSearches: 3,
       maxResultsPerSearch: 3,

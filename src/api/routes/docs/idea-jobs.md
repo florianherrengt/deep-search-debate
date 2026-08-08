@@ -1,12 +1,17 @@
 # Idea jobs
 
-Idea jobs are durable pipelines that turn a user prompt into research-backed, critiqued ideas. Each run has a stable UUID and five stages: `planning`, `research`, `summary`, `ideas`, and `critique`.
+Idea jobs are durable pipelines that turn a user prompt into research-backed,
+critiqued ideas. Each run has an internal UUID, an LLM-generated immutable title,
+a readable slug, and four durable stages: `planning`, `research`, `summary`, and
+`ideas`. Per-idea critique is the final subphase of `ideas` and remains visible
+as its own stream and failure stage in the event contract.
 
 Closing the page does not cancel the run. While it is running, another subscriber in the same API process replays the retained parent event log and follows new events. Terminal runs evict that log and reconstruct their events from normalized rows and persisted LLM output. A closed log is retained when terminal persistence fails.
 
 ## Pipeline
 
-1. One fresh planning generation creates exactly `deepSearchCount` distinct, non-empty research prompts.
+1. One fresh planning generation creates exactly `deepSearchCount` distinct,
+   non-empty `{ title, prompt }` research plans.
 2. One durable deep-search job starts immediately for each prompt. All child jobs run in parallel, while a scoped position preserves prompt order for replay and briefing construction.
 3. The parent waits for every launched child to settle. If any child fails, the parent fails and no summary or idea generation starts.
 4. One fresh summary generation receives the original user prompt and only each child's final-answer text. Page records, source metadata, and intermediate output are not copied into this call.
@@ -17,9 +22,12 @@ Any planning, child-search, summary, idea-generation, or critique-generation fai
 
 ## HTTP contract
 
-Every endpoint requires a Better Auth session. Creation records the authenticated
-user as owner; history includes only that user's jobs, and foreign detail/event
-UUIDs return 404. Planning, summary, idea, critique, and child-search generations
+Creation and history require a Better Auth session. Creation records the
+authenticated user as owner. Detail and event reads apply the idea-job read scope:
+the owner may read a private job, while any viewer may read an idea job belonging
+to a public debate. Anonymous viewers therefore receive inherited public access;
+private, standalone foreign, and unknown UUIDs return 404. Public responses omit
+the owner ID. Planning, summary, idea, critique, and child-search generations
 inherit the same owner.
 
 ### `POST /api/idea-jobs`
@@ -41,18 +49,23 @@ Only `prompt` is required. The numeric fields are positive integers with the def
 The response is:
 
 ```json
-{ "ideaJobId": "<uuid>" }
+{ "ideaJobId": "<uuid>", "slug": "london-renter-energy-products" }
 ```
 
-The `Location` header points to `/api/idea-jobs/:ideaJobId`.
+The `Location` header points to `/api/idea-jobs/:slug`. Repeated generated titles
+receive readable numeric suffixes.
 
 ### `GET /api/idea-jobs`
 
-Returns newest-first history as `{ "ideaJobs": [...] }`. The optional `limit` query parameter defaults to 100 and is capped at 200.
+Returns newest-first readable history as `{ "ideaJobs": [...] }`, including the
+viewer's private jobs and jobs belonging to public debates. The optional `limit`
+query parameter defaults to 100 and is capped at 200. Owner IDs are omitted.
 
-### `GET /api/idea-jobs/:ideaJobId`
+### `GET /api/idea-jobs/:slug`
 
-Returns the durable prompt, requested counts, current stage, status, error, generation links, and timestamps as `{ "ideaJob": ... }`. Unknown UUIDs return 404.
+Returns the durable title, slug, prompt, internal ID, requested counts, current
+stage, status, error, generation links, and timestamps as `{ "ideaJob": ... }`.
+Unknown slugs return 404.
 
 ### `GET /api/idea-jobs/:ideaJobId/events`
 
@@ -61,7 +74,8 @@ Returns the replay-and-follow NDJSON feed. Live jobs use the retained in-memory 
 The event sequence is:
 
 1. `research-prompt-stream` with the planning LLM stream ID.
-2. `deep-search-started` once per child, with its job ID and research request.
+2. `deep-search-started` once per child, with its job ID, title, slug, and
+   research request.
 3. `research-summary-stream` with the briefing LLM stream ID.
 4. `idea-generation-stream` with the structured-output LLM stream ID.
 5. `idea` once per validated title-and-description object.
@@ -73,7 +87,9 @@ Each stream ID is read through `GET /api/streams/:id`, which exposes reasoning a
 
 ## Persistence model
 
-- `idea_jobs` owns the request, requested counts, current stage, lifecycle, timestamps, and three pipeline-level LLM generation links.
+- `idea_jobs` owns the generated title, slug, request, requested counts, current
+  stage, lifecycle, timestamps, and three pipeline-level LLM generation links.
+  The title and slug have no update route.
 - A debate-created idea job points to its owning debate with `ON DELETE
   CASCADE`; standalone idea jobs leave that owner null. Deleting an idea job
   deletes its child searches and all generations owned by either level.
@@ -81,8 +97,9 @@ Each stream ID is read through `GET /api/streams/:id`, which exposes reasoning a
 - Each pipeline-level generation link is constrained to the exact idea job and
   user that own it. Critique links are unique foreign keys, and orchestration
   creates them only from critique calls owned by that same idea job. A completed
-  idea job must be in the `critique` stage with all three pipeline-level
-  generation links and a terminal timestamp; orchestration completes it only
+  idea job must be in the `ideas` stage with all three pipeline-level
+  generation links and a terminal timestamp. Critique stays an event subphase
+  rather than adding a durable DB stage; orchestration completes the job only
   after every persisted idea has its critique link and terminal stream output.
 - `ideas` is the normalized canonical representation of the validated idea set, with stable IDs and generation order. The complete validated batch is inserted before critique fan-out. Each nullable critique link is attached once when its call starts, allowing the idea to exist and display independently of critique startup.
 - Child `deep_search_jobs` reference the parent with a matching owner and retain both their planning order and complete normalized research state.

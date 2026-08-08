@@ -13,7 +13,8 @@ import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
 import {
   ideaSchema,
   type Idea,
-  type IdeaStage,
+  type IdeaEventStage,
+  type IdeaJobStage,
   type LiveIdeaJob,
 } from "./schemas.ts"
 
@@ -29,6 +30,12 @@ type RunIdeaJobInput = {
   job: LiveIdeaJob
   deepSearchManager: DeepSearchJobManager
 }
+
+const researchPromptSchema = z.object({
+  title: z.string().trim().min(1).max(80),
+  prompt: z.string().trim().min(1),
+})
+type ResearchPrompt = z.infer<typeof researchPromptSchema>
 
 function buildResearchPrompt(prompt: string, count: number): string {
   return `User request:\n${prompt}\n\nGenerate exactly ${count} deep-search prompts.`
@@ -105,7 +112,7 @@ function setGenerationId(
     .run()
 }
 
-function setStage(ideaJobId: string, stage: IdeaStage): void {
+function setStage(ideaJobId: string, stage: IdeaJobStage): void {
   db.update(ideaJobs)
     .set({ stage })
     .where(eq(ideaJobs.ideaJobId, ideaJobId))
@@ -114,13 +121,13 @@ function setStage(ideaJobId: string, stage: IdeaStage): void {
 
 async function generateResearchPrompts(
   input: RunIdeaJobInput,
-): Promise<string[]> {
+): Promise<ResearchPrompt[]> {
   const generation = await generateArrayStream({
     userId: input.userId,
     owner: { ideaJobId: input.ideaJobId },
     prompt: buildResearchPrompt(input.prompt, input.deepSearchCount),
     promptName: PromptName.GenerateIdeaResearchPrompts,
-    element: z.string().trim().min(1),
+    element: researchPromptSchema,
     maxRetries: input.maxRetries,
   })
   setGenerationId(
@@ -145,7 +152,7 @@ async function generateResearchPrompts(
       `Expected ${input.deepSearchCount} research prompts, received ${prompts.length}`,
     )
   }
-  if (new Set(prompts).size !== prompts.length) {
+  if (new Set(prompts.map(({ prompt }) => prompt)).size !== prompts.length) {
     throw new Error("Research prompts must be distinct")
   }
   return prompts
@@ -153,26 +160,32 @@ async function generateResearchPrompts(
 
 async function runResearch(
   input: RunIdeaJobInput,
-  prompts: string[],
+  prompts: ResearchPrompt[],
 ): Promise<string[]> {
   // start() launches immediately. Mapping every prompt before awaiting any
   // completion is what makes these durable child jobs run in parallel.
-  const searches = prompts.map((researchRequest, ideaJobPosition) => {
-    const search = input.deepSearchManager.start(input.userId, {
-      researchRequest,
-      maxSearches: input.maxSearches,
-      maxResultsPerSearch: input.maxResultsPerSearch,
-      ideaJobId: input.ideaJobId,
-      ideaJobPosition,
-      maxRetries: input.maxRetries,
-    })
+  const searches = await Promise.all(
+    prompts.map(({ title, prompt: researchRequest }, ideaJobPosition) =>
+      input.deepSearchManager.start(input.userId, {
+        title,
+        researchRequest,
+        maxSearches: input.maxSearches,
+        maxResultsPerSearch: input.maxResultsPerSearch,
+        ideaJobId: input.ideaJobId,
+        ideaJobPosition,
+        maxRetries: input.maxRetries,
+      }),
+    ),
+  )
+  for (const [index, search] of searches.entries()) {
     input.job.publish({
       type: "deep-search-started",
       deepSearchJobId: search.deepSearchJobId,
-      researchRequest,
+      title: search.title,
+      slug: search.slug,
+      researchRequest: prompts[index].prompt,
     })
-    return search
-  })
+  }
 
   // Wait for every launched child even after one fails. No later pipeline stage
   // runs when a rejection exists, but the parent does not terminate while its
@@ -184,7 +197,10 @@ async function runResearch(
     (result): result is PromiseRejectedResult => result.status === "rejected",
   )
   if (failed) throw failed.reason
-  return settled.map((result) => (result as PromiseFulfilledResult<string>).value)
+  return settled.map((result) => {
+    if (result.status === "rejected") throw result.reason
+    return result.value
+  })
 }
 
 async function summarizeResearch(
@@ -324,7 +340,7 @@ async function critiqueIdeas(
 
 /** Runs the durable idea pipeline and publishes parent progress. */
 export async function runIdeaJob(input: RunIdeaJobInput): Promise<void> {
-  let stage: IdeaStage = "planning"
+  let stage: IdeaEventStage = "planning"
   try {
     const prompts = await generateResearchPrompts(input)
 
@@ -342,7 +358,6 @@ export async function runIdeaJob(input: RunIdeaJobInput): Promise<void> {
     const persistedIdeas = persistIdeas(input, generatedIdeas)
 
     stage = "critique"
-    setStage(input.ideaJobId, stage)
     await critiqueIdeas(input, summary, persistedIdeas)
 
     db.update(ideaJobs)
@@ -354,7 +369,10 @@ export async function runIdeaJob(input: RunIdeaJobInput): Promise<void> {
     try {
       db.update(ideaJobs)
         .set({
-          stage,
+          // Critique is an event subphase of the durable ideas stage. Keeping
+          // the existing DB stage avoids rebuilding a heavily referenced
+          // SQLite parent table merely to persist transient progress detail.
+          stage: stage === "critique" ? "ideas" : stage,
           status: "failed",
           error: message,
           completedAt: new Date(),

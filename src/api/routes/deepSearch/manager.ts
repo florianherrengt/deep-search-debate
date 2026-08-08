@@ -9,11 +9,17 @@ import {
   deepSearchWebPages,
   llmGenerations,
 } from "../../db/schema/index.ts"
+import {
+  createPromptIdentity,
+  type PromptIdentity,
+} from "../../helpers/promptTitles.ts"
 import { createReplayableEventLog } from "../../helpers/replayableEventLog.ts"
+import { generatePromptTitle } from "../../llms/generateText.ts"
 import { runDeepSearchJob } from "./run.ts"
 import type { DeepSearchJobEvent, LiveDeepSearchJob } from "./schemas.ts"
 
 type StartDeepSearchJobInput = {
+  title?: string
   researchRequest: string
   maxSearches: number
   maxResultsPerSearch: number
@@ -24,6 +30,8 @@ type StartDeepSearchJobInput = {
 
 type StartedDeepSearchJob = {
   deepSearchJobId: string
+  title: string
+  slug: string
   /** Resolves to the persisted final answer, or rejects for any failed job. */
   completion: Promise<string>
 }
@@ -73,8 +81,24 @@ function getInternalFailure(deepSearchJobId: string): string | undefined {
 }
 
 export type DeepSearchJobManager = {
-  start(userId: string, input: StartDeepSearchJobInput): StartedDeepSearchJob
+  start(
+    userId: string,
+    input: StartDeepSearchJobInput,
+  ): Promise<StartedDeepSearchJob>
   getLiveJob(deepSearchJobId: string): LiveDeepSearchJob | undefined
+}
+
+function createDeepSearchIdentity(
+  userId: string,
+  generatedTitle: string,
+): PromptIdentity {
+  const usedSlugs = db
+    .select({ slug: deepSearchJobsTable.slug })
+    .from(deepSearchJobsTable)
+    .where(eq(deepSearchJobsTable.userId, userId))
+    .all()
+    .map(({ slug }) => slug)
+  return createPromptIdentity(generatedTitle, usedSlugs)
 }
 
 function hasDurableTerminalState(deepSearchJobId: string): boolean {
@@ -138,13 +162,16 @@ export function createDeepSearchJobManager(): DeepSearchJobManager {
   const liveJobs = new Map<string, LiveDeepSearchJob>()
 
   return {
-    start(userId, input) {
+    async start(userId, input) {
       const deepSearchJobId = randomUUID()
       const job = createReplayableEventLog<DeepSearchJobEvent>()
-      const { maxRetries, ...persistedInput } = input
+      const { maxRetries, title: suppliedTitle, ...persistedInput } = input
+      const generatedTitle =
+        suppliedTitle ?? (await generatePromptTitle(input.researchRequest))
+      const identity = createDeepSearchIdentity(userId, generatedTitle)
 
       db.insert(deepSearchJobsTable)
-        .values({ deepSearchJobId, userId, ...persistedInput })
+        .values({ deepSearchJobId, userId, ...identity, ...persistedInput })
         .run()
 
       // The route serving child events reads this same log while the durable
@@ -172,7 +199,7 @@ export function createDeepSearchJobManager(): DeepSearchJobManager {
           }
         })
 
-      return { deepSearchJobId, completion }
+      return { deepSearchJobId, ...identity, completion }
     },
     getLiveJob(deepSearchJobId) {
       return liveJobs.get(deepSearchJobId)

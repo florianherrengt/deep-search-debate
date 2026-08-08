@@ -57,18 +57,20 @@ test.describe("Deep search", () => {
       maxResultsPerSearch: 3,
     })
 
-    const { deepSearchJobId } = (await created.json()) as {
+    const { deepSearchJobId, slug } = (await created.json()) as {
       deepSearchJobId: string
+      slug: string
     }
     expect(deepSearchJobId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     )
     expect(created.headers()["location"]).toBe(
-      `/api/deep-search-jobs/${deepSearchJobId}`,
+      `/api/deep-search-jobs/${slug}`,
     )
-    await expect(page).toHaveURL(
-      new RegExp(`/deep-search/${deepSearchJobId}$`),
-    )
+    await expect(page).toHaveURL(new RegExp(`/deep-search/${slug}$`))
+    await expect(
+      page.getByRole("heading", { name: "JavaScript Array Documentation" }),
+    ).toBeVisible()
     await expect(page.getByText(`Job: ${deepSearchJobId}`)).toHaveCount(0)
     await expect(page.getByLabel("Research request")).toHaveCount(0)
     await expect(page.getByText(researchRequest)).toBeVisible()
@@ -416,7 +418,7 @@ test.describe("Deep search", () => {
     )
 
     const detail = await request.get(
-      `/api/deep-search-jobs/${deepSearchJobId}`,
+      `/api/deep-search-jobs/${slug}`,
     )
     expect(detail.status()).toBe(200)
     const detailBody = (await detail.json()) as {
@@ -439,9 +441,10 @@ test.describe("Deep search", () => {
     await page.goto("/deep-search")
     await expect(page.getByRole("heading", { name: "Previous searches" })).toBeVisible()
     const historyLink = page.locator(
-      `a[href="/deep-search/${deepSearchJobId}"]`,
+      `a[href="/deep-search/${slug}"]`,
     )
     await expect(historyLink).toBeVisible()
+    await expect(historyLink).toContainText("JavaScript Array Documentation")
     await expect(historyLink).toContainText(researchRequest)
   })
 })

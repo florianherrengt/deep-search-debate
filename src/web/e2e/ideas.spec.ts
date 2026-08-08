@@ -70,12 +70,18 @@ test.describe("Ideas", () => {
       maxResultsPerSearch: 3,
     })
 
-    const { ideaJobId } = (await created.json()) as { ideaJobId: string }
+    const { ideaJobId, slug } = (await created.json()) as {
+      ideaJobId: string
+      slug: string
+    }
     expect(ideaJobId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     )
-    expect(created.headers()["location"]).toBe(`/api/idea-jobs/${ideaJobId}`)
-    await expect(page).toHaveURL(new RegExp(`/ideas/${ideaJobId}$`))
+    expect(created.headers()["location"]).toBe(`/api/idea-jobs/${slug}`)
+    await expect(page).toHaveURL(new RegExp(`/ideas/${slug}$`))
+    await expect(
+      page.getByRole("heading", { name: "London Renter Energy Products" }),
+    ).toBeVisible()
     await expect(page.getByText(prompt, { exact: true })).toBeVisible()
 
     const live = await liveResponse
@@ -159,7 +165,7 @@ test.describe("Ideas", () => {
 
     for (const child of research) {
       const detail = await request.get(
-        `/api/deep-search-jobs/${child.deepSearchJobId}`,
+        `/api/deep-search-jobs/${child.slug}`,
       )
       expect(detail.status()).toBe(200)
       expect(await detail.json()).toMatchObject({
@@ -229,11 +235,11 @@ test.describe("Ideas", () => {
     await expect(researchLinks).toHaveCount(2)
     for (const child of research) {
       const link = page.locator(
-        `a[href="/deep-search/${child.deepSearchJobId}"]`,
+        `a[href="/deep-search/${child.slug}"]`,
       )
       await expect(link).toHaveAttribute("target", "_blank")
       await expect(link).toHaveAttribute("rel", "noopener noreferrer")
-      await expect(link).toHaveText(child.researchRequest)
+      await expect(link).toContainText(child.title)
     }
 
     const replay = await request.get(`/api/idea-jobs/${ideaJobId}/events`)
@@ -257,7 +263,7 @@ test.describe("Ideas", () => {
       ),
     )
 
-    const detail = await request.get(`/api/idea-jobs/${ideaJobId}`)
+    const detail = await request.get(`/api/idea-jobs/${slug}`)
     expect(detail.status()).toBe(200)
     expect(await detail.json()).toMatchObject({
       ideaJob: {
@@ -265,7 +271,7 @@ test.describe("Ideas", () => {
         prompt,
         numberOfIdeas: 12,
         deepSearchCount: 2,
-        stage: "critique",
+        stage: "ideas",
         status: "completed",
       },
     })
@@ -293,8 +299,9 @@ test.describe("Ideas", () => {
     await expect(
       page.getByRole("heading", { name: "Previous idea runs" }),
     ).toBeVisible()
-    const historyLink = page.locator(`a[href="/ideas/${ideaJobId}"]`)
+    const historyLink = page.locator(`a[href="/ideas/${slug}"]`)
     await expect(historyLink).toBeVisible()
+    await expect(historyLink).toContainText("London Renter Energy Products")
     await expect(historyLink).toContainText(prompt)
     await expect(historyLink).toContainText("Complete")
   })

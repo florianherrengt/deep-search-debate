@@ -181,7 +181,7 @@ describe("aggregate integrity constraints", () => {
       .run()
     db.update(ideaJobs)
       .set({
-        stage: "critique",
+        stage: "ideas",
         researchPromptGenerationId: generationIds[0],
         researchSummaryGenerationId: generationIds[1],
         ideaGenerationId: generationIds[2],
@@ -380,7 +380,7 @@ describe("aggregate integrity constraints", () => {
       .run()
     db.update(ideaJobs)
       .set({
-        stage: "critique",
+        stage: "ideas",
         researchPromptGenerationId: generationIds[0],
         researchSummaryGenerationId: generationIds[1],
       })

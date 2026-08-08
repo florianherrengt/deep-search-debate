@@ -94,7 +94,9 @@ describe("App", () => {
       name: "Landing page navigation",
     })
     expect(
-      within(landingNavigation).getByRole("link", { name: "Start a debate" }),
+      within(landingNavigation).getByRole("link", {
+        name: "Start your own debate",
+      }),
     ).toHaveAttribute("href", "/debates")
     expect(
       screen.queryByRole("heading", { name: "RethinkLoop" }),
@@ -187,6 +189,45 @@ describe("App", () => {
       screen.queryByRole("heading", { name: "Sign in to continue" }),
     ).not.toBeInTheDocument()
     expect(authMocks.useSession).not.toHaveBeenCalled()
+  })
+
+  it("shows anonymous debate viewers a marketing call to action", () => {
+    window.history.replaceState({}, "", "/debates/debate-id")
+    authMocks.useSession.mockReturnValue({
+      data: null,
+      error: null,
+      isPending: false,
+      isRefetching: false,
+      refetch: authMocks.refetch,
+    })
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => undefined)))
+
+    renderApp()
+
+    expect(
+      screen.getByRole("link", { name: "Start your own debate" }),
+    ).toHaveAttribute("href", "/debates")
+    expect(
+      screen.queryByRole("heading", { name: "Sign in to continue" }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("navigation", { name: "Primary navigation" }),
+    ).not.toBeInTheDocument()
+  })
+
+  it("keeps authenticated debate detail routes inside the application shell", () => {
+    window.history.replaceState({}, "", "/debates/debate-id")
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => undefined)))
+
+    renderApp()
+
+    expect(
+      screen.getByRole("navigation", { name: "Primary navigation" }),
+    ).toBeVisible()
+    expect(screen.getByText("Debug User")).toBeVisible()
+    expect(
+      screen.queryByRole("heading", { name: "Page not found" }),
+    ).not.toBeInTheDocument()
   })
 
   it("keeps the placeholder legal pages public", () => {

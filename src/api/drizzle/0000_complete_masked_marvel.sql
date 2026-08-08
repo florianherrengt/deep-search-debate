@@ -161,6 +161,7 @@ CREATE TABLE `debate_jobs` (
 	`debate_job_id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
 	`random_seed` integer NOT NULL,
+	`is_public` integer DEFAULT false NOT NULL,
 	`stage` text DEFAULT 'ideas' NOT NULL,
 	`status` text DEFAULT 'running' NOT NULL,
 	`error` text,
@@ -168,6 +169,7 @@ CREATE TABLE `debate_jobs` (
 	`completed_at` integer,
 	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,
 	CONSTRAINT "debate_jobs_config_check" CHECK("debate_jobs"."random_seed" >= 0 and "debate_jobs"."random_seed" <= 4294967295),
+	CONSTRAINT "debate_jobs_visibility_check" CHECK("debate_jobs"."is_public" in (0, 1)),
 	CONSTRAINT "debate_jobs_stage_check" CHECK("debate_jobs"."stage" in ('ideas', 'swiss', 'semifinal', 'final')),
 	CONSTRAINT "debate_jobs_status_check" CHECK("debate_jobs"."status" in ('running', 'completed', 'failed', 'interrupted')),
 	CONSTRAINT "debate_jobs_terminal_fields_check" CHECK((
@@ -255,13 +257,13 @@ CREATE TABLE `idea_jobs` (
 	FOREIGN KEY (`research_summary_generation_id`,`user_id`,`idea_job_id`) REFERENCES `llm_generations`(`llm_generation_id`,`user_id`,`idea_job_id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`idea_generation_id`,`user_id`,`idea_job_id`) REFERENCES `llm_generations`(`llm_generation_id`,`user_id`,`idea_job_id`) ON UPDATE no action ON DELETE no action,
 	CONSTRAINT "idea_jobs_limits_check" CHECK("idea_jobs"."number_of_ideas" > 0 and "idea_jobs"."deep_search_count" > 0),
-	CONSTRAINT "idea_jobs_stage_check" CHECK("idea_jobs"."stage" in ('planning', 'research', 'summary', 'ideas', 'critique')),
+	CONSTRAINT "idea_jobs_stage_check" CHECK("idea_jobs"."stage" in ('planning', 'research', 'summary', 'ideas')),
 	CONSTRAINT "idea_jobs_status_check" CHECK("idea_jobs"."status" in ('running', 'completed', 'failed', 'interrupted')),
 	CONSTRAINT "idea_jobs_prompt_content_check" CHECK(length(trim("idea_jobs"."prompt")) > 0),
 	CONSTRAINT "idea_jobs_terminal_fields_check" CHECK((
         ("idea_jobs"."status" = 'running' and "idea_jobs"."completed_at" is null and "idea_jobs"."error" is null)
         or
-		("idea_jobs"."status" = 'completed' and "idea_jobs"."stage" = 'critique' and "idea_jobs"."completed_at" is not null and "idea_jobs"."error" is null and "idea_jobs"."research_prompt_generation_id" is not null and "idea_jobs"."research_summary_generation_id" is not null and "idea_jobs"."idea_generation_id" is not null)
+        ("idea_jobs"."status" = 'completed' and "idea_jobs"."stage" = 'ideas' and "idea_jobs"."completed_at" is not null and "idea_jobs"."error" is null and "idea_jobs"."research_prompt_generation_id" is not null and "idea_jobs"."research_summary_generation_id" is not null and "idea_jobs"."idea_generation_id" is not null)
         or
         ("idea_jobs"."status" in ('failed', 'interrupted') and "idea_jobs"."completed_at" is not null and "idea_jobs"."error" is not null)
       ))
@@ -279,16 +281,13 @@ CREATE TABLE `ideas` (
 	`position` integer NOT NULL,
 	`title` text NOT NULL,
 	`description` text NOT NULL,
-	`critique_generation_id` text,
 	`created_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
 	FOREIGN KEY (`idea_job_id`) REFERENCES `idea_jobs`(`idea_job_id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`critique_generation_id`) REFERENCES `llm_generations`(`llm_generation_id`) ON UPDATE no action ON DELETE no action,
 	CONSTRAINT "ideas_position_check" CHECK("ideas"."position" >= 0),
 	CONSTRAINT "ideas_content_check" CHECK(length(trim("ideas"."title")) > 0 and length(trim("ideas"."description")) > 0)
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `ideas_job_position_idx` ON `ideas` (`idea_job_id`,`position`);--> statement-breakpoint
-CREATE UNIQUE INDEX `ideas_critique_generation_id_unique` ON `ideas` (`critique_generation_id`);--> statement-breakpoint
 CREATE TABLE `llm_generations` (
 	`llm_generation_id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
@@ -503,16 +502,8 @@ END;
 --> statement-breakpoint
 CREATE TRIGGER `idea_update_immutable`
 BEFORE UPDATE ON `ideas`
-WHEN NEW.`idea_id` IS NOT OLD.`idea_id`
-	OR NEW.`idea_job_id` IS NOT OLD.`idea_job_id`
-	OR NEW.`position` IS NOT OLD.`position`
-	OR NEW.`title` IS NOT OLD.`title`
-	OR NEW.`description` IS NOT OLD.`description`
-	OR NEW.`created_at` IS NOT OLD.`created_at`
-	OR OLD.`critique_generation_id` IS NOT NULL
-	OR NEW.`critique_generation_id` IS NULL
 BEGIN
-	SELECT RAISE(ABORT, 'idea rows are immutable except for one-time critique linkage');
+	SELECT RAISE(ABORT, 'idea rows are immutable; delete the owning job');
 END;
 --> statement-breakpoint
 CREATE TRIGGER `idea_direct_delete_guard`

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { DebateTournamentSnapshot } from "../../lib/debateJobs.ts"
 
 const mocks = vi.hoisted(() => ({
@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   getDebateJobs: vi.fn(),
   subscribeToDebateJob: vi.fn(),
   subscribeToTextStream: vi.fn(),
+  updateDebateJob: vi.fn(),
 }))
 
 vi.mock("../../lib/debateJobs.ts", async (importOriginal) => ({
@@ -18,6 +19,7 @@ vi.mock("../../lib/debateJobs.ts", async (importOriginal) => ({
   getDebateJob: mocks.getDebateJob,
   getDebateJobs: mocks.getDebateJobs,
   subscribeToDebateJob: mocks.subscribeToDebateJob,
+  updateDebateJob: mocks.updateDebateJob,
 }))
 
 vi.mock("../../lib/textStreams.ts", () => ({
@@ -44,7 +46,11 @@ function tournament(
   return {
     debateJobId: "debate-id",
     ideaJobId: "idea-job-id",
+    title: "Better Café Ideas",
+    slug: "better-cafe-ideas",
     prompt: "Design a better café",
+    isPublic: false,
+    isOwner: true,
     stage: "swiss",
     status: "running",
     expectedMatchCount: 33,
@@ -93,7 +99,7 @@ function renderDebates(initialEntry = "/debates") {
       <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/debates" element={<Debates />} />
-          <Route path="/debates/:debateJobId" element={<Debates />} />
+          <Route path="/debates/:slug" element={<Debates />} />
           <Route path="/ideas" element={<div>Idea generator</div>} />
         </Routes>
       </MemoryRouter>
@@ -102,11 +108,17 @@ function renderDebates(initialEntry = "/debates") {
 }
 
 describe("Debates", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.createDebateJob.mockResolvedValue("debate-id")
+    mocks.createDebateJob.mockResolvedValue({
+      debateJobId: "debate-id",
+      slug: "better-cafe-ideas",
+    })
     mocks.getDebateJob.mockResolvedValue(tournament())
     mocks.getDebateJobs.mockResolvedValue([])
+    mocks.updateDebateJob.mockResolvedValue({ isPublic: true })
     mocks.subscribeToDebateJob.mockImplementation(async function* (
       _id: string,
       signal?: AbortSignal,
@@ -147,10 +159,13 @@ describe("Debates", () => {
       screen.getByRole("link", {
         name: "View the underlying idea generation",
       }),
-    ).toHaveAttribute("href", "/ideas/idea-job-id")
-    expect(mocks.createDebateJob).toHaveBeenCalledWith("Design a better café")
+    ).toHaveAttribute("href", "/ideas/better-cafe-ideas")
+    expect(mocks.createDebateJob).toHaveBeenCalledWith({
+      prompt: "Design a better café",
+      isPublic: false,
+    })
     expect(mocks.getDebateJob).toHaveBeenCalledWith(
-      "debate-id",
+      "better-cafe-ideas",
       expect.any(AbortSignal),
     )
     expect(mocks.subscribeToDebateJob).toHaveBeenCalledWith(
@@ -171,6 +186,61 @@ describe("Debates", () => {
     expect(screen.getByLabelText("What should the ideas solve?")).toHaveValue(
       "Should we enter this market?",
     )
+  })
+
+  it("can create a public debate", async () => {
+    renderDebates()
+
+    fireEvent.change(screen.getByLabelText("What should the ideas solve?"), {
+      target: { value: "Design a public product" },
+    })
+    fireEvent.click(screen.getByLabelText("Make this debate public"))
+    fireEvent.click(screen.getByRole("button", { name: "Start a debate" }))
+
+    await waitFor(() =>
+      expect(mocks.createDebateJob).toHaveBeenCalledWith({
+        prompt: "Design a public product",
+        isPublic: true,
+      }),
+    )
+  })
+
+  it("lets the owner publish a debate and copy its canonical URL", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      clipboard: { writeText },
+    })
+    renderDebates("/debates/debate-id")
+
+    fireEvent.click(await screen.findByLabelText("Public debate"))
+    await waitFor(() =>
+      expect(mocks.updateDebateJob).toHaveBeenCalledWith(
+        "debate-id",
+        { isPublic: true },
+      ),
+    )
+    const copyButton = await screen.findByRole("button", { name: "Copy link" })
+    fireEvent.click(copyButton)
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        `${window.location.origin}/debates/debate-id`,
+      ),
+    )
+    expect(screen.getByRole("button", { name: "Copied" })).toBeVisible()
+  })
+
+  it("does not show visibility controls to a public viewer", async () => {
+    mocks.getDebateJob.mockResolvedValue(
+      tournament({ isOwner: false, isPublic: true }),
+    )
+
+    renderDebates("/debates/debate-id")
+
+    expect(await screen.findByText("Better Café Ideas")).toBeVisible()
+    expect(screen.queryByLabelText("Public debate")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Copy link" })).not.toBeInTheDocument()
   })
 
   it("restores a completed tournament from its durable snapshot", async () => {
@@ -210,7 +280,7 @@ describe("Debates", () => {
       }),
     )
 
-    renderDebates("/debates/debate-id")
+    renderDebates("/debates/better-cafe-ideas")
 
     expect(
       await screen.findByRole("heading", { name: "First idea" }),
@@ -220,7 +290,7 @@ describe("Debates", () => {
       screen.getByRole("link", {
         name: "View the underlying idea generation",
       }),
-    ).toHaveAttribute("href", "/ideas/idea-job-id")
+    ).toHaveAttribute("href", "/ideas/better-cafe-ideas")
     await waitFor(() => expect(mocks.subscribeToDebateJob).not.toHaveBeenCalled())
     expect(mocks.subscribeToTextStream).not.toHaveBeenCalled()
   })
@@ -259,6 +329,10 @@ describe("Debates", () => {
   })
 
   it("reconnects after a subscription failure and clears the recovered error", async () => {
+    let openReconnect: () => void = () => undefined
+    const reconnectOpened = new Promise<void>((resolve) => {
+      openReconnect = resolve
+    })
     mocks.subscribeToDebateJob
       .mockImplementationOnce(async function* () {
         await Promise.resolve()
@@ -270,6 +344,7 @@ describe("Debates", () => {
         signal?: AbortSignal,
         onOpen?: () => void,
       ) {
+        await reconnectOpened
         onOpen?.()
         await new Promise<void>((resolve) => {
           if (signal?.aborted) resolve()
@@ -288,6 +363,7 @@ describe("Debates", () => {
     await waitFor(() =>
       expect(mocks.subscribeToDebateJob).toHaveBeenCalledTimes(2),
     )
+    openReconnect()
     await waitFor(() =>
       expect(
         screen.queryByText("Live updates were interrupted. Reconnecting…"),
@@ -364,7 +440,10 @@ describe("Debates", () => {
       {
         debateJobId: "previous-debate",
         ideaJobId: "previous-ideas",
+        title: "Previous Tournament",
+        slug: "previous-tournament",
         prompt: "A previous tournament prompt",
+        isPublic: false,
         stage: "final",
         status: "completed",
         error: null,
@@ -376,8 +455,8 @@ describe("Debates", () => {
     renderDebates()
 
     expect(
-      await screen.findByRole("link", { name: /A previous tournament prompt/ }),
-    ).toHaveAttribute("href", "/debates/previous-debate")
+      await screen.findByRole("link", { name: /Previous Tournament/ }),
+    ).toHaveAttribute("href", "/debates/previous-tournament")
     expect(screen.getByText("Debate complete")).toBeVisible()
   })
 })

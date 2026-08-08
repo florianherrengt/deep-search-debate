@@ -29,9 +29,12 @@ ignores this one documented peer-resolution shim.
   GitHub OAuth tokens remain server-side in `account`; application requests use
   an opaque database-backed session cookie rather than a JWT.
 - Every root job and every `llm_generations` row has a required `user_id`.
-  Route history/detail/event queries filter by that owner before consulting
-  in-memory logs or durable replay. Nested idea searches, debate jobs, and all
-  of their generations inherit the initiating user's ID explicitly. Composite
+  User-facing reads apply reusable SQL scopes to the query retrieving the root
+  resource: an owner match grants private access, while a public debate grants
+  inherited access through its idea job, child searches, and generations.
+  Inaccessible rows are never loaded before authorization. Nested idea searches,
+  debate jobs, and all of their generations inherit the initiating user's ID
+  explicitly. Composite
   foreign keys enforce matching owners for root job relationships; transactional
   application validation enforces the same invariant for normalized child rows
   where duplicating `user_id` would add no domain information.
@@ -72,9 +75,10 @@ ignores this one documented peer-resolution shim.
   ```
 - The API workspace's `predev` and `prestart` lifecycle scripts apply pending
   migrations before either development or production startup.
-- Until the first deployment, migration history is kept as one clean baseline.
-  `baselineMigration.test.ts` verifies that baseline through the same Drizzle
-  migrator used by the application.
+- Keep applied migrations immutable and add forward migrations for schema
+  changes. `baselineMigration.test.ts` verifies both a fresh database and an
+  upgrade from the original baseline through the same Drizzle migrator used by
+  the application.
 
 ### Known application-enforced integrity boundaries
 
@@ -103,19 +107,29 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
 ## Durable job models
 
 - `llm_generations` stores terminal text, reasoning, status, errors, and the
-  owning job for every workflow model invocation. Live deltas remain in memory
-  and are never written individually.
-- `deep_search_jobs` owns a deep-search request and may belong to an `idea_jobs` parent. Child searches store their planning-generation position. Its normalized query, result, web-page, and generation rows preserve research progress without a JSON snapshot.
-- `idea_jobs` owns the user prompt, requested idea/search counts, current stage,
-  lifecycle, planning, briefing, and idea-generation links.
-  A debate-created idea job points to its owning debate; a standalone idea job
-  leaves that FK null.
-- `ideas` stores validated, ordered idea output with stable IDs as soon as idea generation completes. Its critique-generation link is initially null and is attached when that idea's critique starts. Each critique's text and reasoning remain in its `llm_generations` row; they are not copied into `ideas` or a second critique table. The job's idea-generation link separately retains the raw structured idea output for inspection and debugging.
+  owning job for every replayable workflow model invocation. Live deltas remain
+  in memory and are never written individually. The short preflight title call
+  is not replayed; only its validated title is stored on the new job.
+- `deep_search_jobs` owns an LLM-generated title, readable slug, and deep-search
+  request and may belong to an `idea_jobs` parent. Child searches store their
+  planning-generation position. Its normalized query, result, web-page, and
+  generation rows preserve research progress without a JSON snapshot.
+- `idea_jobs` owns the LLM-generated title and slug used by both idea and debate
+  URLs, the user prompt, requested idea/search counts, current stage,
+  lifecycle, planning, briefing, and idea-generation links. A debate-created
+  idea job points to its owning debate; a standalone idea job leaves that FK null.
+- `ideas` stores validated, ordered idea output with stable IDs as soon as idea
+  generation completes. Its critique-generation link is initially null and is
+  attached when that idea's critique starts. Each critique's text and reasoning
+  remain in its `llm_generations` row; they are not copied into `ideas` or a
+  second critique table. The job's idea-generation link separately retains the
+  raw structured idea output for inspection and debugging.
 - `debate_jobs` owns its generated idea pipeline as well as
   `debate_rounds`, `debate_matches`, and `debate_messages`. These tables store
   pairings, machine-readable winners, and transcript-generation links. Matches
   reference stable ideas directly; standings and Elo remain derived from
-  completed matches.
+  completed matches. Its private-by-default `is_public` flag grants anonymous
+  read access to this complete owned aggregate without exposing the owner.
 - An idea job does not copy child research output or sources. Its child `deep_search_jobs` keep their own durable state; only their final-answer texts are passed to the briefing generation.
 
 On startup, `recoverInterruptedWork()` marks orphaned running LLM generations, deep-search work, idea jobs, and debate jobs as interrupted or failed. A debate whose final verdict already committed is instead recovered as completed, closing the small crash window before the parent job's terminal update. External provider work is not resumable after process termination; completed debate rounds, results, and transcript generations remain replayable.

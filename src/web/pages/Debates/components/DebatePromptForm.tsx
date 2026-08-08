@@ -4,7 +4,9 @@ import {
   Button,
   Card,
   CardContent,
+  FormControlLabel,
   Stack,
+  Switch,
   TextField,
   Typography,
 } from "@mui/material"
@@ -12,10 +14,11 @@ import { useState, type SyntheticEvent } from "react"
 import { Link } from "react-router-dom"
 
 export type DebatePromptFormProps = {
-  onSubmit: (prompt: string) => void
+  onSubmit: (input: { prompt: string; isPublic: boolean }) => void
   isStarting?: boolean
   error?: string | null
   initialPrompt?: string
+  initialIsPublic?: boolean
 }
 
 export function DebatePromptForm({
@@ -23,13 +26,17 @@ export function DebatePromptForm({
   isStarting = false,
   error = null,
   initialPrompt = "",
+  initialIsPublic = false,
 }: DebatePromptFormProps) {
   const [prompt, setPrompt] = useState(initialPrompt)
+  const [isPublic, setIsPublic] = useState(initialIsPublic)
 
   function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     const trimmedPrompt = prompt.trim()
-    if (trimmedPrompt && !isStarting) onSubmit(trimmedPrompt)
+    if (trimmedPrompt && !isStarting) {
+      onSubmit({ prompt: trimmedPrompt, isPublic })
+    }
   }
 
   return (
@@ -62,6 +69,22 @@ export function DebatePromptForm({
               placeholder="Create a product that helps independent cafés reduce food waste."
               value={prompt}
             />
+            <Stack spacing={0.25}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={isPublic}
+                    disabled={isStarting}
+                    onChange={(event) => setIsPublic(event.target.checked)}
+                  />
+                }
+                label="Make this debate public"
+              />
+              <Typography color="text.secondary" variant="body2">
+                Public debates can be watched live by anyone with the link. You
+                can change this later.
+              </Typography>
+            </Stack>
             <Stack
               direction={{ xs: "column", sm: "row" }}
               spacing={1}

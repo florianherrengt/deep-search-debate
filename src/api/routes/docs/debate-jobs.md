@@ -37,38 +37,52 @@ default retry behavior.
 
 ## HTTP contract
 
-Every endpoint requires a Better Auth session. Creation records the authenticated
-user on the debate and its atomic idea-job parent; history includes only that
-user's jobs, and foreign detail/event UUIDs return 404. Every nested model stream
-inherits the same owner.
+Creation, history, and visibility changes require a Better Auth session. Creation
+records the authenticated user on the debate and its atomic idea-job parent;
+history includes the viewer's private debates and every public debate. Debates
+are private by default.
+
+Detail and event reads allow either the owner or any viewer when the debate is
+public. Public read access follows the aggregate into the debate-owned idea job,
+its child deep searches, and every job-owned model stream, so anonymous viewers
+can inspect the same live research and tournament content. Private, revoked,
+foreign, and unknown UUIDs return 404. Read responses never expose the owner's
+user ID or identity.
 
 ### `POST /api/debate-jobs`
 
 Starts idea generation and the automatic tournament. It returns `202 Accepted`:
 
 ```json
-{ "prompt": "Design a practical low-friction energy product" }
+{
+  "prompt": "Design a practical low-friction energy product",
+  "isPublic": false
+}
 ```
 
 ```json
-{ "debateJobId": "<uuid>" }
+{ "debateJobId": "<uuid>", "slug": "low-friction-energy-products" }
 ```
 
-The `Location` header points to `/api/debate-jobs/:debateJobId`.
+The `Location` header points to `/api/debate-jobs/:slug`. Debate creation reuses
+the generated title and slug stored by its owned idea job. `isPublic` is optional
+and defaults to `false`.
 
 ### `GET /api/debate-jobs`
 
 Returns newest-first history as `{ "debateJobs": [...] }`. Each summary contains
-`debateJobId`, `ideaJobId`, `prompt`, `stage`, `status`, `error`, `createdAt`, and
-`completedAt`. The optional `limit` query defaults to 100 and is capped at 200.
+`debateJobId`, `ideaJobId`, `title`, `slug`, `prompt`, `isPublic`, `stage`,
+`status`, `error`, `createdAt`, and `completedAt`. The optional `limit` query
+defaults to 100 and is capped at 200. The read scope includes owned private
+debates and public debates.
 
-### `GET /api/debate-jobs/:debateJobId`
+### `GET /api/debate-jobs/:slug`
 
 Returns `{ "debateJob": ... }`, containing the durable job state plus every round,
 match, transcript message, current derived Swiss standings, and the expected match
 count. Transcript messages link to `/api/streams/:llmGenerationId` while live and
 contain terminal text after persistence. The final match's winner is the tournament
-winner. Unknown UUIDs return 404.
+winner. Unknown slugs return 404.
 
 ### `GET /api/debate-jobs/:debateJobId/events`
 
@@ -76,12 +90,27 @@ Returns replay-and-follow NDJSON. `updated` means clients should refresh the dur
 snapshot. A failed job emits `error` with its exact message. Every terminal stream
 ends with `done`. After restart, terminal events are synthesized from SQLite.
 
+### `PATCH /api/debate-jobs/:debateJobId`
+
+The authenticated owner may update one or more mutable debate fields. The
+currently supported field publishes or revokes a debate at any time:
+
+```json
+{ "isPublic": true }
+```
+
+It returns the debate's current mutable fields as `{ "isPublic": true }`.
+Non-owners and unknown UUIDs receive 404. Revoking visibility makes new
+anonymous requests to the debate and every nested resource return 404.
+
 ## Persistence and recovery
 
 - `debate_jobs` owns one same-owner `idea_jobs` child and stores lifecycle,
-  stage, and deterministic random seed. The child carries the FK so deleting a
+  stage, deterministic random seed, and public visibility. The child carries the FK so deleting a
   debate cascades through its ideas, child searches, normalized research rows,
   tournament rows, and every job-owned LLM generation.
+- The owned idea job also stores the debate's generated title and slug, avoiding
+  a duplicate copy on `debate_jobs`.
 - `debate_rounds` and `debate_matches` store pairings and machine-readable winners.
 - `debate_messages` links ordered transcript entries to durable, same-owner LLM
   generations; ownership is validated before each transcript link is written.

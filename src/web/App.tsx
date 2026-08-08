@@ -26,6 +26,8 @@ import { Debates } from "./pages/Debates/index.tsx"
 import { NotFound } from "./components/NotFound.tsx"
 import { AuthGate } from "./components/auth/AuthGate.tsx"
 import type { AuthSession } from "./lib/authClient.ts"
+import type { ReactNode } from "react"
+import type { ContainerProps } from "@mui/material/Container"
 
 const navigationItems = [
   { label: "Home", to: "/" },
@@ -171,13 +173,13 @@ function RoutedContent() {
       <Routes>
         <Route path="/deep-search" element={<DeepSearch />} />
         <Route
-          path="/deep-search/:deepSearchJobId"
+          path="/deep-search/:slug"
           element={<DeepSearch />}
         />
         <Route path="/ideas" element={<Ideas />} />
-        <Route path="/ideas/:ideaJobId" element={<Ideas />} />
+        <Route path="/ideas/:slug" element={<Ideas />} />
         <Route path="/debates" element={<Debates />} />
-        <Route path="/debates/:debateJobId" element={<Debates />} />
+        <Route path="/debates/:slug" element={<Debates />} />
         <Route path="/about" element={<About />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
@@ -185,20 +187,63 @@ function RoutedContent() {
   )
 }
 
-function AuthenticatedApp({
+interface AuthenticatedShellProps extends AppNavigationProps {
+  children: ReactNode
+}
+
+function AuthenticatedShell({
   authError,
+  children,
   session,
   signingOut,
   signOut,
-}: AppNavigationProps) {
+}: AuthenticatedShellProps) {
   return (
     <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100dvh" }}>
       <AppNavigation session={session} signingOut={signingOut} signOut={signOut} />
       {authError === undefined ? null : (
         <Alert severity="error">{authError}</Alert>
       )}
-      <RoutedContent />
+      {children}
     </Box>
+  )
+}
+
+function AuthenticatedApp(props: AppNavigationProps) {
+  return (
+    <AuthenticatedShell {...props}>
+      <RoutedContent />
+    </AuthenticatedShell>
+  )
+}
+
+function ShareableResourceRoute({
+  children,
+  maxWidth,
+}: {
+  children: ReactNode
+  maxWidth: ContainerProps["maxWidth"]
+}) {
+  return (
+    <AuthGate
+      anonymous={
+        <PublicLayout maxWidth={maxWidth}>
+          <Box sx={{ py: { xs: 3, sm: 4.5 } }}>{children}</Box>
+        </PublicLayout>
+      }
+    >
+      {(props) => (
+        <AuthenticatedShell {...props}>
+          <Container
+            component="main"
+            maxWidth={maxWidth}
+            sx={{ flex: 1, py: { xs: 3, sm: 4.5 } }}
+          >
+            {children}
+          </Container>
+        </AuthenticatedShell>
+      )}
+    </AuthGate>
   )
 }
 
@@ -228,6 +273,30 @@ export function App() {
             <PublicLayout maxWidth="md">
               <LegalPage title="Privacy Policy" />
             </PublicLayout>
+          }
+        />
+        <Route
+          path="/debates/:slug"
+          element={
+            <ShareableResourceRoute maxWidth="xl">
+              <Debates />
+            </ShareableResourceRoute>
+          }
+        />
+        <Route
+          path="/ideas/:slug"
+          element={
+            <ShareableResourceRoute maxWidth="lg">
+              <Ideas />
+            </ShareableResourceRoute>
+          }
+        />
+        <Route
+          path="/deep-search/:slug"
+          element={
+            <ShareableResourceRoute maxWidth="lg">
+              <DeepSearch />
+            </ShareableResourceRoute>
           }
         />
         <Route

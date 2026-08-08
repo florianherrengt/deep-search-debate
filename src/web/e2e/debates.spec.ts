@@ -3,6 +3,7 @@ import type {
   DebateJobEvent,
   DebateTournamentSnapshot,
 } from "../lib/debateJobs.ts"
+import { getPromptExcerpt } from "../lib/promptPresentation.ts"
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -23,6 +24,7 @@ function parseEvents(body: string): DebateJobEvent[] {
 // mock, so successful completion also proves that no live provider was called.
 test.describe("Debate tournament", () => {
   test("runs all 33 matches, streams progress, and survives reload", async ({
+    browser,
     page,
     request,
   }) => {
@@ -81,17 +83,27 @@ test.describe("Debate tournament", () => {
     )
 
     await page.getByLabel("What should the ideas solve?").fill(prompt)
+    await page.getByLabel("Make this debate public").check()
     await page.getByRole("button", { name: "Start a debate" }).click()
 
     const created = await createdResponse
     expect(created.status()).toBe(202)
-    expect(created.request().postDataJSON()).toEqual({ prompt })
-    const { debateJobId } = (await created.json()) as { debateJobId: string }
+    expect(created.request().postDataJSON()).toEqual({
+      prompt,
+      isPublic: true,
+    })
+    const { debateJobId, slug } = (await created.json()) as {
+      debateJobId: string
+      slug: string
+    }
     expect(debateJobId).toMatch(uuidPattern)
     expect(created.headers()["location"]).toBe(
-      `/api/debate-jobs/${debateJobId}`,
+      `/api/debate-jobs/${slug}`,
     )
-    await expect(page).toHaveURL(new RegExp(`/debates/${debateJobId}$`))
+    await expect(page).toHaveURL(new RegExp(`/debates/${slug}$`))
+    await expect(
+      page.getByRole("heading", { name: "Apartment Energy Product Ideas" }),
+    ).toBeVisible()
     await expect(page.getByText(prompt, { exact: true })).toBeVisible()
 
     const live = await liveResponse
@@ -112,8 +124,61 @@ test.describe("Debate tournament", () => {
     )
     expect(browserStreamRequests.length).toBeGreaterThan(0)
 
-    const streamRequestCountBeforeReload = browserStreamRequests.length
     const debateUrl = page.url()
+    const anonymousContext = await browser.newContext()
+    const anonymousPage = await anonymousContext.newPage()
+    await anonymousPage.goto(debateUrl)
+    await expect(
+      anonymousPage.getByRole("link", { name: "Start your own debate" }),
+    ).toHaveAttribute("href", "/debates")
+    await expect(
+      anonymousPage.getByRole("heading", {
+        name: "Apartment Energy Product Ideas",
+      }),
+    ).toBeVisible()
+    await expect(anonymousPage.getByText("Running automatically")).toBeVisible()
+    await expect(anonymousPage.getByText("Debug User")).toHaveCount(0)
+    await expect(
+      anonymousPage.getByRole("navigation", { name: "Primary navigation" }),
+    ).toHaveCount(0)
+
+    const publicIdeaLink = anonymousPage.getByRole("link", {
+      name: "View the underlying idea generation",
+    })
+    await expect(publicIdeaLink).toHaveAttribute("href", `/ideas/${slug}`)
+    await publicIdeaLink.click()
+    await expect(anonymousPage).toHaveURL(new RegExp(`/ideas/${slug}$`))
+    await expect(
+      anonymousPage.getByRole("heading", {
+        name: "Apartment Energy Product Ideas",
+      }),
+    ).toBeVisible()
+    await expect(anonymousPage.getByText(prompt, { exact: true })).toBeVisible()
+    await anonymousPage
+      .getByRole("button", { name: /Deep research/ })
+      .click()
+    const publicResearchLink = anonymousPage
+      .locator('a[href^="/deep-search/"]')
+      .first()
+    await expect(publicResearchLink).toHaveAttribute(
+      "href",
+      /^\/deep-search\/[a-z0-9-]+$/,
+    )
+    await expect(publicResearchLink).toHaveAttribute("target", "_blank")
+    const publicResearchPagePromise = anonymousContext.waitForEvent("page")
+    await publicResearchLink.click()
+    const publicResearchPage = await publicResearchPagePromise
+    await expect(publicResearchPage).toHaveURL(/\/deep-search\/[a-z0-9-]+$/)
+    await expect(
+      publicResearchPage.getByRole("heading", {
+        name: "London Renter Energy Constraints",
+      }),
+    ).toBeVisible()
+    await expect(
+      publicResearchPage.getByRole("heading", { name: "Final answer" }),
+    ).toBeVisible()
+
+    const streamRequestCountBeforeReload = browserStreamRequests.length
     await page.reload()
     await expect(page).toHaveURL(debateUrl)
     await expect(page.getByText("Running automatically")).toBeVisible()
@@ -152,7 +217,7 @@ test.describe("Debate tournament", () => {
     expect(liveEvents.some((event) => event.type === "updated")).toBe(true)
     expect(liveEvents.some((event) => event.type === "error")).toBe(false)
 
-    const detail = await request.get(`/api/debate-jobs/${debateJobId}`)
+    const detail = await request.get(`/api/debate-jobs/${slug}`)
     expect(detail.status()).toBe(200)
     const { debateJob } = (await detail.json()) as {
       debateJob: DebateTournamentSnapshot
@@ -168,7 +233,7 @@ test.describe("Debate tournament", () => {
     expect(debateJob.ideaJobId).toMatch(uuidPattern)
     await expect(
       page.getByRole("link", { name: "View the underlying idea generation" }),
-    ).toHaveAttribute("href", `/ideas/${debateJob.ideaJobId}`)
+    ).toHaveAttribute("href", `/ideas/${debateJob.slug}`)
     expect(debateJob.standings).toHaveLength(12)
     expect(debateJob.rounds.filter((round) => round.stage === "swiss")).toHaveLength(
       5,
@@ -208,6 +273,22 @@ test.describe("Debate tournament", () => {
     )
     expect(winner?.title).toBe("Renter Energy Idea 1")
 
+    const visibilityResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PATCH" &&
+        new URL(response.url()).pathname ===
+          `/api/debate-jobs/${debateJobId}`,
+    )
+    const publicSwitch = page.getByRole("switch", { name: "Public debate" })
+    await publicSwitch.click()
+    expect((await visibilityResponse).status()).toBe(200)
+    await expect(publicSwitch).not.toBeChecked()
+    await anonymousPage.goto(debateUrl)
+    await expect(
+      anonymousPage.getByRole("heading", { name: "Debate not found" }),
+    ).toBeVisible()
+    await anonymousContext.close()
+
     const selectableMatch = page
       .getByRole("button", { name: /^Open .+ versus .+$/ })
       .first()
@@ -222,10 +303,11 @@ test.describe("Debate tournament", () => {
     await expect(transcript).toContainText("Judge")
 
     await page.goto("/debates")
-    const historyLink = page.locator(`a[href="/debates/${debateJobId}"]`)
-    await expect(historyLink).toContainText(prompt)
+    const historyLink = page.locator(`a[href="/debates/${slug}"]`)
+    await expect(historyLink).toContainText("Apartment Energy Product Ideas")
+    await expect(historyLink).toContainText(getPromptExcerpt(prompt))
     await historyLink.click()
-    await expect(page).toHaveURL(new RegExp(`/debates/${debateJobId}$`))
+    await expect(page).toHaveURL(new RegExp(`/debates/${slug}$`))
     await expect(page.getByText("Debate complete")).toBeVisible()
 
     expect(createRequestCount).toBe(1)
@@ -262,10 +344,13 @@ test.describe("Debate tournament", () => {
     await page.getByRole("button", { name: "Start a debate" }).click()
 
     const created = await createdResponse
-    const { debateJobId } = (await created.json()) as { debateJobId: string }
+    const { debateJobId, slug } = (await created.json()) as {
+      debateJobId: string
+      slug: string
+    }
     expect(created.status()).toBe(202)
     expect(debateJobId).toMatch(uuidPattern)
-    await expect(page).toHaveURL(new RegExp(`/debates/${debateJobId}$`))
+    await expect(page).toHaveURL(new RegExp(`/debates/${slug}$`))
     await expect(page.getByText("Debate failed")).toBeVisible({
       timeout: 60_000,
     })
@@ -283,7 +368,7 @@ test.describe("Debate tournament", () => {
     ).toHaveAttribute("href", "/debates")
     await expect(page.getByText("Winning idea", { exact: true })).toHaveCount(0)
 
-    const detail = await request.get(`/api/debate-jobs/${debateJobId}`)
+    const detail = await request.get(`/api/debate-jobs/${slug}`)
     expect(detail.status()).toBe(200)
     const { debateJob } = (await detail.json()) as {
       debateJob: DebateTournamentSnapshot

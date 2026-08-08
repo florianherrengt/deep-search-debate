@@ -45,7 +45,10 @@ describe("deep search jobs client", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        Response.json({ deepSearchJobId: "job-id" }, { status: 202 }),
+        Response.json(
+          { deepSearchJobId: "job-id", slug: "research-this" },
+          { status: 202 },
+        ),
       )
       .mockResolvedValueOnce(
         ndjsonResponse([
@@ -80,10 +83,15 @@ describe("deep search jobs client", () => {
       )
     vi.stubGlobal("fetch", fetchMock)
 
-    const id = await createDeepSearchJob({ researchRequest: "Research this" })
-    const events = await drain(subscribeToDeepSearchJob(id))
+    const created = await createDeepSearchJob({ researchRequest: "Research this" })
+    const events = await drain(
+      subscribeToDeepSearchJob(created.deepSearchJobId),
+    )
 
-    expect(id).toBe("job-id")
+    expect(created).toEqual({
+      deepSearchJobId: "job-id",
+      slug: "research-this",
+    })
     expect(events).toEqual([
       { type: "query-stream", streamId: "query-stream-id" },
       searchResults,
@@ -147,6 +155,8 @@ describe("deep search jobs client", () => {
   it("lists history and reads one durable job", async () => {
     const job = {
       deepSearchJobId: "job-id",
+      title: "Research This",
+      slug: "research-this",
       researchRequest: "Research this",
       maxSearches: 3,
       maxResultsPerSearch: 3,
@@ -167,13 +177,13 @@ describe("deep search jobs client", () => {
       completedAt: new Date(job.completedAt),
     }
     await expect(getDeepSearchJobs()).resolves.toEqual([parsedJob])
-    await expect(getDeepSearchJob("job-id")).resolves.toEqual(parsedJob)
+    await expect(getDeepSearchJob("research-this")).resolves.toEqual(parsedJob)
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/deep-search-jobs", {
       signal: undefined,
     })
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      "/api/deep-search-jobs/job-id",
+      "/api/deep-search-jobs/research-this",
       { signal: undefined },
     )
   })
@@ -206,6 +216,8 @@ describe("deep search jobs client", () => {
           deepSearchJobs: [
             {
               deepSearchJobId: "job-id",
+              title: "Research This",
+              slug: "research-this",
               researchRequest: "Research this",
               maxSearches: 3,
               maxResultsPerSearch: 3,

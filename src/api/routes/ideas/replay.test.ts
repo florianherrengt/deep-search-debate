@@ -59,7 +59,7 @@ describe("reconstructIdeaJobEvents", () => {
       .run()
     db.update(ideaJobs)
       .set({
-        stage: "critique",
+        stage: "ideas",
         researchPromptGenerationId: "planning-id",
         researchSummaryGenerationId: "summary-id",
         ideaGenerationId: "ideas-id",
@@ -102,6 +102,8 @@ describe("reconstructIdeaJobEvents", () => {
       {
         type: "deep-search-started",
         deepSearchJobId: "22222222-2222-4222-8222-222222222222",
+        title: "Untitled",
+        slug: "untitled",
         researchRequest: "Research this",
       },
       { type: "research-summary-stream", streamId: "summary-id" },
@@ -141,7 +143,7 @@ describe("reconstructIdeaJobEvents", () => {
       .run()
     db.update(ideaJobs)
       .set({
-        stage: "critique",
+        stage: "ideas",
         status: "failed",
         error: "Critique failed before streaming",
         completedAt: new Date(),
@@ -203,11 +205,15 @@ describe("reconstructIdeaJobEvents", () => {
       {
         type: "deep-search-started",
         deepSearchJobId: "00000000-0000-4000-8000-000000000000",
+        title: "Untitled",
+        slug: "untitled",
         researchRequest: "First prompt",
       },
       {
         type: "deep-search-started",
         deepSearchJobId: "ffffffff-ffff-4fff-bfff-ffffffffffff",
+        title: "Untitled",
+        slug: "untitled",
         researchRequest: "Second prompt",
       },
     ])

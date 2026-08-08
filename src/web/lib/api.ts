@@ -49,6 +49,27 @@ export async function postJson<Schema extends z.ZodType>(
   return schema.parse(await response.json())
 }
 
+/** Patches JSON and validates the response at the network boundary. */
+export async function patchJson<Schema extends z.ZodType>(
+  url: string,
+  body: unknown,
+  schema: Schema,
+  signal?: AbortSignal,
+): Promise<z.output<Schema>> {
+  const response = await fetch(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  })
+
+  if (!response.ok) {
+    throw new ApiError("PATCH", url, response.status)
+  }
+
+  return schema.parse(await response.json())
+}
+
 /** Replays and follows an NDJSON endpoint with every event validated. */
 export async function* subscribeToNdjson<Schema extends z.ZodType>(
   url: string,

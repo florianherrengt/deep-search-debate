@@ -8,13 +8,16 @@ export const ideaSchema = z.object({
 })
 
 export type Idea = z.infer<typeof ideaSchema>
-export type IdeaStage = (typeof ideaJobStages)[number]
+export type IdeaJobStage = (typeof ideaJobStages)[number]
+export type IdeaEventStage = IdeaJobStage | "critique"
 
 export type IdeaJobEvent =
   | { type: "research-prompt-stream"; streamId: string }
   | {
       type: "deep-search-started"
       deepSearchJobId: string
+      title: string
+      slug: string
       researchRequest: string
     }
   | { type: "research-summary-stream"; streamId: string }
@@ -25,7 +28,7 @@ export type IdeaJobEvent =
       position: number
       streamId: string
     }
-  | { type: "error"; message: string; stage: IdeaStage }
+  | { type: "error"; message: string; stage: IdeaEventStage }
   | { type: "done" }
 
 export type LiveIdeaJob = ReplayableEventLog<IdeaJobEvent>
@@ -41,7 +44,11 @@ export const createIdeaJobInputSchema = z.object({
   maxResultsPerSearch: z.number().int().positive().default(3),
 })
 
-export const ideaJobParamsSchema = z.object({ ideaJobId: z.uuid() })
+export const ideaJobEventParamsSchema = z.object({ ideaJobId: z.uuid() })
+
+export const ideaJobParamsSchema = z.object({
+  slug: z.string().trim().min(1).max(80),
+})
 
 export const listIdeaJobsInputSchema = z.object({
   limit: z.coerce.number().int().positive().max(200).default(100),
