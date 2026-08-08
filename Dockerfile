@@ -15,6 +15,11 @@ FROM node:22-bookworm-slim AS runtime
 
 WORKDIR /app
 
+# Coolify may replace the image HEALTHCHECK with an HTTP probe that uses curl.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
 COPY --from=build --chown=node:node /app/src/api ./src/api
