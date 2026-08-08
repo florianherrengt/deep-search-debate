@@ -75,6 +75,7 @@ The API binds to `127.0.0.1` by default through `API_HOST`. This keeps the local
 development API and its paid provider integrations off the LAN. A deployment
 may override the host only when authentication, quotas,
 request-size limits, and concurrency controls are enforced by its gateway.
+The listening port is parsed from `PORT` and defaults to `3000`.
 
 ## Container runtime
 

@@ -32,6 +32,8 @@ The template contains:
 
 ```dotenv
 NODE_ENV=development
+PORT=3000
+BETTER_AUTH_URL=http://localhost:5173
 SEARXNG_URL=http://127.0.0.1:8090
 DEEPSEEK_API_KEY=
 SCRAPINGANT_API_KEY=
@@ -96,6 +98,40 @@ proxies `/api` requests to it. API startup applies pending Drizzle migrations
 before serving. A network deployment can override `API_HOST`, but must define an
 authorization policy plus quotas, request-size limits, and concurrency controls
 at its gateway before exposing the API.
+
+The API port can be overridden with `PORT`. The Vite port and proxy target can
+be overridden with `VITE_PORT` and `VITE_API_TARGET`; Vite exits instead of
+silently choosing another port when the configured port is occupied.
+
+### Worktrees
+
+Create an isolated worktree and branch from the current commit with:
+
+```sh
+npm run worktree:create -- codex/my-change
+```
+
+Pass a second argument to use another start point, or name an existing local
+branch to attach it instead:
+
+```sh
+npm run worktree:create -- codex/my-change origin/main
+```
+
+Worktrees live under the `main` worktree's `.worktrees/` directory. The command
+reserves a unique API/Vite port pair, copies the `main` worktree's ignored
+`src/api/.env` without printing its secrets, sets the matching
+`BETTER_AUTH_URL`, and creates `src/web/.env` with the Vite port and API proxy
+target. The command fails if `main` is not checked out in a worktree or its API
+environment file does not exist.
+
+From the new worktree, start the API and web client in separate terminals as
+usual:
+
+```sh
+npm run dev
+npm run dev:web
+```
 
 ## Text streams
 

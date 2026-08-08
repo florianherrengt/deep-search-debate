@@ -54,11 +54,11 @@ export default defineConfig({
       },
     },
     {
-      command: "npx vite --port 5174 --strictPort",
+      command: "npx vite",
       url: WEB,
       reuseExistingServer: false,
       timeout: 30_000,
-      env: { VITE_API_TARGET: API },
+      env: { VITE_PORT: "5174", VITE_API_TARGET: API },
     },
   ],
   projects: [

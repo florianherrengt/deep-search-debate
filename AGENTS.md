@@ -14,7 +14,7 @@ Area-specific guidance lives in per-folder `docs/` files (e.g. `src/api/llms/doc
 
 - **Pre-PR gate:** `npm run gatekeep` — runs `lint → typecheck → knip → test` in that order. This is the canonical verification step.
 - **Per-workspace:** e.g. `npm run test -w @deep-search-debate/api`, `npm run dev -w @deep-search-debate/web`.
-- **Dev (full stack):** run `npm run dev` (API on :3000) **and** `npm run dev:web` (Vite) together. Vite proxies `/api` → `http://localhost:3000`.
+- **Dev (full stack):** run `npm run dev` (API on `PORT`, default `:3000`) **and** `npm run dev:web` (Vite on `VITE_PORT`, default `:5173`) together. Vite proxies `/api` to `VITE_API_TARGET` (default `http://localhost:3000`).
 
 ## Lint / style
 

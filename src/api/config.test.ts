@@ -35,6 +35,15 @@ describe("config", () => {
     }
   })
 
+  it("uses the configured API port", async () => {
+    vi.stubEnv("PORT", "4321")
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.api.port).toBe(4321)
+  })
+
   it("derives development URLs and paths from NODE_ENV", async () => {
     vi.stubEnv("NODE_ENV", "development")
     vi.stubEnv("BETTER_AUTH_URL", undefined)

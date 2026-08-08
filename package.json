@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "npm run dev -w @deep-search-debate/api",
     "dev:web": "npm run dev -w @deep-search-debate/web",
+    "worktree:create": "node scripts/create-worktree.mjs",
     "build:web": "npm run build -w @deep-search-debate/web",
     "start": "npm run start -w @deep-search-debate/api",
     "db:diagram": "npm run db:diagram -w @deep-search-debate/api",
