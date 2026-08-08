@@ -26,7 +26,8 @@ jq -n '{
   health_check_host: "127.0.0.1",
   health_check_method: "GET",
   health_check_scheme: "http",
-  health_check_return_code: 200
+  health_check_return_code: 200,
+  health_check_start_period: 300
 }' | "${SCRIPT_DIR}/api.sh" PATCH "/applications/${COOLIFY_APPLICATION_UUID}" - >/dev/null
 
 echo "Configured host port 4479 to map to container port 3000, plus the /api/health check. Runtime defaults come from the image and typed application config."
