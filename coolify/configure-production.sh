@@ -19,7 +19,7 @@ fi
 
 jq -n '{
   ports_exposes: "3000",
-  ports_mappings: "",
+  ports_mappings: "4479:3000",
   health_check_enabled: true,
   health_check_path: "/api/health",
   health_check_port: "3000",
@@ -29,6 +29,6 @@ jq -n '{
   health_check_return_code: 200
 }' | "${SCRIPT_DIR}/api.sh" PATCH "/applications/${COOLIFY_APPLICATION_UUID}" - >/dev/null
 
-echo "Configured container port 3000 and the /api/health check. Runtime defaults come from the image and typed application config."
+echo "Configured host port 4479 to map to container port 3000, plus the /api/health check. Runtime defaults come from the image and typed application config."
 "${SCRIPT_DIR}/sync-proxy-labels.sh"
 "${SCRIPT_DIR}/check-config.sh"
