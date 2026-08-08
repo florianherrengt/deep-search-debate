@@ -19,7 +19,10 @@ import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
 import { runIdeaJob } from "./run.ts"
 import type { Idea, IdeaJobEvent } from "./schemas.ts"
 
-const researchPrompts = ["Research market constraints", "Research user needs"]
+const researchPrompts = [
+  { title: "Market Constraints", prompt: "Research market constraints" },
+  { title: "User Needs", prompt: "Research user needs" },
+]
 const ideaJobId = "11111111-1111-4111-8111-111111111111"
 const generatedIdeas: Idea[] = [
   { title: "First idea", description: "First description" },
@@ -116,10 +119,14 @@ describe("runIdeaJob", () => {
     mocks.startDeepSearch
       .mockReturnValueOnce({
         deepSearchJobId: "search-one",
+        title: "Market Constraints",
+        slug: "market-constraints",
         completion: Promise.resolve("First research result"),
       })
       .mockReturnValueOnce({
         deepSearchJobId: "search-two",
+        title: "User Needs",
+        slug: "user-needs",
         completion: Promise.resolve("Second research result"),
       })
     await runIdeaJob(input)
@@ -129,7 +136,8 @@ describe("runIdeaJob", () => {
       1,
       "test-user-id",
       {
-        researchRequest: researchPrompts[0],
+        title: researchPrompts[0].title,
+        researchRequest: researchPrompts[0].prompt,
         maxSearches: 3,
         maxResultsPerSearch: 3,
         ideaJobId: input.ideaJobId,
@@ -159,12 +167,16 @@ describe("runIdeaJob", () => {
       {
         type: "deep-search-started",
         deepSearchJobId: "search-one",
-        researchRequest: researchPrompts[0],
+        title: "Market Constraints",
+        slug: "market-constraints",
+        researchRequest: researchPrompts[0].prompt,
       },
       {
         type: "deep-search-started",
         deepSearchJobId: "search-two",
-        researchRequest: researchPrompts[1],
+        title: "User Needs",
+        slug: "user-needs",
+        researchRequest: researchPrompts[1].prompt,
       },
       { type: "research-summary-stream", streamId: "summary-id" },
       { type: "idea-generation-stream", streamId: "ideas-id" },
@@ -192,10 +204,14 @@ describe("runIdeaJob", () => {
     mocks.startDeepSearch
       .mockReturnValueOnce({
         deepSearchJobId: "search-one",
+        title: "Market Constraints",
+        slug: "market-constraints",
         completion: Promise.resolve("First research result"),
       })
       .mockReturnValueOnce({
         deepSearchJobId: "search-two",
+        title: "User Needs",
+        slug: "user-needs",
         completion: Promise.reject(new Error("Second research failed")),
       })
     await runIdeaJob(input)
@@ -207,12 +223,16 @@ describe("runIdeaJob", () => {
       {
         type: "deep-search-started",
         deepSearchJobId: "search-one",
-        researchRequest: researchPrompts[0],
+        title: "Market Constraints",
+        slug: "market-constraints",
+        researchRequest: researchPrompts[0].prompt,
       },
       {
         type: "deep-search-started",
         deepSearchJobId: "search-two",
-        researchRequest: researchPrompts[1],
+        title: "User Needs",
+        slug: "user-needs",
+        researchRequest: researchPrompts[1].prompt,
       },
       {
         type: "error",
@@ -239,10 +259,14 @@ describe("runIdeaJob", () => {
     mocks.startDeepSearch
       .mockReturnValueOnce({
         deepSearchJobId: "search-one",
+        title: "Market Constraints",
+        slug: "market-constraints",
         completion: Promise.resolve("First research result"),
       })
       .mockReturnValueOnce({
         deepSearchJobId: "search-two",
+        title: "User Needs",
+        slug: "user-needs",
         completion: Promise.resolve("Second research result"),
       })
     mocks.generateTextStream.mockRejectedValue(

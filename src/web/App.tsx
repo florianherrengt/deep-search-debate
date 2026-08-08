@@ -173,13 +173,13 @@ function RoutedContent() {
       <Routes>
         <Route path="/deep-search" element={<DeepSearch />} />
         <Route
-          path="/deep-search/:deepSearchJobId"
+          path="/deep-search/:slug"
           element={<DeepSearch />}
         />
         <Route path="/ideas" element={<Ideas />} />
-        <Route path="/ideas/:ideaJobId" element={<Ideas />} />
+        <Route path="/ideas/:slug" element={<Ideas />} />
         <Route path="/debates" element={<Debates />} />
-        <Route path="/debates/:debateJobId" element={<Debates />} />
+        <Route path="/debates/:slug" element={<Debates />} />
         <Route path="/about" element={<About />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
@@ -276,7 +276,7 @@ export function App() {
           }
         />
         <Route
-          path="/debates/:debateJobId"
+          path="/debates/:slug"
           element={
             <ShareableResourceRoute maxWidth="xl">
               <Debates />
@@ -284,7 +284,7 @@ export function App() {
           }
         />
         <Route
-          path="/ideas/:ideaJobId"
+          path="/ideas/:slug"
           element={
             <ShareableResourceRoute maxWidth="lg">
               <Ideas />
@@ -292,7 +292,7 @@ export function App() {
           }
         />
         <Route
-          path="/deep-search/:deepSearchJobId"
+          path="/deep-search/:slug"
           element={
             <ShareableResourceRoute maxWidth="lg">
               <DeepSearch />

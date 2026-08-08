@@ -44,6 +44,8 @@ function match(
 const tournament: DebateTournament = {
   debateJobId: "debate",
   ideaJobId: "ideas",
+  title: "Prompt",
+  slug: "prompt",
   prompt: "Prompt",
   isPublic: false,
   isOwner: true,

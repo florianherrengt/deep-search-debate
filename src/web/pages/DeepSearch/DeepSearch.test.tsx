@@ -42,7 +42,7 @@ function renderDeepSearch(initialEntry = "/deep-search") {
         <Routes>
           <Route path="/deep-search" element={<DeepSearch />} />
           <Route
-            path="/deep-search/:deepSearchJobId"
+            path="/deep-search/:slug"
             element={<DeepSearch />}
           />
         </Routes>
@@ -54,6 +54,8 @@ function renderDeepSearch(initialEntry = "/deep-search") {
 function deepSearchJob() {
   return {
     deepSearchJobId: "job-id",
+    title: "Research This",
+    slug: "research-this",
     researchRequest: "Research this",
     maxSearches: 3,
     maxResultsPerSearch: 3,
@@ -174,7 +176,10 @@ describe("DeepSearch", () => {
       yield { type: "text" as const, text: '["result-0"]' }
       yield { type: "done" as const }
     }
-    mocks.createDeepSearchJob.mockResolvedValue("job-id")
+    mocks.createDeepSearchJob.mockResolvedValue({
+      deepSearchJobId: "job-id",
+      slug: "research-this",
+    })
     mocks.subscribeToDeepSearchJob.mockReturnValue(events())
     mocks.subscribeToTextStream.mockImplementation((id: string) => {
       if (id === "query-stream-id") return queryGenerationEvents()
@@ -216,9 +221,9 @@ describe("DeepSearch", () => {
         reasoning: "Comparing source relevance",
       },
       {
-        container: screen
-          .getByText("What this search found")
-          .closest("section"),
+        container: (await screen.findByText("What this search found")).closest(
+          "section",
+        ),
         reasoning: "Combining all results",
       },
       {
@@ -373,7 +378,10 @@ describe("DeepSearch", () => {
       yield { type: "done" as const }
     }
 
-    mocks.createDeepSearchJob.mockResolvedValue("job-id")
+    mocks.createDeepSearchJob.mockResolvedValue({
+      deepSearchJobId: "job-id",
+      slug: "research-this",
+    })
     mocks.subscribeToDeepSearchJob.mockReturnValue(events())
     mocks.subscribeToTextStream.mockImplementation((id: string) => {
       if (id === "first-summary-stream") return firstSummaryEvents()
@@ -401,7 +409,7 @@ describe("DeepSearch", () => {
     expect(await screen.findByText("First partial summary")).toBeInTheDocument()
   })
 
-  it("lists previous jobs as reopenable UUID links", async () => {
+  it("lists previous jobs by title with readable links", async () => {
     mocks.getDeepSearchJobs.mockResolvedValue([
       {
         ...deepSearchJob(),
@@ -412,8 +420,8 @@ describe("DeepSearch", () => {
     renderDeepSearch()
 
     expect(
-      await screen.findByRole("link", { name: /Previously researched topic/ }),
-    ).toHaveAttribute("href", "/deep-search/job-id")
+      await screen.findByRole("link", { name: /Research This/ }),
+    ).toHaveAttribute("href", "/deep-search/research-this")
     expect(screen.getByText("Complete")).toBeVisible()
   })
 

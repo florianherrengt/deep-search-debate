@@ -82,7 +82,7 @@ describe("App", () => {
   it("renders the product entry point", () => {
     renderApp()
     expect(
-      screen.getByRole("link", { name: "Deep Search Debate home" }),
+      screen.getByRole("link", { name: "RethinkLoop home" }),
     ).toBeInTheDocument()
     expect(
       screen.getByRole("heading", {
@@ -99,7 +99,7 @@ describe("App", () => {
       }),
     ).toHaveAttribute("href", "/debates")
     expect(
-      screen.queryByRole("heading", { name: "Deep Search Debate" }),
+      screen.queryByRole("heading", { name: "RethinkLoop" }),
     ).not.toBeInTheDocument()
     expect(
       within(landingNavigation).getByRole("link", { name: "How it works" }),
@@ -120,7 +120,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("link", { name: "About" }))
 
     const heading = await screen.findByRole("heading", {
-      name: "About Deep Search Debate",
+      name: "About RethinkLoop",
     })
     expect(heading).toBeVisible()
     await waitFor(() =>

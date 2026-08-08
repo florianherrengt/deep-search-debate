@@ -109,6 +109,8 @@ table deep_search_jobs {
   user_id text [not null]
   idea_job_id text
   idea_job_position integer
+  title text [not null, default: 'Untitled']
+  slug text [not null, default: 'untitled']
   research_request text [not null]
   max_searches integer [not null]
   max_results_per_search integer [not null]
@@ -120,6 +122,7 @@ table deep_search_jobs {
 
   indexes {
     (user_id, created_at, deep_search_job_id) [name: 'deep_search_jobs_user_created_at_idx']
+    (user_id, slug) [name: 'deep_search_jobs_user_slug_idx']
     (deep_search_job_id, user_id) [name: 'deep_search_jobs_id_user_id_idx', unique]
     (idea_job_id, idea_job_position) [name: 'deep_search_jobs_idea_job_position_idx', unique]
 
@@ -207,6 +210,8 @@ table idea_jobs {
   idea_job_id text [pk, not null]
   user_id text [not null]
   debate_job_id text [unique]
+  title text [not null, default: 'Untitled']
+  slug text [not null, default: 'untitled']
   prompt text [not null]
   stage text [not null, default: 'planning']
   number_of_ideas integer [not null]
@@ -221,6 +226,7 @@ table idea_jobs {
 
   indexes {
     (user_id, created_at, idea_job_id) [name: 'idea_jobs_user_created_at_idx']
+    (user_id, slug) [name: 'idea_jobs_user_slug_idx']
     (idea_job_id, user_id) [name: 'idea_jobs_id_user_id_idx', unique]
 
 

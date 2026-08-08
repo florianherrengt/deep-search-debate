@@ -7,12 +7,21 @@ readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=config.sh
 source "${SCRIPT_DIR}/config.sh"
 
+project_json="$("${SCRIPT_DIR}/api.sh" GET "/projects/${COOLIFY_PROJECT_UUID}")"
 application_json="$("${SCRIPT_DIR}/api.sh" GET "/applications/${COOLIFY_APPLICATION_UUID}")"
 environment_json="$("${SCRIPT_DIR}/api.sh" GET "/applications/${COOLIFY_APPLICATION_UUID}/envs")"
 
 configuration_ok=true
 
-if ! jq -e '
+if ! jq -e --arg project_name "${COOLIFY_PROJECT_NAME}" '
+  .name == $project_name
+' >/dev/null <<<"${project_json}"; then
+  configuration_ok=false
+  echo "The Coolify project name must be ${COOLIFY_PROJECT_NAME}." >&2
+fi
+
+if ! jq -e --arg application_name "${COOLIFY_APPLICATION_NAME}" '
+  .name == $application_name and
   .build_pack == "dockerfile" and
   .base_directory == "/" and
   .dockerfile_location == "/Dockerfile" and
@@ -30,6 +39,7 @@ if ! jq -e '
   configuration_ok=false
   echo "Coolify application configuration is incorrect:" >&2
   jq '{
+    name,
     build_pack,
     base_directory,
     dockerfile_location,

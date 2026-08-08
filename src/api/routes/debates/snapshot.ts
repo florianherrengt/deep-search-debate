@@ -54,6 +54,8 @@ type DebateRoundSnapshot = {
 export type DebateJobSnapshot = {
   debateJobId: string
   ideaJobId: string
+  title: string
+  slug: string
   prompt: string
   isPublic: boolean
   isOwner: boolean
@@ -93,6 +95,8 @@ export function getDebateJobSnapshot(
       stage: debateJobs.stage,
       status: debateJobs.status,
       error: debateJobs.error,
+      title: ideaJobs.title,
+      slug: ideaJobs.slug,
       prompt: ideaJobs.prompt,
       userId: debateJobs.userId,
     })
@@ -255,6 +259,8 @@ export function getDebateJobSnapshot(
   return {
     debateJobId: job.debateJobId,
     ideaJobId: job.ideaJobId,
+    title: job.title,
+    slug: job.slug,
     prompt: job.prompt,
     isPublic: job.isPublic,
     isOwner: job.userId === viewerUserId,

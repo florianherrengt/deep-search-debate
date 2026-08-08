@@ -11,6 +11,8 @@ import { DEBATE_TOURNAMENT_FORMAT } from "./tournament.ts"
 
 type StartedDebateJob = {
   debateJobId: string
+  title: string
+  slug: string
   completion: Promise<void>
 }
 
@@ -18,7 +20,7 @@ export type DebateJobManager = {
   start(
     userId: string,
     input: { prompt: string; isPublic: boolean },
-  ): StartedDebateJob
+  ): Promise<StartedDebateJob>
   getLiveJob(debateJobId: string): LiveDebateJob | undefined
 }
 
@@ -58,11 +60,11 @@ export function createDebateJobManager(
   const liveJobs = new Map<string, LiveDebateJob>()
 
   return {
-    start(userId, { isPublic, prompt }) {
+    async start(userId, { isPublic, prompt }) {
       const debateJobId = randomUUID()
       const randomSeed = getRandomSeed()
       const job = createReplayableEventLog<DebateJobEvent>()
-      const ideaJob = ideaJobManager.start(
+      const ideaJob = await ideaJobManager.start(
         userId,
         {
           prompt,
@@ -99,7 +101,12 @@ export function createDebateJobManager(
           }
         })
 
-      return { debateJobId, completion }
+      return {
+        debateJobId,
+        title: ideaJob.title,
+        slug: ideaJob.slug,
+        completion,
+      }
     },
     getLiveJob(debateJobId) {
       return liveJobs.get(debateJobId)

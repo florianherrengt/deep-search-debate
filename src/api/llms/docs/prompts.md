@@ -14,3 +14,8 @@ The enum value and the filename (minus `.md`) must be identical, or `loadPrompt`
 ## LLM calls
 
 `generateTextStream` (`src/api/llms/generateText.ts`) invokes DeepSeek via the AI SDK with thinking enabled (`providerOptions: { deepseek: { thinking: { type: "enabled" } } }`). It registers and starts consuming the provider stream immediately, then returns its stream ID. See `routes/docs/text-streaming.md` for the client contract.
+
+`generatePromptTitle` uses the same configured model with thinking disabled and
+schema-validated `{ title }` output. Job creation awaits this short preflight
+call before inserting the durable job and returning its slug. Title generation
+is not exposed as a user-visible stream.

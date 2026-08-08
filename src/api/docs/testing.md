@@ -1,7 +1,7 @@
 # API testing
 
 - vitest; test files use the `.test.ts` suffix. Web uses `.test.tsx`.
-- **Single test file:** run `npx vitest run <file>` inside the relevant workspace, or `npm run test:watch -w @deep-search-debate/api`.
+- **Single test file:** run `npx vitest run <file>` inside the relevant workspace, or `npm run test:watch -w @rethinkloop/api`.
 - API tests run against an in-memory SQLite (`DATABASE_URL=:memory:`) with stubbed env, so no external services or real keys are required.
 - Vitest supplies fake provider and auth secrets through `vitest.config.ts`; tests must never read operator credentials.
 

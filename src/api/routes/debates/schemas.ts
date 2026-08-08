@@ -8,7 +8,11 @@ export const createDebateJobInputSchema = z.object({
   isPublic: z.boolean().default(false),
 })
 
-export const debateJobParamsSchema = z.object({ debateJobId: z.uuid() })
+export const debateJobEventParamsSchema = z.object({ debateJobId: z.uuid() })
+
+export const debateJobParamsSchema = z.object({
+  slug: z.string().trim().min(1).max(80),
+})
 
 export const mutableDebateJobFieldsSchema = z.object({
   isPublic: z.boolean(),
@@ -27,6 +31,8 @@ export const listDebateJobsInputSchema = z.object({
 const debateJobSummarySchema = z.object({
   debateJobId: z.uuid(),
   ideaJobId: z.uuid(),
+  title: z.string().min(1),
+  slug: z.string().min(1),
   prompt: z.string().min(1),
   isPublic: z.boolean(),
   stage: z.enum(debateJobStages),

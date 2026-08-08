@@ -22,25 +22,39 @@ import { streamReads, streams } from "./streams.ts"
 const ownerId = "test-user-id"
 const foreignUserId = "foreign-test-user-id"
 const foreignIdeaJobId = "11111111-1111-4111-8111-111111111111"
+const foreignIdeaSlug = "foreign-ideas"
 const foreignDeepSearchJobId = "22222222-2222-4222-8222-222222222222"
+const foreignDeepSearchSlug = "foreign-research"
 const foreignDebateJobId = "33333333-3333-4333-8333-333333333333"
 const foreignStreamId = "44444444-4444-4444-8444-444444444444"
 const foreignDebateStreamId = "88888888-8888-4888-8888-888888888888"
 const foreignIdeaStreamId = "99999999-9999-4999-8999-999999999999"
 const foreignSearchStreamId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
-const deepSearchStart = vi.fn<DeepSearchJobManager["start"]>(() => ({
-  deepSearchJobId: "55555555-5555-4555-8555-555555555555",
-  completion: Promise.resolve("answer"),
-}))
-const ideaStart = vi.fn<IdeaJobManager["start"]>(() => ({
-  ideaJobId: "66666666-6666-4666-8666-666666666666",
-  completion: Promise.resolve(),
-}))
-const debateStart = vi.fn<DebateJobManager["start"]>(() => ({
-  debateJobId: "77777777-7777-4777-8777-777777777777",
-  completion: Promise.resolve(),
-}))
+const deepSearchStart = vi.fn<DeepSearchJobManager["start"]>(() =>
+  Promise.resolve({
+    deepSearchJobId: "55555555-5555-4555-8555-555555555555",
+    title: "Research This",
+    slug: "research-this",
+    completion: Promise.resolve("answer"),
+  }),
+)
+const ideaStart = vi.fn<IdeaJobManager["start"]>(() =>
+  Promise.resolve({
+    ideaJobId: "66666666-6666-4666-8666-666666666666",
+    title: "Ideas",
+    slug: "ideas",
+    completion: Promise.resolve(),
+  }),
+)
+const debateStart = vi.fn<DebateJobManager["start"]>(() =>
+  Promise.resolve({
+    debateJobId: "77777777-7777-4777-8777-777777777777",
+    title: "Debate",
+    slug: "debate",
+    completion: Promise.resolve(),
+  }),
+)
 
 function createApp(viewerUserId: string | null = ownerId): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
@@ -92,6 +106,8 @@ beforeEach(() => {
       userId: foreignUserId,
       ideaJobId: foreignIdeaJobId,
       debateJobId: foreignDebateJobId,
+      title: "Foreign Ideas",
+      slug: foreignIdeaSlug,
       prompt: "Foreign ideas",
       numberOfIdeas: 12,
       deepSearchCount: 2,
@@ -103,6 +119,8 @@ beforeEach(() => {
       deepSearchJobId: foreignDeepSearchJobId,
       ideaJobId: foreignIdeaJobId,
       ideaJobPosition: 0,
+      title: "Foreign Research",
+      slug: foreignDeepSearchSlug,
       researchRequest: "Foreign research",
       maxSearches: 3,
       maxResultsPerSearch: 3,
@@ -140,11 +158,11 @@ beforeEach(() => {
 describe("user-owned routes", () => {
   it.each([
     ["stream", `/streams/${foreignStreamId}`],
-    ["deep-search detail", `/deep-search-jobs/${foreignDeepSearchJobId}`],
+    ["deep-search detail", `/deep-search-jobs/${foreignDeepSearchSlug}`],
     ["deep-search events", `/deep-search-jobs/${foreignDeepSearchJobId}/events`],
-    ["idea detail", `/idea-jobs/${foreignIdeaJobId}`],
+    ["idea detail", `/idea-jobs/${foreignIdeaSlug}`],
     ["idea events", `/idea-jobs/${foreignIdeaJobId}/events`],
-    ["debate detail", `/debate-jobs/${foreignDebateJobId}`],
+    ["debate detail", `/debate-jobs/${foreignIdeaSlug}`],
     ["debate events", `/debate-jobs/${foreignDebateJobId}/events`],
   ])("hides a foreign %s", async (_label, path) => {
     const response = await createApp().request(path)
@@ -164,11 +182,11 @@ describe("user-owned routes", () => {
       const app = createApp(viewerUserId)
 
       for (const path of [
-        `/debate-jobs/${foreignDebateJobId}`,
+        `/debate-jobs/${foreignIdeaSlug}`,
         `/debate-jobs/${foreignDebateJobId}/events`,
-        `/idea-jobs/${foreignIdeaJobId}`,
+        `/idea-jobs/${foreignIdeaSlug}`,
         `/idea-jobs/${foreignIdeaJobId}/events`,
-        `/deep-search-jobs/${foreignDeepSearchJobId}`,
+        `/deep-search-jobs/${foreignDeepSearchSlug}`,
         `/deep-search-jobs/${foreignDeepSearchJobId}/events`,
         `/streams/${foreignDebateStreamId}`,
         `/streams/${foreignIdeaStreamId}`,
@@ -178,15 +196,15 @@ describe("user-owned routes", () => {
       }
 
       const debateResponse = await app.request(
-        `/debate-jobs/${foreignDebateJobId}`,
+        `/debate-jobs/${foreignIdeaSlug}`,
       )
       expect(await debateResponse.json()).toMatchObject({
         debateJob: { isOwner: false, isPublic: true },
       })
-      const ideaResponse = await app.request(`/idea-jobs/${foreignIdeaJobId}`)
+      const ideaResponse = await app.request(`/idea-jobs/${foreignIdeaSlug}`)
       expect(JSON.stringify(await ideaResponse.json())).not.toContain("userId")
       const searchResponse = await app.request(
-        `/deep-search-jobs/${foreignDeepSearchJobId}`,
+        `/deep-search-jobs/${foreignDeepSearchSlug}`,
       )
       expect(JSON.stringify(await searchResponse.json())).not.toContain("userId")
       expect((await app.request(`/streams/${foreignStreamId}`)).status).toBe(404)
@@ -222,7 +240,7 @@ describe("user-owned routes", () => {
       .run()
     const app = createApp(null)
     expect(
-      (await app.request(`/debate-jobs/${foreignDebateJobId}`)).status,
+      (await app.request(`/debate-jobs/${foreignIdeaSlug}`)).status,
     ).toBe(200)
 
     db.update(debateJobsTable)
@@ -231,9 +249,9 @@ describe("user-owned routes", () => {
       .run()
 
     for (const path of [
-      `/debate-jobs/${foreignDebateJobId}`,
-      `/idea-jobs/${foreignIdeaJobId}`,
-      `/deep-search-jobs/${foreignDeepSearchJobId}`,
+      `/debate-jobs/${foreignIdeaSlug}`,
+      `/idea-jobs/${foreignIdeaSlug}`,
+      `/deep-search-jobs/${foreignDeepSearchSlug}`,
       `/streams/${foreignDebateStreamId}`,
     ]) {
       expect((await app.request(path)).status).toBe(404)

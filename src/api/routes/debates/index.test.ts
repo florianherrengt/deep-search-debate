@@ -85,6 +85,8 @@ describe("debate job routes", () => {
         {
           debateJobId: newerDebateJobId,
           ideaJobId: newerIdeaJobId,
+          title: "Untitled",
+          slug: "untitled",
           prompt: "Newer prompt",
           isPublic: false,
           stage: "final",

@@ -39,7 +39,7 @@ function renderIdeas(initialEntry = "/ideas") {
       <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/ideas" element={<Ideas />} />
-          <Route path="/ideas/:ideaJobId" element={<Ideas />} />
+          <Route path="/ideas/:slug" element={<Ideas />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -50,9 +50,14 @@ describe("Ideas", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.getIdeaJobs.mockResolvedValue([])
-    mocks.createIdeaJob.mockResolvedValue("idea-job-id")
+    mocks.createIdeaJob.mockResolvedValue({
+      ideaJobId: "idea-job-id",
+      slug: "independent-cafe-ideas",
+    })
     mocks.getIdeaJob.mockResolvedValue({
       ideaJobId: "idea-job-id",
+      title: "Independent Café Ideas",
+      slug: "independent-cafe-ideas",
       prompt: "Ideas for independent cafés",
       numberOfIdeas: 12,
       deepSearchCount: 2,
@@ -70,11 +75,15 @@ describe("Ideas", () => {
       yield {
         type: "deep-search-started" as const,
         deepSearchJobId: "search-one",
+        title: "Café Waste Causes",
+        slug: "cafe-waste-causes",
         researchRequest: "Research café waste causes",
       }
       yield {
         type: "deep-search-started" as const,
         deepSearchJobId: "search-two",
+        title: "Proven Café Interventions",
+        slug: "proven-cafe-interventions",
         researchRequest: "Research proven café interventions",
       }
       yield { type: "research-summary-stream" as const, streamId: "summary" }
@@ -127,21 +136,22 @@ describe("Ideas", () => {
       screen.getByRole("button", { name: /Deep research Complete/ }),
     )
     expect(
-      screen.getByRole("link", { name: "Research café waste causes" }),
-    ).toHaveAttribute("href", "/deep-search/search-one")
+      screen.getByRole("link", { name: "Café Waste Causes" }),
+    ).toHaveAttribute("href", "/deep-search/cafe-waste-causes")
     expect(
-      screen.getByRole("link", { name: "Research café waste causes" }),
+      screen.getByRole("link", { name: "Café Waste Causes" }),
     ).toHaveAttribute("target", "_blank")
     expect(
       screen.getByRole("link", {
-        name: "Research proven café interventions",
+        name: "Proven Café Interventions",
       }),
-    ).toHaveAttribute("href", "/deep-search/search-two")
+    ).toHaveAttribute("href", "/deep-search/proven-cafe-interventions")
   })
 
   it("opens completed idea results by default without exposing provider output", () => {
     render(
       <IdeaJobView
+        title="Generated ideas"
         prompt="Generate ideas"
         run={{
           status: "completed",
@@ -182,6 +192,7 @@ describe("Ideas", () => {
 
     render(
       <IdeaJobView
+        title="Generated ideas"
         prompt="Generate ideas"
         run={{
           status: "failed",
@@ -215,6 +226,7 @@ describe("Ideas", () => {
 
     render(
       <IdeaJobView
+        title="Generated ideas"
         prompt="Generate ideas"
         run={{
           status: "failed",
@@ -267,6 +279,8 @@ describe("Ideas", () => {
     mocks.getIdeaJobs.mockResolvedValue([
       {
         ideaJobId: "previous-idea-job",
+        title: "Previously Generated Ideas",
+        slug: "previously-generated-ideas",
         prompt: "Previously generated ideas",
         numberOfIdeas: 12,
         deepSearchCount: 2,
@@ -281,8 +295,8 @@ describe("Ideas", () => {
     renderIdeas()
 
     expect(
-      await screen.findByRole("link", { name: /Previously generated ideas/ }),
-    ).toHaveAttribute("href", "/ideas/previous-idea-job")
+      await screen.findByRole("link", { name: /Previously Generated Ideas/ }),
+    ).toHaveAttribute("href", "/ideas/previously-generated-ideas")
     expect(screen.getByText("Complete")).toBeVisible()
   })
 })

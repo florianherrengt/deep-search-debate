@@ -11,6 +11,7 @@ import {
 import type { DebateJobManager } from "./manager.ts"
 import {
   createDebateJobInputSchema,
+  debateJobEventParamsSchema,
   debateJobParamsSchema,
   listDebateJobsInputSchema,
   listDebateJobsResponseSchema,
@@ -61,7 +62,7 @@ export function debateJobReads(
 ): void {
   app.get(
     "/debate-jobs/:debateJobId/events",
-    zValidator("param", debateJobParamsSchema),
+    zValidator("param", debateJobEventParamsSchema),
     (c) => {
       const { debateJobId } = c.req.valid("param")
       const persistedEvents = reconstructDebateJobEvents(
@@ -81,12 +82,27 @@ export function debateJobReads(
   )
 
   app.get(
-    "/debate-jobs/:debateJobId",
+    "/debate-jobs/:slug",
     zValidator("param", debateJobParamsSchema),
     (c) => {
-      const { debateJobId } = c.req.valid("param")
+      const { slug } = c.req.valid("param")
+      const visibleJob = db
+        .select({ id: debateJobsTable.debateJobId })
+        .from(debateJobsTable)
+        .innerJoin(
+          ideaJobsTable,
+          eq(debateJobsTable.debateJobId, ideaJobsTable.debateJobId),
+        )
+        .where(
+          and(
+            eq(ideaJobsTable.slug, slug),
+            debateJobReadScope(c.get("viewerUserId")),
+          ),
+        )
+        .get()
+      if (!visibleJob) return c.json({ error: "Debate job not found" }, 404)
       const debateJob = getDebateJobSnapshot(
-        debateJobId,
+        visibleJob.id,
         c.get("viewerUserId"),
       )
       if (!debateJob) return c.json({ error: "Debate job not found" }, 404)
@@ -100,8 +116,8 @@ export function debateJobs(app: Hono<AppEnv>, manager: DebateJobManager): void {
   app.post(
     "/debate-jobs",
     zValidator("json", createDebateJobInputSchema),
-    (c) => {
-      const { debateJobId, completion } = manager.start(
+    async (c) => {
+      const { debateJobId, slug, completion } = await manager.start(
         c.get("userId"),
         c.req.valid("json"),
       )
@@ -109,8 +125,8 @@ export function debateJobs(app: Hono<AppEnv>, manager: DebateJobManager): void {
         console.error(`Debate job ${debateJobId} background task failed`, error)
       })
 
-      c.header("Location", `/api/debate-jobs/${debateJobId}`)
-      return c.json({ debateJobId }, 202)
+      c.header("Location", `/api/debate-jobs/${slug}`)
+      return c.json({ debateJobId, slug }, 202)
     },
   )
 
@@ -123,6 +139,8 @@ export function debateJobs(app: Hono<AppEnv>, manager: DebateJobManager): void {
         .select({
           debateJobId: debateJobsTable.debateJobId,
           ideaJobId: ideaJobsTable.ideaJobId,
+          title: ideaJobsTable.title,
+          slug: ideaJobsTable.slug,
           prompt: ideaJobsTable.prompt,
           isPublic: debateJobsTable.isPublic,
           stage: debateJobsTable.stage,
@@ -157,7 +175,7 @@ export function debateJobs(app: Hono<AppEnv>, manager: DebateJobManager): void {
 
   app.patch(
     "/debate-jobs/:debateJobId",
-    zValidator("param", debateJobParamsSchema),
+    zValidator("param", debateJobEventParamsSchema),
     zValidator("json", updateDebateJobInputSchema),
     (c) => {
       const { debateJobId } = c.req.valid("param")

@@ -34,6 +34,8 @@ export function reconstructIdeaJobEvents(
   const searches = db
     .select({
       deepSearchJobId: deepSearchJobs.deepSearchJobId,
+      title: deepSearchJobs.title,
+      slug: deepSearchJobs.slug,
       researchRequest: deepSearchJobs.researchRequest,
     })
     .from(deepSearchJobs)

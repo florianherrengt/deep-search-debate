@@ -14,7 +14,7 @@ Usage: ./coolify/api.sh METHOD /endpoint [JSON|-]
 Examples:
   ./coolify/api.sh GET /applications
   ./coolify/api.sh GET /applications/hgv8mv8vamha35yjrzm2uu03
-  printf '%s\n' '{"name":"deep-search-debate"}' | \
+  printf '%s\n' '{"name":"rethinkloop"}' | \
     ./coolify/api.sh PATCH /applications/hgv8mv8vamha35yjrzm2uu03 -
 
 The endpoint must start with /. It is always sent to the configured Coolify API

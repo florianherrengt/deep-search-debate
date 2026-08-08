@@ -10,7 +10,7 @@ globalThis.AI_SDK_LOG_WARNINGS = false
 
 const databasePath = join(
   tmpdir(),
-  `deep-search-debate-e2e-${process.pid}.db`,
+  `rethinkloop-e2e-${process.pid}.db`,
 )
 const databaseFiles = [databasePath, `${databasePath}-shm`, `${databasePath}-wal`]
 for (const path of databaseFiles) rmSync(path, { force: true })
@@ -38,8 +38,14 @@ process.once("SIGTERM", () => {
 })
 
 const ideaResearchPrompts = [
-  "Research the main energy constraints faced by London renters.",
-  "Research proven renter-friendly household energy interventions.",
+  {
+    title: "London Renter Energy Constraints",
+    prompt: "Research the main energy constraints faced by London renters.",
+  },
+  {
+    title: "Renter-Friendly Energy Interventions",
+    prompt: "Research proven renter-friendly household energy interventions.",
+  },
 ]
 
 const ideas = Array.from({ length: 12 }, (_, index) => ({
@@ -316,6 +322,20 @@ function deepSeekOutput(body) {
   const system = messageText(body, "system")
   const user = messageText(body, "user")
 
+  if (system.includes("You create short, descriptive titles")) {
+    const title = user.includes("official MDN documentation")
+      ? "JavaScript Array Documentation"
+      : user.includes("London renters")
+        ? "London Renter Energy Products"
+        : user.includes("small apartment buildings")
+          ? "Apartment Energy Product Ideas"
+          : "Saved Research Request"
+    return {
+      reasoning: "",
+      text: JSON.stringify({ title }),
+    }
+  }
+
   if (system.includes("You plan research that will help another model")) {
     if (!user.includes("Generate exactly 2 deep-search prompts.")) {
       throw new Error("Idea planning request did not preserve deepSearchCount=2")
@@ -423,6 +443,30 @@ function deepSeekResponse(body) {
       { status: 500 },
     )
   }
+
+  if (body.stream !== true) {
+    return Response.json({
+      id: "e2e-completion",
+      created: 0,
+      model: body.model,
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: output.text,
+            reasoning_content: output.reasoning,
+          },
+          finish_reason: "stop",
+        },
+      ],
+      usage: {
+        prompt_tokens: 10,
+        completion_tokens: 10,
+        total_tokens: 20,
+      },
+    })
+  }
+
   const midpoint = Math.ceil(output.text.length / 2)
   const chunks = [
     { reasoning_content: output.reasoning },

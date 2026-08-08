@@ -7,7 +7,7 @@ const API = "http://localhost:3100"
 const WEB = "http://localhost:5174"
 const e2eDatabase = join(
   tmpdir(),
-  `deep-search-debate-e2e-${process.pid}.db`,
+  `rethinkloop-e2e-${process.pid}.db`,
 )
 process.env.PLAYWRIGHT_E2E_DATABASE_URL = e2eDatabase
 const mockExternalServices = fileURLToPath(

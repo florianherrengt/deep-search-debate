@@ -34,12 +34,12 @@ function DebateStart() {
   const creation = useMutation({
     mutationFn: (input: Parameters<typeof createDebateJob>[0]) =>
       createDebateJob(input),
-    onSuccess: (debateJobId) => {
+    onSuccess: ({ slug }) => {
       void queryClient.invalidateQueries({
         queryKey: debateJobsQueryKey,
         exact: true,
       })
-      void navigate(`/debates/${debateJobId}`)
+      void navigate(`/debates/${slug}`)
     },
   })
 
@@ -65,7 +65,8 @@ function DebateStart() {
           return {
             createdAt: job.createdAt,
             id: job.debateJobId,
-            label: job.prompt,
+            label: job.title,
+            prompt: job.prompt,
             status: (
               <Chip
                 color={status.color}
@@ -74,7 +75,7 @@ function DebateStart() {
                 variant="outlined"
               />
             ),
-            to: `/debates/${job.debateJobId}`,
+            to: `/debates/${job.slug}`,
           }
         })}
         onRetry={() => void history.refetch()}
@@ -83,16 +84,19 @@ function DebateStart() {
   )
 }
 
-function DebateDetail({ debateJobId }: { debateJobId: string }) {
+function DebateDetail({ slug }: { slug: string }) {
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null)
   const queryClient = useQueryClient()
-  const job = useDebateJob(debateJobId)
+  const job = useDebateJob(slug)
+  const debateJobId = job.data?.debateJobId
   const visibility = useMutation({
-    mutationFn: (update: UpdateDebateJobInput) =>
-      updateDebateJob(debateJobId, update),
+    mutationFn: (update: UpdateDebateJobInput) => {
+      if (!debateJobId) throw new Error("Debate job is not loaded")
+      return updateDebateJob(debateJobId, update)
+    },
     onSuccess: (update) => {
       queryClient.setQueryData<DebateTournamentSnapshot>(
-        debateJobQueryKey(debateJobId),
+        debateJobQueryKey(slug),
         (current) => (current ? { ...current, ...update } : current),
       )
       void queryClient.invalidateQueries({
@@ -129,7 +133,7 @@ function DebateDetail({ debateJobId }: { debateJobId: string }) {
           isPending={visibility.isPending}
           isPublic={job.data.isPublic}
           onChange={(isPublic) => visibility.mutate({ isPublic })}
-          shareUrl={`${window.location.origin}/debates/${encodeURIComponent(debateJobId)}`}
+          shareUrl={`${window.location.origin}/debates/${encodeURIComponent(slug)}`}
         />
       ) : null}
       <DebateView
@@ -142,9 +146,9 @@ function DebateDetail({ debateJobId }: { debateJobId: string }) {
 }
 
 export function Debates() {
-  const { debateJobId } = useParams<{ debateJobId: string }>()
-  return debateJobId ? (
-    <DebateDetail debateJobId={debateJobId} />
+  const { slug } = useParams<{ slug: string }>()
+  return slug ? (
+    <DebateDetail slug={slug} />
   ) : (
     <DebateStart />
   )

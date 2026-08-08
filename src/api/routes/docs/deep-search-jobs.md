@@ -1,6 +1,11 @@
 # Deep-search jobs
 
-Deep-search jobs are durable SQLite records with stable UUID URLs. Live event deltas remain in memory, while structural progress is written to normalized typed tables at stage boundaries. There is no JSON snapshot or database event log.
+Deep-search jobs are durable SQLite records with an internal UUID plus an
+LLM-generated immutable title and readable slug. Browser and detail URLs use the
+slug; ownership, normalized relations, and event streams keep using the UUID.
+Live event deltas remain in memory, while structural progress is written to
+normalized typed tables at stage boundaries. There is no JSON snapshot or
+database event log.
 
 Closing a browser tab does not stop a job. While it is running, reopening its URL in the same API process replays the exact retained live feed. Jobs with a durable terminal state evict that in-memory log and reconstruct reducer-compatible state from normalized rows and persisted LLM output. A closed log is retained when terminal persistence fails.
 
@@ -27,10 +32,12 @@ Starts a job and returns `202 Accepted`:
 ```
 
 ```json
-{ "deepSearchJobId": "<uuid>" }
+{ "deepSearchJobId": "<uuid>", "slug": "what-changed-in-the-market" }
 ```
 
-The `Location` header points to `/api/deep-search-jobs/:deepSearchJobId`.
+The `Location` header points to `/api/deep-search-jobs/:slug`. If the generated
+slug is already used by that user, creation appends `-2`, `-3`, and so on and
+adds the same number to the displayed title.
 
 ### `GET /api/deep-search-jobs`
 
@@ -40,9 +47,10 @@ have no public-debate ancestor, this collection contains the viewer's own jobs.
 The optional `limit` query parameter defaults to 100 and is capped at 200. Owner
 IDs are omitted.
 
-### `GET /api/deep-search-jobs/:deepSearchJobId`
+### `GET /api/deep-search-jobs/:slug`
 
-Returns durable request, limits, status, error, and timestamps as `{ "deepSearchJob": ... }`.
+Returns durable title, slug, request, internal ID, limits, status, error, and
+timestamps as `{ "deepSearchJob": ... }`.
 
 ### `GET /api/deep-search-jobs/:deepSearchJobId/events`
 
@@ -65,6 +73,8 @@ A deep-search job may belong to an idea job. It keeps the same extraction and fa
 ## Persistence model
 
 - `deep_search_jobs` owns request, limits, lifecycle, timestamps, the final-answer generation link, and an optional parent-scoped position for idea-pipeline searches.
+- The same row owns the generated title and slug used for history and browser
+  navigation. They have no update route.
 - `deep_search_query_generations` links the job to the LLM invocation that generated queries.
 - `deep_search_generated_queries` stores the complete ordered generated list.
 - `deep_search_queries` represents only generated queries actually executed and links selection and synthesis generations.

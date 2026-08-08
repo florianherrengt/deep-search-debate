@@ -69,14 +69,15 @@ ignores this one documented peer-resolution shim.
   as their final tie-breaker.
 - After editing the schema, regenerate and apply (run from the api workspace, or via the root proxy):
   ```
-  npm run db:generate -w @deep-search-debate/api
-  npm run db:migrate   -w @deep-search-debate/api
+  npm run db:generate -w @rethinkloop/api
+  npm run db:migrate   -w @rethinkloop/api
   ```
 - The API workspace's `predev` and `prestart` lifecycle scripts apply pending
   migrations before either development or production startup.
-- Until the first deployment, migration history is kept as one clean baseline.
-  `baselineMigration.test.ts` verifies that baseline through the same Drizzle
-  migrator used by the application.
+- Keep applied migrations immutable and add forward migrations for schema
+  changes. `baselineMigration.test.ts` verifies both a fresh database and an
+  upgrade from the original baseline through the same Drizzle migrator used by
+  the application.
 
 ### Known application-enforced integrity boundaries
 
@@ -99,10 +100,15 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
 ## Durable job models
 
 - `llm_generations` stores terminal text, reasoning, status, errors, and the
-  owning job for every workflow model invocation. Live deltas remain in memory
-  and are never written individually.
-- `deep_search_jobs` owns a deep-search request and may belong to an `idea_jobs` parent. Child searches store their planning-generation position. Its normalized query, result, web-page, and generation rows preserve research progress without a JSON snapshot.
-- `idea_jobs` owns the user prompt, requested idea/search counts, current stage,
+  owning job for every replayable workflow model invocation. Live deltas remain
+  in memory and are never written individually. The short preflight title call
+  is not replayed; only its validated title is stored on the new job.
+- `deep_search_jobs` owns an LLM-generated title, readable slug, and deep-search
+  request and may belong to an `idea_jobs` parent. Child searches store their
+  planning-generation position. Its normalized query, result, web-page, and
+  generation rows preserve research progress without a JSON snapshot.
+- `idea_jobs` owns the LLM-generated title and slug used by both idea and debate
+  URLs, the user prompt, requested idea/search counts, current stage,
   lifecycle, planning, briefing, and idea-generation links. A debate-created
   idea job points to its owning debate; a standalone idea job leaves that FK null.
 - `ideas` stores the validated, ordered output of a completed idea job with stable IDs. The linked LLM generation retains the raw structured model output for model-stream inspection and debugging.

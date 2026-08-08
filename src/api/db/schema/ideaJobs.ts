@@ -24,6 +24,8 @@ export const ideaJobs = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     debateJobId: text("debate_job_id").unique(),
+    title: text("title").notNull().default("Untitled"),
+    slug: text("slug").notNull().default("untitled"),
     prompt: text("prompt").notNull(),
     stage: text("stage", { enum: ideaJobStages })
       .notNull()
@@ -52,6 +54,7 @@ export const ideaJobs = sqliteTable(
       table.createdAt,
       table.ideaJobId,
     ),
+    index("idea_jobs_user_slug_idx").on(table.userId, table.slug),
     uniqueIndex("idea_jobs_id_user_id_idx").on(
       table.ideaJobId,
       table.userId,

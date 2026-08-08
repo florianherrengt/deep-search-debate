@@ -26,6 +26,8 @@ export const deepSearchJobs = sqliteTable(
     ideaJobId: text("idea_job_id"),
     /** Preserves the parent planning generation's research-request order. */
     ideaJobPosition: integer("idea_job_position"),
+    title: text("title").notNull().default("Untitled"),
+    slug: text("slug").notNull().default("untitled"),
     researchRequest: text("research_request").notNull(),
     maxSearches: integer("max_searches").notNull(),
     maxResultsPerSearch: integer("max_results_per_search").notNull(),
@@ -45,6 +47,7 @@ export const deepSearchJobs = sqliteTable(
       table.createdAt,
       table.deepSearchJobId,
     ),
+    index("deep_search_jobs_user_slug_idx").on(table.userId, table.slug),
     uniqueIndex("deep_search_jobs_id_user_id_idx").on(
       table.deepSearchJobId,
       table.userId,

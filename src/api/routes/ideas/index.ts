@@ -8,6 +8,7 @@ import type { IdeaJobManager } from "./manager.ts"
 import { reconstructIdeaJobEvents } from "./replay.ts"
 import {
   createIdeaJobInputSchema,
+  ideaJobEventParamsSchema,
   ideaJobParamsSchema,
   listIdeaJobsInputSchema,
   type IdeaJobEvent,
@@ -34,7 +35,7 @@ async function writeEvents(
 export function ideaJobReads(app: Hono<AppEnv>, manager: IdeaJobManager) {
   app.get(
     "/idea-jobs/:ideaJobId/events",
-    zValidator("param", ideaJobParamsSchema),
+    zValidator("param", ideaJobEventParamsSchema),
     (c) => {
       const { ideaJobId } = c.req.valid("param")
       const persistedEvents = reconstructIdeaJobEvents(
@@ -54,16 +55,16 @@ export function ideaJobReads(app: Hono<AppEnv>, manager: IdeaJobManager) {
   )
 
   app.get(
-    "/idea-jobs/:ideaJobId",
+    "/idea-jobs/:slug",
     zValidator("param", ideaJobParamsSchema),
     (c) => {
-      const { ideaJobId } = c.req.valid("param")
+      const { slug } = c.req.valid("param")
       const job = db
         .select(publicIdeaJobColumns)
         .from(ideaJobsTable)
         .where(
           and(
-            eq(ideaJobsTable.ideaJobId, ideaJobId),
+            eq(ideaJobsTable.slug, slug),
             ideaJobReadScope(c.get("viewerUserId")),
           ),
         )
@@ -79,15 +80,18 @@ export function ideaJobs(app: Hono<AppEnv>, manager: IdeaJobManager) {
   app.post(
     "/idea-jobs",
     zValidator("json", createIdeaJobInputSchema),
-    (c) => {
+    async (c) => {
       const input = c.req.valid("json")
-      const { ideaJobId, completion } = manager.start(c.get("userId"), input)
+      const { ideaJobId, slug, completion } = await manager.start(
+        c.get("userId"),
+        input,
+      )
       void completion.catch((error: unknown) => {
         console.error(`Idea job ${ideaJobId} background task failed`, error)
       })
 
-      c.header("Location", `/api/idea-jobs/${ideaJobId}`)
-      return c.json({ ideaJobId }, 202)
+      c.header("Location", `/api/idea-jobs/${slug}`)
+      return c.json({ ideaJobId, slug }, 202)
     },
   )
 

@@ -6,6 +6,7 @@ import type { IdeaJobRunState } from "../ideaJobState.ts"
 import { IdeaJobView } from "./IdeaJobView.tsx"
 
 const prompt = "Create product ideas that help independent cafés reduce food waste."
+const title = "Independent Café Food Waste"
 
 const baseRun: IdeaJobRunState = {
   status: "running",
@@ -21,11 +22,15 @@ const baseRun: IdeaJobRunState = {
 const research = [
   {
     deepSearchJobId: "research-one",
+    title: "Café Food Waste Causes",
+    slug: "cafe-food-waste-causes",
     researchRequest:
       "Research current causes, costs, and workflows behind food waste in independent cafés.",
   },
   {
     deepSearchJobId: "research-two",
+    title: "Proven Café Waste Interventions",
+    slug: "proven-cafe-waste-interventions",
     researchRequest:
       "Research proven food-waste interventions and underserved software opportunities for small cafés.",
   },
@@ -90,16 +95,17 @@ export default meta
 type Story = StoryObj<typeof IdeaJobView>
 
 export const PlanningResearch: Story = {
-  args: { prompt, run: baseRun },
+  args: { title, prompt, run: baseRun },
 }
 
 export const RunningDeepResearch: Story = {
-  args: { prompt, run: { ...baseRun, research } },
+  args: { title, prompt, run: { ...baseRun, research } },
 }
 
 export const GeneratingIdeas: Story = {
   args: {
     prompt,
+    title,
     run: {
       ...baseRun,
       research,
@@ -113,6 +119,7 @@ export const GeneratingIdeas: Story = {
 export const Completed: Story = {
   args: {
     prompt,
+    title,
     run: {
       ...baseRun,
       status: "completed",

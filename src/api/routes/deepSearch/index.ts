@@ -11,6 +11,7 @@ import {
 import { reconstructDeepSearchJobEvents } from "./replay.ts"
 import {
   createDeepSearchJobInputSchema,
+  deepSearchJobEventParamsSchema,
   deepSearchJobParamsSchema,
   listDeepSearchJobsInputSchema,
   type DeepSearchJobEvent,
@@ -44,7 +45,7 @@ export function deepSearchJobReads(
 ) {
   app.get(
     "/deep-search-jobs/:deepSearchJobId/events",
-    zValidator("param", deepSearchJobParamsSchema),
+    zValidator("param", deepSearchJobEventParamsSchema),
     (c) => {
       const { deepSearchJobId } = c.req.valid("param")
       const persistedEvents = reconstructDeepSearchJobEvents(
@@ -64,16 +65,16 @@ export function deepSearchJobReads(
   )
 
   app.get(
-    "/deep-search-jobs/:deepSearchJobId",
+    "/deep-search-jobs/:slug",
     zValidator("param", deepSearchJobParamsSchema),
     (c) => {
-      const { deepSearchJobId } = c.req.valid("param")
+      const { slug } = c.req.valid("param")
       const deepSearchJob = db
         .select(publicDeepSearchJobColumns)
         .from(deepSearchJobsTable)
         .where(
           and(
-            eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId),
+            eq(deepSearchJobsTable.slug, slug),
             deepSearchJobReadScope(c.get("viewerUserId")),
           ),
         )
@@ -94,16 +95,16 @@ export function deepSearchJobs(
   app.post(
     "/deep-search-jobs",
     zValidator("json", createDeepSearchJobInputSchema),
-    (c) => {
+    async (c) => {
       const input = c.req.valid("json")
-      const { deepSearchJobId, completion } = manager.start(
+      const { deepSearchJobId, slug, completion } = await manager.start(
         c.get("userId"),
         input,
       )
       void completion.catch(() => {})
 
-      c.header("Location", `/api/deep-search-jobs/${deepSearchJobId}`)
-      return c.json({ deepSearchJobId }, 202)
+      c.header("Location", `/api/deep-search-jobs/${slug}`)
+      return c.json({ deepSearchJobId, slug }, 202)
     },
   )
 

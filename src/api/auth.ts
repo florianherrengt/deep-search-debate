@@ -6,7 +6,7 @@ import { db } from "./db/index.ts"
 import * as schema from "./db/schema/index.ts"
 
 export const auth = betterAuth({
-  appName: "Deep Search Debate",
+  appName: "RethinkLoop",
   baseURL: config.auth.baseUrl,
   database: drizzleAdapter(db, {
     provider: "sqlite",

@@ -1,10 +1,10 @@
-# Deep Search Debate
+# RethinkLoop
 
 An npm workspaces monorepo with a Hono API and a Vite/React web client.
 
 ## Requirements
 
-- Node.js 22 or newer
+- Node.js 26 or newer
 - A running SearXNG instance for local development
 - A GitHub OAuth app
 
@@ -146,7 +146,11 @@ Live deltas are retained in memory. When generation terminates, complete text an
 
 ## Deep search
 
-Open `/deep-search` to start a deep-search job or reopen a previous one. `POST /api/deep-search-jobs` returns its UUID immediately. `GET /api/deep-search-jobs/:deepSearchJobId/events` replays and follows the NDJSON feed. The UUID is also part of the browser URL.
+Open `/deep-search` to start a deep-search job or reopen a previous one. Creation
+generates a short title and returns both its internal UUID and readable slug.
+Browser and detail URLs use the slug; `GET
+/api/deep-search-jobs/:deepSearchJobId/events` keeps using the internal UUID to
+replay and follow the NDJSON feed.
 
 After the page summaries settle, every executed query receives a query-level Markdown synthesis. All returned results are included: successfully explored results contribute their full page summaries, while unselected results and failed extractions fall back to their search descriptions. The synthesis receives one uniform content field and is not told which form was used.
 
