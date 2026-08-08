@@ -7,8 +7,6 @@ dist
 .env.local
 **/.env.local
 **/*.kdbx
-!src/api/secrets/dev.kdbx
-!src/api/secrets/prod.kdbx
 .git
 .gitignore
 coolify_token

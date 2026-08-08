@@ -73,7 +73,12 @@ else
 fi
 
 required_runtime_keys=(
-  KDBX_PASSWORD
+  BRAVE_SEARCH_API_KEY
+  DEEPSEEK_API_KEY
+  SCRAPINGANT_API_KEY
+  BETTER_AUTH_SECRET
+  GITHUB_CLIENT_ID
+  GITHUB_CLIENT_SECRET
 )
 
 for key in "${required_runtime_keys[@]}"; do

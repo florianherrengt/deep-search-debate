@@ -57,16 +57,6 @@ Before the first deployment:
 
 | Variable | Requirement |
 | --- | --- |
-| `KDBX_PASSWORD` | Protected master password for `prod.kdbx` |
-Set `is_runtime=true`, `is_buildtime=false`, and `is_preview=false`. The
-configuration script sets the container and health-check settings. It never
-reads, creates, rotates, or prints the KeePass master password.
-
-`prod.kdbx` must contain these exact, case-sensitive entry titles. Each value
-must be stored only in the entry's standard `Password` field:
-
-| KeePass title | Purpose |
-| --- | --- |
 | `BRAVE_SEARCH_API_KEY` | Brave Search production credential |
 | `DEEPSEEK_API_KEY` | DeepSeek credential |
 | `SCRAPINGANT_API_KEY` | ScrapingAnt credential |
@@ -74,15 +64,10 @@ must be stored only in the entry's standard `Password` field:
 | `GITHUB_CLIENT_ID` | Production GitHub OAuth app client ID |
 | `GITHUB_CLIENT_SECRET` | Production GitHub OAuth app client secret |
 
-`AUTH_DEBUG_USER_PASSWORD` is also a supported KeePass title, but production
-sets `AUTH_DEBUG_USER_ENABLED=false`, so it is not required there. The loader
-recursively searches every group and rejects a missing title, duplicate title,
-or blank password before the server starts.
-
-The seven KeePass-backed names above, including `AUTH_DEBUG_USER_PASSWORD`,
-remain supported as optional runtime environment overrides. A present
-environment variable takes precedence over KeePass; a blank override fails
-validation. Do not configure an override when the KeePass value should be used.
+Set `is_runtime=true`, `is_buildtime=false`, and `is_preview=false`. The
+configuration script sets the container and health-check settings. It validates
+that all six names exist without printing their values. Missing or blank values
+fail application startup.
 
 Configure the production GitHub OAuth callback as:
 
@@ -120,11 +105,9 @@ while Hono continues to listen on port `3000` inside the container. Domain
 traffic and health checks therefore still target the internal port `3000`.
 
 The encrypted `src/api/secrets/dev.kdbx` and `src/api/secrets/prod.kdbx` files
-are committed and copied into the container image with mode `0400`.
-`KDBX_PASSWORD` remains a separate runtime-only secret and must never be added
-to Git or baked into the image. Anyone with repository or image access can keep
-offline copies of both vaults, so use strong master passwords and rotate either
-one if it may have been exposed.
+remain committed as operator-managed vaults, but the application does not read
+them and Docker excludes them from the build context. Production receives only
+the runtime environment variables listed above.
 
 The API pins `deep-search-core` to the npm tarball attached to its immutable
 GitHub release. Coolify downloads that package during `npm ci`, so the Docker
@@ -138,7 +121,7 @@ dependency is intentionally upgraded, update its release URL in
 # Application status and deployed revision
 ./coolify/status.sh
 
-# Validate port, proxy, health, auth, and KeePass bootstrap configuration
+# Validate port, proxy, health, auth, and required runtime secrets
 ./coolify/check-config.sh
 
 # Last 100 application log lines, or a custom count
@@ -233,12 +216,8 @@ its output.
 - `404`: the UUID is wrong or the token belongs to a different Coolify team.
 - `exited:unhealthy`: inspect configuration and deployment logs before retrying.
 - Database resets after deploy: the `/app/data` persistent volume is missing.
-- Startup reports a missing KeePass file: confirm the deployed revision includes
-  `src/api/secrets/prod.kdbx` and that the Docker build copied it to
-  `/app/src/api/secrets/prod.kdbx`.
-- Startup reports a KeePass decryption or entry error: verify `KDBX_PASSWORD`,
-  then check exact title casing, duplicate titles across all groups, and that
-  the standard `Password` field is nonblank.
+- Startup reports a missing or invalid secret: confirm all six required runtime
+  variables are configured in Coolify as nonblank literal production values.
 - Authentication callback failure: confirm the Coolify primary domain is
   `https://rethinkloop.com` and the GitHub OAuth callback is
   `https://rethinkloop.com/api/auth/callback/github`.

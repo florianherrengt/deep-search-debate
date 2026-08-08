@@ -10,27 +10,19 @@ The API runs TypeScript directly via `node --experimental-strip-types`. Conseque
 - Do **not** strip extensions, add path alias rewrites, or introduce a compile/build step.
 - Requires Node 22+ (the `--experimental-strip-types` flag).
 
-## Configuration and KeePass load at import time
+## Configuration validation at import time
 
-`src/api/config.ts` validates non-secret environment configuration, opens one
-KeePass database, resolves all required secrets, and validates the completed
-configuration before any server or provider is constructed. `KDBX_PASSWORD` is
-the only KeePass bootstrap variable. The database path is derived from
-`NODE_ENV`: `secrets/dev.kdbx` for development, `secrets/prod.kdbx` for
-production, and a generated `secrets/test.kdbx` under Vitest.
-
-The Node.js process reads and decrypts the file directly. Each required entry may
-be in any nested group, must use the exact case-sensitive configuration name as
-its standard `Title`, and must store the value in its standard `Password`.
-Missing titles, duplicate titles, and absent or blank passwords fail startup.
-Other fields are ignored. A nonblank secret environment variable takes
-precedence over its KeePass entry; a blank override fails rather than falling
-back. KeePass is still opened once when every secret has an override.
+`src/api/config.ts` reads and validates environment configuration before any
+server or provider is constructed. `DEEPSEEK_API_KEY`,
+`SCRAPINGANT_API_KEY`, `BETTER_AUTH_SECRET`, `GITHUB_CLIENT_ID`, and
+`GITHUB_CLIENT_SECRET` are required environment variables. Production also
+requires `BRAVE_SEARCH_API_KEY`. A missing, blank, or whitespace-only required
+secret fails startup.
 
 `BETTER_AUTH_SECRET` must contain at least 32 characters and production config
 rejects placeholder values. GitHub OAuth resolves both `GITHUB_CLIENT_ID` and
-`GITHUB_CLIENT_SECRET` from KeePass or their environment overrides. Its callback
-is derived from `BETTER_AUTH_URL` and ends in `/api/auth/callback/github`.
+`GITHUB_CLIENT_SECRET` from the environment. Its callback is derived from
+`BETTER_AUTH_URL` and ends in `/api/auth/callback/github`.
 `BETTER_AUTH_URL` must use HTTPS when `NODE_ENV=production` so session cookies
 cannot be deployed over plaintext transport.
 
@@ -65,17 +57,17 @@ their API workspace lifecycle scripts before the server imports the database.
 ## Search providers by environment
 
 Development and test use the configured SearXNG instance. Production instead
-requires the `BRAVE_SEARCH_API_KEY` KeePass entry or environment override and
-does not require or use `SEARXNG_URL`. This is an explicit environment policy in
-the typed config module, not an operator-selected fallback.
+requires the `BRAVE_SEARCH_API_KEY` environment variable and does not require or
+use `SEARXNG_URL`. This is an explicit environment policy in the typed config
+module, not an operator-selected fallback.
 
 ## Real external services in dev
 
 A SearXNG instance, a DeepSeek API key, and a ScrapingAnt API key are real runtime dependencies, not mocked outside tests:
 
 - **SearXNG:** HTTP `/search?format=json`. Configure its URL via `SEARXNG_URL`.
-- **DeepSeek:** used by the LLM layer (`src/api/llms/`). Secret title `DEEPSEEK_API_KEY`.
-- **ScrapingAnt:** headless-browser renderer used for page extraction. Without it the Reddit/Amazon/Shopify/Trustpilot/GitHub/YouTube/Hacker News custom extractors can't run (they require a renderer), and any page whose plain-fetch text falls under ~200 chars falls back to a ScrapingAnt render. Secret title `SCRAPINGANT_API_KEY`. Renders are serialized for the free-plan concurrency cap. HTTP 423 anti-bot detections are retried twice with exponential backoff by default; configure this with `SCRAPINGANT_MAX_RETRIES` and `SCRAPINGANT_RETRY_DELAY_MS`. `SCRAPINGANT_PROXY_TYPE` defaults to `datacenter`; `residential` has a higher success rate on protected sites and a much higher credit cost.
+- **DeepSeek:** used by the LLM layer (`src/api/llms/`). Configure it with `DEEPSEEK_API_KEY`.
+- **ScrapingAnt:** headless-browser renderer used for page extraction. Without it the Reddit/Amazon/Shopify/Trustpilot/GitHub/YouTube/Hacker News custom extractors can't run (they require a renderer), and any page whose plain-fetch text falls under ~200 chars falls back to a ScrapingAnt render. Configure it with `SCRAPINGANT_API_KEY`. Renders are serialized for the free-plan concurrency cap. HTTP 423 anti-bot detections are retried twice with exponential backoff by default; configure this with `SCRAPINGANT_MAX_RETRIES` and `SCRAPINGANT_RETRY_DELAY_MS`. `SCRAPINGANT_PROXY_TYPE` defaults to `datacenter`; `residential` has a higher success rate on protected sites and a much higher credit cost.
 
 ## Network binding
 
@@ -93,8 +85,7 @@ health checks do not depend on a browser session.
 
 The container stores SQLite at `/app/data/data.db`. Production must mount
 persistent storage at `/app/data`; without it, deployments replace the database.
-The committed development and production KeePass files are copied into the
-image at `/app/src/api/secrets/dev.kdbx` and
-`/app/src/api/secrets/prod.kdbx`, both with mode `0400`. Generated test KeePass
-files remain excluded from Git and the Docker build context. `KDBX_PASSWORD`
-must remain a separate runtime secret and must never be baked into the image.
+The retained `src/api/secrets/*.kdbx` operator vaults are excluded from the
+Docker build context. The application does not read them. All runtime secrets
+must be supplied through the deployment environment and must never be baked
+into the image.

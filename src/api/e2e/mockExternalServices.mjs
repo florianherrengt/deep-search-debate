@@ -1,29 +1,12 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { rmSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import Database from "better-sqlite3"
 import { drizzle } from "drizzle-orm/better-sqlite3"
 import { migrate } from "drizzle-orm/better-sqlite3/migrator"
-import kdbxweb from "kdbxweb"
 
 globalThis.AI_SDK_LOG_WARNINGS = false
-
-const keepassPath = fileURLToPath(new URL("../secrets/test.kdbx", import.meta.url))
-const keepassPassword = process.env.KDBX_PASSWORD
-if (!keepassPassword) throw new Error("KDBX_PASSWORD is required for E2E tests")
-
-const keepassCredentials = new kdbxweb.Credentials(
-  kdbxweb.ProtectedValue.fromString(keepassPassword),
-)
-const keepass = kdbxweb.Kdbx.create(keepassCredentials, "E2E test secrets")
-keepass.setKdf(kdbxweb.Consts.KdfId.Aes)
-mkdirSync(dirname(keepassPath), { recursive: true })
-rmSync(keepassPath, { force: true })
-writeFileSync(keepassPath, new Uint8Array(await keepass.save()), {
-  flag: "wx",
-  mode: 0o600,
-})
 
 const databasePath = join(
   tmpdir(),
@@ -43,7 +26,6 @@ function cleanupTestFiles() {
   if (cleanupComplete) return
   cleanupComplete = true
   for (const path of databaseFiles) rmSync(path, { force: true })
-  rmSync(keepassPath, { force: true })
 }
 process.once("exit", cleanupTestFiles)
 process.once("SIGINT", () => {

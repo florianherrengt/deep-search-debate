@@ -1,9 +1,5 @@
 import { isIP } from "node:net"
 import z from "zod"
-import {
-  loadKeePassSecrets,
-  resolveKeePassFilePath,
-} from "./keepassSecrets.ts"
 import { resolveRuntimeDefaults } from "./runtimeDefaults.ts"
 
 function isLoopbackHostname(hostname: string): boolean {
@@ -65,13 +61,12 @@ const nonSecretEnvironmentShape = {
 
 const rawEnvironmentSchema = z.object({
   ...nonSecretEnvironmentShape,
-  KDBX_PASSWORD: nonWhitespaceSecretSchema,
   BRAVE_SEARCH_API_KEY: secretSchemas.BRAVE_SEARCH_API_KEY.optional(),
-  DEEPSEEK_API_KEY: secretSchemas.DEEPSEEK_API_KEY.optional(),
-  SCRAPINGANT_API_KEY: secretSchemas.SCRAPINGANT_API_KEY.optional(),
-  BETTER_AUTH_SECRET: secretSchemas.BETTER_AUTH_SECRET.optional(),
-  GITHUB_CLIENT_ID: secretSchemas.GITHUB_CLIENT_ID.optional(),
-  GITHUB_CLIENT_SECRET: secretSchemas.GITHUB_CLIENT_SECRET.optional(),
+  DEEPSEEK_API_KEY: secretSchemas.DEEPSEEK_API_KEY,
+  SCRAPINGANT_API_KEY: secretSchemas.SCRAPINGANT_API_KEY,
+  BETTER_AUTH_SECRET: secretSchemas.BETTER_AUTH_SECRET,
+  GITHUB_CLIENT_ID: secretSchemas.GITHUB_CLIENT_ID,
+  GITHUB_CLIENT_SECRET: secretSchemas.GITHUB_CLIENT_SECRET,
   AUTH_DEBUG_USER_PASSWORD:
     secretSchemas.AUTH_DEBUG_USER_PASSWORD.optional(),
 })
@@ -176,43 +171,6 @@ const environmentSchema = z.object({
 })
 
 const rawEnvironment = rawEnvironmentSchema.parse(process.env)
-const requiredSecretTitles = [
-  "DEEPSEEK_API_KEY",
-  "SCRAPINGANT_API_KEY",
-  "BETTER_AUTH_SECRET",
-  "GITHUB_CLIENT_ID",
-  "GITHUB_CLIENT_SECRET",
-] as (
-  | "BRAVE_SEARCH_API_KEY"
-  | "DEEPSEEK_API_KEY"
-  | "SCRAPINGANT_API_KEY"
-  | "BETTER_AUTH_SECRET"
-  | "GITHUB_CLIENT_ID"
-  | "GITHUB_CLIENT_SECRET"
-  | "AUTH_DEBUG_USER_PASSWORD"
-)[]
-
-if (rawEnvironment.NODE_ENV === "production") {
-  requiredSecretTitles.push("BRAVE_SEARCH_API_KEY")
-}
-if (rawEnvironment.AUTH_DEBUG_USER_ENABLED) {
-  requiredSecretTitles.push("AUTH_DEBUG_USER_PASSWORD")
-}
-
-const keepassRequiredTitles = requiredSecretTitles.filter(
-  (title) => rawEnvironment[title] === undefined,
-)
-// Production-mode unit tests must never open an operator-owned database.
-const keepassEnvironment =
-  process.env.VITEST === "true" ? "test" : rawEnvironment.NODE_ENV
-const keepassSecrets: Partial<
-  Record<(typeof requiredSecretTitles)[number], string>
-> = await loadKeePassSecrets({
-  filePath: resolveKeePassFilePath(keepassEnvironment),
-  password: rawEnvironment.KDBX_PASSWORD,
-  requiredTitles: keepassRequiredTitles,
-})
-
 const environmentDefaults = resolveRuntimeDefaults(rawEnvironment.NODE_ENV)
 
 const environment = environmentSchema.parse({
@@ -220,24 +178,6 @@ const environment = environmentSchema.parse({
   DATABASE_URL: rawEnvironment.DATABASE_URL ?? environmentDefaults.databaseUrl,
   BETTER_AUTH_URL:
     rawEnvironment.BETTER_AUTH_URL ?? environmentDefaults.betterAuthUrl,
-  BRAVE_SEARCH_API_KEY:
-    rawEnvironment.BRAVE_SEARCH_API_KEY ??
-    keepassSecrets.BRAVE_SEARCH_API_KEY,
-  DEEPSEEK_API_KEY:
-    rawEnvironment.DEEPSEEK_API_KEY ?? keepassSecrets.DEEPSEEK_API_KEY,
-  SCRAPINGANT_API_KEY:
-    rawEnvironment.SCRAPINGANT_API_KEY ??
-    keepassSecrets.SCRAPINGANT_API_KEY,
-  BETTER_AUTH_SECRET:
-    rawEnvironment.BETTER_AUTH_SECRET ?? keepassSecrets.BETTER_AUTH_SECRET,
-  GITHUB_CLIENT_ID:
-    rawEnvironment.GITHUB_CLIENT_ID ?? keepassSecrets.GITHUB_CLIENT_ID,
-  GITHUB_CLIENT_SECRET:
-    rawEnvironment.GITHUB_CLIENT_SECRET ??
-    keepassSecrets.GITHUB_CLIENT_SECRET,
-  AUTH_DEBUG_USER_PASSWORD:
-    rawEnvironment.AUTH_DEBUG_USER_PASSWORD ??
-    keepassSecrets.AUTH_DEBUG_USER_PASSWORD,
 })
 
 export const config = {

@@ -26,8 +26,7 @@ COPY --from=build --chown=node:node /app/src/api ./src/api
 COPY --from=build --chown=node:node /app/src/web/package.json ./src/web/package.json
 COPY --from=build --chown=node:node /app/src/web/dist ./src/web/dist
 
-RUN chmod 400 /app/src/api/secrets/dev.kdbx /app/src/api/secrets/prod.kdbx \
-  && mkdir -p /app/data \
+RUN mkdir -p /app/data \
   && chown node:node /app/data
 
 USER node

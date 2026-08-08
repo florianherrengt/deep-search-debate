@@ -5,17 +5,13 @@ An npm workspaces monorepo with a Hono API and a Vite/React web client.
 ## Requirements
 
 - Node.js 22 or newer
-- A KeePass 2 `.kdbx` database and its master password
 - A running SearXNG instance for local development
 - A GitHub OAuth app
 
-The Node.js process opens and decrypts the KeePass database directly. There is
-no additional container or KeePass service. The encrypted development and
-production databases are committed at `src/api/secrets/dev.kdbx` and
-`src/api/secrets/prod.kdbx`. Each entry must use the exact configuration name as
-its standard `Title` and the value as its standard `Password`:
+The API reads secrets exclusively from environment variables and validates them
+at startup:
 
-| KeePass title | Required when |
+| Environment variable | Required when |
 | --- | --- |
 | `DEEPSEEK_API_KEY` | Always |
 | `SCRAPINGANT_API_KEY` | Always |
@@ -25,12 +21,8 @@ its standard `Title` and the value as its standard `Password`:
 | `BRAVE_SEARCH_API_KEY` | Production only |
 | `AUTH_DEBUG_USER_PASSWORD` | Debug sign-in is enabled; at least 12 characters |
 
-Entries may be in any group or nested group. Titles are exact and
-case-sensitive, and duplicates fail startup. Username, URL, notes, tags, and
-custom fields are ignored.
-
-Create the ignored local environment file from the tracked template and set the
-KeePass master password:
+Create the ignored local environment file from the tracked template and fill in
+the required secrets:
 
 ```sh
 cp src/api/.env.example src/api/.env
@@ -40,18 +32,22 @@ The template contains:
 
 ```dotenv
 NODE_ENV=development
-KDBX_PASSWORD=
 SEARXNG_URL=http://127.0.0.1:8090
+DEEPSEEK_API_KEY=
+SCRAPINGANT_API_KEY=
+BETTER_AUTH_SECRET=
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
 SCRAPINGANT_PROXY_TYPE=datacenter
 SCRAPINGANT_MAX_RETRIES=2
 SCRAPINGANT_RETRY_DELAY_MS=1000
+AUTH_DEBUG_USER_ENABLED=false
 AUTH_DEBUG_USER_EMAIL=debug@local.invalid
 ```
 
-Do not put the real master password in `.env.example`; set it only in the
-ignored `src/api/.env` or the deployment platform. A nonblank sensitive
-environment variable still overrides the KeePass entry with the same name. A
-blank or whitespace-only override fails startup instead of falling back.
+Do not put real credentials in `.env.example`; set them only in the ignored
+`src/api/.env` or the deployment platform. A missing, blank, or whitespace-only
+required secret fails startup.
 
 `NODE_ENV` selects the application defaults. Development and test use
 `BETTER_AUTH_URL=http://localhost:5173` and `DATABASE_URL=data.db`; production
@@ -59,10 +55,9 @@ uses `BETTER_AUTH_URL=https://rethinkloop.com` and
 `DATABASE_URL=/app/data/data.db`. Explicit environment values still override
 the URL or database path for isolated tests and alternate deployments.
 
-The encrypted development and production databases are bundled into the
-production image; generated test databases remain ignored. Never commit
-`KDBX_PASSWORD`; anyone with repository or image access can retain offline
-copies of both vaults and attempt to decrypt them.
+The tracked `src/api/secrets/dev.kdbx` and `src/api/secrets/prod.kdbx` files are
+retained as operator-managed credential vaults only. The application does not
+open them, and Docker excludes them from the build context and runtime image.
 
 Configure the GitHub OAuth callback as
 `http://localhost:5173/api/auth/callback/github`. Debug sign-in is optional and
@@ -86,10 +81,6 @@ The development Compose service listens only on `127.0.0.1:8090` and enables the
 Production uses Brave Search and does not read `SEARXNG_URL`. See
 [the Coolify operations guide](coolify/README.md) for the container, persistent
 SQLite volume, required runtime variables, and deployment procedure.
-
-KeePass protects the secret collection at rest. It does not protect secrets from
-an attacker who can read both `KDBX_PASSWORD` and the database file, or from an
-attacker who can inspect the Node.js process after decryption.
 
 ## Development
 

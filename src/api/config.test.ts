@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 afterEach(() => {
   vi.unstubAllEnvs()
-  vi.doUnmock("./keepassSecrets.ts")
   vi.resetModules()
 })
 
@@ -159,25 +158,21 @@ describe("config", () => {
     )
   })
 
-  it("falls back to the environment-specific KeePass database", async () => {
+  it("requires the DeepSeek API key environment variable", async () => {
     vi.stubEnv("DEEPSEEK_API_KEY", undefined)
     vi.resetModules()
 
-    const { config } = await import("./config.ts")
-
-    expect(config.llm.deepseek.apiKey).toBe("keepass-deepseek-key")
+    await expect(import("./config.ts")).rejects.toThrow("DEEPSEEK_API_KEY")
   })
 
-  it("loads the GitHub client ID from KeePass", async () => {
+  it("requires the GitHub client ID environment variable", async () => {
     vi.stubEnv("GITHUB_CLIENT_ID", undefined)
     vi.resetModules()
 
-    const { config } = await import("./config.ts")
-
-    expect(config.auth.github.clientId).toBe("keepass-github-client-id")
+    await expect(import("./config.ts")).rejects.toThrow("GITHUB_CLIENT_ID")
   })
 
-  it("prefers a nonblank GitHub client ID environment override", async () => {
+  it("uses a nonblank GitHub client ID environment variable", async () => {
     vi.stubEnv("GITHUB_CLIENT_ID", "environment-github-client-id")
     vi.resetModules()
 
@@ -186,7 +181,7 @@ describe("config", () => {
     expect(config.auth.github.clientId).toBe("environment-github-client-id")
   })
 
-  it("prefers a nonblank environment secret", async () => {
+  it("uses a nonblank environment secret", async () => {
     vi.stubEnv("DEEPSEEK_API_KEY", "environment-deepseek-key")
     vi.resetModules()
 
@@ -195,30 +190,10 @@ describe("config", () => {
     expect(config.llm.deepseek.apiKey).toBe("environment-deepseek-key")
   })
 
-  it("rejects a blank environment secret instead of falling back", async () => {
+  it("rejects a blank environment secret", async () => {
     vi.stubEnv("DEEPSEEK_API_KEY", "   ")
     vi.resetModules()
 
     await expect(import("./config.ts")).rejects.toThrow("DEEPSEEK_API_KEY")
-  })
-
-  it("loads KeePass once even when every secret has an override", async () => {
-    const actual = await vi.importActual<typeof import("./keepassSecrets.ts")>(
-      "./keepassSecrets.ts",
-    )
-    const loadKeePassSecrets = vi.fn().mockResolvedValue({})
-    vi.doMock("./keepassSecrets.ts", () => ({
-      ...actual,
-      loadKeePassSecrets,
-    }))
-    vi.resetModules()
-
-    const firstImport = await import("./config.ts")
-    const secondImport = await import("./config.ts")
-
-    expect(firstImport.config).toBe(secondImport.config)
-    expect(loadKeePassSecrets).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ requiredTitles: [] }),
-    )
   })
 })
