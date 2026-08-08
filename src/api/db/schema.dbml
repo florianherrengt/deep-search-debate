@@ -23,6 +23,7 @@ table debate_jobs {
   debate_job_id text [pk, not null]
   user_id text [not null]
   random_seed integer [not null]
+  is_public integer [not null, default: 0]
   stage text [not null, default: 'ideas']
   status text [not null, default: 'running']
   error text

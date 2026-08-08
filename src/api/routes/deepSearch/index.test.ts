@@ -13,7 +13,12 @@ import {
   deepSearchJobs as deepSearchJobsTable,
   llmGenerations,
 } from "../../db/schema/index.ts"
-import { deepSearchJobs, type DeepSearchJobEvent } from "./index.ts"
+import {
+  deepSearchJobReads,
+  deepSearchJobs,
+  type DeepSearchJobEvent,
+} from "./index.ts"
+import { createDeepSearchJobManager } from "./manager.ts"
 import type { AppEnv } from "../../types/auth.ts"
 
 const searches = [
@@ -144,9 +149,12 @@ function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
   app.use("*", async (c, next) => {
     c.set("userId", "test-user-id")
+    c.set("viewerUserId", "test-user-id")
     await next()
   })
-  deepSearchJobs(app)
+  const manager = createDeepSearchJobManager()
+  deepSearchJobReads(app, manager)
+  deepSearchJobs(app, manager)
   return app
 }
 

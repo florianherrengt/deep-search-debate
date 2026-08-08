@@ -23,6 +23,7 @@ function parseEvents(body: string): DebateJobEvent[] {
 // mock, so successful completion also proves that no live provider was called.
 test.describe("Debate tournament", () => {
   test("runs all 33 matches, streams progress, and survives reload", async ({
+    browser,
     page,
     request,
   }) => {
@@ -81,11 +82,15 @@ test.describe("Debate tournament", () => {
     )
 
     await page.getByLabel("What should the ideas solve?").fill(prompt)
+    await page.getByLabel("Make this debate public").check()
     await page.getByRole("button", { name: "Start a debate" }).click()
 
     const created = await createdResponse
     expect(created.status()).toBe(202)
-    expect(created.request().postDataJSON()).toEqual({ prompt })
+    expect(created.request().postDataJSON()).toEqual({
+      prompt,
+      isPublic: true,
+    })
     const { debateJobId } = (await created.json()) as { debateJobId: string }
     expect(debateJobId).toMatch(uuidPattern)
     expect(created.headers()["location"]).toBe(
@@ -112,8 +117,45 @@ test.describe("Debate tournament", () => {
     )
     expect(browserStreamRequests.length).toBeGreaterThan(0)
 
-    const streamRequestCountBeforeReload = browserStreamRequests.length
     const debateUrl = page.url()
+    const anonymousContext = await browser.newContext()
+    const anonymousPage = await anonymousContext.newPage()
+    await anonymousPage.goto(debateUrl)
+    await expect(
+      anonymousPage.getByRole("link", { name: "Start your own debate" }),
+    ).toHaveAttribute("href", "/debates")
+    await expect(
+      anonymousPage.getByRole("heading", { name: "Agent debate" }),
+    ).toBeVisible()
+    await expect(anonymousPage.getByText("Running automatically")).toBeVisible()
+    await expect(anonymousPage.getByText("Debug User")).toHaveCount(0)
+    await expect(
+      anonymousPage.getByRole("navigation", { name: "Primary navigation" }),
+    ).toHaveCount(0)
+
+    const publicIdeaHref = await anonymousPage
+      .getByRole("link", { name: "View the underlying idea generation" })
+      .getAttribute("href")
+    expect(publicIdeaHref).toMatch(/^\/ideas\/[0-9a-f-]+$/i)
+    await anonymousPage.goto(new URL(publicIdeaHref!, debateUrl).href)
+    await expect(
+      anonymousPage.getByRole("heading", { name: "Ideas", exact: true }),
+    ).toBeVisible()
+    await expect(anonymousPage.getByText(prompt, { exact: true })).toBeVisible()
+    const publicResearchHref = await anonymousPage
+      .locator('a[href^="/deep-search/"]')
+      .first()
+      .getAttribute("href")
+    expect(publicResearchHref).toMatch(/^\/deep-search\/[0-9a-f-]+$/i)
+    await anonymousPage.goto(new URL(publicResearchHref!, debateUrl).href)
+    await expect(
+      anonymousPage.getByRole("heading", { name: "Deep search" }),
+    ).toBeVisible()
+    await expect(
+      anonymousPage.getByRole("heading", { name: "Final answer" }),
+    ).toBeVisible()
+
+    const streamRequestCountBeforeReload = browserStreamRequests.length
     await page.reload()
     await expect(page).toHaveURL(debateUrl)
     await expect(page.getByText("Running automatically")).toBeVisible()
@@ -207,6 +249,22 @@ test.describe("Debate tournament", () => {
       (idea) => idea?.ideaId === final?.winnerIdeaId,
     )
     expect(winner?.title).toBe("Renter Energy Idea 1")
+
+    const visibilityResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PATCH" &&
+        new URL(response.url()).pathname ===
+          `/api/debate-jobs/${debateJobId}`,
+    )
+    const publicSwitch = page.getByRole("switch", { name: "Public debate" })
+    await publicSwitch.click()
+    expect((await visibilityResponse).status()).toBe(200)
+    await expect(publicSwitch).not.toBeChecked()
+    await anonymousPage.goto(debateUrl)
+    await expect(
+      anonymousPage.getByRole("heading", { name: "Debate not found" }),
+    ).toBeVisible()
+    await anonymousContext.close()
 
     const selectableMatch = page
       .getByRole("button", { name: /^Open .+ versus .+$/ })

@@ -1,14 +1,12 @@
 import { zValidator } from "@hono/zod-validator"
-import { and, eq } from "drizzle-orm"
 import type { Hono } from "hono"
 import { stream } from "hono/streaming"
 import z from "zod"
 import { generateTextStream } from "../llms/generateText.ts"
 import { PromptName } from "../llms/prompts.ts"
 import { subscribeToTextStream } from "../llms/streams.ts"
-import { db } from "../db/index.ts"
-import { llmGenerations } from "../db/schema/index.ts"
 import type { AppEnv } from "../types/auth.ts"
+import { llmGenerationReadScope } from "./readAccess.ts"
 
 const createTextStreamInputSchema = z.object({
   prompt: z.string(),
@@ -17,6 +15,29 @@ const createTextStreamInputSchema = z.object({
 
 const textStreamParamsSchema = z.object({ id: z.uuid() })
 
+/** Registers stream reads inherited from a public debate aggregate. */
+export function streamReads(app: Hono<AppEnv>) {
+  app.get("/streams/:id", zValidator("param", textStreamParamsSchema), (c) => {
+    const { id } = c.req.valid("param")
+    const events = subscribeToTextStream(
+      id,
+      llmGenerationReadScope(c.get("viewerUserId")),
+    )
+
+    if (!events) {
+      return c.json({ error: "Stream not found" }, 404)
+    }
+
+    c.header("Content-Type", "application/x-ndjson")
+    return stream(c, async (output) => {
+      for await (const event of events) {
+        await output.writeln(JSON.stringify(event))
+      }
+    })
+  })
+}
+
+/** Registers authenticated standalone stream creation. */
 export function streams(app: Hono<AppEnv>) {
   app.post(
     "/streams",
@@ -33,30 +54,4 @@ export function streams(app: Hono<AppEnv>) {
       return c.json(textStream, 201)
     },
   )
-
-  app.get("/streams/:id", zValidator("param", textStreamParamsSchema), (c) => {
-    const { id } = c.req.valid("param")
-    const owned = db
-      .select({ id: llmGenerations.llmGenerationId })
-      .from(llmGenerations)
-      .where(
-        and(
-          eq(llmGenerations.llmGenerationId, id),
-          eq(llmGenerations.userId, c.get("userId")),
-        ),
-      )
-      .get()
-    const events = owned ? subscribeToTextStream(id) : undefined
-
-    if (!events) {
-      return c.json({ error: "Stream not found" }, 404)
-    }
-
-    c.header("Content-Type", "application/x-ndjson")
-    return stream(c, async (output) => {
-      for await (const event of events) {
-        await output.writeln(JSON.stringify(event))
-      }
-    })
-  })
 }

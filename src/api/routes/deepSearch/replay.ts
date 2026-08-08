@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm"
+import { and, asc, eq, type SQL } from "drizzle-orm"
 import { db } from "../../db/index.ts"
 import {
   deepSearchGeneratedQueries,
@@ -15,11 +15,17 @@ import {
 /** Reconstructs reducer-compatible progress from normalized typed rows. */
 export function reconstructDeepSearchJobEvents(
   deepSearchJobId: string,
+  readScope?: SQL,
 ): DeepSearchJobEvent[] | undefined {
     const job = db
       .select()
       .from(deepSearchJobsTable)
-      .where(eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId))
+      .where(
+        and(
+          eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId),
+          readScope,
+        ),
+      )
       .get()
     if (!job) return
 

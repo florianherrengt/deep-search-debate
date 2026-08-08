@@ -45,6 +45,8 @@ const tournament: DebateTournament = {
   debateJobId: "debate",
   ideaJobId: "ideas",
   prompt: "Prompt",
+  isPublic: false,
+  isOwner: true,
   stage: "final",
   status: "completed",
   expectedMatchCount: 4,

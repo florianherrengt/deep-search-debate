@@ -6,9 +6,13 @@ Closing a browser tab does not stop a job. While it is running, reopening its UR
 
 ## HTTP contract
 
-Every endpoint requires a Better Auth session. Creation records the authenticated
-user as owner; history includes only that user's jobs, and foreign detail/event
-UUIDs return 404. Child jobs created by an idea pipeline inherit the same owner.
+Creation and history require a Better Auth session. Creation records the
+authenticated user as owner. Detail and event reads apply the deep-search read
+scope: the owner may read a private job, while any viewer may read a child search
+whose idea job belongs to a public debate. Anonymous viewers therefore receive
+inherited public access; private, standalone foreign, and unknown UUIDs return
+404. Public responses omit the owner ID. Child jobs created by an idea pipeline
+inherit the same owner.
 
 ### `POST /api/deep-search-jobs`
 
@@ -30,7 +34,11 @@ The `Location` header points to `/api/deep-search-jobs/:deepSearchJobId`.
 
 ### `GET /api/deep-search-jobs`
 
-Returns newest-first job history as `{ "deepSearchJobs": [...] }`. The optional `limit` query parameter defaults to 100 and is capped at 200.
+Returns newest-first standalone job history as `{ "deepSearchJobs": [...] }`.
+The read scope is applied before the standalone filter; because standalone jobs
+have no public-debate ancestor, this collection contains the viewer's own jobs.
+The optional `limit` query parameter defaults to 100 and is capped at 200. Owner
+IDs are omitted.
 
 ### `GET /api/deep-search-jobs/:deepSearchJobId`
 

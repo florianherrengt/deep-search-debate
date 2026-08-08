@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm"
+import { and, asc, eq, type SQL } from "drizzle-orm"
 import { db } from "../../db/index.ts"
 import {
   deepSearchJobs,
@@ -20,11 +20,12 @@ function replayNormalizedIdeas(ideaJobId: string): IdeaJobEvent[] {
 /** Reconstructs parent progress; nested deep-search details replay independently. */
 export function reconstructIdeaJobEvents(
   ideaJobId: string,
+  readScope?: SQL,
 ): IdeaJobEvent[] | undefined {
   const job = db
     .select()
     .from(ideaJobs)
-    .where(eq(ideaJobs.ideaJobId, ideaJobId))
+    .where(and(eq(ideaJobs.ideaJobId, ideaJobId), readScope))
     .get()
   if (!job) return
 

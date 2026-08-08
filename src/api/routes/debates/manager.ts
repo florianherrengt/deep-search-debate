@@ -15,7 +15,10 @@ type StartedDebateJob = {
 }
 
 export type DebateJobManager = {
-  start(userId: string, input: { prompt: string }): StartedDebateJob
+  start(
+    userId: string,
+    input: { prompt: string; isPublic: boolean },
+  ): StartedDebateJob
   getLiveJob(debateJobId: string): LiveDebateJob | undefined
 }
 
@@ -55,7 +58,7 @@ export function createDebateJobManager(
   const liveJobs = new Map<string, LiveDebateJob>()
 
   return {
-    start(userId, { prompt }) {
+    start(userId, { isPublic, prompt }) {
       const debateJobId = randomUUID()
       const randomSeed = getRandomSeed()
       const job = createReplayableEventLog<DebateJobEvent>()
@@ -73,7 +76,7 @@ export function createDebateJobManager(
           createParent: (transaction) => {
             transaction
               .insert(debateJobs)
-              .values({ debateJobId, userId, randomSeed })
+              .values({ debateJobId, userId, randomSeed, isPublic })
               .run()
             return { debateJobId }
           },

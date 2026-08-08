@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { eq } from "drizzle-orm"
+import { and, eq, type SQL } from "drizzle-orm"
 import type { streamText } from "ai"
 import { db } from "../db/index.ts"
 import { llmGenerations } from "../db/schema/index.ts"
@@ -200,16 +200,17 @@ export function registerTextStream(
  */
 export function subscribeToTextStream(
   id: string,
+  readScope?: SQL,
 ): AsyncGenerator<TextStreamEvent> | undefined {
-  const stream = streams.get(id)
-  if (stream) return stream.subscribe()
-
   const generation = db
     .select()
     .from(llmGenerations)
-    .where(eq(llmGenerations.llmGenerationId, id))
+    .where(and(eq(llmGenerations.llmGenerationId, id), readScope))
     .get()
   if (!generation) return
+
+  const stream = streams.get(id)
+  if (stream) return stream.subscribe()
 
   return replayPersistedGeneration(generation)
 }

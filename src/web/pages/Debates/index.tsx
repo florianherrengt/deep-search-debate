@@ -7,12 +7,19 @@ import { useState } from "react"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { JobHistory } from "../../components/JobHistory.tsx"
 import { RequestError } from "../../components/RequestError.tsx"
-import { createDebateJob, getDebateJobs } from "../../lib/debateJobs.ts"
+import {
+  createDebateJob,
+  getDebateJobs,
+  updateDebateJob,
+  type DebateTournamentSnapshot,
+  type UpdateDebateJobInput,
+} from "../../lib/debateJobs.ts"
 import { getRequestErrorMessage } from "../../lib/requestErrors.ts"
 import { DebatePromptForm } from "./components/DebatePromptForm.tsx"
+import { DebateVisibilityControls } from "./components/DebateVisibilityControls.tsx"
 import { DebateView } from "./components/DebateView.tsx"
 import { debateStatusPresentation } from "./debatePresentation.ts"
-import { useDebateJob } from "./useDebateJob.ts"
+import { debateJobQueryKey, useDebateJob } from "./useDebateJob.ts"
 
 const debateJobsQueryKey = ["debate-jobs"] as const
 
@@ -25,9 +32,13 @@ function DebateStart() {
     queryFn: ({ signal }) => getDebateJobs(signal),
   })
   const creation = useMutation({
-    mutationFn: (prompt: string) => createDebateJob(prompt),
+    mutationFn: (input: Parameters<typeof createDebateJob>[0]) =>
+      createDebateJob(input),
     onSuccess: (debateJobId) => {
-      void queryClient.invalidateQueries({ queryKey: debateJobsQueryKey })
+      void queryClient.invalidateQueries({
+        queryKey: debateJobsQueryKey,
+        exact: true,
+      })
       void navigate(`/debates/${debateJobId}`)
     },
   })
@@ -40,7 +51,7 @@ function DebateStart() {
         }
         isStarting={creation.isPending}
         initialPrompt={searchParams.get("prompt") ?? ""}
-        onSubmit={(prompt) => creation.mutate(prompt)}
+        onSubmit={(input) => creation.mutate(input)}
       />
 
       <JobHistory
@@ -74,7 +85,22 @@ function DebateStart() {
 
 function DebateDetail({ debateJobId }: { debateJobId: string }) {
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null)
+  const queryClient = useQueryClient()
   const job = useDebateJob(debateJobId)
+  const visibility = useMutation({
+    mutationFn: (update: UpdateDebateJobInput) =>
+      updateDebateJob(debateJobId, update),
+    onSuccess: (update) => {
+      queryClient.setQueryData<DebateTournamentSnapshot>(
+        debateJobQueryKey(debateJobId),
+        (current) => (current ? { ...current, ...update } : current),
+      )
+      void queryClient.invalidateQueries({
+        queryKey: debateJobsQueryKey,
+        exact: true,
+      })
+    },
+  })
 
   if (job.isPending) return <CircularProgress />
   if (job.error) {
@@ -93,6 +119,19 @@ function DebateDetail({ debateJobId }: { debateJobId: string }) {
       {job.subscriptionError && !job.data.error && (
         <Alert severity="warning">{job.subscriptionError}</Alert>
       )}
+      {job.data.isOwner ? (
+        <DebateVisibilityControls
+          error={
+            visibility.error
+              ? getRequestErrorMessage(visibility.error)
+              : undefined
+          }
+          isPending={visibility.isPending}
+          isPublic={job.data.isPublic}
+          onChange={(isPublic) => visibility.mutate({ isPublic })}
+          shareUrl={`${window.location.origin}/debates/${encodeURIComponent(debateJobId)}`}
+        />
+      ) : null}
       <DebateView
         onSelectMatch={setSelectedMatchId}
         selectedMatchId={selectedMatchId}

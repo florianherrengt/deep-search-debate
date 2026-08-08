@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { describe, expect, it } from "vitest"
 
 import { db } from "../index.ts"
@@ -88,6 +88,18 @@ function createMatch(
 }
 
 describe("debate tournament schema", () => {
+  it("rejects visibility values outside SQLite's boolean domain", () => {
+    const { debateJobId } = createDebateJob()
+
+    expect(() =>
+      db
+        .update(debateJobs)
+        .set({ isPublic: sql`2` })
+        .where(eq(debateJobs.debateJobId, debateJobId))
+        .run(),
+    ).toThrow(/CHECK constraint failed: debate_jobs_visibility_check/)
+  })
+
   it("persists stable ideas and direct match pairings", () => {
     const { debateJobId, ideaJobId } = createDebateJob()
     const firstIdeaId = createIdea(ideaJobId, 0)

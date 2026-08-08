@@ -8,7 +8,7 @@ vi.mock("./run.ts", () => ({ runIdeaJob: mocks.runIdeaJob }))
 import { db } from "../../db/index.ts"
 import { ideaJobs as ideaJobsTable } from "../../db/schema/index.ts"
 import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
-import { ideaJobs, type IdeaJobEvent } from "./index.ts"
+import { ideaJobReads, ideaJobs, type IdeaJobEvent } from "./index.ts"
 import { createIdeaJobManager } from "./manager.ts"
 import type { LiveIdeaJob } from "./schemas.ts"
 import type { AppEnv } from "../../types/auth.ts"
@@ -17,13 +17,16 @@ function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
   app.use("*", async (c, next) => {
     c.set("userId", "test-user-id")
+    c.set("viewerUserId", "test-user-id")
     await next()
   })
   const manager: DeepSearchJobManager = {
     start: vi.fn(),
     getLiveJob: vi.fn(),
   }
-  ideaJobs(app, createIdeaJobManager(manager))
+  const ideaJobManager = createIdeaJobManager(manager)
+  ideaJobReads(app, ideaJobManager)
+  ideaJobs(app, ideaJobManager)
   return app
 }
 

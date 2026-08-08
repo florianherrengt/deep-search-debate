@@ -16,10 +16,13 @@ Any planning, child-search, summary, or idea-generation failure fails the parent
 
 ## HTTP contract
 
-Every endpoint requires a Better Auth session. Creation records the authenticated
-user as owner; history includes only that user's jobs, and foreign detail/event
-UUIDs return 404. Planning, summary, idea, and child-search generations inherit
-the same owner.
+Creation and history require a Better Auth session. Creation records the
+authenticated user as owner. Detail and event reads apply the idea-job read scope:
+the owner may read a private job, while any viewer may read an idea job belonging
+to a public debate. Anonymous viewers therefore receive inherited public access;
+private, standalone foreign, and unknown UUIDs return 404. Public responses omit
+the owner ID. Planning, summary, idea, and child-search generations inherit the
+same owner.
 
 ### `POST /api/idea-jobs`
 
@@ -47,7 +50,9 @@ The `Location` header points to `/api/idea-jobs/:ideaJobId`.
 
 ### `GET /api/idea-jobs`
 
-Returns newest-first history as `{ "ideaJobs": [...] }`. The optional `limit` query parameter defaults to 100 and is capped at 200.
+Returns newest-first readable history as `{ "ideaJobs": [...] }`, including the
+viewer's private jobs and jobs belonging to public debates. The optional `limit`
+query parameter defaults to 100 and is capped at 200. Owner IDs are omitted.
 
 ### `GET /api/idea-jobs/:ideaJobId`
 

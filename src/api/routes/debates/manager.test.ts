@@ -65,7 +65,8 @@ describe("debate job manager", () => {
     const started = createDebateJobManager(ideaJobManager).start(
       "test-user-id",
       {
-      prompt: "Debate products",
+        prompt: "Debate products",
+        isPublic: true,
       },
     )
 
@@ -82,6 +83,12 @@ describe("debate job manager", () => {
     expect(startIdeaJob.mock.calls[0]?.[2]?.createParent).toBeTypeOf(
       "function",
     )
+    expect(
+      db
+        .select({ isPublic: debateJobs.isPublic })
+        .from(debateJobs)
+        .get()?.isPublic,
+    ).toBe(true)
     await expect(started.completion).resolves.toBeUndefined()
   })
 })

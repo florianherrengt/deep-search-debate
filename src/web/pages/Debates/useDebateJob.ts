@@ -6,7 +6,7 @@ import {
 } from "../../lib/debateJobs.ts"
 import { followReplayableStream } from "../../lib/replayStream.ts"
 
-const debateJobQueryKey = (debateJobId: string) =>
+export const debateJobQueryKey = (debateJobId: string) =>
   ["debate-jobs", debateJobId] as const
 
 /** Reads the durable snapshot, then follows lightweight invalidation events. */

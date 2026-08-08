@@ -1,5 +1,5 @@
 import z from "zod"
-import { getJson, postJson, subscribeToNdjson } from "./api.ts"
+import { getJson, patchJson, postJson, subscribeToNdjson } from "./api.ts"
 
 const debateIdeaSchema = z.object({
   ideaId: z.string().min(1),
@@ -44,6 +44,8 @@ const debateTournamentSchema = z.object({
   debateJobId: z.string().min(1),
   ideaJobId: z.string().min(1),
   prompt: z.string().min(1),
+  isPublic: z.boolean(),
+  isOwner: z.boolean(),
   stage: z.enum(["ideas", "swiss", "semifinal", "final"]),
   status: z.enum(["running", "completed", "failed", "interrupted"]),
   expectedMatchCount: z.number().int().positive(),
@@ -56,6 +58,7 @@ const debateJobSummarySchema = z.object({
   debateJobId: z.string().min(1),
   ideaJobId: z.string().min(1),
   prompt: z.string().min(1),
+  isPublic: z.boolean(),
   stage: debateTournamentSchema.shape.stage,
   status: debateTournamentSchema.shape.status,
   error: z.string().nullable(),
@@ -79,22 +82,51 @@ const debateJobResponseSchema = z.object({
 const debateJobsResponseSchema = z.object({
   debateJobs: z.array(debateJobSummarySchema),
 })
+const mutableDebateJobFieldsSchema = z.object({
+  isPublic: z.boolean(),
+})
+const updateDebateJobInputSchema = mutableDebateJobFieldsSchema
+  .partial()
+  .refine((update) => Object.keys(update).length > 0, {
+    message: "At least one debate field must be provided",
+  })
 
 export type DebateTournamentSnapshot = z.output<typeof debateTournamentSchema>
 export type DebateJobEvent = z.output<typeof debateJobEventSchema>
 export type DebateJobSummary = z.output<typeof debateJobSummarySchema>
+export type CreateDebateJobInput = {
+  prompt: string
+  isPublic: boolean
+}
+export type UpdateDebateJobInput = z.input<typeof updateDebateJobInputSchema>
+export type UpdatedDebateJob = z.output<typeof mutableDebateJobFieldsSchema>
 
 export async function createDebateJob(
-  prompt: string,
+  input: CreateDebateJobInput,
   signal?: AbortSignal,
 ): Promise<string> {
   const response = await postJson(
     "/api/debate-jobs",
-    { prompt },
+    input,
     createDebateJobResponseSchema,
     signal,
   )
   return response.debateJobId
+}
+
+export async function updateDebateJob(
+  debateJobId: string,
+  update: UpdateDebateJobInput,
+  signal?: AbortSignal,
+): Promise<UpdatedDebateJob> {
+  const input = updateDebateJobInputSchema.parse(update)
+  const response = await patchJson(
+    `/api/debate-jobs/${encodeURIComponent(debateJobId)}`,
+    input,
+    mutableDebateJobFieldsSchema,
+    signal,
+  )
+  return response
 }
 
 export async function getDebateJob(

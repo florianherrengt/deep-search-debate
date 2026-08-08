@@ -7,12 +7,13 @@ import Stack from "@mui/material/Stack"
 import Toolbar from "@mui/material/Toolbar"
 import Typography from "@mui/material/Typography"
 import type { ReactNode } from "react"
+import type { ContainerProps } from "@mui/material/Container"
 import { Link as RouterLink } from "react-router-dom"
 import { BrandLink } from "./BrandLink.tsx"
 
 interface PublicLayoutProps {
   children: ReactNode
-  maxWidth?: "md" | "lg"
+  maxWidth?: ContainerProps["maxWidth"]
 }
 
 function PublicHeader() {
@@ -40,7 +41,7 @@ function PublicHeader() {
             to="/debates"
             variant="contained"
           >
-            Start a debate
+            Start your own debate
           </Button>
         </Box>
       </Toolbar>

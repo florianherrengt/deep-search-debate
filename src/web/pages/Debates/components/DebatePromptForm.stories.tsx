@@ -22,6 +22,10 @@ export const Ready: Story = {
   args: { onSubmit: () => undefined },
 }
 
+export const ReadyToPublish: Story = {
+  args: { initialIsPublic: true, onSubmit: () => undefined },
+}
+
 export const StartingTournament: Story = {
   args: { isStarting: true, onSubmit: () => undefined },
 }

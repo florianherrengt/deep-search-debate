@@ -29,9 +29,12 @@ ignores this one documented peer-resolution shim.
   GitHub OAuth tokens remain server-side in `account`; application requests use
   an opaque database-backed session cookie rather than a JWT.
 - Every root job and every `llm_generations` row has a required `user_id`.
-  Route history/detail/event queries filter by that owner before consulting
-  in-memory logs or durable replay. Nested idea searches, debate jobs, and all
-  of their generations inherit the initiating user's ID explicitly. Composite
+  User-facing reads apply reusable SQL scopes to the query retrieving the root
+  resource: an owner match grants private access, while a public debate grants
+  inherited access through its idea job, child searches, and generations.
+  Inaccessible rows are never loaded before authorization. Nested idea searches,
+  debate jobs, and all of their generations inherit the initiating user's ID
+  explicitly. Composite
   foreign keys enforce matching owners for root job relationships; transactional
   application validation enforces the same invariant for normalized child rows
   where duplicating `user_id` would add no domain information.
@@ -107,7 +110,8 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
   `debate_rounds`, `debate_matches`, and `debate_messages`. These tables store
   pairings, machine-readable winners, and transcript-generation links. Matches
   reference stable ideas directly; standings and Elo remain derived from
-  completed matches.
+  completed matches. Its private-by-default `is_public` flag grants anonymous
+  read access to this complete owned aggregate without exposing the owner.
 - An idea job does not copy child research output or sources. Its child `deep_search_jobs` keep their own durable state; only their final-answer texts are passed to the briefing generation.
 
 On startup, `recoverInterruptedWork()` marks orphaned running LLM generations, deep-search work, idea jobs, and debate jobs as interrupted or failed. A debate whose final verdict already committed is instead recovered as completed, closing the small crash window before the parent job's terminal update. External provider work is not resumable after process termination; completed debate rounds, results, and transcript generations remain replayable.

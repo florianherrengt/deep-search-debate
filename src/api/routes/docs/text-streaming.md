@@ -20,6 +20,11 @@ Starts generation and returns `201 Created`:
 
 Returns NDJSON. A live invocation replays buffered in-memory deltas and follows new ones. If the invocation is no longer in memory, its terminal reasoning, text, error, and `done` event are synthesized from `llm_generations`. Reads are non-destructive.
 
+Stream creation requires authentication. A stream read is available to its
+owner, or anonymously when the generation belongs anywhere inside a public
+debate aggregate. Standalone streams and streams under private debates remain
+owner-only and return 404 to every other viewer.
+
 | Type        | Payload         | Meaning                         |
 | ----------- | --------------- | ------------------------------- |
 | `reasoning` | `{ text }`      | Reasoning delta or full replay  |

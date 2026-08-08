@@ -11,13 +11,13 @@ import {
   user,
 } from "../db/schema/index.ts"
 import type { AppEnv } from "../types/auth.ts"
-import { debateJobs } from "./debates/index.ts"
+import { debateJobReads, debateJobs } from "./debates/index.ts"
 import type { DebateJobManager } from "./debates/manager.ts"
-import { deepSearchJobs } from "./deepSearch/index.ts"
+import { deepSearchJobReads, deepSearchJobs } from "./deepSearch/index.ts"
 import type { DeepSearchJobManager } from "./deepSearch/manager.ts"
-import { ideaJobs } from "./ideas/index.ts"
+import { ideaJobReads, ideaJobs } from "./ideas/index.ts"
 import type { IdeaJobManager } from "./ideas/manager.ts"
-import { streams } from "./streams.ts"
+import { streamReads, streams } from "./streams.ts"
 
 const ownerId = "test-user-id"
 const foreignUserId = "foreign-test-user-id"
@@ -25,6 +25,9 @@ const foreignIdeaJobId = "11111111-1111-4111-8111-111111111111"
 const foreignDeepSearchJobId = "22222222-2222-4222-8222-222222222222"
 const foreignDebateJobId = "33333333-3333-4333-8333-333333333333"
 const foreignStreamId = "44444444-4444-4444-8444-444444444444"
+const foreignDebateStreamId = "88888888-8888-4888-8888-888888888888"
+const foreignIdeaStreamId = "99999999-9999-4999-8999-999999999999"
+const foreignSearchStreamId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
 const deepSearchStart = vi.fn<DeepSearchJobManager["start"]>(() => ({
   deepSearchJobId: "55555555-5555-4555-8555-555555555555",
@@ -39,12 +42,20 @@ const debateStart = vi.fn<DebateJobManager["start"]>(() => ({
   completion: Promise.resolve(),
 }))
 
-function createApp(): Hono<AppEnv> {
+function createApp(viewerUserId: string | null = ownerId): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
   app.use("*", async (c, next) => {
-    c.set("userId", ownerId)
+    c.set("viewerUserId", viewerUserId)
+    if (viewerUserId !== null) c.set("userId", viewerUserId)
     await next()
   })
+  streamReads(app)
+  deepSearchJobReads(app, {
+    start: deepSearchStart,
+    getLiveJob: () => undefined,
+  })
+  ideaJobReads(app, { start: ideaStart, getLiveJob: () => undefined })
+  debateJobReads(app, { start: debateStart, getLiveJob: () => undefined })
   streams(app)
   deepSearchJobs(app, {
     start: deepSearchStart,
@@ -90,10 +101,39 @@ beforeEach(() => {
     .values({
       userId: foreignUserId,
       deepSearchJobId: foreignDeepSearchJobId,
+      ideaJobId: foreignIdeaJobId,
+      ideaJobPosition: 0,
       researchRequest: "Foreign research",
       maxSearches: 3,
       maxResultsPerSearch: 3,
     })
+    .run()
+  db.insert(llmGenerations)
+    .values(
+      [
+        {
+          userId: foreignUserId,
+          llmGenerationId: foreignDebateStreamId,
+          debateJobId: foreignDebateJobId,
+        },
+        {
+          userId: foreignUserId,
+          llmGenerationId: foreignIdeaStreamId,
+          ideaJobId: foreignIdeaJobId,
+        },
+        {
+          userId: foreignUserId,
+          llmGenerationId: foreignSearchStreamId,
+          deepSearchJobId: foreignDeepSearchJobId,
+        },
+      ].map((generation) => ({
+        ...generation,
+        status: "completed" as const,
+        text: "Public output",
+        reasoning: "",
+        completedAt: new Date(),
+      })),
+    )
     .run()
 })
 
@@ -109,6 +149,120 @@ describe("user-owned routes", () => {
   ])("hides a foreign %s", async (_label, path) => {
     const response = await createApp().request(path)
     expect(response.status).toBe(404)
+  })
+
+  it.each([
+    ["anonymous viewer", null],
+    ["authenticated non-owner", ownerId],
+  ] as const)(
+    "lets an %s read a public debate and its complete aggregate",
+    async (_label, viewerUserId) => {
+      db.update(debateJobsTable)
+        .set({ isPublic: true })
+        .where(eq(debateJobsTable.debateJobId, foreignDebateJobId))
+        .run()
+      const app = createApp(viewerUserId)
+
+      for (const path of [
+        `/debate-jobs/${foreignDebateJobId}`,
+        `/debate-jobs/${foreignDebateJobId}/events`,
+        `/idea-jobs/${foreignIdeaJobId}`,
+        `/idea-jobs/${foreignIdeaJobId}/events`,
+        `/deep-search-jobs/${foreignDeepSearchJobId}`,
+        `/deep-search-jobs/${foreignDeepSearchJobId}/events`,
+        `/streams/${foreignDebateStreamId}`,
+        `/streams/${foreignIdeaStreamId}`,
+        `/streams/${foreignSearchStreamId}`,
+      ]) {
+        expect((await app.request(path)).status).toBe(200)
+      }
+
+      const debateResponse = await app.request(
+        `/debate-jobs/${foreignDebateJobId}`,
+      )
+      expect(await debateResponse.json()).toMatchObject({
+        debateJob: { isOwner: false, isPublic: true },
+      })
+      const ideaResponse = await app.request(`/idea-jobs/${foreignIdeaJobId}`)
+      expect(JSON.stringify(await ideaResponse.json())).not.toContain("userId")
+      const searchResponse = await app.request(
+        `/deep-search-jobs/${foreignDeepSearchJobId}`,
+      )
+      expect(JSON.stringify(await searchResponse.json())).not.toContain("userId")
+      expect((await app.request(`/streams/${foreignStreamId}`)).status).toBe(404)
+    },
+  )
+
+  it("applies read scopes to collections without exposing owner IDs", async () => {
+    db.update(debateJobsTable)
+      .set({ isPublic: true })
+      .where(eq(debateJobsTable.debateJobId, foreignDebateJobId))
+      .run()
+    const app = createApp(ownerId)
+
+    const debateHistory = await app.request("/debate-jobs")
+    const ideaHistory = await app.request("/idea-jobs")
+    const searchHistory = await app.request("/deep-search-jobs")
+
+    expect(await debateHistory.json()).toMatchObject({
+      debateJobs: [{ debateJobId: foreignDebateJobId }],
+    })
+    const ideas: unknown = await ideaHistory.json()
+    expect(ideas).toMatchObject({
+      ideaJobs: [{ ideaJobId: foreignIdeaJobId }],
+    })
+    expect(JSON.stringify(ideas)).not.toContain("userId")
+    expect(await searchHistory.json()).toEqual({ deepSearchJobs: [] })
+  })
+
+  it("revokes anonymous aggregate access when a debate becomes private", async () => {
+    db.update(debateJobsTable)
+      .set({ isPublic: true })
+      .where(eq(debateJobsTable.debateJobId, foreignDebateJobId))
+      .run()
+    const app = createApp(null)
+    expect(
+      (await app.request(`/debate-jobs/${foreignDebateJobId}`)).status,
+    ).toBe(200)
+
+    db.update(debateJobsTable)
+      .set({ isPublic: false })
+      .where(eq(debateJobsTable.debateJobId, foreignDebateJobId))
+      .run()
+
+    for (const path of [
+      `/debate-jobs/${foreignDebateJobId}`,
+      `/idea-jobs/${foreignIdeaJobId}`,
+      `/deep-search-jobs/${foreignDeepSearchJobId}`,
+      `/streams/${foreignDebateStreamId}`,
+    ]) {
+      expect((await app.request(path)).status).toBe(404)
+    }
+  })
+
+  it("prevents a non-owner from updating a public debate", async () => {
+    db.update(debateJobsTable)
+      .set({ isPublic: true })
+      .where(eq(debateJobsTable.debateJobId, foreignDebateJobId))
+      .run()
+
+    const response = await createApp().request(
+      `/debate-jobs/${foreignDebateJobId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isPublic: false }),
+      },
+    )
+
+    expect(response.status).toBe(404)
+    expect(
+      db
+        .select({ isPublic: debateJobsTable.isPublic })
+        .from(debateJobsTable)
+        .where(eq(debateJobsTable.debateJobId, foreignDebateJobId))
+        .get()?.isPublic,
+    ).toBe(true)
   })
 
   it.each([
@@ -154,6 +308,7 @@ describe("user-owned routes", () => {
     )
     expect(debateStart).toHaveBeenCalledWith(ownerId, {
       prompt: "Debate ideas",
+      isPublic: false,
     })
   })
 })
