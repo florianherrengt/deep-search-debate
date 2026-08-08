@@ -105,7 +105,7 @@ The required application settings are:
 | Dockerfile | `/Dockerfile` |
 | Primary domain | `https://rethinkloop.com` |
 | Exposed container port | `3000` |
-| Host port mapping | none |
+| Host port mapping | `4479:3000` |
 | Health check | enabled |
 | Health-check method | `GET` |
 | Health-check path | `/api/health` |
@@ -114,6 +114,10 @@ The required application settings are:
 | Health-check expected status | `200` |
 | Docker health-check start period | `60s` |
 | Traefik/Caddy upstream labels | `3000` |
+
+The host port mapping publishes Coolify's application container on port `4479`
+while Hono continues to listen on port `3000` inside the container. Domain
+traffic and health checks therefore still target the internal port `3000`.
 
 The encrypted `src/api/secrets/dev.kdbx` and `src/api/secrets/prod.kdbx` files
 are committed and copied into the container image with mode `0400`.

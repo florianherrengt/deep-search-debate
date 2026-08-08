@@ -1,4 +1,5 @@
 - [ ] Update Dockerfile to node latest version
+- [ ] Rename app to rethinkloop.
 - [ ] Split Deep Searches by source
   - Add My Searches and Automated tabs.
   - My Searches: searches started manually by the user.

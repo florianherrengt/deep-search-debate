@@ -17,7 +17,7 @@ if ! jq -e '
   .base_directory == "/" and
   .dockerfile_location == "/Dockerfile" and
   .ports_exposes == "3000" and
-  ((.ports_mappings // "") == "") and
+  .ports_mappings == "4479:3000" and
   .health_check_enabled == true and
   .health_check_path == "/api/health" and
   .health_check_port == "3000" and
@@ -51,7 +51,13 @@ if [[ "${public_url}" != "${COOLIFY_APPLICATION_URL}" ]]; then
   echo "The primary Coolify domain must be ${COOLIFY_APPLICATION_URL}; found ${public_url}." >&2
 fi
 
-proxy_labels="$(jq -r '.custom_labels // ""' <<<"${application_json}")"
+raw_proxy_labels="$(jq -r '.custom_labels // ""' <<<"${application_json}")"
+proxy_labels="${raw_proxy_labels}"
+if decoded_proxy_labels="$(printf '%s' "${raw_proxy_labels}" | base64 --decode 2>/dev/null)" &&
+  grep -Eq '(^|\n)(traefik\.|caddy_)' <<<"${decoded_proxy_labels}"; then
+  proxy_labels="${decoded_proxy_labels}"
+fi
+
 if [[ -z "${proxy_labels}" ]]; then
   configuration_ok=false
   echo "Coolify proxy labels are missing." >&2
