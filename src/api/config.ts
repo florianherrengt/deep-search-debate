@@ -4,6 +4,7 @@ import {
   loadKeePassSecrets,
   resolveKeePassFilePath,
 } from "./keepassSecrets.ts"
+import { resolveRuntimeDefaults } from "./runtimeDefaults.ts"
 
 function isLoopbackHostname(hostname: string): boolean {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "")
@@ -212,16 +213,7 @@ const keepassSecrets: Partial<
   requiredTitles: keepassRequiredTitles,
 })
 
-const environmentDefaults =
-  rawEnvironment.NODE_ENV === "production"
-    ? {
-        databaseUrl: "/app/data/data.db",
-        betterAuthUrl: "https://rethinkloop.com",
-      }
-    : {
-        databaseUrl: "data.db",
-        betterAuthUrl: "http://localhost:5173",
-      }
+const environmentDefaults = resolveRuntimeDefaults(rawEnvironment.NODE_ENV)
 
 const environment = environmentSchema.parse({
   ...rawEnvironment,
