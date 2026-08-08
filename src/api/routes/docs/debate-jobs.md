@@ -1,10 +1,11 @@
 # Debate jobs
 
 Debate jobs are durable automatic tournaments. A fresh user prompt first runs the
-existing researched-idea pipeline, then admits its complete normalized idea set to
-Swiss play and a top-four knockout. Closing or reloading the page does not cancel
-work. Live subscriptions replay retained events and terminal jobs rebuild their UI
-snapshot from SQLite.
+existing researched-and-critiqued idea pipeline, then admits its complete normalized
+idea set to Swiss play and a top-four knockout. The critique remains available on
+the linked idea-job view; tournament agents do not consume it. Closing or reloading
+the page does not cancel work. Live subscriptions replay retained events and
+terminal jobs rebuild their UI snapshot from SQLite.
 
 ## Tournament format
 

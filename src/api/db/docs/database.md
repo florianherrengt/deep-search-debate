@@ -56,8 +56,9 @@ ignores this one documented peer-resolution shim.
   persisted-page ownership links used by that check are immutable after
   insertion so later updates cannot invalidate an existing selected result.
 - API validation requires user prompts, research requests, generated queries,
-  and persisted search facts to contain non-whitespace content. Idea rows are
-  immutable after insertion, terminal jobs reject collection additions, and
+  and persisted search facts to contain non-whitespace content. Idea content is
+  immutable after insertion; its nullable critique link can transition exactly
+  once from absent to present. Terminal jobs reject collection additions, and
   deleting the owning job still cascades through the ideas.
 - Child-key indexes support aggregate cascades and `NO ACTION` checks without
   scanning unrelated generations, queries, pages, results, or debate matches.
@@ -77,6 +78,12 @@ ignores this one documented peer-resolution shim.
 
 ### Known application-enforced integrity boundaries
 
+- `ideas.critique_generation_id` is null during the valid interval between idea
+  persistence and that idea's critique call starting. A trigger permits only the
+  one-time null-to-generation transition. Its foreign key and unique index
+  prevent nonexistent or reused generations, while application orchestration
+  enforces same-job ownership and requires every link before job completion,
+  without duplicating `user_id` on every idea row.
 - Aggregate parent columns such as `idea_jobs.debate_job_id`,
   `deep_search_jobs.idea_job_id`, and the debate round/match parent links are not
   immutable in SQLite. Application writers treat them as insert-only. Direct SQL
@@ -100,9 +107,10 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
   and are never written individually.
 - `deep_search_jobs` owns a deep-search request and may belong to an `idea_jobs` parent. Child searches store their planning-generation position. Its normalized query, result, web-page, and generation rows preserve research progress without a JSON snapshot.
 - `idea_jobs` owns the user prompt, requested idea/search counts, current stage,
-  lifecycle, planning, briefing, and idea-generation links. A debate-created
-  idea job points to its owning debate; a standalone idea job leaves that FK null.
-- `ideas` stores the validated, ordered output of a completed idea job with stable IDs. The linked LLM generation retains the raw structured model output for model-stream inspection and debugging.
+  lifecycle, planning, briefing, and idea-generation links.
+  A debate-created idea job points to its owning debate; a standalone idea job
+  leaves that FK null.
+- `ideas` stores validated, ordered idea output with stable IDs as soon as idea generation completes. Its critique-generation link is initially null and is attached when that idea's critique starts. Each critique's text and reasoning remain in its `llm_generations` row; they are not copied into `ideas` or a second critique table. The job's idea-generation link separately retains the raw structured idea output for inspection and debugging.
 - `debate_jobs` owns its generated idea pipeline as well as
   `debate_rounds`, `debate_matches`, and `debate_messages`. These tables store
   pairings, machine-readable winners, and transcript-generation links. Matches

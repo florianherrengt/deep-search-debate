@@ -20,6 +20,11 @@ export type IdeaJobEvent =
   | { type: "research-summary-stream"; streamId: string }
   | { type: "idea-generation-stream"; streamId: string }
   | ({ type: "idea" } & Idea)
+  | {
+      type: "critique-generation-stream"
+      position: number
+      streamId: string
+    }
   | { type: "error"; message: string; stage: IdeaStage }
   | { type: "done" }
 

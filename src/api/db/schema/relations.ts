@@ -209,6 +209,11 @@ export const ideasRelations = relations(ideas, ({ many, one }) => ({
     fields: [ideas.ideaJobId],
     references: [ideaJobs.ideaJobId],
   }),
+  critiqueGeneration: one(llmGenerations, {
+    fields: [ideas.critiqueGenerationId],
+    references: [llmGenerations.llmGenerationId],
+    relationName: "ideaCritiqueGeneration",
+  }),
   matchesAsFirst: many(debateMatches, {
     relationName: "debateMatchFirstIdea",
   }),

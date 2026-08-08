@@ -46,6 +46,7 @@ describe("reconstructIdeaJobEvents", () => {
       "ideas-id",
       '{"elements":[{"title":"Specific idea","description":"Concrete description"}]}',
     )
+    insertGeneration("critique-id", "Specific idea\nA useful critique")
     db.insert(ideas)
       .values({
         ideaId: "33333333-3333-4333-8333-333333333333",
@@ -53,11 +54,12 @@ describe("reconstructIdeaJobEvents", () => {
         position: 0,
         title: "Specific idea",
         description: "Concrete description",
+        critiqueGenerationId: "critique-id",
       })
       .run()
     db.update(ideaJobs)
       .set({
-        stage: "ideas",
+        stage: "critique",
         researchPromptGenerationId: "planning-id",
         researchSummaryGenerationId: "summary-id",
         ideaGenerationId: "ideas-id",
@@ -108,6 +110,54 @@ describe("reconstructIdeaJobEvents", () => {
         type: "idea",
         title: "Specific idea",
         description: "Concrete description",
+      },
+      {
+        type: "critique-generation-stream",
+        position: 0,
+        streamId: "critique-id",
+      },
+      { type: "done" },
+    ])
+  })
+
+  it("replays an idea whose critique never started", () => {
+    db.insert(ideaJobs)
+      .values({
+        userId: "test-user-id",
+        ideaJobId,
+        prompt: "Generate concepts",
+        numberOfIdeas: 1,
+        deepSearchCount: 1,
+      })
+      .run()
+    db.insert(ideas)
+      .values({
+        ideaId: "33333333-3333-4333-8333-333333333333",
+        ideaJobId,
+        position: 0,
+        title: "Visible before critique",
+        description: "This idea already exists",
+      })
+      .run()
+    db.update(ideaJobs)
+      .set({
+        stage: "critique",
+        status: "failed",
+        error: "Critique failed before streaming",
+        completedAt: new Date(),
+      })
+      .run()
+
+    expect(reconstructIdeaJobEvents(ideaJobId)).toEqual([
+      {
+        type: "idea",
+        title: "Visible before critique",
+        description: "This idea already exists",
+      },
+      {
+        type: "error",
+        message: "Critique failed before streaming",
+        stage: "critique",
       },
       { type: "done" },
     ])

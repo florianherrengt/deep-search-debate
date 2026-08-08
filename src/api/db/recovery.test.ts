@@ -15,7 +15,7 @@ import {
 function createFinalStageJob(finalMatchCompleted: boolean): string {
   const ideaJobId = crypto.randomUUID()
   const debateJobId = crypto.randomUUID()
-  const generationIds = Array.from({ length: 3 }, () => crypto.randomUUID())
+  const generationIds = Array.from({ length: 5 }, () => crypto.randomUUID())
   const completedAt = new Date()
 
   db.insert(debateJobs)
@@ -55,11 +55,12 @@ function createFinalStageJob(finalMatchCompleted: boolean): string {
     position,
     title: `Idea ${position + 1}`,
     description: `Description ${position + 1}`,
+    critiqueGenerationId: generationIds[position + 3],
   }))
   db.insert(ideas).values(ideaRows).run()
   db.update(ideaJobs)
     .set({
-      stage: "ideas",
+      stage: "critique",
       researchPromptGenerationId: generationIds[0],
       researchSummaryGenerationId: generationIds[1],
       ideaGenerationId: generationIds[2],

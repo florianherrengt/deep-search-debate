@@ -104,6 +104,9 @@ test.describe("Ideas", () => {
     const ideaGeneration = liveEvents.find(
       (event) => event.type === "idea-generation-stream",
     )
+    const critiqueGenerations = liveEvents.filter(
+      (event) => event.type === "critique-generation-stream",
+    )
     const ideas = liveEvents.filter(
       (event): event is Extract<IdeaJobEvent, { type: "idea" }> =>
         event.type === "idea",
@@ -115,6 +118,7 @@ test.describe("Ideas", () => {
     expect(new Set(research.map((item) => item.researchRequest)).size).toBe(2)
     expect(summary).toBeDefined()
     expect(ideaGeneration).toBeDefined()
+    expect(critiqueGenerations).toHaveLength(12)
     expect(ideas).toHaveLength(12)
     expect(
       Math.max(...research.map((item) => liveEvents.indexOf(item))),
@@ -129,10 +133,22 @@ test.describe("Ideas", () => {
       request,
       ideaGeneration?.streamId ?? "",
     )
+    const critiqueStreams = await Promise.all(
+      critiqueGenerations
+        .toSorted((first, second) => first.position - second.position)
+        .map((generation) => readTextStream(request, generation.streamId)),
+    )
     expect(planningStream.text.trim()).not.toBe("")
     expect(summaryStream.text).toContain("insulation, heating-control")
     expect(summaryStream.text).toContain("Removable controls")
     expect(ideaStream.text.trim()).not.toBe("")
+    for (const [position, critiqueStream] of critiqueStreams.entries()) {
+      expect(critiqueStream.text).toContain(`Idea ${position + 1}`)
+      expect(critiqueStream.text).toContain("clear renter-friendly mechanism")
+      expect(
+        critiqueStream.events.some((event) => event.type === "reasoning"),
+      ).toBe(true)
+    }
 
     const structuredIdeas = JSON.parse(ideaStream.text) as {
       elements: Array<{ title: string; description: string }>
@@ -178,14 +194,26 @@ test.describe("Ideas", () => {
     await expect(ideaStage).toContainText("Complete")
     await expect(ideaStage).toHaveAttribute("aria-expanded", "true")
     await expect(page.getByText("Raw structured output")).toHaveCount(0)
-    for (const idea of ideas) {
+    for (const [position, idea] of ideas.entries()) {
+      const ideaCard = page.getByRole("article", {
+        name: idea.title,
+        exact: true,
+      })
       await expect(
-        page.getByRole("heading", { name: idea.title, exact: true }).first(),
+        ideaCard.getByRole("heading", { name: idea.title, exact: true }),
       ).toBeVisible()
       await expect(
-        page.getByText(idea.description, { exact: true }).first(),
+        ideaCard.getByText(idea.description, { exact: true }),
       ).toBeVisible()
+      await expect(
+        ideaCard.getByTestId(`idea-critique-${position}`),
+      ).toHaveText(
+        critiqueStreams[position]?.text ?? "",
+      )
     }
+    await expect(
+      page.getByRole("button", { name: /Critique each idea/ }),
+    ).toHaveCount(0)
 
     const summaryStage = page.getByRole("button", {
       name: /Summarise the research/,
@@ -219,6 +247,15 @@ test.describe("Ideas", () => {
         .toSorted(),
     ).toEqual(research.map((event) => event.deepSearchJobId).toSorted())
     expect(replayEvents.filter((event) => event.type === "idea")).toEqual(ideas)
+    expect(
+      replayEvents.filter(
+        (event) => event.type === "critique-generation-stream",
+      ).toSorted((first, second) => first.position - second.position),
+    ).toEqual(
+      critiqueGenerations.toSorted(
+        (first, second) => first.position - second.position,
+      ),
+    )
 
     const detail = await request.get(`/api/idea-jobs/${ideaJobId}`)
     expect(detail.status()).toBe(200)
@@ -228,7 +265,7 @@ test.describe("Ideas", () => {
         prompt,
         numberOfIdeas: 12,
         deepSearchCount: 2,
-        stage: "ideas",
+        stage: "critique",
         status: "completed",
       },
     })
@@ -239,10 +276,17 @@ test.describe("Ideas", () => {
     })
     await expect(replayedIdeaStage).toContainText("Complete")
     await expect(replayedIdeaStage).toHaveAttribute("aria-expanded", "true")
-    for (const idea of ideas) {
+    for (const [position, idea] of ideas.entries()) {
+      const ideaCard = page.getByRole("article", {
+        name: idea.title,
+        exact: true,
+      })
       await expect(
-        page.getByRole("heading", { name: idea.title, exact: true }).first(),
+        ideaCard.getByRole("heading", { name: idea.title, exact: true }),
       ).toBeVisible()
+      await expect(
+        ideaCard.getByTestId(`idea-critique-${position}`),
+      ).toHaveText(critiqueStreams[position]?.text ?? "")
     }
 
     await page.goto("/ideas")

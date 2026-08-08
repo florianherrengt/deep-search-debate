@@ -56,6 +56,7 @@ describe("aggregate deletion", () => {
     const finalAnswerGenerationId = crypto.randomUUID()
     const queryGenerationId = crypto.randomUUID()
     const debateGenerationId = crypto.randomUUID()
+    const critiqueGenerationIds = [crypto.randomUUID(), crypto.randomUUID()]
 
     db.insert(debateJobs)
       .values({
@@ -108,6 +109,11 @@ describe("aggregate deletion", () => {
           userId: "test-user-id",
           debateJobId,
         },
+        ...critiqueGenerationIds.map((llmGenerationId) => ({
+          llmGenerationId,
+          userId: "test-user-id",
+          ideaJobId,
+        })),
       ])
       .run()
     db.update(ideaJobs)
@@ -123,6 +129,7 @@ describe("aggregate deletion", () => {
       position,
       title: `Idea ${position + 1}`,
       description: `Description ${position + 1}`,
+      critiqueGenerationId: critiqueGenerationIds[position],
     }))
     db.insert(ideas).values(ideaRows).run()
 

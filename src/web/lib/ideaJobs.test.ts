@@ -8,7 +8,7 @@ describe("idea jobs client", () => {
     const job = {
       ideaJobId: "idea-id",
       prompt: "Generate ideas",
-      stage: "ideas",
+      stage: "critique",
       numberOfIdeas: 12,
       deepSearchCount: 2,
       status: "completed",

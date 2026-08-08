@@ -8,13 +8,36 @@ import {
 import type { IdeaJobEvent } from "./schemas.ts"
 
 function replayNormalizedIdeas(ideaJobId: string): IdeaJobEvent[] {
-  return db
-    .select({ title: ideas.title, description: ideas.description })
+  const persistedIdeas = db
+    .select({
+      title: ideas.title,
+      description: ideas.description,
+      position: ideas.position,
+      critiqueGenerationId: ideas.critiqueGenerationId,
+    })
     .from(ideas)
     .where(eq(ideas.ideaJobId, ideaJobId))
     .orderBy(asc(ideas.position))
     .all()
-    .map((idea) => ({ type: "idea", ...idea }))
+
+  return [
+    ...persistedIdeas.map(({ title, description }) => ({
+      type: "idea" as const,
+      title,
+      description,
+    })),
+    ...persistedIdeas.flatMap(({ critiqueGenerationId, position }) =>
+      critiqueGenerationId
+        ? [
+            {
+              type: "critique-generation-stream" as const,
+              position,
+              streamId: critiqueGenerationId,
+            },
+          ]
+        : [],
+    ),
+  ]
 }
 
 /** Reconstructs parent progress; nested deep-search details replay independently. */

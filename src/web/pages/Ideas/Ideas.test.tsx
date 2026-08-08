@@ -3,6 +3,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
@@ -84,6 +85,11 @@ describe("Ideas", () => {
         title: "Prep Forecast",
         description: "Recommend daily prep quantities from recent demand.",
       }
+      yield {
+        type: "critique-generation-stream" as const,
+        position: 0,
+        streamId: "critique",
+      }
       await new Promise<void>((resolve) => {
         if (signal?.aborted) resolve()
         else signal?.addEventListener("abort", () => resolve(), { once: true })
@@ -115,9 +121,12 @@ describe("Ideas", () => {
     expect(
       screen.getByText("Recommend daily prep quantities from recent demand."),
     ).toBeVisible()
-    expect(screen.getAllByRole("status")).toHaveLength(1)
+    const ideaCard = screen.getByRole("article", { name: "Prep Forecast" })
+    expect(await within(ideaCard).findByTestId("idea-critique-0")).toHaveTextContent(
+      "critique text",
+    )
     expect(screen.getByRole("status")).toHaveTextContent(
-      "Generating ideas…",
+      "Critique for Prep Forecast: Response complete",
     )
     expect(screen.queryByText("Raw structured output")).not.toBeInTheDocument()
     expect(mocks.createIdeaJob).toHaveBeenCalledWith({
@@ -139,7 +148,13 @@ describe("Ideas", () => {
     ).toHaveAttribute("href", "/deep-search/search-two")
   })
 
-  it("opens completed idea results by default without exposing provider output", () => {
+  it("nests each completed critique inside its idea card", async () => {
+    mocks.subscribeToTextStream.mockImplementation(async function* (id: string) {
+      await Promise.resolve()
+      yield { type: "reasoning" as const, text: "Critique reasoning" }
+      yield { type: "text" as const, text: `Response from ${id}` }
+      yield { type: "done" as const }
+    })
     render(
       <IdeaJobView
         prompt="Generate ideas"
@@ -155,7 +170,15 @@ describe("Ideas", () => {
               title: "Prep Forecast",
               description: "Recommend daily prep quantities from recent demand.",
             },
+            {
+              title: "Closing Bundles",
+              description: "Bundle likely leftovers before closing time.",
+            },
           ],
+          critiqueGenerationStreamIds: {
+            0: "prep-critique",
+            1: "bundle-critique",
+          },
           error: null,
         }}
       />,
@@ -164,8 +187,54 @@ describe("Ideas", () => {
     expect(
       screen.getByRole("button", { name: /Generate ideas Complete/ }),
     ).toHaveAttribute("aria-expanded", "true")
-    expect(screen.getByRole("heading", { name: "Prep Forecast" })).toBeVisible()
+    const prepCard = screen.getByRole("article", { name: "Prep Forecast" })
+    const bundleCard = screen.getByRole("article", { name: "Closing Bundles" })
+    expect(await within(prepCard).findByTestId("idea-critique-0")).toHaveTextContent(
+      "Response from prep-critique",
+    )
+    expect(
+      await within(bundleCard).findByTestId("idea-critique-1"),
+    ).toHaveTextContent("Response from bundle-critique")
+    expect(within(prepCard).queryByTestId("idea-critique-1")).not.toBeInTheDocument()
+    expect(within(bundleCard).queryByTestId("idea-critique-0")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /Critique each idea/ }),
+    ).not.toBeInTheDocument()
     expect(screen.queryByText("Raw structured output")).not.toBeInTheDocument()
+  })
+
+  it("shows persisted ideas before their critique calls start", () => {
+    render(
+      <IdeaJobView
+        prompt="Generate ideas"
+        run={{
+          status: "running",
+          failedStage: null,
+          researchPromptStreamId: "planning",
+          research: [],
+          researchSummaryStreamId: "summary",
+          ideaGenerationStreamId: "ideas",
+          ideas: [
+            {
+              title: "Prep Forecast",
+              description: "Recommend daily prep quantities from recent demand.",
+            },
+          ],
+          critiqueGenerationStreamIds: {},
+          error: null,
+        }}
+      />,
+    )
+
+    expect(
+      screen.getByRole("button", { name: /Generate ideas Complete/ }),
+    ).toBeVisible()
+    const ideaCard = screen.getByRole("article", { name: "Prep Forecast" })
+    expect(within(ideaCard).getByText("Critique pending…")).toBeVisible()
+    expect(
+      screen.queryByRole("button", { name: /Critique each idea/ }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText("Generating ideas…")).not.toBeInTheDocument()
   })
 
   it("marks the stage that failed instead of treating its stream as complete", () => {
@@ -191,6 +260,7 @@ describe("Ideas", () => {
           researchSummaryStreamId: null,
           ideaGenerationStreamId: null,
           ideas: [],
+          critiqueGenerationStreamIds: {},
           error: "Planning failed",
         }}
       />,
@@ -224,6 +294,7 @@ describe("Ideas", () => {
           researchSummaryStreamId: "summary",
           ideaGenerationStreamId: null,
           ideas: [],
+          critiqueGenerationStreamIds: {},
           error: "Idea generation failed before streaming",
         }}
       />,
@@ -234,6 +305,38 @@ describe("Ideas", () => {
     ).toBeVisible()
     expect(
       screen.getByRole("button", { name: /Summarise the research Complete/ }),
+    ).toBeVisible()
+  })
+
+  it("marks generated ideas complete when critique creation fails", () => {
+    render(
+      <IdeaJobView
+        prompt="Generate ideas"
+        run={{
+          status: "failed",
+          failedStage: "critique",
+          researchPromptStreamId: "planning",
+          research: [],
+          researchSummaryStreamId: "summary",
+          ideaGenerationStreamId: "ideas",
+          ideas: [
+            {
+              title: "Prep Forecast",
+              description: "Recommend daily prep quantities from recent demand.",
+            },
+          ],
+          critiqueGenerationStreamIds: {},
+          error: "Critique failed before streaming",
+        }}
+      />,
+    )
+
+    expect(
+      screen.getByRole("button", { name: /Generate ideas Complete/ }),
+    ).toBeVisible()
+    const ideaCard = screen.getByRole("article", { name: "Prep Forecast" })
+    expect(
+      within(ideaCard).getByText("Critique did not start for this idea."),
     ).toBeVisible()
   })
 
@@ -270,7 +373,7 @@ describe("Ideas", () => {
         prompt: "Previously generated ideas",
         numberOfIdeas: 12,
         deepSearchCount: 2,
-        stage: "ideas",
+        stage: "critique",
         status: "completed",
         error: null,
         createdAt: new Date("2026-08-04T12:00:00.000Z"),

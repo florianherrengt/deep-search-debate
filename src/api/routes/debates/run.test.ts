@@ -32,6 +32,7 @@ import {
   debateJobs,
   ideaJobs,
   ideas,
+  llmGenerations,
 } from "../../db/schema/index.ts"
 import { createReplayableEventLog } from "../../helpers/replayableEventLog.ts"
 import { runDebateJob } from "./run.ts"
@@ -106,20 +107,27 @@ describe("runDebateJob", () => {
         deepSearchCount: 1,
       })
       .run()
-    db.insert(ideas)
+    const ideaRows = Array.from(
+      { length: DEBATE_TOURNAMENT_FORMAT.participantCount },
+      (_, position) => ({
+        ideaId: crypto.randomUUID(),
+        ideaJobId,
+        position,
+        title: `Idea ${position + 1}`,
+        description: `Description ${position + 1}`,
+        critiqueGenerationId: crypto.randomUUID(),
+      }),
+    )
+    db.insert(llmGenerations)
       .values(
-        Array.from(
-          { length: DEBATE_TOURNAMENT_FORMAT.participantCount },
-          (_, position) => ({
-            ideaId: crypto.randomUUID(),
-            ideaJobId,
-            position,
-            title: `Idea ${position + 1}`,
-            description: `Description ${position + 1}`,
-          }),
-        ),
+        ideaRows.map(({ critiqueGenerationId }) => ({
+          llmGenerationId: critiqueGenerationId,
+          userId: "test-user-id",
+          ideaJobId,
+        })),
       )
       .run()
+    db.insert(ideas).values(ideaRows).run()
     const job = createReplayableEventLog<DebateJobEvent>()
     const events = collectEvents(job.subscribe())
     await runDebateJob({

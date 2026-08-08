@@ -2,13 +2,15 @@ import { sql } from "drizzle-orm"
 import { check, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 
 import { ideaJobs } from "./ideaJobs.ts"
+import { getLlmGenerationIdColumn } from "./llmGenerations.ts"
 
 /**
  * One stable idea produced by an idea-generation job. Ideas are normalized so
  * tournament rows reference durable IDs instead of brittle JSON array offsets.
  * position preserves generation order as metadata, not identity. Idea rows are
- * immutable after insertion so replay sees exactly what debate agents saw;
- * terminal jobs reject additions to the completed collection.
+ * immutable after insertion except for its one-time critique link, so replay
+ * sees exactly what debate agents saw. The nullable link represents the valid
+ * interval after the idea exists but before its critique generation starts.
  */
 export const ideas = sqliteTable(
   "ideas",
@@ -20,6 +22,11 @@ export const ideas = sqliteTable(
     position: integer("position").notNull(),
     title: text("title").notNull(),
     description: text("description").notNull(),
+    // Nullable until critique starts. The one-time SQL guard intentionally does
+    // not couple this attachment to the parent job's terminal status.
+    critiqueGenerationId: text("critique_generation_id")
+      .unique()
+      .references(getLlmGenerationIdColumn, { onDelete: "no action" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),

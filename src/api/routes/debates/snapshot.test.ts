@@ -26,6 +26,7 @@ describe("debate job snapshot", () => {
         position,
         title: `Idea ${position + 1}`,
         description: `Description ${position + 1}`,
+        critiqueGenerationId: crypto.randomUUID(),
       }),
     )
 
@@ -46,6 +47,15 @@ describe("debate job snapshot", () => {
         numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
         deepSearchCount: 2,
       })
+      .run()
+    db.insert(llmGenerations)
+      .values(
+        ideaRows.map(({ critiqueGenerationId }) => ({
+          llmGenerationId: critiqueGenerationId,
+          userId: "test-user-id",
+          ideaJobId,
+        })),
+      )
       .run()
     db.insert(ideas).values(ideaRows).run()
     db.insert(debateRounds)

@@ -18,6 +18,7 @@ export type IdeaJobRunState = {
   researchSummaryStreamId: string | null
   ideaGenerationStreamId: string | null
   ideas: Idea[]
+  critiqueGenerationStreamIds: Record<number, string>
   error: string | null
 }
 
@@ -29,6 +30,7 @@ export const initialIdeaJobState: IdeaJobRunState = {
   researchSummaryStreamId: null,
   ideaGenerationStreamId: null,
   ideas: [],
+  critiqueGenerationStreamIds: {},
   error: null,
 }
 
@@ -62,6 +64,9 @@ export const ideaJobReducer = produce<IdeaJobRunState, [IdeaJobAction]>(
           title: action.title,
           description: action.description,
         })
+        break
+      case "critique-generation-stream":
+        state.critiqueGenerationStreamIds[action.position] = action.streamId
         break
       case "error":
         state.status = "failed"

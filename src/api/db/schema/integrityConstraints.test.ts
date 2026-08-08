@@ -159,7 +159,7 @@ describe("aggregate integrity constraints", () => {
   it("freezes ideas after completion without blocking aggregate deletion", () => {
     const ideaJobId = insertIdeaJob()
     const ideaId = crypto.randomUUID()
-    const generationIds = Array.from({ length: 3 }, () => crypto.randomUUID())
+    const generationIds = Array.from({ length: 4 }, () => crypto.randomUUID())
     db.insert(llmGenerations)
       .values(
         generationIds.map((llmGenerationId) => ({
@@ -176,11 +176,12 @@ describe("aggregate integrity constraints", () => {
         position: 0,
         title: "Original idea",
         description: "Original description",
+        critiqueGenerationId: generationIds[3],
       })
       .run()
     db.update(ideaJobs)
       .set({
-        stage: "ideas",
+        stage: "critique",
         researchPromptGenerationId: generationIds[0],
         researchSummaryGenerationId: generationIds[1],
         ideaGenerationId: generationIds[2],
@@ -206,6 +207,7 @@ describe("aggregate integrity constraints", () => {
           position: 1,
           title: "Late idea",
           description: "Added after completion",
+          critiqueGenerationId: generationIds[3],
         })
         .run(),
     ).toThrow(/terminal idea collections are immutable/)
@@ -222,6 +224,64 @@ describe("aggregate integrity constraints", () => {
     expect(
       db.select().from(ideas).where(sql`${ideas.ideaId} = ${ideaId}`).all(),
     ).toEqual([])
+  })
+
+  it("allows ideas before critique and attaches each critique only once", () => {
+    const ideaJobId = insertIdeaJob()
+    const critiqueGenerationId = crypto.randomUUID()
+    db.insert(llmGenerations)
+      .values({ llmGenerationId: critiqueGenerationId, userId, ideaJobId })
+      .run()
+    const firstIdeaId = crypto.randomUUID()
+    const secondIdeaId = crypto.randomUUID()
+    db.insert(ideas)
+      .values([
+        {
+          ideaId: firstIdeaId,
+          ideaJobId,
+          position: 0,
+          title: "First idea",
+          description: "First description",
+        },
+        {
+          ideaId: secondIdeaId,
+          ideaJobId,
+          position: 1,
+          title: "Second idea",
+          description: "Second description",
+        },
+      ])
+      .run()
+    expect(db.select().from(ideas).all()).toMatchObject([
+      { critiqueGenerationId: null },
+      { critiqueGenerationId: null },
+    ])
+    db.update(ideas)
+      .set({ critiqueGenerationId })
+      .where(sql`${ideas.ideaId} = ${firstIdeaId}`)
+      .run()
+
+    expect(() =>
+      db
+        .update(ideas)
+        .set({ critiqueGenerationId })
+        .where(sql`${ideas.ideaId} = ${secondIdeaId}`)
+        .run(),
+    ).toThrow(/UNIQUE constraint failed/)
+    expect(() =>
+      db
+        .update(ideas)
+        .set({ critiqueGenerationId: crypto.randomUUID() })
+        .where(sql`${ideas.ideaId} = ${secondIdeaId}`)
+        .run(),
+    ).toThrow(/FOREIGN KEY constraint failed/)
+    expect(() =>
+      db
+        .update(ideas)
+        .set({ critiqueGenerationId: null })
+        .where(sql`${ideas.ideaId} = ${firstIdeaId}`)
+        .run(),
+    ).toThrow(/one-time critique linkage/)
   })
 
   it("rejects whitespace-only durable input and search facts", () => {
@@ -308,7 +368,7 @@ describe("aggregate integrity constraints", () => {
 
   it("requires complete root-job terminal state", () => {
     const ideaJobId = insertIdeaJob()
-    const generationIds = Array.from({ length: 3 }, () => crypto.randomUUID())
+    const generationIds = Array.from({ length: 2 }, () => crypto.randomUUID())
     db.insert(llmGenerations)
       .values(
         generationIds.map((llmGenerationId) => ({
@@ -320,9 +380,9 @@ describe("aggregate integrity constraints", () => {
       .run()
     db.update(ideaJobs)
       .set({
+        stage: "critique",
         researchPromptGenerationId: generationIds[0],
         researchSummaryGenerationId: generationIds[1],
-        ideaGenerationId: generationIds[2],
       })
       .where(sql`${ideaJobs.ideaJobId} = ${ideaJobId}`)
       .run()

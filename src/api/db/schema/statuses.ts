@@ -10,6 +10,7 @@ export const ideaJobStages = [
   "research",
   "summary",
   "ideas",
+  "critique",
 ] as const
 
 export const llmGenerationStatuses = [

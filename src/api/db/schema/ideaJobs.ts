@@ -90,7 +90,7 @@ export const ideaJobs = sqliteTable(
     ),
     check(
       "idea_jobs_stage_check",
-      sql`${table.stage} in ('planning', 'research', 'summary', 'ideas')`,
+      sql`${table.stage} in ('planning', 'research', 'summary', 'ideas', 'critique')`,
     ),
     // Stage-to-generation progression deliberately stays in runIdeaJob(). A
     // generation is linked while its stage is still active, and a failed or
@@ -108,7 +108,7 @@ export const ideaJobs = sqliteTable(
       sql`(
         (${table.status} = 'running' and ${table.completedAt} is null and ${table.error} is null)
         or
-        (${table.status} = 'completed' and ${table.stage} = 'ideas' and ${table.completedAt} is not null and ${table.error} is null and ${table.researchPromptGenerationId} is not null and ${table.researchSummaryGenerationId} is not null and ${table.ideaGenerationId} is not null)
+        (${table.status} = 'completed' and ${table.stage} = 'critique' and ${table.completedAt} is not null and ${table.error} is null and ${table.researchPromptGenerationId} is not null and ${table.researchSummaryGenerationId} is not null and ${table.ideaGenerationId} is not null)
         or
         (${table.status} in ('failed', 'interrupted') and ${table.completedAt} is not null and ${table.error} is not null)
       )`,

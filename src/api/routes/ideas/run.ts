@@ -71,6 +71,24 @@ function buildIdeaPrompt(
   ].join("\n")
 }
 
+function buildCritiquePrompt(
+  prompt: string,
+  researchSummary: string,
+  idea: Idea,
+): string {
+  return [
+    "<user_request>",
+    prompt,
+    "</user_request>",
+    "<research_briefing>",
+    researchSummary,
+    "</research_briefing>",
+    "<generated_idea>",
+    JSON.stringify(idea),
+    "</generated_idea>",
+  ].join("\n")
+}
+
 function setGenerationId(
   ideaJobId: string,
   field:
@@ -194,15 +212,6 @@ async function summarizeResearch(
   return collectStreamText(generation)
 }
 
-async function publishIdeas(
-  elements: AsyncIterable<Idea>,
-  job: LiveIdeaJob,
-): Promise<void> {
-  // elementStream emits complete schema-validated objects, allowing the UI to
-  // render each idea without waiting for the complete array.
-  for await (const idea of elements) job.publish({ type: "idea", ...idea })
-}
-
 async function generateIdeas(
   input: RunIdeaJobInput,
   researchSummary: string,
@@ -225,14 +234,12 @@ async function generateIdeas(
     streamId: generation.id,
   })
 
-  // Consume all three representations concurrently:
+  // Consume both complete representations concurrently:
   // - output validates and returns the complete array;
-  // - collectStreamText retains raw JSON and reasoning for replay/debugging;
-  // - elementStream publishes individual idea cards as soon as they validate.
+  // - collectStreamText retains raw JSON and reasoning for replay/debugging.
   const [ideas] = await Promise.all([
     generation.output,
     collectStreamText({ id: generation.id }),
-    publishIdeas(generation.elementStream, input.job),
   ])
   if (ideas.length !== input.numberOfIdeas) {
     throw new Error(
@@ -245,7 +252,77 @@ async function generateIdeas(
   return ideas
 }
 
-/** Runs the all-or-nothing idea pipeline and publishes parent progress. */
+type PersistedIdea = Idea & { ideaId: string; position: number }
+
+function persistIdeas(input: RunIdeaJobInput, ideas: Idea[]): PersistedIdea[] {
+  const persistedIdeas = ideas.map((idea, position) => ({
+    ideaId: crypto.randomUUID(),
+    ideaJobId: input.ideaJobId,
+    position,
+    ...idea,
+  }))
+  db.insert(ideaRecords).values(persistedIdeas).run()
+  for (const idea of ideas) input.job.publish({ type: "idea", ...idea })
+  return persistedIdeas
+}
+
+function attachCritiqueGeneration(ideaId: string, generationId: string): void {
+  const result = db
+    .update(ideaRecords)
+    .set({ critiqueGenerationId: generationId })
+    .where(eq(ideaRecords.ideaId, ideaId))
+    .run()
+  if (result.changes !== 1) throw new Error("Generated idea was not found")
+}
+
+async function critiqueIdea(
+  input: RunIdeaJobInput,
+  researchSummary: string,
+  idea: PersistedIdea,
+): Promise<void> {
+  const generation = await generateTextStream({
+    userId: input.userId,
+    owner: { ideaJobId: input.ideaJobId },
+    prompt: buildCritiquePrompt(input.prompt, researchSummary, {
+      title: idea.title,
+      description: idea.description,
+    }),
+    promptName: PromptName.CritiqueIdea,
+    maxRetries: input.maxRetries,
+  })
+  try {
+    attachCritiqueGeneration(idea.ideaId, generation.id)
+    input.job.publish({
+      type: "critique-generation-stream",
+      position: idea.position,
+      streamId: generation.id,
+    })
+  } catch (error) {
+    // The provider invocation is already consuming. Wait for it before failing
+    // the parent so no started generation outlives the terminal job event.
+    await collectStreamText(generation).catch(() => undefined)
+    throw error
+  }
+  await collectStreamText(generation)
+}
+
+async function critiqueIdeas(
+  input: RunIdeaJobInput,
+  researchSummary: string,
+  ideas: PersistedIdea[],
+): Promise<void> {
+  // Start every independent critique immediately, but do not fail the parent
+  // until all started generations have reached a terminal state.
+  const settled = await Promise.allSettled(
+    ideas.map((idea) => critiqueIdea(input, researchSummary, idea)),
+  )
+  const failed = settled.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  )
+  if (failed) throw failed.reason
+}
+
+/** Runs the durable idea pipeline and publishes parent progress. */
 export async function runIdeaJob(input: RunIdeaJobInput): Promise<void> {
   let stage: IdeaStage = "planning"
   try {
@@ -262,25 +339,16 @@ export async function runIdeaJob(input: RunIdeaJobInput): Promise<void> {
     stage = "ideas"
     setStage(input.ideaJobId, stage)
     const generatedIdeas = await generateIdeas(input, summary)
+    const persistedIdeas = persistIdeas(input, generatedIdeas)
 
-    db.transaction((transaction) => {
-      transaction
-        .insert(ideaRecords)
-        .values(
-          generatedIdeas.map((idea, position) => ({
-            ideaId: crypto.randomUUID(),
-            ideaJobId: input.ideaJobId,
-            position,
-            ...idea,
-          })),
-        )
-        .run()
-      transaction
-        .update(ideaJobs)
-        .set({ status: "completed", completedAt: new Date() })
-        .where(eq(ideaJobs.ideaJobId, input.ideaJobId))
-        .run()
-    })
+    stage = "critique"
+    setStage(input.ideaJobId, stage)
+    await critiqueIdeas(input, summary, persistedIdeas)
+
+    db.update(ideaJobs)
+      .set({ status: "completed", completedAt: new Date() })
+      .where(eq(ideaJobs.ideaJobId, input.ideaJobId))
+      .run()
   } catch (error) {
     const message = getErrorMessage(error, "Idea generation failed")
     try {

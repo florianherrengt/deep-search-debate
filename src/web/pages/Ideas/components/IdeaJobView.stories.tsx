@@ -15,6 +15,7 @@ const baseRun: IdeaJobRunState = {
   researchSummaryStreamId: null,
   ideaGenerationStreamId: null,
   ideas: [],
+  critiqueGenerationStreamIds: {},
   error: null,
 }
 
@@ -56,6 +57,14 @@ const textById: Record<string, { reasoning: string; text: string }> = {
   ideas: {
     reasoning: "I am turning the strongest constraints into distinct product mechanisms.",
     text: JSON.stringify(ideas),
+  },
+  "critique-0": {
+    reasoning: "I am testing this idea against adoption friction and defensibility.",
+    text: "Strong operational fit, but its accuracy depends on clean till data and enough historical demand. Start with confidence ranges and manual overrides.",
+  },
+  "critique-1": {
+    reasoning: "I am checking whether this idea has a defensible mechanism.",
+    text: "Easy to understand, but crowded and vulnerable to low customer reach. Differentiate through automatic bundle creation inside existing closing workflows.",
   },
 }
 
@@ -120,6 +129,27 @@ export const Completed: Story = {
       researchSummaryStreamId: "summary",
       ideaGenerationStreamId: "ideas",
       ideas,
+      critiqueGenerationStreamIds: {
+        0: "critique-0",
+        1: "critique-1",
+      },
+    },
+  },
+}
+
+export const CritiquingIdeas: Story = {
+  args: {
+    prompt,
+    run: {
+      ...baseRun,
+      research,
+      researchSummaryStreamId: "summary",
+      ideaGenerationStreamId: "ideas",
+      ideas,
+      critiqueGenerationStreamIds: {
+        0: "critique-0",
+        1: "critique-1",
+      },
     },
   },
 }

@@ -153,7 +153,7 @@ export function createDeepSearchJobManager(): DeepSearchJobManager {
 
       // runDeepSearchJob persists normal failures instead of throwing them.
       // Reading the terminal row converts those failures into a rejection so
-      // an owning idea pipeline can enforce its all-or-nothing contract.
+      // an owning idea pipeline does not advance from failed research.
       const completion = runDeepSearchJob(
         deepSearchJobId,
         userId,

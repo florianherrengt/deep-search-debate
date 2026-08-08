@@ -395,6 +395,23 @@ function deepSeekOutput(body) {
       text: JSON.stringify({ elements: ideas }),
     }
   }
+  if (system.includes("Critique the generated idea against")) {
+    const generatedIdea = parseTaggedJson(user, "generated_idea")
+    const position = ideas.findIndex(
+      (idea) => JSON.stringify(idea) === JSON.stringify(generatedIdea),
+    )
+    if (
+      !user.includes("<research_briefing>") ||
+      position === -1
+    ) {
+      throw new Error("Idea critique request did not include its complete context")
+    }
+    return {
+      reasoning:
+        "Assess this idea independently against the researched constraints.",
+      text: `Idea ${position + 1} has a clear renter-friendly mechanism, but it needs stronger evidence of adoption and differentiation. Improve it by validating its specific workflow and measurable impact.`,
+    }
+  }
   if (/independent judge/i.test(system)) {
     return debateJudgeOutput(user)
   }

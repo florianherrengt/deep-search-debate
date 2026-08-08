@@ -49,6 +49,8 @@ function setupGenerations(): void {
   insertGeneration("planning-id", JSON.stringify(researchPrompts))
   insertGeneration("summary-id", "Combined research briefing")
   insertGeneration("ideas-id", JSON.stringify(generatedIdeas))
+  insertGeneration("critique-one-id", "First critique")
+  insertGeneration("critique-two-id", "Second critique")
   mocks.generateArrayStream
     .mockResolvedValueOnce({
       id: "planning-id",
@@ -60,7 +62,10 @@ function setupGenerations(): void {
       output: Promise.resolve(generatedIdeas),
       elementStream: elements(generatedIdeas),
     })
-  mocks.generateTextStream.mockResolvedValue({ id: "summary-id" })
+  mocks.generateTextStream
+    .mockResolvedValueOnce({ id: "summary-id" })
+    .mockResolvedValueOnce({ id: "critique-one-id" })
+    .mockResolvedValueOnce({ id: "critique-two-id" })
 }
 
 async function collectEvents(
@@ -110,7 +115,7 @@ describe("runIdeaJob", () => {
     db.delete(llmGenerations).run()
   })
 
-  it("runs all research in parallel before summarising and streams ideas", async () => {
+  it("runs research and one critique generation per idea", async () => {
     const { input, events } = createInput(0)
     setupGenerations()
     mocks.startDeepSearch
@@ -143,17 +148,32 @@ describe("runIdeaJob", () => {
         expect.objectContaining({ maxRetries: 0 }),
       )
     }
-    expect(mocks.generateTextStream).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ maxRetries: 0 }),
-    )
+    expect(mocks.generateTextStream).toHaveBeenCalledTimes(3)
+    for (const [generationInput] of mocks.generateTextStream.mock.calls) {
+      expect(generationInput).toEqual(
+        expect.objectContaining({ maxRetries: 0 }),
+      )
+    }
     const summaryInput = z.object({ prompt: z.string() }).parse(
       mocks.generateTextStream.mock.calls[0]?.[0] as unknown,
     )
     const ideaInput = z.object({ prompt: z.string() }).parse(
       mocks.generateArrayStream.mock.calls[1]?.[0] as unknown,
     )
+    const critiqueInputs = mocks.generateTextStream.mock.calls
+      .slice(1)
+      .map(([value]) =>
+        z.object({ prompt: z.string() }).parse(value as unknown),
+      )
     expect(summaryInput.prompt).toContain("<research_text index=")
     expect(ideaInput.prompt).toContain("<research_briefing>")
+    expect(critiqueInputs).toHaveLength(generatedIdeas.length)
+    for (const [position, critiqueInput] of critiqueInputs.entries()) {
+      expect(critiqueInput.prompt).toContain("<research_briefing>")
+      expect(critiqueInput.prompt).toContain(
+        `<generated_idea>\n${JSON.stringify(generatedIdeas[position])}\n</generated_idea>`,
+      )
+    }
     await expect(events).resolves.toEqual([
       { type: "research-prompt-stream", streamId: "planning-id" },
       {
@@ -170,15 +190,27 @@ describe("runIdeaJob", () => {
       { type: "idea-generation-stream", streamId: "ideas-id" },
       { type: "idea", ...generatedIdeas[0] },
       { type: "idea", ...generatedIdeas[1] },
+      {
+        type: "critique-generation-stream",
+        position: 0,
+        streamId: "critique-one-id",
+      },
+      {
+        type: "critique-generation-stream",
+        position: 1,
+        streamId: "critique-two-id",
+      },
       { type: "done" },
     ])
     expect(db.select().from(ideaJobs).get()).toMatchObject({
       status: "completed",
+      stage: "critique",
       error: null,
     })
-    expect(
-      db.select().from(ideas).orderBy(ideas.position).all(),
-    ).toMatchObject(generatedIdeas)
+    expect(db.select().from(ideas).orderBy(ideas.position).all()).toMatchObject([
+      { ...generatedIdeas[0], critiqueGenerationId: "critique-one-id" },
+      { ...generatedIdeas[1], critiqueGenerationId: "critique-two-id" },
+    ])
   })
 
   it("fails the whole pipeline without summarising when any research fails", async () => {
@@ -260,5 +292,60 @@ describe("runIdeaJob", () => {
       error: "Summary failed before streaming",
       stage: "summary",
     })
+  })
+
+  it("retains generated ideas when one critique cannot start", async () => {
+    const { input, events } = createInput()
+    insertGeneration("planning-id", JSON.stringify(researchPrompts))
+    insertGeneration("summary-id", "Combined research briefing")
+    insertGeneration("ideas-id", JSON.stringify(generatedIdeas))
+    insertGeneration("critique-two-id", "Second critique")
+    mocks.generateArrayStream
+      .mockResolvedValueOnce({
+        id: "planning-id",
+        output: Promise.resolve(researchPrompts),
+        elementStream: elements([]),
+      })
+      .mockResolvedValueOnce({
+        id: "ideas-id",
+        output: Promise.resolve(generatedIdeas),
+        elementStream: elements(generatedIdeas),
+      })
+    mocks.generateTextStream
+      .mockResolvedValueOnce({ id: "summary-id" })
+      .mockRejectedValueOnce(new Error("Critique failed before streaming"))
+      .mockResolvedValueOnce({ id: "critique-two-id" })
+    mocks.startDeepSearch
+      .mockReturnValueOnce({
+        deepSearchJobId: "search-one",
+        completion: Promise.resolve("First research result"),
+      })
+      .mockReturnValueOnce({
+        deepSearchJobId: "search-two",
+        completion: Promise.resolve("Second research result"),
+      })
+
+    await runIdeaJob(input)
+
+    expect(mocks.generateTextStream).toHaveBeenCalledTimes(3)
+    await expect(events).resolves.toContainEqual({
+      type: "error",
+      message: "Critique failed before streaming",
+      stage: "critique",
+    })
+    await expect(events).resolves.toContainEqual({
+      type: "critique-generation-stream",
+      position: 1,
+      streamId: "critique-two-id",
+    })
+    expect(db.select().from(ideaJobs).get()).toMatchObject({
+      status: "failed",
+      error: "Critique failed before streaming",
+      stage: "critique",
+    })
+    expect(db.select().from(ideas).orderBy(ideas.position).all()).toMatchObject([
+      { ...generatedIdeas[0], critiqueGenerationId: null },
+      { ...generatedIdeas[1], critiqueGenerationId: "critique-two-id" },
+    ])
   })
 })

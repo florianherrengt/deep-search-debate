@@ -11,6 +11,7 @@ export const PromptName = {
   DebateJudge: "debate-judge",
   DebateOpening: "debate-opening",
   DebateRebuttal: "debate-rebuttal",
+  CritiqueIdea: "critique-idea",
   Default: "default",
   GenerateWebSearchQueries: "generate-websearch-queries",
   GenerateIdeaResearchPrompts: "generate-idea-research-prompts",

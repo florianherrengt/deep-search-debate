@@ -38,6 +38,15 @@ function createDebateJob() {
 
 function createIdea(ideaJobId: string, position: number) {
   const ideaId = crypto.randomUUID()
+  const critiqueGenerationId = crypto.randomUUID()
+
+  db.insert(llmGenerations)
+    .values({
+      llmGenerationId: critiqueGenerationId,
+      userId: "test-user-id",
+      ideaJobId,
+    })
+    .run()
 
   db.insert(ideas)
     .values({
@@ -46,6 +55,7 @@ function createIdea(ideaJobId: string, position: number) {
       position,
       title: `Idea ${position + 1}`,
       description: `Description ${position + 1}`,
+      critiqueGenerationId,
     })
     .run()
 

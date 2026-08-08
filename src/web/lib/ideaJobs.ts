@@ -6,7 +6,13 @@ const ideaSchema = z.object({
   description: z.string().min(1),
 })
 
-const ideaStageSchema = z.enum(["planning", "research", "summary", "ideas"])
+const ideaStageSchema = z.enum([
+  "planning",
+  "research",
+  "summary",
+  "ideas",
+  "critique",
+])
 
 const ideaJobEventSchema = z.discriminatedUnion("type", [
   z.object({
@@ -27,6 +33,11 @@ const ideaJobEventSchema = z.discriminatedUnion("type", [
     streamId: z.string().min(1),
   }),
   z.object({ type: z.literal("idea"), ...ideaSchema.shape }),
+  z.object({
+    type: z.literal("critique-generation-stream"),
+    position: z.number().int().nonnegative(),
+    streamId: z.string().min(1),
+  }),
   z.object({
     type: z.literal("error"),
     message: z.string(),

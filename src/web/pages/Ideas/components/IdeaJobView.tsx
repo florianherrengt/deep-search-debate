@@ -29,6 +29,59 @@ function getProgressStatus({
   return "waiting"
 }
 
+function IdeaCard({
+  idea,
+  position,
+  critiqueStreamId,
+  critiquePending,
+}: {
+  idea: IdeaJobRunState["ideas"][number]
+  position: number
+  critiqueStreamId: string | undefined
+  critiquePending: boolean
+}) {
+  const headingId = `idea-${position}-title`
+
+  return (
+    <Card component="article" aria-labelledby={headingId} variant="outlined">
+      <CardContent>
+        <Stack spacing={2}>
+          <Stack spacing={0.5}>
+            <Typography component="h3" id={headingId} variant="h6">
+              {idea.title}
+            </Typography>
+            <Typography variant="body2">{idea.description}</Typography>
+          </Stack>
+          {critiqueStreamId ? (
+            <GenerationOutput
+              announcementLabel={`Critique for ${idea.title}`}
+              headingComponent="h4"
+              streamId={critiqueStreamId}
+              title="Critique"
+              waitingText="Critiquing this idea…"
+              testId={`idea-critique-${position}`}
+            />
+          ) : (
+            <Stack spacing={0.5}>
+              <Typography component="h4" variant="subtitle1">
+                Critique
+              </Typography>
+              <Typography
+                color={critiquePending ? "text.secondary" : "error"}
+                variant="body2"
+              >
+                {critiquePending
+                  ? "Critique pending…"
+                  : "Critique did not start for this idea."}
+              </Typography>
+            </Stack>
+          )}
+        </Stack>
+      </CardContent>
+    </Card>
+  )
+}
+
 export function IdeaJobView({
   prompt,
   run,
@@ -43,10 +96,16 @@ export function IdeaJobView({
   const failedAfterPlanning =
     failedStage === "research" ||
     failedStage === "summary" ||
-    failedStage === "ideas"
+    failedStage === "ideas" ||
+    failedStage === "critique"
   const failedAfterResearch =
-    failedStage === "summary" || failedStage === "ideas"
-  const failedAfterSummary = failedStage === "ideas"
+    failedStage === "summary" ||
+    failedStage === "ideas" ||
+    failedStage === "critique"
+  const failedAfterSummary =
+    failedStage === "ideas" || failedStage === "critique"
+  const failedAfterIdeas = failedStage === "critique"
+  const hasIdeas = run.ideas.length > 0
   const planningStatus = getProgressStatus({
     failed: failedStage === "planning",
     running: run.status === "running" && run.research.length === 0,
@@ -70,10 +129,12 @@ export function IdeaJobView({
   })
   const ideaStatus = getProgressStatus({
     failed: failedStage === "ideas",
-    running: run.status === "running" && Boolean(run.ideaGenerationStreamId),
-    completed: run.status === "completed",
+    running:
+      run.status === "running" &&
+      Boolean(run.ideaGenerationStreamId) &&
+      !hasIdeas,
+    completed: hasIdeas || failedAfterIdeas,
   })
-
   return (
     <Stack spacing={3}>
       <Stack spacing={0.5}>
@@ -156,16 +217,19 @@ export function IdeaJobView({
               No ideas were returned.
             </Typography>
           )}
-          {run.ideas.map((idea) => (
-            <Card key={`${idea.title}-${idea.description}`} variant="outlined">
-              <CardContent>
-                <Typography component="h3" variant="h6" gutterBottom>
-                  {idea.title}
-                </Typography>
-                <Typography variant="body2">{idea.description}</Typography>
-              </CardContent>
-            </Card>
-          ))}
+          {run.ideas.map((idea, position) => {
+            // Ideas are immutable and replayed in durable generation order.
+            // eslint-disable-next-line @eslint-react/no-array-index-key
+            return (
+              <IdeaCard
+                critiquePending={run.status === "running"}
+                critiqueStreamId={run.critiqueGenerationStreamIds[position]}
+                idea={idea}
+                key={position}
+                position={position}
+              />
+            )
+          })}
         </Stack>
       </ProgressCard>
     </Stack>
