@@ -124,13 +124,23 @@ describe("Debates", () => {
     })
   })
 
+  it("describes the tournament without fixed idea, match, or round counts", () => {
+    renderDebates()
+
+    expect(document.body).toHaveTextContent("multiple researched ideas")
+    expect(document.body).toHaveTextContent("multiple rounds")
+    expect(document.body).not.toHaveTextContent(
+      /twelve|\b12\b|\b33\b|five rounds|four ideas|semifinals?/i,
+    )
+  })
+
   it("starts a tournament and streams its active transcript", async () => {
     renderDebates()
 
     fireEvent.change(screen.getByLabelText("What should the ideas solve?"), {
       target: { value: "  Design a better café  " },
     })
-    fireEvent.click(screen.getByRole("button", { name: "Start tournament" }))
+    fireEvent.click(screen.getByRole("button", { name: "Start a debate" }))
 
     expect(await screen.findByText("Live opening argument")).toBeVisible()
     expect(
@@ -235,15 +245,15 @@ describe("Debates", () => {
 
     renderDebates("/debates/debate-id")
 
-    expect(await screen.findByText("Tournament failed")).toBeVisible()
+    expect(await screen.findByText("Debate failed")).toBeVisible()
     expect(
       screen.getByText(
-        "The tournament stopped before it could finish. You can review the completed matches below or start a new tournament.",
+        "The debate stopped before it could finish. You can review the completed matches below or start a new debate.",
       ),
     ).toBeVisible()
     expect(screen.queryByText("Judge generation failed")).not.toBeInTheDocument()
     expect(
-      screen.getByRole("link", { name: "Start a new tournament" }),
+      screen.getByRole("link", { name: "Start a new debate" }),
     ).toHaveAttribute("href", "/debates")
     expect(mocks.getDebateJob).toHaveBeenCalledTimes(2)
   })
@@ -312,7 +322,7 @@ describe("Debates", () => {
       tournament({ status: "completed", stage: "final" }),
     )
 
-    expect(await screen.findByText("Tournament complete")).toBeVisible()
+    expect(await screen.findByText("Debate complete")).toBeVisible()
     expect(
       screen.queryByText("Live updates were interrupted. Reconnecting…"),
     ).not.toBeInTheDocument()
@@ -368,6 +378,6 @@ describe("Debates", () => {
     expect(
       await screen.findByRole("link", { name: /A previous tournament prompt/ }),
     ).toHaveAttribute("href", "/debates/previous-debate")
-    expect(screen.getByText("Tournament complete")).toBeVisible()
+    expect(screen.getByText("Debate complete")).toBeVisible()
   })
 })

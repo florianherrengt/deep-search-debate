@@ -102,7 +102,7 @@ describe("Ideas", () => {
     mocks.subscribeToTextStream.mockImplementation(textEvents)
 
     renderIdeas()
-    const submit = screen.getByRole("button", { name: "Generate 12 ideas" })
+    const submit = screen.getByRole("button", { name: "Generate ideas" })
     expect(submit).toBeDisabled()
     fireEvent.change(
       screen.getByLabelText("What should we generate ideas for?"),
@@ -117,7 +117,7 @@ describe("Ideas", () => {
     ).toBeVisible()
     expect(screen.getAllByRole("status")).toHaveLength(1)
     expect(screen.getByRole("status")).toHaveTextContent(
-      "Generating 12 ideas…",
+      "Generating ideas…",
     )
     expect(screen.queryByText("Raw structured output")).not.toBeInTheDocument()
     expect(mocks.createIdeaJob).toHaveBeenCalledWith({

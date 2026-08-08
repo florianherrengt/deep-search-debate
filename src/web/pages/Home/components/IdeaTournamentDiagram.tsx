@@ -23,7 +23,7 @@ const debateInputs = [
   },
 ] as const
 
-const winnerDetails = ["Match record", "Why it won", "Full debates"] as const
+const winnerDetails = ["Match record", "Strongest case", "Full debates"] as const
 
 export function IdeaTournamentDiagram() {
   return (
@@ -62,7 +62,7 @@ export function IdeaTournamentDiagram() {
           <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
             <CircleRounded sx={{ color: "primary.main", fontSize: 8 }} />
             <Typography color="text.secondary" variant="overline">
-              Tournament flow
+              Debate flow
             </Typography>
           </Stack>
           <Typography color="text.disabled" variant="caption">
@@ -166,7 +166,7 @@ export function IdeaTournamentDiagram() {
               </Typography>
             </Stack>
             <Typography color="inherit" variant="h5">
-              A winner emerges
+              Why this idea won
             </Typography>
             <Stack
               direction="row"

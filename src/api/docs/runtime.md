@@ -28,12 +28,17 @@ precedence over its KeePass entry; a blank override fails rather than falling
 back. KeePass is still opened once when every secret has an override.
 
 `BETTER_AUTH_SECRET` must contain at least 32 characters and production config
-rejects placeholder values. GitHub OAuth keeps the non-secret `GITHUB_CLIENT_ID`
-in the environment and resolves `GITHUB_CLIENT_SECRET` from KeePass or its
-environment override. Its local callback is derived from `BETTER_AUTH_URL` and
-ends in `/api/auth/callback/github`.
+rejects placeholder values. GitHub OAuth resolves both `GITHUB_CLIENT_ID` and
+`GITHUB_CLIENT_SECRET` from KeePass or their environment overrides. Its callback
+is derived from `BETTER_AUTH_URL` and ends in `/api/auth/callback/github`.
 `BETTER_AUTH_URL` must use HTTPS when `NODE_ENV=production` so session cookies
 cannot be deployed over plaintext transport.
+
+`NODE_ENV` also selects non-secret defaults. Development and test use
+`BETTER_AUTH_URL=http://localhost:5173` and `DATABASE_URL=data.db`; production
+uses `BETTER_AUTH_URL=https://rethinkloop.com` and
+`DATABASE_URL=/app/data/data.db`. Explicit environment overrides remain
+available for tests and alternate deployments.
 
 Debug sign-in is disabled unless `AUTH_DEBUG_USER_ENABLED=true`. When enabled,
 `AUTH_DEBUG_USER_PASSWORD` is required. Config validation rejects debug sign-in

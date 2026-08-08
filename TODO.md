@@ -1,0 +1,6 @@
+- [ ] Update Dockerfile to node latest version
+- [ ] Split Deep Searches by source
+  - Add My Searches and Automated tabs.
+  - My Searches: searches started manually by the user.
+  - Automated: searches started by the system, e.g. from Ideas or Debates.
+  - Show the originating Idea/Debate on automated search cards.

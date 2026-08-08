@@ -45,6 +45,12 @@ export function TournamentBoard({
   const swissRounds = getSwissRounds(tournament)
   const semifinalRound = getSemifinalRound(tournament)
   const finalMatch = getFinalMatch(tournament)
+  const advancedIdeaIds = new Set(
+    semifinalRound?.matches.flatMap((match) => [
+      match.firstIdea.ideaId,
+      match.secondIdea.ideaId,
+    ]) ?? [],
+  )
   const tournamentActive = tournament.status === "running"
   const showKnockout =
     tournament.stage === "semifinal" || tournament.stage === "final"
@@ -62,7 +68,7 @@ export function TournamentBoard({
               <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
                 <EmojiEventsRounded color="primary" />
                 <Typography component="h2" variant="h6">
-                  Tournament board
+                  Debate progress
                 </Typography>
               </Stack>
               <Chip
@@ -73,7 +79,7 @@ export function TournamentBoard({
             </Stack>
             <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
               <LinearProgress
-                aria-label="Tournament completion"
+                aria-label="Debate completion"
                 sx={{ flexGrow: 1, height: 8, borderRadius: 4 }}
                 value={
                   (completedMatches / tournament.expectedMatchCount) * 100
@@ -95,9 +101,9 @@ export function TournamentBoard({
               active={tournamentActive}
               champion={getWinner(tournament)}
               finalMatch={finalMatch}
+              knockoutMatches={semifinalRound?.matches ?? []}
               onSelectMatch={onSelectMatch}
               selectedMatchId={selectedMatchId}
-              semifinalMatches={semifinalRound?.matches ?? []}
             />
           </CardContent>
         </Card>
@@ -107,7 +113,7 @@ export function TournamentBoard({
         <Card variant="outlined">
           <CardContent sx={{ pb: 1 }}>
             <Typography component="h3" variant="subtitle1">
-              Swiss debates
+              Debate rounds
             </Typography>
           </CardContent>
           {swissRounds.map((round) => (
@@ -159,19 +165,13 @@ export function TournamentBoard({
           <Stack direction="row" spacing={1} sx={{ alignItems: "center", mb: 1.5 }}>
             <LeaderboardRounded color="primary" />
             <Typography component="h3" variant="subtitle1">
-              Swiss standings
+              Standings
             </Typography>
           </Stack>
           <Divider />
         </CardContent>
         <StandingsTable
-          qualification={
-            tournament.stage === "ideas"
-              ? "hidden"
-              : showKnockout
-                ? "final"
-                : "provisional"
-          }
+          advancedIdeaIds={advancedIdeaIds}
           standings={tournament.standings}
         />
       </Card>

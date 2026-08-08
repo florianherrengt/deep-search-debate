@@ -41,11 +41,11 @@ describe("Home", () => {
     ).toBeVisible()
 
     expect(
-      screen.getByRole("heading", { name: "See how one idea beat the rest" }),
+      screen.getByRole("heading", { name: "See the full case" }),
     ).toBeVisible()
     expect(
       screen.getByRole("heading", {
-        name: "How the tournament finds a winner",
+        name: "How agents test the ideas",
       }),
     ).toBeVisible()
     expect(

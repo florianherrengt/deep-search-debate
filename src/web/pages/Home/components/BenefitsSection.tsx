@@ -1,7 +1,7 @@
 import EmojiEventsRounded from "@mui/icons-material/EmojiEventsRounded"
 import FactCheckOutlined from "@mui/icons-material/FactCheckOutlined"
-import GavelRounded from "@mui/icons-material/GavelRounded"
-import LightbulbOutlined from "@mui/icons-material/LightbulbOutlined"
+import BalanceRounded from "@mui/icons-material/BalanceRounded"
+import TroubleshootRounded from "@mui/icons-material/TroubleshootRounded"
 import Box from "@mui/material/Box"
 import Paper from "@mui/material/Paper"
 import Stack from "@mui/material/Stack"
@@ -11,27 +11,27 @@ import { SectionHeading } from "./SectionHeading.tsx"
 const benefits = [
   {
     description:
-      "The agents build multiple researched approaches instead of stopping at the first answer.",
-    icon: <LightbulbOutlined />,
-    title: "Different ideas",
+      "Important claims stay tied to the material the agents found.",
+    icon: <FactCheckOutlined />,
+    title: "Claims with sources",
   },
   {
     description:
-      "Each matchup gives competing ideas a serious defence and challenge.",
-    icon: <FactCheckOutlined />,
+      "See the strongest case for an idea and the challenge against it.",
+    icon: <BalanceRounded />,
     title: "Both sides argued",
   },
   {
     description:
       "Bad assumptions, weak claims, and missing facts are harder to hide.",
-    icon: <GavelRounded />,
+    icon: <TroubleshootRounded />,
     title: "Weak points exposed",
   },
   {
     description:
-      "See every result, the full debates, and why the winning idea won.",
+      "See the final choice, why it won, and what is still unclear.",
     icon: <EmojiEventsRounded />,
-    title: "A visible decision",
+    title: "A clear result",
   },
 ] as const
 
@@ -42,8 +42,8 @@ export function BenefitsSection() {
         <SectionHeading
           eyebrow="What you get"
           id="benefits-heading"
-          subtitle="The result includes every match, not just the winner."
-          title="See how one idea beat the rest"
+          subtitle="Review the sources, challenges, and uncertainty behind the result."
+          title="See the full case"
         />
         <Box
           sx={{

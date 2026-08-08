@@ -1,6 +1,6 @@
 import EmojiEventsRounded from "@mui/icons-material/EmojiEventsRounded"
 import GavelRounded from "@mui/icons-material/GavelRounded"
-import LightbulbOutlined from "@mui/icons-material/LightbulbOutlined"
+import SearchRounded from "@mui/icons-material/SearchRounded"
 import Box from "@mui/material/Box"
 import Paper from "@mui/material/Paper"
 import Stack from "@mui/material/Stack"
@@ -10,21 +10,21 @@ import { SectionHeading } from "./SectionHeading.tsx"
 const processSteps = [
   {
     description:
-      "Agents research your problem and build multiple distinct ideas.",
-    icon: <LightbulbOutlined />,
-    title: "Generate",
+      "Agents research your problem and turn what they find into distinct ideas.",
+    icon: <SearchRounded />,
+    title: "Research",
   },
   {
     description:
-      "Agents defend one idea and challenge another in each head-to-head match.",
+      "Agents defend and challenge the ideas head-to-head over multiple rounds.",
     icon: <GavelRounded />,
     title: "Debate",
   },
   {
     description:
-      "Match winners keep advancing through the rounds until a winner emerges.",
+      "The final result shows which idea won and why.",
     icon: <EmojiEventsRounded />,
-    title: "Advance",
+    title: "Answer",
   },
 ] as const
 
@@ -51,8 +51,8 @@ export function ProcessSection() {
           <SectionHeading
             eyebrow="How it works"
             id="process-heading"
-            subtitle="Follow the agents through every matchup and see why each winner advances."
-            title="How the tournament finds a winner"
+            subtitle="The work stays clear from the first source to the final result."
+            title="How agents test the ideas"
           />
           <Box
             sx={{

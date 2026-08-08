@@ -1,32 +1,21 @@
-import {
-  CircularProgress,
-  List,
-  Paper,
-  Stack,
-  Typography,
-} from "@mui/material"
+import CircularProgress from "@mui/material/CircularProgress"
+import Stack from "@mui/material/Stack"
+import Typography from "@mui/material/Typography"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "react-router-dom"
+import { JobHistory } from "../../components/JobHistory.tsx"
+import { JobStatusBadge } from "../../components/JobStatusBadge.tsx"
+import { PromptForm } from "../../components/PromptForm.tsx"
+import { RequestError } from "../../components/RequestError.tsx"
 import {
   createIdeaJob,
   getIdeaJob,
   getIdeaJobs,
 } from "../../lib/ideaJobs.ts"
 import { IdeaJobView } from "./components/IdeaJobView.tsx"
-import { IdeaPromptForm } from "./components/IdeaPromptForm.tsx"
 import { useIdeaJob } from "./useIdeaJob.ts"
-import { RequestError } from "../../components/RequestError.tsx"
-import { JobStatusBadge } from "../../components/JobStatusBadge.tsx"
-import { JobHistoryListItem } from "../../components/JobHistoryListItem.tsx"
 
 const ideaJobsQueryKey = ["idea-jobs"] as const
-
-function formatCreatedAt(value: Date): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(value)
-}
 
 function IdeaHistory() {
   const navigate = useNavigate()
@@ -48,42 +37,29 @@ function IdeaHistory() {
       <Typography component="h1" variant="h4">
         Ideas
       </Typography>
-      <IdeaPromptForm
-        isGenerating={creation.isPending}
+      <PromptForm
+        label="What should we generate ideas for?"
         onSubmit={(prompt) => creation.mutate(prompt)}
+        pending={creation.isPending}
+        submitLabel="Generate ideas"
       />
       {creation.error && <RequestError error={creation.error} />}
 
-      <Stack component="section" spacing={1.5} aria-labelledby="idea-history">
-        <Typography id="idea-history" component="h2" variant="h5">
-          Previous idea runs
-        </Typography>
-        {history.isPending && <CircularProgress size={24} />}
-        {history.error && (
-          <RequestError
-            error={history.error}
-            onRetry={() => void history.refetch()}
-          />
-        )}
-        {history.data?.length === 0 && (
-          <Typography color="text.secondary">No idea runs yet.</Typography>
-        )}
-        {history.data && history.data.length > 0 && (
-          <Paper variant="outlined">
-            <List disablePadding>
-              {history.data.map((job) => (
-                <JobHistoryListItem
-                  key={job.ideaJobId}
-                  date={formatCreatedAt(job.createdAt)}
-                  label={job.prompt}
-                  status={<JobStatusBadge status={job.status} />}
-                  to={`/ideas/${job.ideaJobId}`}
-                />
-              ))}
-            </List>
-          </Paper>
-        )}
-      </Stack>
+      <JobHistory
+        emptyMessage="No idea runs yet."
+        error={history.error}
+        heading="Previous idea runs"
+        headingId="idea-history"
+        isPending={history.isPending}
+        items={history.data?.map((job) => ({
+          createdAt: job.createdAt,
+          id: job.ideaJobId,
+          label: job.prompt,
+          status: <JobStatusBadge status={job.status} />,
+          to: `/ideas/${job.ideaJobId}`,
+        }))}
+        onRetry={() => void history.refetch()}
+      />
     </Stack>
   )
 }

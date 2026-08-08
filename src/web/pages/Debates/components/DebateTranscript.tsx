@@ -28,7 +28,7 @@ function getSpeakerName(
 ) {
   if (message.speakerSlot === 0) return match.firstIdea.title
   if (message.speakerSlot === 1) return match.secondIdea.title
-  return "Tournament judge"
+  return "Judge"
 }
 
 function TranscriptMessage({
