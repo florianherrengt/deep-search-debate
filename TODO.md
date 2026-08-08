@@ -1,8 +1,11 @@
 - [ ] Update Dockerfile to node latest version
 - [ ] Rename app to rethinkloop.
+- [ ] Allow public debates
 - [ ] Split Deep Searches by source
   - Add My Searches and Automated tabs.
   - My Searches: searches started manually by the user.
   - Automated: searches started by the system, e.g. from Ideas or Debates.
   - Show the originating Idea/Debate on automated search cards.
 - [ ] Ideas table has title and description which should be rebuilt from the llm generation instead
+- [ ] SEO checklist
+- [ ] All prompts should have a title which is reused in the URL
