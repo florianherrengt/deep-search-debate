@@ -51,12 +51,11 @@ if [[ "${public_url}" != "${COOLIFY_APPLICATION_URL}" ]]; then
   echo "The primary Coolify domain must be ${COOLIFY_APPLICATION_URL}; found ${public_url}." >&2
 fi
 
-encoded_labels="$(jq -r '.custom_labels // ""' <<<"${application_json}")"
-if [[ -z "${encoded_labels}" ]]; then
+proxy_labels="$(jq -r '.custom_labels // ""' <<<"${application_json}")"
+if [[ -z "${proxy_labels}" ]]; then
   configuration_ok=false
   echo "Coolify proxy labels are missing." >&2
 else
-  proxy_labels="$(printf '%s' "${encoded_labels}" | base64 --decode)"
   if ! grep -Eq 'traefik\.http\.services\..*\.loadbalancer\.server\.port=3000$' <<<"${proxy_labels}" ||
     ! grep -Eq 'caddy_.*reverse_proxy=\{\{upstreams 3000\}\}$' <<<"${proxy_labels}" ||
     grep -E 'loadbalancer\.server\.port=|reverse_proxy=\{\{upstreams ' <<<"${proxy_labels}" | grep -Ev 'server\.port=3000$|upstreams 3000\}\}$' >/dev/null; then

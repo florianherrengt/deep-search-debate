@@ -8,14 +8,13 @@ readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config.sh"
 
 application_json="$("${SCRIPT_DIR}/api.sh" GET "/applications/${COOLIFY_APPLICATION_UUID}")"
-encoded_labels="$(jq -r '.custom_labels // ""' <<<"${application_json}")"
+current_labels="$(jq -r '.custom_labels // ""' <<<"${application_json}")"
 
-if [[ -z "${encoded_labels}" ]]; then
+if [[ -z "${current_labels}" ]]; then
   echo "Coolify has no generated proxy labels to synchronize." >&2
   exit 1
 fi
 
-current_labels="$(printf '%s' "${encoded_labels}" | base64 --decode)"
 updated_labels="$(printf '%s\n' "${current_labels}" | awk '
   /traefik\.http\.services\..*\.loadbalancer\.server\.port=/ { sub(/=[0-9]+$/, "=3000") }
   /caddy_.*reverse_proxy=/ { sub(/upstreams [0-9]+/, "upstreams 3000") }
@@ -33,8 +32,7 @@ if [[ "${updated_labels}" == "${current_labels}" ]]; then
   exit 0
 fi
 
-updated_encoded_labels="$(printf '%s' "${updated_labels}" | base64 | tr -d '\r\n')"
-jq -n --arg custom_labels "${updated_encoded_labels}" '{custom_labels: $custom_labels}' |
+jq -n --arg custom_labels "${updated_labels}" '{custom_labels: $custom_labels}' |
   "${SCRIPT_DIR}/api.sh" PATCH "/applications/${COOLIFY_APPLICATION_UUID}" - >/dev/null
 
 echo "Updated generated Traefik and Caddy labels to target port 3000."
