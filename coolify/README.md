@@ -52,10 +52,7 @@ Before the first deployment:
 1. Configure an HTTPS primary domain in Coolify. `BETTER_AUTH_URL` must match it.
 2. Add a persistent volume named `deep-search-data` with destination path
    `/app/data`. SQLite is stored at `/app/data/data.db`.
-3. Mount the production KeePass database read-only at exactly
-   `/app/src/api/secrets/prod.kdbx`. The image intentionally excludes all
-   `.kdbx` files.
-4. Add these literal, runtime-only production variables in the Coolify UI:
+3. Add these literal, runtime-only production variables in the Coolify UI:
 
 | Variable | Requirement |
 | --- | --- |
@@ -118,10 +115,12 @@ The required application settings are:
 | Docker health-check start period | `60s` |
 | Traefik/Caddy upstream labels | `3000` |
 
-The `.kdbx` file is mounted at runtime and is not copied into the container
-image. `KDBX_PASSWORD` is the only secret required outside the database. Keep
-both resources separately protected; possession of either one alone is
-insufficient to decrypt the application secrets.
+The encrypted `src/api/secrets/dev.kdbx` and `src/api/secrets/prod.kdbx` files
+are committed and copied into the container image with mode `0400`.
+`KDBX_PASSWORD` remains a separate runtime-only secret and must never be added
+to Git or baked into the image. Anyone with repository or image access can keep
+offline copies of both vaults, so use strong master passwords and rotate either
+one if it may have been exposed.
 
 The API pins `deep-search-core` to the npm tarball attached to its immutable
 GitHub release. Coolify downloads that package during `npm ci`, so the Docker
@@ -230,9 +229,9 @@ its output.
 - `404`: the UUID is wrong or the token belongs to a different Coolify team.
 - `exited:unhealthy`: inspect configuration and deployment logs before retrying.
 - Database resets after deploy: the `/app/data` persistent volume is missing.
-- Startup reports a missing KeePass file: mount it at
-  `/app/src/api/secrets/prod.kdbx` and confirm the mount is available to the
-  application container.
+- Startup reports a missing KeePass file: confirm the deployed revision includes
+  `src/api/secrets/prod.kdbx` and that the Docker build copied it to
+  `/app/src/api/secrets/prod.kdbx`.
 - Startup reports a KeePass decryption or entry error: verify `KDBX_PASSWORD`,
   then check exact title casing, duplicate titles across all groups, and that
   the standard `Password` field is nonblank.

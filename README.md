@@ -10,10 +10,10 @@ An npm workspaces monorepo with a Hono API and a Vite/React web client.
 - A GitHub OAuth app
 
 The Node.js process opens and decrypts the KeePass database directly. There is
-no additional container or KeePass service. For local development, create
-`src/api/secrets/dev.kdbx` with one entry per secret. Each entry must use the
-exact configuration name as its standard `Title` and the value as its standard
-`Password`:
+no additional container or KeePass service. The encrypted development and
+production databases are committed at `src/api/secrets/dev.kdbx` and
+`src/api/secrets/prod.kdbx`. Each entry must use the exact configuration name as
+its standard `Title` and the value as its standard `Password`:
 
 | KeePass title | Required when |
 | --- | --- |
@@ -57,6 +57,11 @@ Do not put the real master password in `.env.example`; set it only in the
 ignored `src/api/.env` or the deployment platform. A nonblank sensitive
 environment variable still overrides the KeePass entry with the same name. A
 blank or whitespace-only override fails startup instead of falling back.
+
+The encrypted development and production databases are bundled into the
+production image; generated test databases remain ignored. Never commit
+`KDBX_PASSWORD`; anyone with repository or image access can retain offline
+copies of both vaults and attempt to decrypt them.
 
 Configure the GitHub OAuth callback as
 `http://localhost:5173/api/auth/callback/github`. Debug sign-in is optional and

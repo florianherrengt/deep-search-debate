@@ -88,6 +88,8 @@ health checks do not depend on a browser session.
 
 The container stores SQLite at `/app/data/data.db`. Production must mount
 persistent storage at `/app/data`; without it, deployments replace the database.
-The production KeePass file must be mounted read-only at
-`/app/src/api/secrets/prod.kdbx`; `.dockerignore` prevents any local `.kdbx` file
-from being copied into the image.
+The committed development and production KeePass files are copied into the
+image at `/app/src/api/secrets/dev.kdbx` and
+`/app/src/api/secrets/prod.kdbx`, both with mode `0400`. Generated test KeePass
+files remain excluded from Git and the Docker build context. `KDBX_PASSWORD`
+must remain a separate runtime secret and must never be baked into the image.
