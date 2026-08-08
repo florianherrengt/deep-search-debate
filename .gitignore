@@ -10,4 +10,6 @@ storybook-static
 playwright-report/
 test-results/
 coolify_token
-src/api/secrets/
+src/api/secrets/*
+!src/api/secrets/dev.kdbx
+!src/api/secrets/prod.kdbx
