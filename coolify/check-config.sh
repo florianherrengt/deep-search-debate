@@ -24,7 +24,8 @@ if ! jq -e '
   .health_check_host == "127.0.0.1" and
   .health_check_method == "GET" and
   .health_check_scheme == "http" and
-  .health_check_return_code == 200
+  .health_check_return_code == 200 and
+  .health_check_start_period == 300
 ' >/dev/null <<<"${application_json}"; then
   configuration_ok=false
   echo "Coolify application configuration is incorrect:" >&2
@@ -40,7 +41,8 @@ if ! jq -e '
     health_check_host,
     health_check_method,
     health_check_scheme,
-    health_check_return_code
+    health_check_return_code,
+    health_check_start_period
   }' <<<"${application_json}" >&2
 fi
 

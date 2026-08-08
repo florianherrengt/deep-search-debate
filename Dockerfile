@@ -39,7 +39,7 @@ ENV AUTH_DEBUG_USER_ENABLED=false
 
 EXPOSE 3000
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=300s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||'3000')+'/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 
 CMD ["npm", "run", "start", "-w", "@deep-search-debate/api"]

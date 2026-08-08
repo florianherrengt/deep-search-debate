@@ -112,7 +112,7 @@ The required application settings are:
 | Health-check host | `127.0.0.1` |
 | Health-check port | `3000` |
 | Health-check expected status | `200` |
-| Docker health-check start period | `60s` |
+| Docker health-check start period | `300s` |
 | Traefik/Caddy upstream labels | `3000` |
 
 The host port mapping publishes Coolify's application container on port `4479`
