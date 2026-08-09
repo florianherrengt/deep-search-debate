@@ -37,6 +37,7 @@ vi.mock("./provider.ts", () => ({
   llm: {
     callOptions: mocks.callOptions,
     model: mocks.model,
+    supportsStructuredOutputs: false,
   },
 }))
 
@@ -93,19 +94,23 @@ describe("generateTextStream", () => {
         providerOptions: {
           test: { reasoning: "disabled" },
         },
-        system: "Title system prompt",
       }),
     )
     expect(mocks.model).toHaveBeenCalledWith()
     expect(mocks.callOptions).toHaveBeenCalledWith("disabled")
     expect(mocks.outputObject).toHaveBeenCalledOnce()
+    const titleCall = z
+      .object({ system: z.string() })
+      .parse(mocks.generateText.mock.calls[0]?.[0] as unknown)
+    expect(titleCall.system).toContain("Title system prompt")
+    expect(titleCall.system).toContain('"title"')
   })
 
   it("uses AI SDK structured array output and exposes its result", async () => {
     const stream = { id: "raw-stream" }
     const output = Promise.resolve(["first", "second"])
     const elementStream = { id: "element-stream" }
-    const element = { type: "schema" }
+    const element = z.string()
     mocks.loadPrompt.mockResolvedValue("System prompt")
     mocks.streamText.mockReturnValue({ stream, output, elementStream })
     mocks.registerTextStream.mockReturnValue("stream-id")
@@ -115,7 +120,7 @@ describe("generateTextStream", () => {
       owner: { standalone: true },
       prompt: "Hello",
       promptName: "generate-websearch-queries",
-      element: element as never,
+      element,
     })
 
     expect(mocks.outputArray).toHaveBeenCalledWith({ element })
@@ -127,6 +132,10 @@ describe("generateTextStream", () => {
         },
       }),
     )
+    const arrayCall = z
+      .object({ system: z.string() })
+      .parse(mocks.streamText.mock.calls[0]?.[0] as unknown)
+    expect(arrayCall.system).toContain('"elements"')
     expect(result.id).toBe("stream-id")
     expect(mocks.callOptions).toHaveBeenCalledWith("disabled")
     expect(result.elementStream).toBe(elementStream)
@@ -136,7 +145,7 @@ describe("generateTextStream", () => {
   it("uses AI SDK structured object output and exposes its result", async () => {
     const stream = { id: "raw-stream" }
     const output = Promise.resolve({ winnerSlot: 0 })
-    const schema = { type: "schema" }
+    const schema = z.object({ winnerSlot: z.number() })
     mocks.loadPrompt.mockResolvedValue("System prompt")
     mocks.streamText.mockReturnValue({ stream, output })
     mocks.registerTextStream.mockReturnValue("stream-id")
@@ -146,7 +155,7 @@ describe("generateTextStream", () => {
       owner: { standalone: true },
       prompt: "Judge this",
       promptName: "default",
-      schema: schema as never,
+      schema,
     })
 
     expect(mocks.outputObject).toHaveBeenCalledWith({ schema })

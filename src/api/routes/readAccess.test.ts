@@ -114,6 +114,7 @@ beforeEach(() => {
         ideaJobId: privateIdeaJobId,
         userId: ownerId,
         debateJobId: privateDebateId,
+        slug: "private-debate-ideas",
         prompt: "Private debate ideas",
         numberOfIdeas: 1,
         deepSearchCount: 1,
@@ -122,6 +123,7 @@ beforeEach(() => {
         ideaJobId: publicIdeaJobId,
         userId: ownerId,
         debateJobId: publicDebateId,
+        slug: "public-debate-ideas",
         prompt: "Public debate ideas",
         numberOfIdeas: 1,
         deepSearchCount: 1,
@@ -129,6 +131,7 @@ beforeEach(() => {
       {
         ideaJobId: standaloneIdeaJobId,
         userId: ownerId,
+        slug: "standalone-ideas",
         prompt: "Standalone ideas",
         numberOfIdeas: 1,
         deepSearchCount: 1,
@@ -141,6 +144,7 @@ beforeEach(() => {
       {
         deepSearchJobId: privateDeepSearchJobId,
         userId: ownerId,
+        slug: "private-debate-research",
         ideaJobId: privateIdeaJobId,
         ideaJobPosition: 0,
         researchRequest: "Private debate research",
@@ -150,6 +154,7 @@ beforeEach(() => {
       {
         deepSearchJobId: publicDeepSearchJobId,
         userId: ownerId,
+        slug: "public-debate-research",
         ideaJobId: publicIdeaJobId,
         ideaJobPosition: 0,
         researchRequest: "Public debate research",
@@ -159,6 +164,7 @@ beforeEach(() => {
       {
         deepSearchJobId: standaloneDeepSearchJobId,
         userId: ownerId,
+        slug: "standalone-research",
         researchRequest: "Standalone research",
         maxSearches: 1,
         maxResultsPerSearch: 1,

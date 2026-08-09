@@ -36,6 +36,7 @@ describe("generateWebSearchQueries", () => {
       userId: "test-user-id",
       deepSearchJobId: "deep-search-job-id",
       researchRequest: "quantum computing",
+      maxSearches: 2,
       onStreamCreated,
       maxRetries: 0,
     })
@@ -51,10 +52,11 @@ describe("generateWebSearchQueries", () => {
     expect(call).toBeDefined()
     if (!call) throw new Error("generateArrayStream was not called")
     expect(call).toMatchObject({
-      prompt: "quantum computing",
       promptName: "generate-websearch-queries",
       maxRetries: 0,
     })
+    expect(call.prompt).toContain("quantum computing")
+    expect(call.prompt).toContain("Generate exactly 2 search queries")
     expect(call.element.parse(" valid query ")).toBe("valid query")
     expect(() => call.element.parse("  ")).toThrow()
     expect(onStreamCreated).toHaveBeenCalledWith("stream-id")
@@ -75,6 +77,7 @@ describe("generateWebSearchQueries", () => {
         userId: "test-user-id",
         deepSearchJobId: "deep-search-job-id",
         researchRequest: "test",
+        maxSearches: 3,
         onStreamCreated: ignoreStream,
       }),
     ).rejects.toThrow("API error")
@@ -106,7 +109,6 @@ describe("generateWebSearchQueries", () => {
     expect(onQueriesGenerated).toHaveBeenCalledWith([
       "first",
       "second",
-      "third",
     ])
     expect(searches.map(({ query }) => query)).toEqual(["first", "second"])
   })

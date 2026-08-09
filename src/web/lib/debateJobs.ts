@@ -50,7 +50,7 @@ const debateTournamentSchema = z.object({
   isOwner: z.boolean(),
   stage: z.enum(["ideas", "swiss", "semifinal", "final"]),
   status: z.enum(["running", "completed", "failed", "interrupted"]),
-  expectedMatchCount: z.number().int().positive(),
+  expectedMatchCount: z.number().int().positive().nullable(),
   rounds: z.array(debateRoundSchema),
   standings: z.array(debateStandingSchema),
   error: z.string().nullable(),
@@ -102,6 +102,7 @@ export type DebateJobSummary = z.output<typeof debateJobSummarySchema>
 export type CreateDebateJobInput = {
   prompt: string
   isPublic: boolean
+  numberOfIdeas?: number
 }
 export type UpdateDebateJobInput = z.input<typeof updateDebateJobInputSchema>
 export type UpdatedDebateJob = z.output<typeof mutableDebateJobFieldsSchema>

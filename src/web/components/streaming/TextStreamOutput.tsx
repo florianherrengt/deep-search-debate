@@ -7,6 +7,10 @@ import {
   useMediaQuery,
 } from "@mui/material"
 import { useId, useState } from "react"
+import {
+  FormattedStreamText,
+  type StreamTextFormat,
+} from "./FormattedStreamText.tsx"
 import type { TextStreamState } from "./useTextStream.ts"
 
 type TextStreamOutputProps = {
@@ -14,6 +18,7 @@ type TextStreamOutputProps = {
   waitingText: string
   textTestId: string
   announcementLabel?: string
+  format?: StreamTextFormat
 }
 
 function getAnnouncement(status: TextStreamState["status"]): string {
@@ -35,6 +40,7 @@ function StreamText({
   stream,
   waitingText,
   textTestId,
+  format = "text",
 }: TextStreamOutputProps) {
   if (stream.status === "error" || stream.status === "reconnecting") {
     return (
@@ -47,34 +53,22 @@ function StreamText({
           {stream.message}
         </Typography>
         {stream.text && (
-          <Typography
-            data-testid={textTestId}
-            sx={{
-              maxWidth: "85ch",
-              overflowWrap: "anywhere",
-              whiteSpace: "pre-wrap",
-            }}
-            variant="body2"
-          >
-            {stream.text}
-          </Typography>
+          <FormattedStreamText
+            format={format}
+            text={stream.text}
+            testId={textTestId}
+          />
         )}
       </Stack>
     )
   }
 
   return (
-    <Typography
-      data-testid={textTestId}
-      variant="body2"
-      sx={{
-        maxWidth: "85ch",
-        overflowWrap: "anywhere",
-        whiteSpace: "pre-wrap",
-      }}
-    >
-      {stream.text || waitingText}
-    </Typography>
+    <FormattedStreamText
+      format={format}
+      text={stream.text || waitingText}
+      testId={textTestId}
+    />
   )
 }
 
@@ -138,6 +132,7 @@ export function TextStreamOutput({
   waitingText,
   textTestId,
   announcementLabel,
+  format = "text",
 }: TextStreamOutputProps) {
   return (
     <Stack spacing={1.5}>
@@ -171,6 +166,7 @@ export function TextStreamOutput({
         />
       )}
       <StreamText
+        format={format}
         stream={stream}
         waitingText={waitingText}
         textTestId={textTestId}

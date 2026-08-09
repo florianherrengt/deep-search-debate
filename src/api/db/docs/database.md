@@ -61,8 +61,9 @@ ignores this one documented peer-resolution shim.
 - API validation requires user prompts, research requests, generated queries,
   and persisted search facts to contain non-whitespace content. Idea content is
   immutable after insertion; its nullable critique link can transition exactly
-  once from absent to present. Terminal jobs reject collection additions, and
-  deleting the owning job still cascades through the ideas.
+  once from absent to present, and its nullable selected flag can transition
+  exactly once from pending to true or false. Terminal jobs reject collection
+  additions, and deleting the owning job still cascades through the ideas.
 - Child-key indexes support aggregate cascades and `NO ACTION` checks without
   scanning unrelated generations, queries, pages, results, or debate matches.
 - All database timestamps use Unix milliseconds. Ordered records use explicit
@@ -88,6 +89,15 @@ ignores this one documented peer-resolution shim.
   prevent nonexistent or reused generations, while application orchestration
   enforces same-job ownership and requires every link before job completion,
   without duplicating `user_id` on every idea row.
+- `ideas.selected` is null from insertion until comparative selection commits.
+  The selector's terminal transaction updates the complete idea batch to true
+  or false. Application validation enforces an unordered, unique, same-job,
+  even selected set containing 6 through 100 ideas; the idea immutability
+  trigger permits only the one-time null-to-boolean transition.
+- `idea_jobs.selection_generation_id` has a normal generation foreign key and
+  unique index. Insert/update triggers additionally require that generation to
+  carry the same user and idea-job owner, preserving the composite ownership
+  invariant without rebuilding the referenced `idea_jobs` table in migration.
 - Aggregate parent columns such as `idea_jobs.debate_job_id`,
   `deep_search_jobs.idea_job_id`, and the debate round/match parent links are not
   immutable in SQLite. Application writers treat them as insert-only. Direct SQL
@@ -116,19 +126,23 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
   generation rows preserve research progress without a JSON snapshot.
 - `idea_jobs` owns the LLM-generated title and slug used by both idea and debate
   URLs, the user prompt, requested idea/search counts, current stage,
-  lifecycle, planning, briefing, and idea-generation links. A debate-created
-  idea job points to its owning debate; a standalone idea job leaves that FK null.
+  lifecycle, planning, briefing, idea-generation, and selection-generation
+  links. A debate-created idea job points to its owning debate; a standalone
+  idea job leaves that FK null.
 - `ideas` stores validated, ordered idea output with stable IDs as soon as idea
   generation completes. Its critique-generation link is initially null and is
-  attached when that idea's critique starts. Each critique's text and reasoning
-  remain in its `llm_generations` row; they are not copied into `ideas` or a
-  second critique table. The job's idea-generation link separately retains the
-  raw structured idea output for inspection and debugging.
+  attached when that idea's critique starts. Its selected flag remains null
+  until the comparative selector atomically marks every idea selected or
+  rejected. Each critique's text and reasoning remain in its `llm_generations`
+  row; they are not copied into `ideas` or a second critique table. The job's
+  idea- and selection-generation links separately retain raw structured output
+  and selector reasoning for inspection and debugging.
 - `debate_jobs` owns its generated idea pipeline as well as
   `debate_rounds`, `debate_matches`, and `debate_messages`. These tables store
   pairings, machine-readable winners, and transcript-generation links. Matches
-  reference stable ideas directly; standings and Elo remain derived from
-  completed matches. Its private-by-default `is_public` flag grants anonymous
+  reference only selected stable ideas directly; standings, Elo, and expected
+  match counts remain derived from completed matches and the admitted field.
+  Its private-by-default `is_public` flag grants anonymous
   read access to this complete owned aggregate without exposing the owner.
 - An idea job does not copy child research output or sources. Its child `deep_search_jobs` keep their own durable state; only their final-answer texts are passed to the briefing generation.
 

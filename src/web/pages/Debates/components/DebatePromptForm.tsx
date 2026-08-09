@@ -14,11 +14,16 @@ import { useState, type SyntheticEvent } from "react"
 import { Link } from "react-router-dom"
 
 export type DebatePromptFormProps = {
-  onSubmit: (input: { prompt: string; isPublic: boolean }) => void
+  onSubmit: (input: {
+    prompt: string
+    isPublic: boolean
+    numberOfIdeas: number
+  }) => void
   isStarting?: boolean
   error?: string | null
   initialPrompt?: string
   initialIsPublic?: boolean
+  initialNumberOfIdeas?: number
 }
 
 export function DebatePromptForm({
@@ -27,15 +32,21 @@ export function DebatePromptForm({
   error = null,
   initialPrompt = "",
   initialIsPublic = false,
+  initialNumberOfIdeas = 12,
 }: DebatePromptFormProps) {
   const [prompt, setPrompt] = useState(initialPrompt)
   const [isPublic, setIsPublic] = useState(initialIsPublic)
+  const [numberOfIdeas, setNumberOfIdeas] = useState(initialNumberOfIdeas)
+  const ideaCountIsValid =
+    Number.isInteger(numberOfIdeas) &&
+    numberOfIdeas >= 6 &&
+    numberOfIdeas <= 100
 
   function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     const trimmedPrompt = prompt.trim()
-    if (trimmedPrompt && !isStarting) {
-      onSubmit({ prompt: trimmedPrompt, isPublic })
+    if (trimmedPrompt && ideaCountIsValid && !isStarting) {
+      onSubmit({ prompt: trimmedPrompt, isPublic, numberOfIdeas })
     }
   }
 
@@ -69,6 +80,16 @@ export function DebatePromptForm({
               placeholder="Create a product that helps independent cafés reduce food waste."
               value={prompt}
             />
+            <TextField
+              disabled={isStarting}
+              error={!ideaCountIsValid}
+              helperText="Generate between 6 and 100 ideas. The selector admits an even set of at least 6."
+              label="Ideas to generate"
+              onChange={(event) => setNumberOfIdeas(Number(event.target.value))}
+              slotProps={{ htmlInput: { min: 6, max: 100, step: 1 } }}
+              type="number"
+              value={numberOfIdeas}
+            />
             <Stack spacing={0.25}>
               <FormControlLabel
                 control={
@@ -98,7 +119,7 @@ export function DebatePromptForm({
                 Research, debates, and results stay open to inspect.
               </Typography>
               <Button
-                disabled={isStarting || !prompt.trim()}
+                disabled={isStarting || !prompt.trim() || !ideaCountIsValid}
                 loading={isStarting}
                 startIcon={<AutoAwesomeRounded />}
                 type="submit"

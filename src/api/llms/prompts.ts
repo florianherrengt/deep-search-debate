@@ -17,6 +17,7 @@ export const PromptName = {
   GenerateWebSearchQueries: "generate-websearch-queries",
   GenerateIdeaResearchPrompts: "generate-idea-research-prompts",
   GenerateIdeas: "generate-ideas",
+  SelectIdeas: "select-ideas",
   SelectWebSearchResults: "select-websearch-results",
   SummarizeIdeaResearch: "summarize-idea-research",
   SummarizeSearchQuery: "summarize-search-query",

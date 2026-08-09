@@ -31,6 +31,7 @@ function createFinalStageJob(finalMatchCompleted: boolean): string {
       userId: "test-user-id",
       ideaJobId,
       debateJobId,
+      slug: `ideas-${ideaJobId}`,
       prompt: "Choose a building energy product",
       numberOfIdeas: 2,
       deepSearchCount: 1,

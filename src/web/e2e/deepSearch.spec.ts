@@ -1,4 +1,5 @@
 import type { Response } from "@playwright/test"
+import z from "zod"
 
 import { expect, test } from "./fixtures.ts"
 import type { DeepSearchJobEvent } from "../lib/deepSearchJobs.ts"
@@ -10,6 +11,10 @@ function parseEvents<Event>(body: string): Event[] {
     .filter((line) => line.trim())
     .map((line) => JSON.parse(line) as Event)
 }
+
+const structuredStringArraySchema = z.object({
+  elements: z.array(z.string()),
+})
 
 // External HTTP responses are deterministic; the API, persistence, streaming,
 // extraction pipeline, and browser behavior remain real.
@@ -324,9 +329,12 @@ test.describe("Deep search", () => {
     await expect(
       page.locator('[data-query-summary-status="completed"]').first(),
     ).toBeVisible()
+    const renderedSelection = structuredStringArraySchema
+      .parse(JSON.parse(streamedSelection) as unknown)
+      .elements.join("")
     await expect(
       page.getByTestId(`selection-${selectionStreamEvent?.query ?? ""}`),
-    ).toHaveText(streamedSelection)
+    ).toHaveText(renderedSelection)
 
     const sourceResultsAccordion = page
       .getByRole("button", {

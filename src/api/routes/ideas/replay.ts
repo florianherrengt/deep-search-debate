@@ -4,29 +4,44 @@ import {
   deepSearchJobs,
   ideaJobs,
   ideas,
+  llmGenerations,
 } from "../../db/schema/index.ts"
 import type { IdeaJobEvent } from "./schemas.ts"
 
 function replayNormalizedIdeas(ideaJobId: string): {
   events: IdeaJobEvent[]
   hasIdeas: boolean
+  allCritiquesCompleted: boolean
+  selectionResolved: boolean
+  selectedIdeaIds: string[]
 } {
   const persistedIdeas = db
     .select({
+      ideaId: ideas.ideaId,
       title: ideas.title,
       description: ideas.description,
       position: ideas.position,
       critiqueGenerationId: ideas.critiqueGenerationId,
+      critiqueStatus: llmGenerations.status,
+      selected: ideas.selected,
     })
     .from(ideas)
+    .leftJoin(
+      llmGenerations,
+      eq(ideas.critiqueGenerationId, llmGenerations.llmGenerationId),
+    )
     .where(eq(ideas.ideaJobId, ideaJobId))
     .orderBy(asc(ideas.position))
     .all()
+  const selectedIdeaIds = persistedIdeas
+    .filter(({ selected }) => selected === true)
+    .map(({ ideaId }) => ideaId)
 
   return {
     events: [
-      ...persistedIdeas.map(({ title, description }) => ({
+      ...persistedIdeas.map(({ ideaId, title, description }) => ({
         type: "idea" as const,
+        ideaId,
         title,
         description,
       })),
@@ -43,6 +58,13 @@ function replayNormalizedIdeas(ideaJobId: string): {
       ),
     ],
     hasIdeas: persistedIdeas.length > 0,
+    allCritiquesCompleted:
+      persistedIdeas.length > 0 &&
+      persistedIdeas.every(({ critiqueStatus }) => critiqueStatus === "completed"),
+    selectionResolved:
+      persistedIdeas.length > 0 &&
+      persistedIdeas.every(({ selected }) => selected !== null),
+    selectedIdeaIds,
   }
 }
 
@@ -103,6 +125,22 @@ export function reconstructIdeaJobEvents(
         ]
       : []),
     ...normalizedIdeas.events,
+    ...(job.selectionGenerationId
+      ? [
+          {
+            type: "idea-selection-stream" as const,
+            streamId: job.selectionGenerationId,
+          },
+        ]
+      : []),
+    ...(normalizedIdeas.selectionResolved
+      ? [
+          {
+            type: "selected-ideas" as const,
+            selectedIdeaIds: normalizedIdeas.selectedIdeaIds,
+          },
+        ]
+      : []),
     ...(job.status === "running"
       ? []
       : [
@@ -116,7 +154,10 @@ export function reconstructIdeaJobEvents(
                   // per-idea critique subphase.
                   stage:
                     job.stage === "ideas" && normalizedIdeas.hasIdeas
-                      ? ("critique" as const)
+                      ? job.selectionGenerationId ||
+                        normalizedIdeas.allCritiquesCompleted
+                        ? ("selection" as const)
+                        : ("critique" as const)
                       : job.stage,
                 },
               ]

@@ -21,6 +21,7 @@ export function createConfiguredLlm(llmConfig: LlmConfig) {
 
     return {
       model: (modelName = llmConfig.model) => provider(modelName),
+      supportsStructuredOutputs: true,
       callOptions: (reasoning: LlmCallReasoning) => ({
         providerOptions: {
           deepseek: {
@@ -35,11 +36,14 @@ export function createConfiguredLlm(llmConfig: LlmConfig) {
     name: "zen",
     apiKey: llmConfig.apiKey,
     baseURL: llmConfig.baseUrl,
-    supportsStructuredOutputs: true,
+    // Zen's free DeepSeek transport currently accepts JSON object mode but
+    // rejects OpenAI's stricter `json_schema` response format.
+    supportsStructuredOutputs: false,
   })
 
   return {
     model: (modelName = llmConfig.model) => provider(modelName),
+    supportsStructuredOutputs: false,
     callOptions: (reasoning: LlmCallReasoning) => ({
       providerOptions: {
         zen: {

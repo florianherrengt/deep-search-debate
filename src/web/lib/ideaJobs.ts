@@ -2,6 +2,7 @@ import z from "zod"
 import { getJson, postJson, subscribeToNdjson } from "./api.ts"
 
 const ideaSchema = z.object({
+  ideaId: z.string().min(1),
   title: z.string().min(1),
   description: z.string().min(1),
 })
@@ -15,6 +16,7 @@ const ideaJobStageSchema = z.enum([
 const ideaEventStageSchema = z.union([
   ideaJobStageSchema,
   z.literal("critique"),
+  z.literal("selection"),
 ])
 
 const ideaJobEventSchema = z.discriminatedUnion("type", [
@@ -42,6 +44,19 @@ const ideaJobEventSchema = z.discriminatedUnion("type", [
     type: z.literal("critique-generation-stream"),
     position: z.number().int().nonnegative(),
     streamId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("idea-selection-stream"),
+    streamId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("selected-ideas"),
+    selectedIdeaIds: z
+      .array(z.string().min(1))
+      .min(6)
+      .max(100)
+      .refine((ids) => ids.length % 2 === 0)
+      .refine((ids) => new Set(ids).size === ids.length),
   }),
   z.object({
     type: z.literal("error"),

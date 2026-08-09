@@ -1,5 +1,11 @@
 import { sql } from "drizzle-orm"
-import { check, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
+import {
+  check,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core"
 
 import { ideaJobs } from "./ideaJobs.ts"
 import { getLlmGenerationIdColumn } from "./llmGenerations.ts"
@@ -8,9 +14,9 @@ import { getLlmGenerationIdColumn } from "./llmGenerations.ts"
  * One stable idea produced by an idea-generation job. Ideas are normalized so
  * tournament rows reference durable IDs instead of brittle JSON array offsets.
  * position preserves generation order as metadata, not identity. Idea rows are
- * immutable after insertion except for its one-time critique link, so replay
- * sees exactly what debate agents saw. The nullable link represents the valid
- * interval after the idea exists but before its critique generation starts.
+ * immutable after insertion except for its one-time critique link and
+ * selection decision, so replay sees exactly what debate agents saw. Nullable
+ * fields represent the valid intervals before those pipeline stages finish.
  */
 export const ideas = sqliteTable(
   "ideas",
@@ -27,6 +33,9 @@ export const ideas = sqliteTable(
     critiqueGenerationId: text("critique_generation_id")
       .unique()
       .references(getLlmGenerationIdColumn, { onDelete: "no action" }),
+    // Null means selection has not completed. Every idea is atomically resolved
+    // to true or false when the selector generation completes.
+    selected: integer("selected", { mode: "boolean" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),

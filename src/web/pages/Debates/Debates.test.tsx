@@ -163,6 +163,7 @@ describe("Debates", () => {
     expect(mocks.createDebateJob).toHaveBeenCalledWith({
       prompt: "Design a better café",
       isPublic: false,
+      numberOfIdeas: 12,
     })
     expect(mocks.getDebateJob).toHaveBeenCalledWith(
       "better-cafe-ideas",
@@ -201,6 +202,7 @@ describe("Debates", () => {
       expect(mocks.createDebateJob).toHaveBeenCalledWith({
         prompt: "Design a public product",
         isPublic: true,
+        numberOfIdeas: 12,
       }),
     )
   })

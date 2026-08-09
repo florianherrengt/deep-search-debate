@@ -6,6 +6,8 @@ import {
   createSemifinalRound,
   DEBATE_TOURNAMENT_FORMAT,
   deriveSwissStandings,
+  getMatchesPerSwissRound,
+  getTotalMatchCount,
   rankSwissStandings,
   type CompletedSwissRound,
   type DebateMatchResult,
@@ -46,8 +48,11 @@ function standing(
 }
 
 describe("debate tournament format", () => {
-  it("keeps the fixed 12-player, five-round Elo configuration explicit", () => {
+  it("keeps the configurable, five-round Elo configuration explicit", () => {
     expect(DEBATE_TOURNAMENT_FORMAT).toEqual({
+      minParticipantCount: 6,
+      maxParticipantCount: 100,
+      defaultParticipantCount: 12,
       participantCount: 12,
       swissRounds: 5,
       matchesPerSwissRound: 6,
@@ -62,6 +67,53 @@ describe("debate tournament format", () => {
 })
 
 describe("Swiss pairing", () => {
+  it.each([6, 100])(
+    "builds five non-repeating Swiss rounds for %i selected ideas",
+    (participantCount) => {
+      const field: TournamentIdea[] = Array.from(
+        { length: participantCount },
+        (_, position) => ({ ideaId: `field-${position}`, position }),
+      )
+      const completedRounds: CompletedSwissRound[] = []
+      const previousPairings = new Set<string>()
+
+      for (
+        let roundNumber = 0;
+        roundNumber < DEBATE_TOURNAMENT_FORMAT.swissRounds;
+        roundNumber += 1
+      ) {
+        const pairings = createNextSwissRound({
+          ideas: field,
+          completedRounds,
+          randomSeed: 867_5309,
+        })
+        expect(pairings).toHaveLength(getMatchesPerSwissRound(participantCount))
+        expect(
+          new Set(
+            pairings.flatMap(({ firstIdeaId, secondIdeaId }) => [
+              firstIdeaId,
+              secondIdeaId,
+            ]),
+          ),
+        ).toHaveLength(participantCount)
+        for (const pairing of pairings) {
+          expect(previousPairings.has(key(pairing))).toBe(false)
+          previousPairings.add(key(pairing))
+        }
+        completedRounds.push(complete(pairings))
+      }
+
+      expect(previousPairings).toHaveLength(
+        DEBATE_TOURNAMENT_FORMAT.swissRounds * (participantCount / 2),
+      )
+      expect(getTotalMatchCount(participantCount)).toBe(
+        previousPairings.size +
+          DEBATE_TOURNAMENT_FORMAT.semifinalMatchCount +
+          DEBATE_TOURNAMENT_FORMAT.finalMatchCount,
+      )
+    },
+  )
+
   it("creates a seeded first round reproducibly and independently of input order", () => {
     const first = createNextSwissRound({
       ideas,
@@ -174,7 +226,7 @@ describe("Swiss pairing", () => {
         completedRounds: [],
         randomSeed: 0,
       }),
-    ).toThrow("exactly 12 ideas")
+    ).toThrow("an even number of ideas between 6 and 100")
     expect(() =>
       createNextSwissRound({
         ideas: [

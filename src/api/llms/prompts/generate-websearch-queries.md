@@ -17,7 +17,7 @@ Do not merely rephrase the same query repeatedly. Each query must have a distinc
 
 Preserve all important constraints from the user's request. Do not invent facts, assumptions, names, dates, locations, or requirements that the user did not provide.
 
-Generate fewer queries for simple requests and more for broad or complex research questions. Prefer quality and coverage over an arbitrary fixed number. Avoid queries that are redundant, excessively long, vague, or unlikely to produce useful search results.
+Generate exactly the number of queries requested. When the limit is small, prioritise the highest-value angles rather than returning near-duplicates. Avoid queries that are excessively long, vague, or unlikely to produce useful search results.
 
 Order the queries from highest to lowest research priority. The first query must be the single most valuable search to run, and each following query must be the next most valuable.
 

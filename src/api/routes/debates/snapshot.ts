@@ -13,8 +13,9 @@ import {
 import { judgeVerdictSchema } from "./schemas.ts"
 import { debateJobReadScope } from "../readAccess.ts"
 import {
-  DEBATE_TOURNAMENT_FORMAT,
   deriveSwissStandings,
+  getMatchesPerSwissRound,
+  getTotalMatchCount,
   type CompletedSwissRound,
 } from "./tournament.ts"
 
@@ -61,7 +62,7 @@ export type DebateJobSnapshot = {
   isOwner: boolean
   stage: "ideas" | "swiss" | "semifinal" | "final"
   status: "running" | "completed" | "failed" | "interrupted"
-  expectedMatchCount: number
+  expectedMatchCount: number | null
   rounds: DebateRoundSnapshot[]
   standings: { idea: DebateIdeaSnapshot; wins: number; elo: number }[]
   error: string | null
@@ -98,6 +99,7 @@ export function getDebateJobSnapshot(
       title: ideaJobs.title,
       slug: ideaJobs.slug,
       prompt: ideaJobs.prompt,
+      selectionGenerationId: ideaJobs.selectionGenerationId,
       userId: debateJobs.userId,
     })
     .from(debateJobs)
@@ -111,17 +113,25 @@ export function getDebateJobSnapshot(
     .get()
   if (!job) return
 
-  const ideaRows: DebateIdeaSnapshot[] = db
+  const persistedIdeaRows = db
     .select({
       ideaId: ideas.ideaId,
       position: ideas.position,
       title: ideas.title,
       description: ideas.description,
+      selected: ideas.selected,
     })
     .from(ideas)
     .where(eq(ideas.ideaJobId, job.ideaJobId))
     .orderBy(asc(ideas.position))
     .all()
+  const ideaRows: DebateIdeaSnapshot[] = persistedIdeaRows
+    .filter((idea) =>
+      job.selectionGenerationId
+        ? idea.selected === true
+        : job.stage !== "ideas",
+    )
+    .map(({ selected: _selected, ...idea }) => idea)
   const ideasById = new Map(ideaRows.map((idea) => [idea.ideaId, idea]))
 
   const roundRows = db
@@ -231,7 +241,7 @@ export function getDebateJobSnapshot(
   for (const round of rounds.filter(({ stage }) => stage === "swiss")) {
     if (
       round.matches.length !==
-        DEBATE_TOURNAMENT_FORMAT.matchesPerSwissRound ||
+        getMatchesPerSwissRound(ideaRows.length) ||
       round.matches.some(({ winnerIdeaId }) => winnerIdeaId === null)
     ) {
       break
@@ -266,7 +276,8 @@ export function getDebateJobSnapshot(
     isOwner: job.userId === viewerUserId,
     stage: job.stage,
     status: job.status,
-    expectedMatchCount: DEBATE_TOURNAMENT_FORMAT.totalMatchCount,
+    expectedMatchCount:
+      ideaRows.length === 0 ? null : getTotalMatchCount(ideaRows.length),
     rounds,
     standings,
     error: job.error,

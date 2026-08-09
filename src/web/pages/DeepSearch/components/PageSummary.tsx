@@ -79,6 +79,7 @@ export function PageSummary({ summary }: PageSummaryProps) {
 
       {hasStream && (
         <TextStreamOutput
+          format="markdown"
           stream={stream}
           waitingText="Waiting for source findings…"
           textTestId="page-summary-text"

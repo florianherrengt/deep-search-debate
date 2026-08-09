@@ -52,14 +52,10 @@ export type IdeaJobManager = {
   getLiveJob(ideaJobId: string): LiveIdeaJob | undefined
 }
 
-function createIdeaIdentity(
-  userId: string,
-  generatedTitle: string,
-): PromptIdentity {
+function createIdeaIdentity(generatedTitle: string): PromptIdentity {
   const usedSlugs = db
     .select({ slug: ideaJobs.slug })
     .from(ideaJobs)
-    .where(eq(ideaJobs.userId, userId))
     .all()
     .map(({ slug }) => slug)
   return createPromptIdentity(generatedTitle, usedSlugs)
@@ -105,7 +101,7 @@ export function createIdeaJobManager(
       const { title: suppliedTitle, ...runInput } = input
       const generatedTitle =
         suppliedTitle ?? (await generatePromptTitle(input.prompt))
-      const identity = createIdeaIdentity(userId, generatedTitle)
+      const identity = createIdeaIdentity(generatedTitle)
 
       db.transaction((transaction) => {
         const parent = options?.createParent?.(transaction, ideaJobId)

@@ -36,6 +36,7 @@ function createFixture(stage: DebateRoundStage = "swiss"): Fixture {
       title: `Idea ${position + 1}`,
       description: `Description ${position + 1}`,
       critiqueGenerationId: crypto.randomUUID(),
+      selected: true,
     }),
   )
 
@@ -52,6 +53,7 @@ function createFixture(stage: DebateRoundStage = "swiss"): Fixture {
       userId: "test-user-id",
       ideaJobId,
       debateJobId,
+      slug: `ideas-${ideaJobId}`,
       prompt: "Choose a product",
       numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
       deepSearchCount: 2,
@@ -99,7 +101,7 @@ describe("debate round persistence", () => {
         stageRoundNumber: 1,
         pairs,
       }),
-    ).toThrow("Every match idea must belong to the debate's idea job")
+    ).toThrow("Every match idea must be selected for this debate")
   })
 
   it("rejects duplicate appearances and incorrect stage match counts", () => {

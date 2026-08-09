@@ -47,7 +47,7 @@ export const deepSearchJobs = sqliteTable(
       table.createdAt,
       table.deepSearchJobId,
     ),
-    index("deep_search_jobs_user_slug_idx").on(table.userId, table.slug),
+    uniqueIndex("deep_search_jobs_slug_idx").on(table.slug),
     uniqueIndex("deep_search_jobs_id_user_id_idx").on(
       table.deepSearchJobId,
       table.userId,

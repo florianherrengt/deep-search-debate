@@ -170,18 +170,50 @@ The history page lists durable jobs newest first. Structural progress is stored 
 
 ## Ideas
 
-Open `/ideas` and enter a prompt to start a researched idea run. The current UI requests 12 ideas backed by two parallel deep searches. The API also accepts `numberOfIdeas`, `deepSearchCount`, `maxSearches`, and `maxResultsPerSearch`; the UI will expose those controls later.
+Open `/ideas` and enter a prompt to start a researched idea run. The UI requests
+12 ideas by default, and the API accepts 6 through 100 through
+`numberOfIdeas`. Runs use two parallel deep searches by default; the API also
+accepts `deepSearchCount`, `maxSearches`, and `maxResultsPerSearch`.
 
-The pipeline uses four visible stages:
+The pipeline uses six visible phases:
 
 1. One planning generation creates exactly one distinct prompt per requested deep search.
 2. Every deep search starts in parallel. Its existing `/deep-search/:id` page opens in a new tab from the Ideas run.
 3. A fresh generation combines only the child searches' final-answer text into one research briefing.
 4. A fresh generation receives the user prompt and briefing, then streams the requested title-and-description ideas.
+5. Every persisted idea receives an independent critique using the original
+   request and final research briefing. Critiques start concurrently, and the
+   pipeline waits for all of them to settle.
+6. One structured selector receives the request, briefing, every idea, and each
+   critique's final text. It returns an unordered, unique, even set of 6 through
+   100 idea IDs. The UI retains the selector's reasoning and marks every idea as
+   selected or rejected.
 
-The run is all-or-nothing: a planning, child-search, summary, or idea-generation failure fails the parent run and prevents later stages. Individual blocked, challenged, paywalled, unavailable, or unsupported pages remain non-fatal inside a child search because their search snippets can still support its synthesis.
+The run is all-or-nothing: a planning, child-search, summary, idea-generation,
+critique, or selection failure fails the parent run and prevents later stages.
+Individual blocked, challenged, paywalled, unavailable, or unsupported pages
+remain non-fatal inside a child search because their search snippets can still
+support its synthesis.
 
 Runs and their generated output are durable and appear newest first under "Previous idea runs." See [the idea-job contract](src/api/routes/docs/idea-jobs.md).
+
+## Debates
+
+Open `/debates` to run the researched idea pipeline and an automatic tournament.
+The generated candidate count defaults to 12 and is configurable from 6 through
+100. Only ideas admitted by the selector enter the tournament.
+
+Every admitted idea plays five Swiss rounds without repeat opponents; losing a
+Swiss match does not eliminate it. Later-round matchmaking uses deterministic
+score-ordered backtracking, which finds the first complete non-repeating round
+without attempting the factorial exhaustive search that becomes impossible for
+large fields. The top four by wins, Elo, two-way head-to-head, and seeded order
+advance to two semifinals and one final.
+
+Match transcripts, verdicts, standings, and the final winner are durable. The
+selected field produces `5 × ideas ÷ 2 + 3` matches, so the minimum six-idea run
+contains 18 matches and the default 12-idea run contains 33. See [the debate-job
+contract](src/api/routes/docs/debate-jobs.md).
 
 ## Verification
 

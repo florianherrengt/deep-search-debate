@@ -161,7 +161,6 @@ CREATE TABLE `debate_jobs` (
 	`debate_job_id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
 	`random_seed` integer NOT NULL,
-	`is_public` integer DEFAULT false NOT NULL,
 	`stage` text DEFAULT 'ideas' NOT NULL,
 	`status` text DEFAULT 'running' NOT NULL,
 	`error` text,
@@ -169,7 +168,6 @@ CREATE TABLE `debate_jobs` (
 	`completed_at` integer,
 	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,
 	CONSTRAINT "debate_jobs_config_check" CHECK("debate_jobs"."random_seed" >= 0 and "debate_jobs"."random_seed" <= 4294967295),
-	CONSTRAINT "debate_jobs_visibility_check" CHECK("debate_jobs"."is_public" in (0, 1)),
 	CONSTRAINT "debate_jobs_stage_check" CHECK("debate_jobs"."stage" in ('ideas', 'swiss', 'semifinal', 'final')),
 	CONSTRAINT "debate_jobs_status_check" CHECK("debate_jobs"."status" in ('running', 'completed', 'failed', 'interrupted')),
 	CONSTRAINT "debate_jobs_terminal_fields_check" CHECK((

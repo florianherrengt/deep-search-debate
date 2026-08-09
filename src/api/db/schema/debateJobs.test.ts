@@ -28,6 +28,7 @@ function createDebateJob() {
       userId: "test-user-id",
       ideaJobId,
       debateJobId,
+      slug: `ideas-${ideaJobId}`,
       prompt: "Which urban transport idea should be built?",
       numberOfIdeas: 12,
       deepSearchCount: 2,

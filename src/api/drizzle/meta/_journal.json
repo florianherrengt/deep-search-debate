@@ -22,6 +22,27 @@
       "when": 1786230640194,
       "tag": "0002_chilly_big_bertha",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1786237922044,
+      "tag": "0003_deep_nebula",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1786238139375,
+      "tag": "0004_ambiguous_wendell_rand",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1786305300025,
+      "tag": "0005_lyrical_leader",
+      "breakpoints": true
     }
   ]
 }

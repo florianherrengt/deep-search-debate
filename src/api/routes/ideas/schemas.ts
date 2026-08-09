@@ -9,7 +9,24 @@ export const ideaSchema = z.object({
 
 export type Idea = z.infer<typeof ideaSchema>
 export type IdeaJobStage = (typeof ideaJobStages)[number]
-export type IdeaEventStage = IdeaJobStage | "critique"
+export type IdeaEventStage = IdeaJobStage | "critique" | "selection"
+
+export const MIN_SELECTED_IDEAS = 6
+export const MAX_IDEAS = 100
+
+export const ideaSelectionSchema = z.object({
+  selectedIdeaIds: z
+    .array(z.uuid())
+    .min(MIN_SELECTED_IDEAS)
+    .max(MAX_IDEAS)
+    .refine((ids) => ids.length % 2 === 0, {
+      message: "The number of selected ideas must be even",
+    })
+    .refine((ids) => new Set(ids).size === ids.length, {
+      message: "Selected idea IDs must be unique",
+    }),
+})
+type IdeaSelection = z.infer<typeof ideaSelectionSchema>
 
 export type IdeaJobEvent =
   | { type: "research-prompt-stream"; streamId: string }
@@ -22,23 +39,24 @@ export type IdeaJobEvent =
     }
   | { type: "research-summary-stream"; streamId: string }
   | { type: "idea-generation-stream"; streamId: string }
-  | ({ type: "idea" } & Idea)
+  | ({ type: "idea"; ideaId: string } & Idea)
   | {
       type: "critique-generation-stream"
       position: number
       streamId: string
     }
+  | { type: "idea-selection-stream"; streamId: string }
+  | ({ type: "selected-ideas" } & IdeaSelection)
   | { type: "error"; message: string; stage: IdeaEventStage }
   | { type: "done" }
 
 export type LiveIdeaJob = ReplayableEventLog<IdeaJobEvent>
 
-// These controls are intentionally unbounded so trusted callers can configure
-// arbitrarily large runs. A network deployment must enforce its own auth,
-// quotas, request-size limits, and concurrency policy outside this schema.
+// Search controls remain positive and otherwise configurable. Deployments must
+// enforce quotas and concurrency policy outside this request schema.
 export const createIdeaJobInputSchema = z.object({
   prompt: z.string().trim().min(1),
-  numberOfIdeas: z.number().int().positive().default(12),
+  numberOfIdeas: z.number().int().min(MIN_SELECTED_IDEAS).max(MAX_IDEAS).default(12),
   deepSearchCount: z.number().int().positive().default(2),
   maxSearches: z.number().int().positive().default(3),
   maxResultsPerSearch: z.number().int().positive().default(3),

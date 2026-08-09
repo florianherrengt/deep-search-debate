@@ -69,6 +69,7 @@ describe("debate job manager", () => {
       {
         prompt: "Debate products",
         isPublic: true,
+        numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
       },
     )
 

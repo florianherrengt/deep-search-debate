@@ -19,6 +19,7 @@ describe("deep-search event ownership", () => {
         {
           deepSearchJobId,
           userId: "test-user-id",
+          slug: `search-${deepSearchJobId}`,
           researchRequest: "Research this",
           maxSearches: 1,
           maxResultsPerSearch: 1,
@@ -26,6 +27,7 @@ describe("deep-search event ownership", () => {
         {
           deepSearchJobId: foreignDeepSearchJobId,
           userId: "test-user-id",
+          slug: `search-${foreignDeepSearchJobId}`,
           researchRequest: "Research something else",
           maxSearches: 1,
           maxResultsPerSearch: 1,

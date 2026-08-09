@@ -11,6 +11,7 @@ type GenerateWebSearchQueriesInput = {
   userId: string
   deepSearchJobId: string
   researchRequest: string
+  maxSearches: number
   onStreamCreated: (streamId: string) => void
   maxRetries?: number
 }
@@ -25,14 +26,19 @@ export async function generateWebSearchQueries(
   const { id, output } = await generateArrayStream({
     userId: params.userId,
     owner: { deepSearchJobId: params.deepSearchJobId },
-    prompt: params.researchRequest,
+    prompt: [
+      "<research_request>",
+      params.researchRequest,
+      "</research_request>",
+      `Generate exactly ${params.maxSearches} search queries.`,
+    ].join("\n"),
     promptName: PromptName.GenerateWebSearchQueries,
     element: z.string().trim().min(1),
     maxRetries: params.maxRetries,
   })
   params.onStreamCreated(id)
 
-  return [...new Set(await output)]
+  return [...new Set(await output)].slice(0, params.maxSearches)
 }
 
 type GenerateSearchResultsInput = {
@@ -56,6 +62,7 @@ export async function generateSearchResults(
     userId: params.userId,
     deepSearchJobId: params.deepSearchJobId,
     researchRequest: params.researchRequest,
+    maxSearches: params.maxSearches,
     onStreamCreated: (streamId) => {
       params.onEvent({ type: "query-stream", streamId })
     },
@@ -64,7 +71,7 @@ export async function generateSearchResults(
   params.onQueriesGenerated?.(queries)
 
   return Promise.all(
-    queries.slice(0, params.maxSearches).map(async (query) => ({
+    queries.map(async (query) => ({
       query,
       results: await webSearch({ query }),
     })),

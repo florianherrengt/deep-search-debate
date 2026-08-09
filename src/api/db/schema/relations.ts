@@ -192,6 +192,11 @@ export const ideaJobsRelations = relations(
       references: [llmGenerations.llmGenerationId],
       relationName: "ideaJobIdeaGeneration",
     }),
+    selectionGeneration: one(llmGenerations, {
+      fields: [ideaJobs.selectionGenerationId],
+      references: [llmGenerations.llmGenerationId],
+      relationName: "ideaJobSelectionGeneration",
+    }),
     deepSearchJobs: many(deepSearchJobs),
     ideas: many(ideas),
     debateJob: one(debateJobs, {

@@ -8,7 +8,12 @@ import reactRefresh from "eslint-plugin-react-refresh"
 
 export default tseslint.config(
   {
-    ignores: ["**/dist/**", "**/node_modules/**", "**/storybook-static/**"],
+    ignores: [
+      "**/.worktrees/**",
+      "**/dist/**",
+      "**/node_modules/**",
+      "**/storybook-static/**",
+    ],
   },
   {
     files: ["src/**/*.{ts,tsx}"],

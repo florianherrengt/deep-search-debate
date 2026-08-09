@@ -19,8 +19,9 @@ export type IdeaJobRunState = {
   research: IdeaResearchState[]
   researchSummaryStreamId: string | null
   ideaGenerationStreamId: string | null
-  ideas: Idea[]
+  ideas: Array<Idea & { selection: "pending" | "selected" | "rejected" }>
   critiqueGenerationStreamIds: Record<number, string>
+  ideaSelectionStreamId: string | null
   error: string | null
 }
 
@@ -33,6 +34,7 @@ export const initialIdeaJobState: IdeaJobRunState = {
   ideaGenerationStreamId: null,
   ideas: [],
   critiqueGenerationStreamIds: {},
+  ideaSelectionStreamId: null,
   error: null,
 }
 
@@ -65,13 +67,27 @@ export const ideaJobReducer = produce<IdeaJobRunState, [IdeaJobAction]>(
         break
       case "idea":
         state.ideas.push({
+          ideaId: action.ideaId,
           title: action.title,
           description: action.description,
+          selection: "pending",
         })
         break
       case "critique-generation-stream":
         state.critiqueGenerationStreamIds[action.position] = action.streamId
         break
+      case "idea-selection-stream":
+        state.ideaSelectionStreamId = action.streamId
+        break
+      case "selected-ideas": {
+        const selectedIdeaIds = new Set(action.selectedIdeaIds)
+        for (const idea of state.ideas) {
+          idea.selection = selectedIdeaIds.has(idea.ideaId)
+            ? "selected"
+            : "rejected"
+        }
+        break
+      }
       case "error":
         state.status = "failed"
         state.error = action.message

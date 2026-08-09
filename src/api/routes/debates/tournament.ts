@@ -1,24 +1,46 @@
-const participantCount = 12
+const minParticipantCount = 6
+const maxParticipantCount = 100
+const defaultParticipantCount = 12
 const swissRounds = 5
 const knockoutSize = 4
-const matchesPerSwissRound = participantCount / 2
 const semifinalMatchCount = knockoutSize / 2
 const finalMatchCount = 1
 
 export const DEBATE_TOURNAMENT_FORMAT = {
-  participantCount,
+  minParticipantCount,
+  maxParticipantCount,
+  defaultParticipantCount,
+  // Default-field projections retained for callers that render or fixture the
+  // standard 12-idea format. Runtime tournaments derive these from admission.
+  participantCount: defaultParticipantCount,
   swissRounds,
-  matchesPerSwissRound,
+  matchesPerSwissRound: defaultParticipantCount / 2,
   initialElo: 1500,
   eloKFactor: 32,
   knockoutSize,
   semifinalMatchCount,
   finalMatchCount,
   totalMatchCount:
-    swissRounds * matchesPerSwissRound +
+    swissRounds * (defaultParticipantCount / 2) +
     semifinalMatchCount +
     finalMatchCount,
 } as const
+
+export function getMatchesPerSwissRound(participantCount: number): number {
+  if (!Number.isInteger(participantCount) || participantCount % 2 !== 0) {
+    throw new Error("A Swiss tournament requires an even number of ideas")
+  }
+  return participantCount / 2
+}
+
+export function getTotalMatchCount(participantCount: number): number {
+  return (
+    DEBATE_TOURNAMENT_FORMAT.swissRounds *
+      getMatchesPerSwissRound(participantCount) +
+    DEBATE_TOURNAMENT_FORMAT.semifinalMatchCount +
+    DEBATE_TOURNAMENT_FORMAT.finalMatchCount
+  )
+}
 
 export type TournamentIdea = Readonly<{
   ideaId: string
@@ -62,9 +84,13 @@ function assertRandomSeed(randomSeed: number): void {
 }
 
 function assertIdeas(ideas: readonly TournamentIdea[]): void {
-  if (ideas.length !== DEBATE_TOURNAMENT_FORMAT.participantCount) {
+  if (
+    ideas.length < DEBATE_TOURNAMENT_FORMAT.minParticipantCount ||
+    ideas.length > DEBATE_TOURNAMENT_FORMAT.maxParticipantCount ||
+    ideas.length % 2 !== 0
+  ) {
     throw new Error(
-      `A debate tournament requires exactly ${DEBATE_TOURNAMENT_FORMAT.participantCount} ideas`,
+      `A debate tournament requires an even number of ideas between ${DEBATE_TOURNAMENT_FORMAT.minParticipantCount} and ${DEBATE_TOURNAMENT_FORMAT.maxParticipantCount}`,
     )
   }
 
@@ -159,9 +185,10 @@ function assertSwissRound(
   knownIdeaIds: ReadonlySet<string>,
   previousPairings: ReadonlySet<string>,
 ): void {
-  if (round.length !== DEBATE_TOURNAMENT_FORMAT.matchesPerSwissRound) {
+  const matchesPerRound = getMatchesPerSwissRound(knownIdeaIds.size)
+  if (round.length !== matchesPerRound) {
     throw new Error(
-      `A Swiss round requires exactly ${DEBATE_TOURNAMENT_FORMAT.matchesPerSwissRound} matches`,
+      `A Swiss round requires exactly ${matchesPerRound} matches`,
     )
   }
 
@@ -360,53 +387,55 @@ function addPairingScore(
 }
 
 /**
- * Finds a globally optimal perfect matching. Enumerating 12-player matchings is
- * only 10,395 candidates and avoids greedy no-repeat dead ends.
+ * Finds the first valid perfect matching after ordering each opponent choice by
+ * Swiss-score proximity. Backtracking avoids greedy no-repeat dead ends without
+ * exhaustively scoring every matching, which is intractable for large fields.
  */
 function findBestSwissPairing(
   orderedStandings: readonly SwissStanding[],
   previousPairings: ReadonlySet<string>,
 ): DebatePairing[] {
-  let bestPairings: DebatePairing[] | undefined
-  let bestScore: PairingScore | undefined
-
   function visit(
     remaining: readonly SwissStanding[],
-    pairings: readonly DebatePairing[],
-    score: PairingScore,
-  ): void {
-    if (remaining.length === 0) {
-      if (bestScore === undefined || compareScore(score, bestScore) < 0) {
-        bestScore = score
-        bestPairings = [...pairings]
-      }
-      return
-    }
-    if (bestScore !== undefined && compareScore(score, bestScore) > 0) return
+  ): DebatePairing[] | undefined {
+    if (remaining.length === 0) return []
 
     const first = remaining[0]
-    for (let opponentIndex = 1; opponentIndex < remaining.length; opponentIndex += 1) {
-      const second = remaining[opponentIndex]
-      if (previousPairings.has(pairingKey(first.ideaId, second.ideaId))) continue
+    const opponents = remaining
+      .slice(1)
+      .filter(
+        (second) =>
+          !previousPairings.has(pairingKey(first.ideaId, second.ideaId)),
+      )
+      .sort((left, right) =>
+        compareScore(
+          addPairingScore([0, 0, 0], first, left),
+          addPairingScore([0, 0, 0], first, right),
+        ) || left.ideaId.localeCompare(right.ideaId),
+      )
+
+    for (const second of opponents) {
       const nextRemaining = remaining.filter(
-        (_, index) => index !== 0 && index !== opponentIndex,
+        (candidate) =>
+          candidate.ideaId !== first.ideaId &&
+          candidate.ideaId !== second.ideaId,
       )
-      visit(
-        nextRemaining,
-        [
-          ...pairings,
+      const remainder = visit(nextRemaining)
+      if (remainder) {
+        return [
           { firstIdeaId: first.ideaId, secondIdeaId: second.ideaId },
-        ],
-        addPairingScore(score, first, second),
-      )
+          ...remainder,
+        ]
+      }
     }
+    return undefined
   }
 
-  visit(orderedStandings, [], [0, 0, 0])
-  if (bestPairings === undefined) {
+  const pairings = visit(orderedStandings)
+  if (!pairings) {
     throw new Error("No valid non-repeating Swiss pairing exists")
   }
-  return bestPairings
+  return pairings
 }
 
 function randomizePresentation(
@@ -440,7 +469,7 @@ export function createNextSwissRound(input: {
   if (completedRounds.length === 0) {
     const shuffled = shuffle(sortIdeasByPosition(ideas), randomSeed)
     return Array.from(
-      { length: DEBATE_TOURNAMENT_FORMAT.matchesPerSwissRound },
+      { length: getMatchesPerSwissRound(ideas.length) },
       (_, index) => ({
         firstIdeaId: shuffled[index * 2].ideaId,
         secondIdeaId: shuffled[index * 2 + 1].ideaId,

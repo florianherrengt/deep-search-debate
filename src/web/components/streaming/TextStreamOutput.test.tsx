@@ -66,4 +66,59 @@ describe("TextStreamOutput", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument()
     expect(screen.getByText("Partial child output")).toBeVisible()
   })
+
+  it("renders model Markdown as formatted, safe content", () => {
+    render(
+      <TextStreamOutput
+        format="markdown"
+        stream={{
+          status: "completed",
+          reasoning: "",
+          text: "## Findings\n\nUse **verified evidence** from [React](https://react.dev).",
+        }}
+        textTestId="markdown-output"
+        waitingText="Waiting…"
+      />,
+    )
+
+    expect(screen.getByRole("heading", { name: "Findings" })).toBeVisible()
+    expect(screen.getByText("verified evidence")).toHaveStyle({
+      fontWeight: "bolder",
+    })
+    expect(screen.getByRole("link", { name: "React" })).toHaveAttribute(
+      "target",
+      "_blank",
+    )
+    expect(screen.getByTestId("markdown-output")).not.toHaveTextContent(
+      "## Findings",
+    )
+  })
+
+  it("turns structured array wrappers into readable list items", () => {
+    render(
+      <TextStreamOutput
+        format="structured-list"
+        stream={{
+          status: "completed",
+          reasoning: "",
+          text: JSON.stringify({
+            elements: [
+              "First query",
+              { title: "Market constraints", prompt: "Research constraints" },
+            ],
+          }),
+        }}
+        textTestId="structured-output"
+        waitingText="Waiting…"
+      />,
+    )
+
+    expect(screen.getAllByRole("listitem")).toHaveLength(2)
+    expect(screen.getByText("First query")).toBeVisible()
+    expect(screen.getByText("Market constraints")).toBeVisible()
+    expect(screen.getByText("Research constraints")).toBeVisible()
+    expect(screen.getByTestId("structured-output")).not.toHaveTextContent(
+      "elements",
+    )
+  })
 })

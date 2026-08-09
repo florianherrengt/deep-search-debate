@@ -1,5 +1,6 @@
 import { Paper, Stack, Typography } from "@mui/material"
 import { TextStreamOutput } from "./TextStreamOutput.tsx"
+import type { StreamTextFormat } from "./FormattedStreamText.tsx"
 import { useTextStream } from "./useTextStream.ts"
 
 type GenerationOutputProps = {
@@ -9,6 +10,7 @@ type GenerationOutputProps = {
   testId: string
   headingComponent: "h2" | "h3" | "h4"
   announcementLabel?: string
+  format?: StreamTextFormat
 }
 
 /** Displays one retained model-generation stream. */
@@ -19,6 +21,7 @@ export function GenerationOutput({
   testId,
   headingComponent,
   announcementLabel,
+  format,
 }: GenerationOutputProps) {
   const stream = useTextStream(streamId)
 
@@ -30,6 +33,7 @@ export function GenerationOutput({
         </Typography>
         <TextStreamOutput
           announcementLabel={announcementLabel}
+          format={format}
           stream={stream}
           waitingText={waitingText}
           textTestId={testId}

@@ -17,6 +17,7 @@ const baseRun: IdeaJobRunState = {
   ideaGenerationStreamId: null,
   ideas: [],
   critiqueGenerationStreamIds: {},
+  ideaSelectionStreamId: null,
   error: null,
 }
 
@@ -39,14 +40,18 @@ const research = [
 
 const ideas = [
   {
+    ideaId: "prep-forecast",
     title: "Prep Forecast",
     description:
       "A lightweight morning forecast that converts weather, local events, and recent till data into recommended prep quantities.",
+    selection: "pending" as const,
   },
   {
+    ideaId: "last-hour-bundles",
     title: "Last-Hour Bundles",
     description:
       "A one-tap tool that groups likely leftovers into timed offers without requiring staff to maintain a separate catalogue.",
+    selection: "pending" as const,
   },
 ]
 
@@ -70,6 +75,12 @@ const textById: Record<string, { reasoning: string; text: string }> = {
   "critique-1": {
     reasoning: "I am checking whether this idea has a defensible mechanism.",
     text: "Easy to understand, but crowded and vulnerable to low customer reach. Differentiate through automatic bundle creation inside existing closing workflows.",
+  },
+  selection: {
+    reasoning: "Both ideas address distinct, research-backed workflow failures.",
+    text: JSON.stringify({
+      selectedIdeaIds: ["prep-forecast", "last-hour-bundles"],
+    }),
   },
 }
 
@@ -135,11 +146,12 @@ export const Completed: Story = {
       research,
       researchSummaryStreamId: "summary",
       ideaGenerationStreamId: "ideas",
-      ideas,
+      ideas: ideas.map((idea) => ({ ...idea, selection: "selected" as const })),
       critiqueGenerationStreamIds: {
         0: "critique-0",
         1: "critique-1",
       },
+      ideaSelectionStreamId: "selection",
     },
   },
 }

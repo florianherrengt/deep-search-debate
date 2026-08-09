@@ -12,7 +12,10 @@ import {
   llmGenerations,
 } from "../../db/schema/index.ts"
 import type { TextStreamPersistenceTransaction } from "../../llms/streams.ts"
-import { DEBATE_TOURNAMENT_FORMAT } from "./tournament.ts"
+import {
+  DEBATE_TOURNAMENT_FORMAT,
+  getMatchesPerSwissRound,
+} from "./tournament.ts"
 
 export type DebateRoundStage = "swiss" | "semifinal" | "final"
 export type IdeaPair = readonly [string, string]
@@ -57,9 +60,12 @@ function assertGenerationOwnedByMatch(
   }
 }
 
-function expectedMatchCount(stage: DebateRoundStage): number {
+function expectedMatchCount(
+  stage: DebateRoundStage,
+  participantCount: number,
+): number {
   if (stage === "swiss") {
-    return DEBATE_TOURNAMENT_FORMAT.matchesPerSwissRound
+    return getMatchesPerSwissRound(participantCount)
   }
   if (stage === "semifinal") {
     return DEBATE_TOURNAMENT_FORMAT.semifinalMatchCount
@@ -71,6 +77,7 @@ function validatePriorRounds(
   debateJobId: string,
   stage: DebateRoundStage,
   stageRoundNumber: number,
+  matchesPerSwissRound: number,
 ): void {
   const rounds = db
     .select({
@@ -116,7 +123,7 @@ function validatePriorRounds(
       !isComplete(
         "swiss",
         stageRoundNumber - 1,
-        DEBATE_TOURNAMENT_FORMAT.matchesPerSwissRound,
+        matchesPerSwissRound,
       )
     ) {
       throw new Error("The previous Swiss round is incomplete")
@@ -133,7 +140,7 @@ function validatePriorRounds(
       !isComplete(
         "swiss",
         roundNumber,
-        DEBATE_TOURNAMENT_FORMAT.matchesPerSwissRound,
+        matchesPerSwissRound,
       )
     ) {
       throw new Error(
@@ -174,7 +181,24 @@ export function createDebateRound(input: {
   if (job.status !== "running" || job.stage !== input.stage) {
     throw new Error(`Debate job is not running the ${input.stage} stage`)
   }
-  if (input.pairs.length !== expectedMatchCount(input.stage)) {
+  const admittedIdeas = new Set(
+    db
+      .select({ ideaId: ideas.ideaId })
+      .from(ideas)
+      .where(
+        and(
+          eq(ideas.ideaJobId, job.ideaJobId),
+          eq(ideas.selected, true),
+        ),
+      )
+      .all()
+      .map((idea) => idea.ideaId),
+  )
+  const matchesPerSwissRound = getMatchesPerSwissRound(admittedIdeas.size)
+  if (
+    input.pairs.length !==
+    expectedMatchCount(input.stage, admittedIdeas.size)
+  ) {
     throw new Error(`Incorrect number of ${input.stage} matches`)
   }
 
@@ -182,22 +206,15 @@ export function createDebateRound(input: {
   if (new Set(participantIds).size !== participantIds.length) {
     throw new Error("An idea cannot appear more than once in a round")
   }
-  const admittedIdeas = new Set(
-    db
-      .select({ ideaId: ideas.ideaId })
-      .from(ideas)
-      .where(eq(ideas.ideaJobId, job.ideaJobId))
-      .all()
-      .map((idea) => idea.ideaId),
-  )
   if (participantIds.some((ideaId) => !admittedIdeas.has(ideaId))) {
-    throw new Error("Every match idea must belong to the debate's idea job")
+    throw new Error("Every match idea must be selected for this debate")
   }
 
   validatePriorRounds(
     input.debateJobId,
     input.stage,
     input.stageRoundNumber,
+    matchesPerSwissRound,
   )
 
   if (input.stage === "swiss") {

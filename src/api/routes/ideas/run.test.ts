@@ -3,12 +3,14 @@ import z from "zod"
 
 const mocks = vi.hoisted(() => ({
   generateArrayStream: vi.fn(),
+  generateObjectStream: vi.fn(),
   generateTextStream: vi.fn(),
   startDeepSearch: vi.fn(),
 }))
 
 vi.mock("../../llms/generateText.ts", () => ({
   generateArrayStream: mocks.generateArrayStream,
+  generateObjectStream: mocks.generateObjectStream,
   generateTextStream: mocks.generateTextStream,
 }))
 
@@ -16,8 +18,18 @@ import { db } from "../../db/index.ts"
 import { ideaJobs, ideas, llmGenerations } from "../../db/schema/index.ts"
 import { createReplayableEventLog } from "../../helpers/replayableEventLog.ts"
 import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
+import { reconstructIdeaJobEvents } from "./replay.ts"
 import { runIdeaJob } from "./run.ts"
 import type { Idea, IdeaJobEvent } from "./schemas.ts"
+
+type SelectionOutput = { selectedIdeaIds: string[] }
+type SelectionMockInput = {
+  schema: z.ZodType<SelectionOutput>
+  onCompleted?: (
+    result: { id: string; output: SelectionOutput },
+    transaction: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  ) => void
+}
 
 const researchPrompts = [
   { title: "Market Constraints", prompt: "Research market constraints" },
@@ -27,7 +39,16 @@ const ideaJobId = "11111111-1111-4111-8111-111111111111"
 const generatedIdeas: Idea[] = [
   { title: "First idea", description: "First description" },
   { title: "Second idea", description: "Second description" },
+  { title: "Third idea", description: "Third description" },
+  { title: "Fourth idea", description: "Fourth description" },
+  { title: "Fifth idea", description: "Fifth description" },
+  { title: "Sixth idea", description: "Sixth description" },
+  { title: "Seventh idea", description: "Seventh description" },
+  { title: "Eighth idea", description: "Eighth description" },
 ]
+const critiqueGenerationIds = generatedIdeas.map(
+  (_, position) => `critique-${position + 1}-id`,
+)
 
 function insertGeneration(id: string, text: string): void {
   db.insert(llmGenerations)
@@ -52,8 +73,10 @@ function setupGenerations(): void {
   insertGeneration("planning-id", JSON.stringify(researchPrompts))
   insertGeneration("summary-id", "Combined research briefing")
   insertGeneration("ideas-id", JSON.stringify(generatedIdeas))
-  insertGeneration("critique-one-id", "First critique")
-  insertGeneration("critique-two-id", "Second critique")
+  for (const [position, id] of critiqueGenerationIds.entries()) {
+    insertGeneration(id, `Critique ${position + 1}`)
+  }
+  insertGeneration("selection-id", '{"selectedIdeaIds":[]}')
   mocks.generateArrayStream
     .mockResolvedValueOnce({
       id: "planning-id",
@@ -67,8 +90,28 @@ function setupGenerations(): void {
     })
   mocks.generateTextStream
     .mockResolvedValueOnce({ id: "summary-id" })
-    .mockResolvedValueOnce({ id: "critique-one-id" })
-    .mockResolvedValueOnce({ id: "critique-two-id" })
+  for (const id of critiqueGenerationIds) {
+    mocks.generateTextStream.mockResolvedValueOnce({ id })
+  }
+  mocks.generateObjectStream.mockImplementationOnce(
+    ({ onCompleted, schema }: SelectionMockInput) => {
+      const selectedIdeaIds = db
+        .select({ ideaId: ideas.ideaId })
+        .from(ideas)
+        .orderBy(ideas.position)
+        .all()
+        .slice(0, 6)
+        .map(({ ideaId }) => ideaId)
+      const output = schema.parse({ selectedIdeaIds })
+      db.transaction((transaction) => {
+        onCompleted?.({ id: "selection-id", output }, transaction)
+      })
+      return Promise.resolve({
+        id: "selection-id",
+        output: Promise.resolve(output),
+      })
+    },
+  )
 }
 
 async function collectEvents(
@@ -86,7 +129,7 @@ function createInput(maxRetries?: number) {
       userId: "test-user-id",
       ideaJobId,
       prompt: "Generate useful concepts",
-      numberOfIdeas: 2,
+      numberOfIdeas: 8,
       deepSearchCount: 2,
     })
     .run()
@@ -99,7 +142,7 @@ function createInput(maxRetries?: number) {
       ideaJobId,
       userId: "test-user-id",
       prompt: "Generate useful concepts",
-      numberOfIdeas: 2,
+      numberOfIdeas: 8,
       deepSearchCount: 2,
       maxSearches: 3,
       maxResultsPerSearch: 3,
@@ -118,7 +161,7 @@ describe("runIdeaJob", () => {
     db.delete(llmGenerations).run()
   })
 
-  it("runs research and one critique generation per idea", async () => {
+  it("runs research, critiques every idea, and selects an admitted set", async () => {
     const { input, events } = createInput(0)
     setupGenerations()
     mocks.startDeepSearch
@@ -156,7 +199,9 @@ describe("runIdeaJob", () => {
         expect.objectContaining({ maxRetries: 0 }),
       )
     }
-    expect(mocks.generateTextStream).toHaveBeenCalledTimes(3)
+    expect(mocks.generateTextStream).toHaveBeenCalledTimes(
+      generatedIdeas.length + 1,
+    )
     for (const [generationInput] of mocks.generateTextStream.mock.calls) {
       expect(generationInput).toEqual(
         expect.objectContaining({ maxRetries: 0 }),
@@ -182,6 +227,20 @@ describe("runIdeaJob", () => {
         `<generated_idea>\n${JSON.stringify(generatedIdeas[position])}\n</generated_idea>`,
       )
     }
+    expect(mocks.generateObjectStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxRetries: 0,
+        reasoning: "enabled",
+      }),
+    )
+    const selectionInput = z.object({ prompt: z.string() }).parse(
+      mocks.generateObjectStream.mock.calls[0]?.[0] as unknown,
+    )
+    expect(selectionInput.prompt).toContain("<research_briefing>")
+    for (let position = 0; position < generatedIdeas.length; position += 1) {
+      expect(selectionInput.prompt).toContain(`Critique ${position + 1}`)
+    }
+    const persistedIdeas = db.select().from(ideas).orderBy(ideas.position).all()
     await expect(events).resolves.toEqual([
       { type: "research-prompt-stream", streamId: "planning-id" },
       {
@@ -200,17 +259,23 @@ describe("runIdeaJob", () => {
       },
       { type: "research-summary-stream", streamId: "summary-id" },
       { type: "idea-generation-stream", streamId: "ideas-id" },
-      { type: "idea", ...generatedIdeas[0] },
-      { type: "idea", ...generatedIdeas[1] },
+      ...persistedIdeas.map(({ ideaId, title, description }) => ({
+        type: "idea" as const,
+        ideaId,
+        title,
+        description,
+      })),
+      ...critiqueGenerationIds.map((streamId, position) => ({
+        type: "critique-generation-stream" as const,
+        position,
+        streamId,
+      })),
+      { type: "idea-selection-stream", streamId: "selection-id" },
       {
-        type: "critique-generation-stream",
-        position: 0,
-        streamId: "critique-one-id",
-      },
-      {
-        type: "critique-generation-stream",
-        position: 1,
-        streamId: "critique-two-id",
+        type: "selected-ideas",
+        selectedIdeaIds: persistedIdeas
+          .slice(0, 6)
+          .map(({ ideaId }) => ideaId),
       },
       { type: "done" },
     ])
@@ -218,11 +283,27 @@ describe("runIdeaJob", () => {
       status: "completed",
       stage: "ideas",
       error: null,
+      selectionGenerationId: "selection-id",
     })
-    expect(db.select().from(ideas).orderBy(ideas.position).all()).toMatchObject([
-      { ...generatedIdeas[0], critiqueGenerationId: "critique-one-id" },
-      { ...generatedIdeas[1], critiqueGenerationId: "critique-two-id" },
-    ])
+    expect(persistedIdeas).toMatchObject(
+      generatedIdeas.map((idea, position) => ({
+        ...idea,
+        critiqueGenerationId: critiqueGenerationIds[position],
+        selected: position < 6,
+      })),
+    )
+    expect(reconstructIdeaJobEvents(ideaJobId)).toEqual(
+      expect.arrayContaining([
+        { type: "idea-selection-stream", streamId: "selection-id" },
+        {
+          type: "selected-ideas",
+          selectedIdeaIds: persistedIdeas
+            .slice(0, 6)
+            .map(({ ideaId }) => ideaId),
+        },
+        { type: "done" },
+      ]),
+    )
   })
 
   it("fails the whole pipeline without summarising when any research fails", async () => {
@@ -280,6 +361,64 @@ describe("runIdeaJob", () => {
     })
   })
 
+  it("waits for started sibling research when another child cannot start", async () => {
+    const { input, events } = createInput()
+    insertGeneration("planning-id", JSON.stringify(researchPrompts))
+    mocks.generateArrayStream.mockResolvedValue({
+      id: "planning-id",
+      output: Promise.resolve(researchPrompts),
+      elementStream: elements([]),
+    })
+    let finishFirstResearch!: (value: string) => void
+    const firstCompletion = new Promise<string>((resolve) => {
+      finishFirstResearch = resolve
+    })
+    mocks.startDeepSearch
+      .mockResolvedValueOnce({
+        deepSearchJobId: "search-one",
+        title: "Market Constraints",
+        slug: "market-constraints",
+        completion: firstCompletion,
+      })
+      .mockRejectedValueOnce(new Error("Second research could not start"))
+
+    const running = runIdeaJob(input)
+    await vi.waitFor(() => {
+      expect(mocks.startDeepSearch).toHaveBeenCalledTimes(2)
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(db.select().from(ideaJobs).get()).toMatchObject({
+      status: "running",
+      stage: "research",
+    })
+
+    finishFirstResearch("First research result")
+    await running
+
+    expect(mocks.generateTextStream).not.toHaveBeenCalled()
+    await expect(events).resolves.toEqual([
+      { type: "research-prompt-stream", streamId: "planning-id" },
+      {
+        type: "deep-search-started",
+        deepSearchJobId: "search-one",
+        title: "Market Constraints",
+        slug: "market-constraints",
+        researchRequest: researchPrompts[0].prompt,
+      },
+      {
+        type: "error",
+        message: "Second research could not start",
+        stage: "research",
+      },
+      { type: "done" },
+    ])
+    expect(db.select().from(ideaJobs).get()).toMatchObject({
+      status: "failed",
+      error: "Second research could not start",
+      stage: "research",
+    })
+  })
+
   it("persists the stage that fails before its stream is created", async () => {
     const { input, events } = createInput()
     insertGeneration("planning-id", JSON.stringify(researchPrompts))
@@ -323,7 +462,9 @@ describe("runIdeaJob", () => {
     insertGeneration("planning-id", JSON.stringify(researchPrompts))
     insertGeneration("summary-id", "Combined research briefing")
     insertGeneration("ideas-id", JSON.stringify(generatedIdeas))
-    insertGeneration("critique-two-id", "Second critique")
+    for (const [position, id] of critiqueGenerationIds.slice(1).entries()) {
+      insertGeneration(id, `Critique ${position + 2}`)
+    }
     mocks.generateArrayStream
       .mockResolvedValueOnce({
         id: "planning-id",
@@ -338,7 +479,9 @@ describe("runIdeaJob", () => {
     mocks.generateTextStream
       .mockResolvedValueOnce({ id: "summary-id" })
       .mockRejectedValueOnce(new Error("Critique failed before streaming"))
-      .mockResolvedValueOnce({ id: "critique-two-id" })
+    for (const id of critiqueGenerationIds.slice(1)) {
+      mocks.generateTextStream.mockResolvedValueOnce({ id })
+    }
     mocks.startDeepSearch
       .mockReturnValueOnce({
         deepSearchJobId: "search-one",
@@ -351,7 +494,10 @@ describe("runIdeaJob", () => {
 
     await runIdeaJob(input)
 
-    expect(mocks.generateTextStream).toHaveBeenCalledTimes(3)
+    expect(mocks.generateTextStream).toHaveBeenCalledTimes(
+      generatedIdeas.length + 1,
+    )
+    expect(mocks.generateObjectStream).not.toHaveBeenCalled()
     await expect(events).resolves.toContainEqual({
       type: "error",
       message: "Critique failed before streaming",
@@ -360,16 +506,19 @@ describe("runIdeaJob", () => {
     await expect(events).resolves.toContainEqual({
       type: "critique-generation-stream",
       position: 1,
-      streamId: "critique-two-id",
+      streamId: critiqueGenerationIds[1],
     })
     expect(db.select().from(ideaJobs).get()).toMatchObject({
       status: "failed",
       error: "Critique failed before streaming",
       stage: "ideas",
     })
-    expect(db.select().from(ideas).orderBy(ideas.position).all()).toMatchObject([
-      { ...generatedIdeas[0], critiqueGenerationId: null },
-      { ...generatedIdeas[1], critiqueGenerationId: "critique-two-id" },
-    ])
+    expect(db.select().from(ideas).orderBy(ideas.position).all()).toMatchObject(
+      generatedIdeas.map((idea, position) => ({
+        ...idea,
+        critiqueGenerationId:
+          position === 0 ? null : critiqueGenerationIds[position],
+      })),
+    )
   })
 })

@@ -40,7 +40,7 @@ describe("QuerySummary", () => {
     expect(screen.getByText("Combining the findings")).toBeVisible()
     expect(
       screen.getByTestId("query-summary-best beginner longboards"),
-    ).toHaveTextContent("- First finding - Second finding")
+    ).toHaveTextContent("First finding Second finding")
     expect(screen.queryByRole("status")).not.toBeInTheDocument()
     expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(
       "query-summary-stream-id",

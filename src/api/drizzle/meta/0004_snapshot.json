@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "c1e0c785-3861-4d54-aef8-fde88a729101",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "0de49a1d-1fc1-450e-80ea-9547eda2c10b",
+  "prevId": "2d310d9b-55f1-4876-a148-aed85bb2f8f7",
   "tables": {
     "deep_search_jobs": {
       "name": "deep_search_jobs",
@@ -34,6 +34,22 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'Untitled'"
+        },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'untitled'"
         },
         "research_request": {
           "name": "research_request",
@@ -110,6 +126,13 @@
             "deep_search_job_id"
           ],
           "isUnique": false
+        },
+        "deep_search_jobs_slug_idx": {
+          "name": "deep_search_jobs_slug_idx",
+          "columns": [
+            "slug"
+          ],
+          "isUnique": true
         },
         "deep_search_jobs_id_user_id_idx": {
           "name": "deep_search_jobs_id_user_id_idx",
@@ -811,6 +834,14 @@
           "notNull": true,
           "autoincrement": false
         },
+        "is_public": {
+          "name": "is_public",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
         "stage": {
           "name": "stage",
           "type": "text",
@@ -890,6 +921,10 @@
         "debate_jobs_config_check": {
           "name": "debate_jobs_config_check",
           "value": "\"debate_jobs\".\"random_seed\" >= 0 and \"debate_jobs\".\"random_seed\" <= 4294967295"
+        },
+        "debate_jobs_visibility_check": {
+          "name": "debate_jobs_visibility_check",
+          "value": "\"debate_jobs\".\"is_public\" in (0, 1)"
         },
         "debate_jobs_stage_check": {
           "name": "debate_jobs_stage_check",
@@ -1280,6 +1315,22 @@
           "notNull": false,
           "autoincrement": false
         },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'Untitled'"
+        },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'untitled'"
+        },
         "prompt": {
           "name": "prompt",
           "type": "text",
@@ -1398,6 +1449,13 @@
             "idea_job_id"
           ],
           "isUnique": false
+        },
+        "idea_jobs_slug_idx": {
+          "name": "idea_jobs_slug_idx",
+          "columns": [
+            "slug"
+          ],
+          "isUnique": true
         },
         "idea_jobs_id_user_id_idx": {
           "name": "idea_jobs_id_user_id_idx",
@@ -1552,6 +1610,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "critique_generation_id": {
+          "name": "critique_generation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -1562,6 +1627,13 @@
         }
       },
       "indexes": {
+        "ideas_critique_generation_id_unique": {
+          "name": "ideas_critique_generation_id_unique",
+          "columns": [
+            "critique_generation_id"
+          ],
+          "isUnique": true
+        },
         "ideas_job_position_idx": {
           "name": "ideas_job_position_idx",
           "columns": [
@@ -1583,6 +1655,19 @@
             "idea_job_id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "ideas_critique_generation_id_llm_generations_llm_generation_id_fk": {
+          "name": "ideas_critique_generation_id_llm_generations_llm_generation_id_fk",
+          "tableFrom": "ideas",
+          "tableTo": "llm_generations",
+          "columnsFrom": [
+            "critique_generation_id"
+          ],
+          "columnsTo": [
+            "llm_generation_id"
+          ],
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },

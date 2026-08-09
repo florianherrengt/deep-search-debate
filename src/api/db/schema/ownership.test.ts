@@ -74,6 +74,7 @@ describe("database ownership constraints", () => {
           ideaJobId: crypto.randomUUID(),
           debateJobId,
           userId: firstUserId,
+          slug: crypto.randomUUID(),
           prompt: "Generate debate ideas",
           numberOfIdeas: 1,
           deepSearchCount: 1,
@@ -85,6 +86,7 @@ describe("database ownership constraints", () => {
       .values({
         ideaJobId,
         userId: firstUserId,
+        slug: crypto.randomUUID(),
         prompt: "Generate ideas",
         numberOfIdeas: 1,
         deepSearchCount: 1,
@@ -97,6 +99,7 @@ describe("database ownership constraints", () => {
         .values({
           deepSearchJobId: crypto.randomUUID(),
           userId: secondUserId,
+          slug: crypto.randomUUID(),
           ideaJobId,
           ideaJobPosition: 0,
           researchRequest: "Research this",
@@ -122,6 +125,7 @@ describe("database ownership constraints", () => {
         .values({
           ideaJobId: crypto.randomUUID(),
           userId: firstUserId,
+          slug: crypto.randomUUID(),
           prompt: "Generate ideas",
           numberOfIdeas: 1,
           deepSearchCount: 1,
@@ -130,12 +134,32 @@ describe("database ownership constraints", () => {
         .run(),
     ).toThrow(/FOREIGN KEY constraint failed/)
 
+    const ideaJobId = crypto.randomUUID()
+    db.insert(ideaJobs)
+      .values({
+        ideaJobId,
+        userId: firstUserId,
+        slug: crypto.randomUUID(),
+        prompt: "Select ideas",
+        numberOfIdeas: 6,
+        deepSearchCount: 1,
+      })
+      .run()
+    expect(() =>
+      db
+        .update(ideaJobs)
+        .set({ selectionGenerationId: llmGenerationId })
+        .where(sql`${ideaJobs.ideaJobId} = ${ideaJobId}`)
+        .run(),
+    ).toThrow(/selection generation must belong to the idea job owner/)
+
     expect(() =>
       db
         .insert(deepSearchJobs)
         .values({
           deepSearchJobId: crypto.randomUUID(),
           userId: firstUserId,
+          slug: crypto.randomUUID(),
           researchRequest: "Research this",
           maxSearches: 1,
           maxResultsPerSearch: 1,

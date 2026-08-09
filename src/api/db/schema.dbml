@@ -37,6 +37,7 @@ table debate_jobs {
 
 
 
+
   }
 }
 
@@ -122,7 +123,7 @@ table deep_search_jobs {
 
   indexes {
     (user_id, created_at, deep_search_job_id) [name: 'deep_search_jobs_user_created_at_idx']
-    (user_id, slug) [name: 'deep_search_jobs_user_slug_idx']
+    slug [name: 'deep_search_jobs_slug_idx', unique]
     (deep_search_job_id, user_id) [name: 'deep_search_jobs_id_user_id_idx', unique]
     (idea_job_id, idea_job_position) [name: 'deep_search_jobs_idea_job_position_idx', unique]
 
@@ -219,6 +220,7 @@ table idea_jobs {
   research_prompt_generation_id text [unique]
   research_summary_generation_id text [unique]
   idea_generation_id text [unique]
+  selection_generation_id text [unique]
   status text [not null, default: 'running']
   error text
   created_at integer [not null, default: `(cast(unixepoch('subsecond') * 1000 as integer))`]
@@ -226,7 +228,7 @@ table idea_jobs {
 
   indexes {
     (user_id, created_at, idea_job_id) [name: 'idea_jobs_user_created_at_idx']
-    (user_id, slug) [name: 'idea_jobs_user_slug_idx']
+    slug [name: 'idea_jobs_slug_idx', unique]
     (idea_job_id, user_id) [name: 'idea_jobs_id_user_id_idx', unique]
 
 
@@ -247,6 +249,7 @@ table ideas {
   title text [not null]
   description text [not null]
   critique_generation_id text [unique]
+  selected integer
   created_at integer [not null, default: `(cast(unixepoch('subsecond') * 1000 as integer))`]
 
   indexes {
@@ -369,6 +372,8 @@ ref deep_search_web_pages_deep_search_job_id_deep_search_jobs_deep_search_job_id
 ref deep_search_web_pages_summary_generation_id_llm_generations_llm_generation_id_fk: deep_search_web_pages.summary_generation_id > llm_generations.llm_generation_id [delete: no action, update: no action]
 
 ref idea_jobs_user_id_user_id_fk: idea_jobs.user_id > user.id [delete: cascade, update: no action]
+
+ref idea_jobs_selection_generation_id_llm_generations_llm_generation_id_fk: idea_jobs.selection_generation_id > llm_generations.llm_generation_id [delete: no action, update: no action]
 
 ref idea_jobs_debate_job_owner_fk: idea_jobs.(debate_job_id, user_id) > debate_jobs.(debate_job_id, user_id) [delete: cascade, update: no action]
 

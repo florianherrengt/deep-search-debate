@@ -10,6 +10,7 @@ describe("configured LLM provider", () => {
     })
 
     expect(llm.model().modelId).toBe("deepseek-v4-flash")
+    expect(llm.supportsStructuredOutputs).toBe(true)
     expect(llm.model("deepseek-override").modelId).toBe("deepseek-override")
     expect(llm.callOptions("enabled")).toEqual({
       providerOptions: {
@@ -32,6 +33,8 @@ describe("configured LLM provider", () => {
     })
 
     expect(llm.model().modelId).toBe("deepseek-v4-flash-free")
+    expect(llm.supportsStructuredOutputs).toBe(false)
+    expect(llm.model()).toMatchObject({ supportsStructuredOutputs: false })
     expect(llm.model("zen-override").modelId).toBe("zen-override")
     expect(llm.callOptions("enabled")).toEqual({
       providerOptions: {

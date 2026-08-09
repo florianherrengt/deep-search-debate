@@ -11,7 +11,10 @@ import {
 } from "drizzle-orm/sqlite-core"
 
 import { getDebateJobOwnerColumns } from "./debateJobs.ts"
-import { getLlmGenerationIdeaOwnerColumns } from "./llmGenerations.ts"
+import {
+  getLlmGenerationIdeaOwnerColumns,
+  getLlmGenerationIdColumn,
+} from "./llmGenerations.ts"
 import { ideaJobStages, jobStatuses } from "./statuses.ts"
 import { user } from "./auth.ts"
 
@@ -39,6 +42,9 @@ export const ideaJobs = sqliteTable(
       "research_summary_generation_id",
     ).unique(),
     ideaGenerationId: text("idea_generation_id").unique(),
+    selectionGenerationId: text("selection_generation_id")
+      .unique()
+      .references(getLlmGenerationIdColumn, { onDelete: "no action" }),
     status: text("status", { enum: jobStatuses })
       .notNull()
       .default("running"),
@@ -54,7 +60,7 @@ export const ideaJobs = sqliteTable(
       table.createdAt,
       table.ideaJobId,
     ),
-    index("idea_jobs_user_slug_idx").on(table.userId, table.slug),
+    uniqueIndex("idea_jobs_slug_idx").on(table.slug),
     uniqueIndex("idea_jobs_id_user_id_idx").on(
       table.ideaJobId,
       table.userId,

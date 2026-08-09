@@ -71,6 +71,7 @@ describe("reconstructIdeaJobEvents", () => {
       .values({
         userId: "test-user-id",
         deepSearchJobId: "22222222-2222-4222-8222-222222222222",
+        slug: "research-this",
         ideaJobId,
         ideaJobPosition: 0,
         researchRequest: "Research this",
@@ -103,13 +104,14 @@ describe("reconstructIdeaJobEvents", () => {
         type: "deep-search-started",
         deepSearchJobId: "22222222-2222-4222-8222-222222222222",
         title: "Untitled",
-        slug: "untitled",
+        slug: "research-this",
         researchRequest: "Research this",
       },
       { type: "research-summary-stream", streamId: "summary-id" },
       { type: "idea-generation-stream", streamId: "ideas-id" },
       {
         type: "idea",
+        ideaId: "33333333-3333-4333-8333-333333333333",
         title: "Specific idea",
         description: "Concrete description",
       },
@@ -153,6 +155,7 @@ describe("reconstructIdeaJobEvents", () => {
     expect(reconstructIdeaJobEvents(ideaJobId)).toEqual([
       {
         type: "idea",
+        ideaId: "33333333-3333-4333-8333-333333333333",
         title: "Visible before critique",
         description: "This idea already exists",
       },
@@ -181,6 +184,7 @@ describe("reconstructIdeaJobEvents", () => {
         {
           userId: "test-user-id",
           deepSearchJobId: "ffffffff-ffff-4fff-bfff-ffffffffffff",
+          slug: "second-prompt",
           ideaJobId,
           ideaJobPosition: 1,
           researchRequest: "Second prompt",
@@ -191,6 +195,7 @@ describe("reconstructIdeaJobEvents", () => {
         {
           userId: "test-user-id",
           deepSearchJobId: "00000000-0000-4000-8000-000000000000",
+          slug: "first-prompt",
           ideaJobId,
           ideaJobPosition: 0,
           researchRequest: "First prompt",
@@ -206,14 +211,14 @@ describe("reconstructIdeaJobEvents", () => {
         type: "deep-search-started",
         deepSearchJobId: "00000000-0000-4000-8000-000000000000",
         title: "Untitled",
-        slug: "untitled",
+        slug: "first-prompt",
         researchRequest: "First prompt",
       },
       {
         type: "deep-search-started",
         deepSearchJobId: "ffffffff-ffff-4fff-bfff-ffffffffffff",
         title: "Untitled",
-        slug: "untitled",
+        slug: "second-prompt",
         researchRequest: "Second prompt",
       },
     ])

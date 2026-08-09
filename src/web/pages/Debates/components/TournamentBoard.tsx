@@ -54,6 +54,7 @@ export function TournamentBoard({
   const tournamentActive = tournament.status === "running"
   const showKnockout =
     tournament.stage === "semifinal" || tournament.stage === "final"
+  const expectedMatchCount = tournament.expectedMatchCount
 
   return (
     <Stack spacing={2}>
@@ -77,19 +78,23 @@ export function TournamentBoard({
                 size="small"
               />
             </Stack>
-            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-              <LinearProgress
-                aria-label="Debate completion"
-                sx={{ flexGrow: 1, height: 8, borderRadius: 4 }}
-                value={
-                  (completedMatches / tournament.expectedMatchCount) * 100
-                }
-                variant="determinate"
-              />
-              <Typography color="text.secondary" variant="caption">
-                {completedMatches}/{tournament.expectedMatchCount} matches
+            {expectedMatchCount ? (
+              <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+                <LinearProgress
+                  aria-label="Debate completion"
+                  sx={{ flexGrow: 1, height: 8, borderRadius: 4 }}
+                  value={(completedMatches / expectedMatchCount) * 100}
+                  variant="determinate"
+                />
+                <Typography color="text.secondary" variant="caption">
+                  {completedMatches}/{expectedMatchCount} matches
+                </Typography>
+              </Stack>
+            ) : (
+              <Typography color="text.secondary" variant="body2">
+                Waiting for idea selection before creating the tournament.
               </Typography>
-            </Stack>
+            )}
           </Stack>
         </CardContent>
       </Card>

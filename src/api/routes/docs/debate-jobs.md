@@ -1,34 +1,53 @@
 # Debate jobs
 
-Debate jobs are durable automatic tournaments. A fresh user prompt first runs the
-existing researched-and-critiqued idea pipeline, then admits its complete normalized
-idea set to Swiss play and a top-four knockout. The critique remains available on
-the linked idea-job view; tournament agents do not consume it. Closing or reloading
-the page does not cancel work. Live subscriptions replay retained events and
-terminal jobs rebuild their UI snapshot from SQLite.
+Debate jobs are durable automatic tournaments. A fresh user prompt first runs
+the existing researched, critiqued, and selected idea pipeline, then admits only
+its selected normalized ideas to Swiss play and a top-four knockout. The
+selection agent consumes critiques, but tournament advocates and judges do not.
+Critiques and selection reasoning remain available on the linked idea-job view.
+Closing or reloading the page does not cancel work. Live subscriptions replay
+retained events and terminal jobs rebuild their UI snapshot from SQLite.
 
 ## Tournament format
 
-The single format is defined by `DEBATE_TOURNAMENT_FORMAT` in
-`routes/debates/tournament.ts`:
+The format is defined by `DEBATE_TOURNAMENT_FORMAT` and the participant-count
+helpers in `routes/debates/tournament.ts`:
 
-- 12 ideas, all produced by the debate's idea job
-- five Swiss rounds with six matches per round
+- an even selected field from 6 through 100 ideas
+- five Swiss rounds with half the selected field competing in each round
 - one debate per idea per Swiss round and no repeated Swiss opponents
 - wins, then Elo, two-way head-to-head when applicable, then seeded random order
-- initial Elo 1500, K-factor 32, with a round's rating changes applied simultaneously
+- initial Elo 1500 and K-factor 32, with each round's rating changes applied
+  simultaneously
 - semifinal pairings 1-v-4 and 2-v-3, followed by one final
-- no draws and 33 total matches
+- no draws and `5 × selected ideas ÷ 2 + 3` total matches; the default 12-idea
+  field produces 33 matches
 
-Pairings and judge presentation slots are deterministic from the persisted random
-seed. Presentation order is randomized and neither rankings nor prior matches enter
-an advocate or judge prompt.
+Six is the minimum viable field because five Swiss rounds without rematches
+require at least five distinct opponents, while an even field lets every idea
+compete exactly once per round. Selection output below six, above 100, or with
+an odd count fails the idea pipeline before any debate round is created.
+
+Pairings and judge presentation slots are deterministic from the persisted
+random seed. The first Swiss round uses a seeded shuffle. Later rounds rank the
+field, then use deterministic score-ordered backtracking: the highest-ranked
+unpaired idea tries its closest eligible opponent by win and Elo gap, the search
+backtracks when a partial pairing dead-ends, and it stops at the first complete
+non-repeating pairing. This avoids the factorial cost of exhaustively scoring
+every possible matching, which cannot support 100 entrants. The tradeoff is that
+the chosen complete round is locally score-aware rather than guaranteed to be
+the globally minimum-gap matching.
+
+Presentation order is randomized. Rankings and prior matches never enter an
+advocate or judge prompt. Every selected idea plays every Swiss round; a Swiss
+loss does not eliminate it. Only a semifinal or final loss ends an idea's
+knockout run.
 
 Every match runs both openings concurrently, then both rebuttals concurrently,
 then one structured judge verdict. All matches in the same round also run
-concurrently. Advocates receive only the current matchup, original prompt, research
-briefing, and completed child deep-search answers. The judge receives that same
-evidence plus the complete current transcript.
+concurrently. Advocates receive only the current matchup, original prompt,
+research briefing, and completed child deep-search answers. The judge receives
+that same evidence plus the complete current transcript.
 
 Debate-owned idea and deep-search LLM calls set `maxRetries` to zero. Any model
 failure therefore fails the tournament with its original error instead of being
@@ -37,15 +56,14 @@ default retry behavior.
 
 ## HTTP contract
 
-Creation, history, and visibility changes require a Better Auth session. Creation
-records the authenticated user on the debate and its atomic idea-job parent;
-history includes the viewer's private debates and every public debate. Debates
-are private by default.
+Creation, history, and visibility changes require a Better Auth session.
+Creation records the authenticated user on the debate and its atomic idea-job
+parent; history includes the viewer's private debates and every public debate.
+Debates are private by default.
 
 Detail and event reads allow either the owner or any viewer when the debate is
 public. Public read access follows the aggregate into the debate-owned idea job,
-its child deep searches, and every job-owned model stream, so anonymous viewers
-can inspect the same live research and tournament content. Private, revoked,
+its child deep searches, and every job-owned model stream. Private, revoked,
 foreign, and unknown UUIDs return 404. Read responses never expose the owner's
 user ID or identity.
 
@@ -56,17 +74,22 @@ Starts idea generation and the automatic tournament. It returns `202 Accepted`:
 ```json
 {
   "prompt": "Design a practical low-friction energy product",
-  "isPublic": false
+  "isPublic": false,
+  "numberOfIdeas": 12
 }
 ```
+
+`numberOfIdeas` configures how many candidates the idea stage generates. It is
+an integer from 6 through 100 and defaults to 12. The selector may reject ideas,
+but its admitted set must still satisfy the even 6-through-100 tournament
+invariant. `isPublic` is optional and defaults to `false`.
 
 ```json
 { "debateJobId": "<uuid>", "slug": "low-friction-energy-products" }
 ```
 
 The `Location` header points to `/api/debate-jobs/:slug`. Debate creation reuses
-the generated title and slug stored by its owned idea job. `isPublic` is optional
-and defaults to `false`.
+the generated title and slug stored by its owned idea job.
 
 ### `GET /api/debate-jobs`
 
@@ -78,17 +101,20 @@ debates and public debates.
 
 ### `GET /api/debate-jobs/:slug`
 
-Returns `{ "debateJob": ... }`, containing the durable job state plus every round,
-match, transcript message, current derived Swiss standings, and the expected match
-count. Transcript messages link to `/api/streams/:llmGenerationId` while live and
-contain terminal text after persistence. The final match's winner is the tournament
-winner. Unknown slugs return 404.
+Returns `{ "debateJob": ... }`, containing the durable job state plus every
+round, match, transcript message, current derived Swiss standings, and expected
+match count. `expectedMatchCount` is null while idea selection is pending, then
+is derived from the selected field size. Transcript messages link to
+`/api/streams/:llmGenerationId` while live and contain terminal text after
+persistence. The final match's winner is the tournament winner. Unknown slugs
+return 404.
 
 ### `GET /api/debate-jobs/:debateJobId/events`
 
-Returns replay-and-follow NDJSON. `updated` means clients should refresh the durable
-snapshot. A failed job emits `error` with its exact message. Every terminal stream
-ends with `done`. After restart, terminal events are synthesized from SQLite.
+Returns replay-and-follow NDJSON. `updated` means clients should refresh the
+durable snapshot. A failed job emits `error` with its exact message. Every
+terminal stream ends with `done`. After restart, terminal events are synthesized
+from SQLite.
 
 ### `PATCH /api/debate-jobs/:debateJobId`
 
@@ -106,28 +132,35 @@ anonymous requests to the debate and every nested resource return 404.
 ## Persistence and recovery
 
 - `debate_jobs` owns one same-owner `idea_jobs` child and stores lifecycle,
-  stage, deterministic random seed, and public visibility. The child carries the FK so deleting a
-  debate cascades through its ideas, child searches, normalized research rows,
-  tournament rows, and every job-owned LLM generation.
+  stage, deterministic random seed, and public visibility. The child carries
+  the foreign key so deleting a debate cascades through its ideas, child
+  searches, normalized research rows, tournament rows, and every job-owned LLM
+  generation.
 - The owned idea job also stores the debate's generated title and slug, avoiding
   a duplicate copy on `debate_jobs`.
-- `debate_rounds` and `debate_matches` store pairings and machine-readable winners.
+- Tournament membership is derived from the owned idea job's durable selected
+  flags. Rejected ideas remain inspectable but never appear in a match.
+- `debate_rounds` and `debate_matches` store pairings and machine-readable
+  winners. Round match counts derive from the selected field size.
 - `debate_messages` links ordered transcript entries to durable, same-owner LLM
   generations; ownership is validated before each transcript link is written.
 - A judge generation's terminal output, verdict-message link, winner, and match
-  completion timestamp commit in one transaction. A failed completion hook rolls
-  the generation terminal write back instead of leaving a half-linked verdict.
-- Wins, Elo, standings, prior pairings, qualification, and the winner projection are
-  derived rather than duplicated.
-- Round creation validates same-job membership, unique round appearances, stage
-  match counts, prior-stage completion, and non-repeating Swiss opponents before
-  inserting the complete round transactionally.
+  completion timestamp commit in one transaction. A failed completion hook
+  rolls the generation terminal write back instead of leaving a half-linked
+  verdict.
+- Wins, Elo, standings, prior pairings, qualification, expected match count, and
+  the winner projection are derived rather than duplicated.
+- Round creation validates selected same-job membership, unique round
+  appearances, dynamic stage match counts, prior-stage completion, and
+  non-repeating Swiss opponents before inserting the complete round
+  transactionally.
 - The debate row is created first and its owned idea row is inserted in the same
   transaction before provider work starts, so a parent-row failure cannot leave
   an orphan idea run.
 
 Provider work cannot resume after an API-process restart. Startup recovery marks
-orphaned running debate jobs and generations interrupted while preserving completed
-rounds, match results, and transcript text for replay. The exception is a running
-job whose final verdict and winner already committed atomically: recovery recognizes
-that completed final and closes the parent tournament as completed.
+orphaned running debate jobs and generations interrupted while preserving
+completed rounds, match results, and transcript text for replay. The exception
+is a running job whose final verdict and winner already committed atomically:
+recovery recognizes that completed final and closes the parent tournament as
+completed.

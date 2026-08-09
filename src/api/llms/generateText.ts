@@ -1,7 +1,7 @@
 import { generateText, Output, streamText } from "ai"
 import z from "zod"
 import { PromptName, loadPrompt } from "./prompts.ts"
-import { llm } from "./provider.ts"
+import { llm, type LlmCallReasoning } from "./provider.ts"
 import {
   registerTextStream,
   type LlmGenerationOwner,
@@ -21,6 +21,22 @@ type GenerateTextStreamInput = {
   temperature?: number
   maxOutputTokens?: number
   maxRetries?: number
+}
+
+async function loadStructuredPrompt(
+  promptName: PromptName,
+  schema: z.ZodType,
+): Promise<string> {
+  const system = await loadPrompt(promptName)
+  if (llm.supportsStructuredOutputs) return system
+
+  const jsonSchema = z.toJSONSchema(schema, { target: "draft-7" })
+  return [
+    system,
+    "",
+    "Return only valid JSON matching this JSON Schema:",
+    JSON.stringify(jsonSchema),
+  ].join("\n")
 }
 
 export async function generateTextStream(
@@ -46,7 +62,10 @@ export async function generatePromptTitle(prompt: string): Promise<string> {
   const result = await generateText({
     model: llm.model(),
     prompt: `<user_request>\n${prompt}\n</user_request>`,
-    system: await loadPrompt(PromptName.GeneratePromptTitle),
+    system: await loadStructuredPrompt(
+      PromptName.GeneratePromptTitle,
+      promptTitleSchema,
+    ),
     maxOutputTokens: 50,
     ...llm.callOptions("disabled"),
     output: Output.object({ schema: promptTitleSchema }),
@@ -62,10 +81,11 @@ export async function generateArrayStream<Element>(
   output: Promise<Element[]>
   elementStream: AsyncIterable<Element>
 }> {
+  const outputSchema = z.object({ elements: z.array(params.element) })
   const result = streamText({
     model: llm.model(params.model),
     prompt: params.prompt,
-    system: await loadPrompt(params.promptName),
+    system: await loadStructuredPrompt(params.promptName, outputSchema),
     temperature: params.temperature,
     maxOutputTokens: params.maxOutputTokens,
     maxRetries: params.maxRetries,
@@ -85,6 +105,7 @@ export async function generateArrayStream<Element>(
 export async function generateObjectStream<Result>(
   params: GenerateTextStreamInput & {
     schema: z.ZodType<Result>
+    reasoning?: LlmCallReasoning
     onCompleted?: (
       completed: { id: string; output: Result },
       transaction: TextStreamPersistenceTransaction,
@@ -94,11 +115,11 @@ export async function generateObjectStream<Result>(
   const result = streamText({
     model: llm.model(params.model),
     prompt: params.prompt,
-    system: await loadPrompt(params.promptName),
+    system: await loadStructuredPrompt(params.promptName, params.schema),
     temperature: params.temperature,
     maxOutputTokens: params.maxOutputTokens,
     maxRetries: params.maxRetries,
-    ...llm.callOptions("disabled"),
+    ...llm.callOptions(params.reasoning ?? "disabled"),
     output: Output.object({ schema: params.schema }),
   })
 

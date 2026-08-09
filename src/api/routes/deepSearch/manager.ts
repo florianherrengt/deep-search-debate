@@ -88,14 +88,10 @@ export type DeepSearchJobManager = {
   getLiveJob(deepSearchJobId: string): LiveDeepSearchJob | undefined
 }
 
-function createDeepSearchIdentity(
-  userId: string,
-  generatedTitle: string,
-): PromptIdentity {
+function createDeepSearchIdentity(generatedTitle: string): PromptIdentity {
   const usedSlugs = db
     .select({ slug: deepSearchJobsTable.slug })
     .from(deepSearchJobsTable)
-    .where(eq(deepSearchJobsTable.userId, userId))
     .all()
     .map(({ slug }) => slug)
   return createPromptIdentity(generatedTitle, usedSlugs)
@@ -168,7 +164,7 @@ export function createDeepSearchJobManager(): DeepSearchJobManager {
       const { maxRetries, title: suppliedTitle, ...persistedInput } = input
       const generatedTitle =
         suppliedTitle ?? (await generatePromptTitle(input.researchRequest))
-      const identity = createDeepSearchIdentity(userId, generatedTitle)
+      const identity = createDeepSearchIdentity(generatedTitle)
 
       db.insert(deepSearchJobsTable)
         .values({ deepSearchJobId, userId, ...identity, ...persistedInput })

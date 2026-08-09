@@ -12,6 +12,7 @@ import {
   ideaJobs,
   ideas,
   llmGenerations,
+  user,
 } from "./index.ts"
 
 const userId = "test-user-id"
@@ -22,6 +23,7 @@ function insertIdeaJob(): string {
     .values({
       ideaJobId,
       userId,
+      slug: `ideas-${ideaJobId}`,
       prompt: "Generate ideas",
       numberOfIdeas: 1,
       deepSearchCount: 1,
@@ -36,6 +38,7 @@ function insertDeepSearchJob(): string {
     .values({
       deepSearchJobId,
       userId,
+      slug: `search-${deepSearchJobId}`,
       researchRequest: "Research this",
       maxSearches: 1,
       maxResultsPerSearch: 1,
@@ -85,6 +88,68 @@ function insertDeepSearchQuery(deepSearchJobId: string): {
 }
 
 describe("aggregate integrity constraints", () => {
+  it("keeps public resource slugs globally unique", () => {
+    const foreignUserId = crypto.randomUUID()
+    db.insert(user)
+      .values({
+        id: foreignUserId,
+        name: "Foreign User",
+        email: `${foreignUserId}@example.com`,
+        emailVerified: true,
+      })
+      .run()
+
+    const ideaSlug = `shared-idea-${crypto.randomUUID()}`
+    db.insert(ideaJobs)
+      .values({
+        ideaJobId: crypto.randomUUID(),
+        userId,
+        slug: ideaSlug,
+        prompt: "First ideas",
+        numberOfIdeas: 1,
+        deepSearchCount: 1,
+      })
+      .run()
+    expect(() =>
+      db
+        .insert(ideaJobs)
+        .values({
+          ideaJobId: crypto.randomUUID(),
+          userId: foreignUserId,
+          slug: ideaSlug,
+          prompt: "Second ideas",
+          numberOfIdeas: 1,
+          deepSearchCount: 1,
+        })
+        .run(),
+    ).toThrow(/UNIQUE constraint failed/)
+
+    const deepSearchSlug = `shared-search-${crypto.randomUUID()}`
+    db.insert(deepSearchJobs)
+      .values({
+        deepSearchJobId: crypto.randomUUID(),
+        userId,
+        slug: deepSearchSlug,
+        researchRequest: "First search",
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+      })
+      .run()
+    expect(() =>
+      db
+        .insert(deepSearchJobs)
+        .values({
+          deepSearchJobId: crypto.randomUUID(),
+          userId: foreignUserId,
+          slug: deepSearchSlug,
+          researchRequest: "Second search",
+          maxSearches: 1,
+          maxResultsPerSearch: 1,
+        })
+        .run(),
+    ).toThrow(/UNIQUE constraint failed/)
+  })
+
   it("rejects same-user generation links owned by another root job", () => {
     const firstIdeaJobId = insertIdeaJob()
     const secondIdeaJobId = insertIdeaJob()
@@ -281,7 +346,23 @@ describe("aggregate integrity constraints", () => {
         .set({ critiqueGenerationId: null })
         .where(sql`${ideas.ideaId} = ${firstIdeaId}`)
         .run(),
-    ).toThrow(/one-time critique linkage/)
+    ).toThrow(/one-time critique and selection linkage/)
+
+    db.update(ideas)
+      .set({ selected: true })
+      .where(sql`${ideas.ideaId} = ${firstIdeaId}`)
+      .run()
+    db.update(ideas)
+      .set({ selected: false })
+      .where(sql`${ideas.ideaId} = ${secondIdeaId}`)
+      .run()
+    expect(() =>
+      db
+        .update(ideas)
+        .set({ selected: false })
+        .where(sql`${ideas.ideaId} = ${firstIdeaId}`)
+        .run(),
+    ).toThrow(/one-time critique and selection linkage/)
   })
 
   it("rejects whitespace-only durable input and search facts", () => {

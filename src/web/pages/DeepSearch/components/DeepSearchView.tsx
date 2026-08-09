@@ -45,6 +45,7 @@ export function DeepSearchView({
       )}
       {run.queryStreamId && (
         <GenerationOutput
+          format="structured-list"
           headingComponent="h2"
           streamId={run.queryStreamId}
           title="Generated search queries"
@@ -55,6 +56,7 @@ export function DeepSearchView({
       {run.finalAnswerStreamId && (
         <GenerationOutput
           announcementLabel="Final answer"
+          format="markdown"
           headingComponent="h2"
           streamId={run.finalAnswerStreamId}
           title="Final answer"

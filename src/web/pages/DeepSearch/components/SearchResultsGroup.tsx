@@ -63,6 +63,7 @@ export function SearchResultsGroup({
 
         {search.selectionStreamId && (
           <GenerationOutput
+            format="structured-list"
             headingComponent="h4"
             streamId={search.selectionStreamId}
             title="Source selection"

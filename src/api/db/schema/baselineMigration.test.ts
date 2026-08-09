@@ -37,7 +37,7 @@ describe("migration chain", () => {
   it("creates the complete schema through the real migrator", () => {
     expect(
       readdirSync(migrationsFolder).filter((name) => name.endsWith(".sql")),
-    ).toHaveLength(3)
+    ).toHaveLength(6)
 
     const sqlite = new Database(":memory:")
     sqlite.pragma("foreign_keys = ON")
@@ -45,10 +45,17 @@ describe("migration chain", () => {
 
     expect(
       sqlite
+        .prepare("PRAGMA table_info(debate_jobs)")
+        .all()
+        .some((column) => (column as { name: string }).name === "is_public"),
+    ).toBe(true)
+
+    expect(
+      sqlite
         .prepare("SELECT count(*) FROM __drizzle_migrations")
         .pluck()
         .get(),
-    ).toBe(3)
+    ).toBe(6)
     expect(sqlite.pragma("foreign_key_check")).toEqual([])
     expect(sqlite.pragma("integrity_check", { simple: true })).toBe("ok")
 
@@ -68,6 +75,8 @@ describe("migration chain", () => {
         "idea_terminal_insert_guard",
         "idea_update_immutable",
         "idea_direct_delete_guard",
+        "idea_job_selection_owner_insert",
+        "idea_job_selection_owner_update",
       ]),
     )
     sqlite.close()
@@ -82,6 +91,13 @@ describe("migration chain", () => {
       .run("migration-user", "Migration User", "migration@example.com")
     sqlite
       .prepare(
+        `INSERT INTO debate_jobs (
+          debate_job_id, user_id, random_seed
+        ) VALUES (?, ?, ?)`,
+      )
+      .run("existing-debate", "migration-user", 42)
+    sqlite
+      .prepare(
         `INSERT INTO deep_search_jobs (
           deep_search_job_id, user_id, research_request,
           max_searches, max_results_per_search
@@ -91,10 +107,18 @@ describe("migration chain", () => {
     sqlite
       .prepare(
         `INSERT INTO idea_jobs (
-          idea_job_id, user_id, prompt, number_of_ideas, deep_search_count
-        ) VALUES (?, ?, ?, ?, ?)`,
+          idea_job_id, user_id, debate_job_id, prompt,
+          number_of_ideas, deep_search_count
+        ) VALUES (?, ?, ?, ?, ?, ?)`,
       )
-      .run("existing-ideas", "migration-user", "Existing ideas", 12, 2)
+      .run(
+        "existing-ideas",
+        "migration-user",
+        "existing-debate",
+        "Existing ideas",
+        12,
+        2,
+      )
     sqlite
       .prepare(
         `INSERT INTO idea_jobs (
@@ -147,6 +171,27 @@ describe("migration chain", () => {
 
     expect(
       sqlite
+        .prepare("PRAGMA table_info(debate_jobs)")
+        .all()
+        .some((column) => (column as { name: string }).name === "is_public"),
+    ).toBe(true)
+    expect(
+      sqlite
+        .prepare(
+          `SELECT is_public FROM debate_jobs WHERE debate_job_id = ?`,
+        )
+        .get("existing-debate"),
+    ).toEqual({ is_public: 0 })
+    expect(() =>
+      sqlite
+        .prepare(
+          `UPDATE debate_jobs SET is_public = 2 WHERE debate_job_id = ?`,
+        )
+        .run("existing-debate"),
+    ).toThrow(/debate_jobs_visibility_check/)
+
+    expect(
+      sqlite
         .prepare(
           "SELECT title, slug FROM deep_search_jobs WHERE deep_search_job_id = ?",
         )
@@ -156,7 +201,12 @@ describe("migration chain", () => {
       sqlite
         .prepare("SELECT title, slug FROM idea_jobs WHERE idea_job_id = ?")
         .get("existing-ideas"),
-    ).toEqual({ title: "Untitled", slug: "untitled" })
+    ).toMatchObject({ title: "Untitled" })
+    const migratedIdeaSlugs = sqlite
+      .prepare("SELECT slug FROM idea_jobs ORDER BY idea_job_id")
+      .pluck()
+      .all()
+    expect(new Set(migratedIdeaSlugs).size).toBe(migratedIdeaSlugs.length)
     expect(
       sqlite
         .prepare("SELECT stage FROM idea_jobs WHERE idea_job_id = ?")
@@ -171,10 +221,24 @@ describe("migration chain", () => {
     ).toEqual({ critique_generation_id: null })
     expect(
       sqlite
+        .prepare(
+          "SELECT selection_generation_id FROM idea_jobs WHERE idea_job_id = ?",
+        )
+        .get("completed-ideas"),
+    ).toEqual({ selection_generation_id: null })
+    expect(
+      sqlite
+        .prepare(
+          "SELECT selected FROM ideas WHERE idea_id = ?",
+        )
+        .get("legacy-idea"),
+    ).toEqual({ selected: null })
+    expect(
+      sqlite
         .prepare("SELECT count(*) FROM __drizzle_migrations")
         .pluck()
         .get(),
-    ).toBe(3)
+    ).toBe(6)
     expect(sqlite.pragma("foreign_key_check")).toEqual([])
     expect(sqlite.pragma("integrity_check", { simple: true })).toBe("ok")
     sqlite.close()

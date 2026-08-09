@@ -43,6 +43,7 @@ export function QuerySummary({ query, streamId }: QuerySummaryProps) {
         {getQuerySummaryLabel(stream.status)}
       </Typography>
       <TextStreamOutput
+        format="markdown"
         stream={stream}
         waitingText="Waiting for search findings…"
         textTestId={`query-summary-${query}`}

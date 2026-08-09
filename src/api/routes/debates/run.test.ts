@@ -116,6 +116,7 @@ describe("runDebateJob", () => {
         title: `Idea ${position + 1}`,
         description: `Description ${position + 1}`,
         critiqueGenerationId: crypto.randomUUID(),
+        selected: true,
       }),
     )
     db.insert(llmGenerations)

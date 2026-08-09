@@ -91,6 +91,7 @@ describe("Ideas", () => {
       yield { type: "idea-generation-stream" as const, streamId: "ideas" }
       yield {
         type: "idea" as const,
+        ideaId: "prep-forecast-id",
         title: "Prep Forecast",
         description: "Recommend daily prep quantities from recent demand.",
       }
@@ -177,18 +178,23 @@ describe("Ideas", () => {
           ideaGenerationStreamId: null,
           ideas: [
             {
+              ideaId: "prep-forecast-id",
               title: "Prep Forecast",
               description: "Recommend daily prep quantities from recent demand.",
+              selection: "selected",
             },
             {
+              ideaId: "closing-bundles-id",
               title: "Closing Bundles",
               description: "Bundle likely leftovers before closing time.",
+              selection: "rejected",
             },
           ],
           critiqueGenerationStreamIds: {
             0: "prep-critique",
             1: "bundle-critique",
           },
+          ideaSelectionStreamId: "selection",
           error: null,
         }}
       />,
@@ -207,6 +213,10 @@ describe("Ideas", () => {
     ).toHaveTextContent("Response from bundle-critique")
     expect(within(prepCard).queryByTestId("idea-critique-1")).not.toBeInTheDocument()
     expect(within(bundleCard).queryByTestId("idea-critique-0")).not.toBeInTheDocument()
+    expect(within(prepCard).getByText("Selected idea")).toBeVisible()
+    expect(within(bundleCard).getByText("Not selected")).toBeVisible()
+    expect(await screen.findByTestId("idea-selection")).toBeVisible()
+    expect(screen.getByText("1 idea selected.")).toBeVisible()
     expect(
       screen.queryByRole("button", { name: /Critique each idea/ }),
     ).not.toBeInTheDocument()
@@ -227,11 +237,14 @@ describe("Ideas", () => {
           ideaGenerationStreamId: "ideas",
           ideas: [
             {
+              ideaId: "prep-forecast-id",
               title: "Prep Forecast",
               description: "Recommend daily prep quantities from recent demand.",
+              selection: "pending",
             },
           ],
           critiqueGenerationStreamIds: {},
+          ideaSelectionStreamId: null,
           error: null,
         }}
       />,
@@ -273,6 +286,7 @@ describe("Ideas", () => {
           ideaGenerationStreamId: null,
           ideas: [],
           critiqueGenerationStreamIds: {},
+          ideaSelectionStreamId: null,
           error: "Planning failed",
         }}
       />,
@@ -308,6 +322,7 @@ describe("Ideas", () => {
           ideaGenerationStreamId: null,
           ideas: [],
           critiqueGenerationStreamIds: {},
+          ideaSelectionStreamId: null,
           error: "Idea generation failed before streaming",
         }}
       />,
@@ -335,11 +350,14 @@ describe("Ideas", () => {
           ideaGenerationStreamId: "ideas",
           ideas: [
             {
+              ideaId: "prep-forecast-id",
               title: "Prep Forecast",
               description: "Recommend daily prep quantities from recent demand.",
+              selection: "pending",
             },
           ],
           critiqueGenerationStreamIds: {},
+          ideaSelectionStreamId: null,
           error: "Critique failed before streaming",
         }}
       />,

@@ -1,10 +1,7 @@
-import { asc, eq } from "drizzle-orm"
+import { and, asc, eq } from "drizzle-orm"
 
 import { db } from "../../db/index.ts"
-import {
-  debateJobs,
-  ideas as ideaRecords,
-} from "../../db/schema/index.ts"
+import { debateJobs, ideas as ideaRecords } from "../../db/schema/index.ts"
 import { collectStreamText } from "../../helpers/collectStreamText.ts"
 import { getErrorMessage } from "../../helpers/getErrorMessage.ts"
 import {
@@ -92,7 +89,12 @@ function loadIdeas(ideaJobId: string): PersistedDebateIdea[] {
       description: ideaRecords.description,
     })
     .from(ideaRecords)
-    .where(eq(ideaRecords.ideaJobId, ideaJobId))
+    .where(
+      and(
+        eq(ideaRecords.ideaJobId, ideaJobId),
+        eq(ideaRecords.selected, true),
+      ),
+    )
     .orderBy(asc(ideaRecords.position))
     .all()
 }

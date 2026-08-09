@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import z from "zod"
 import { db } from "../../db/index.ts"
 import { ideaJobs, ideas as ideaRecords } from "../../db/schema/index.ts"
@@ -6,12 +6,14 @@ import { collectStreamText } from "../../helpers/collectStreamText.ts"
 import { getErrorMessage } from "../../helpers/getErrorMessage.ts"
 import {
   generateArrayStream,
+  generateObjectStream,
   generateTextStream,
 } from "../../llms/generateText.ts"
 import { PromptName } from "../../llms/prompts.ts"
 import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
 import {
   ideaSchema,
+  ideaSelectionSchema,
   type Idea,
   type IdeaEventStage,
   type IdeaJobStage,
@@ -96,12 +98,42 @@ function buildCritiquePrompt(
   ].join("\n")
 }
 
+type CritiquedIdea = PersistedIdea & { critique: string }
+
+function buildSelectionPrompt(
+  prompt: string,
+  researchSummary: string,
+  ideas: CritiquedIdea[],
+): string {
+  return [
+    "<user_request>",
+    prompt,
+    "</user_request>",
+    "<research_briefing>",
+    researchSummary,
+    "</research_briefing>",
+    "<critiqued_ideas>",
+    ...ideas.flatMap((idea) => [
+      "<critiqued_idea>",
+      JSON.stringify({
+        ideaId: idea.ideaId,
+        title: idea.title,
+        description: idea.description,
+        critique: idea.critique,
+      }),
+      "</critiqued_idea>",
+    ]),
+    "</critiqued_ideas>",
+  ].join("\n")
+}
+
 function setGenerationId(
   ideaJobId: string,
   field:
     | "researchPromptGenerationId"
     | "researchSummaryGenerationId"
-    | "ideaGenerationId",
+    | "ideaGenerationId"
+    | "selectionGenerationId",
   id: string,
 ): void {
   // Link the generation before advertising its stream ID. A client can then
@@ -164,7 +196,7 @@ async function runResearch(
 ): Promise<string[]> {
   // start() launches immediately. Mapping every prompt before awaiting any
   // completion is what makes these durable child jobs run in parallel.
-  const searches = await Promise.all(
+  const starts = await Promise.allSettled(
     prompts.map(({ title, prompt: researchRequest }, ideaJobPosition) =>
       input.deepSearchManager.start(input.userId, {
         title,
@@ -177,7 +209,9 @@ async function runResearch(
       }),
     ),
   )
-  for (const [index, search] of searches.entries()) {
+  for (const [index, started] of starts.entries()) {
+    if (started.status === "rejected") continue
+    const search = started.value
     input.job.publish({
       type: "deep-search-started",
       deepSearchJobId: search.deepSearchJobId,
@@ -190,8 +224,20 @@ async function runResearch(
   // Wait for every launched child even after one fails. No later pipeline stage
   // runs when a rejection exists, but the parent does not terminate while its
   // remaining visible child searches are still active.
-  const settled = await Promise.allSettled(
-    searches.map(({ completion }) => completion),
+  const settled = await Promise.all(
+    starts.map(
+      async (started): Promise<PromiseSettledResult<string>> => {
+        if (started.status === "rejected") return started
+        try {
+          return {
+            status: "fulfilled",
+            value: await started.value.completion,
+          }
+        } catch (reason) {
+          return { status: "rejected", reason }
+        }
+      },
+    ),
   )
   const failed = settled.find(
     (result): result is PromiseRejectedResult => result.status === "rejected",
@@ -278,7 +324,14 @@ function persistIdeas(input: RunIdeaJobInput, ideas: Idea[]): PersistedIdea[] {
     ...idea,
   }))
   db.insert(ideaRecords).values(persistedIdeas).run()
-  for (const idea of ideas) input.job.publish({ type: "idea", ...idea })
+  for (const idea of persistedIdeas) {
+    input.job.publish({
+      type: "idea",
+      ideaId: idea.ideaId,
+      title: idea.title,
+      description: idea.description,
+    })
+  }
   return persistedIdeas
 }
 
@@ -295,7 +348,7 @@ async function critiqueIdea(
   input: RunIdeaJobInput,
   researchSummary: string,
   idea: PersistedIdea,
-): Promise<void> {
+): Promise<CritiquedIdea> {
   const generation = await generateTextStream({
     userId: input.userId,
     owner: { ideaJobId: input.ideaJobId },
@@ -319,14 +372,15 @@ async function critiqueIdea(
     await collectStreamText(generation).catch(() => undefined)
     throw error
   }
-  await collectStreamText(generation)
+  const critique = await collectStreamText(generation)
+  return { ...idea, critique }
 }
 
 async function critiqueIdeas(
   input: RunIdeaJobInput,
   researchSummary: string,
   ideas: PersistedIdea[],
-): Promise<void> {
+): Promise<CritiquedIdea[]> {
   // Start every independent critique immediately, but do not fail the parent
   // until all started generations have reached a terminal state.
   const settled = await Promise.allSettled(
@@ -336,6 +390,67 @@ async function critiqueIdeas(
     (result): result is PromiseRejectedResult => result.status === "rejected",
   )
   if (failed) throw failed.reason
+  return settled.map((result) => {
+    if (result.status === "rejected") throw result.reason
+    return result.value
+  })
+}
+
+async function selectIdeas(
+  input: RunIdeaJobInput,
+  researchSummary: string,
+  ideas: CritiquedIdea[],
+): Promise<void> {
+  const knownIdeaIds = new Set(ideas.map(({ ideaId }) => ideaId))
+  const selectionSchema = ideaSelectionSchema.superRefine(
+    ({ selectedIdeaIds }, context) => {
+      if (selectedIdeaIds.some((ideaId) => !knownIdeaIds.has(ideaId))) {
+        context.addIssue({
+          code: "custom",
+          message: "Every selected idea ID must belong to this idea job",
+          path: ["selectedIdeaIds"],
+        })
+      }
+    },
+  )
+  const generation = await generateObjectStream({
+    userId: input.userId,
+    owner: { ideaJobId: input.ideaJobId },
+    prompt: buildSelectionPrompt(input.prompt, researchSummary, ideas),
+    promptName: PromptName.SelectIdeas,
+    schema: selectionSchema,
+    reasoning: "enabled",
+    maxRetries: input.maxRetries,
+    onCompleted: ({ output }, transaction) => {
+      const selectedIdeaIds = new Set(output.selectedIdeaIds)
+      for (const { ideaId } of ideas) {
+        const result = transaction
+          .update(ideaRecords)
+          .set({ selected: selectedIdeaIds.has(ideaId) })
+          .where(
+            and(
+              eq(ideaRecords.ideaId, ideaId),
+              eq(ideaRecords.ideaJobId, input.ideaJobId),
+            ),
+          )
+          .run()
+        if (result.changes !== 1) {
+          throw new Error("Every generated idea must be resolved by selection")
+        }
+      }
+    },
+  })
+  setGenerationId(input.ideaJobId, "selectionGenerationId", generation.id)
+  input.job.publish({
+    type: "idea-selection-stream",
+    streamId: generation.id,
+  })
+
+  const [selection] = await Promise.all([
+    generation.output,
+    collectStreamText({ id: generation.id }),
+  ])
+  input.job.publish({ type: "selected-ideas", ...selection })
 }
 
 /** Runs the durable idea pipeline and publishes parent progress. */
@@ -358,7 +473,10 @@ export async function runIdeaJob(input: RunIdeaJobInput): Promise<void> {
     const persistedIdeas = persistIdeas(input, generatedIdeas)
 
     stage = "critique"
-    await critiqueIdeas(input, summary, persistedIdeas)
+    const critiquedIdeas = await critiqueIdeas(input, summary, persistedIdeas)
+
+    stage = "selection"
+    await selectIdeas(input, summary, critiquedIdeas)
 
     db.update(ideaJobs)
       .set({ status: "completed", completedAt: new Date() })
@@ -369,10 +487,10 @@ export async function runIdeaJob(input: RunIdeaJobInput): Promise<void> {
     try {
       db.update(ideaJobs)
         .set({
-          // Critique is an event subphase of the durable ideas stage. Keeping
-          // the existing DB stage avoids rebuilding a heavily referenced
-          // SQLite parent table merely to persist transient progress detail.
-          stage: stage === "critique" ? "ideas" : stage,
+          // Critique and selection are event subphases of the durable ideas
+          // stage. The linked generations preserve their detailed progress.
+          stage:
+            stage === "critique" || stage === "selection" ? "ideas" : stage,
           status: "failed",
           error: message,
           completedAt: new Date(),

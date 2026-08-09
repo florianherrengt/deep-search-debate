@@ -17,6 +17,7 @@ import {
   deepSearchWebPages,
   ideaJobs,
   llmGenerations,
+  user,
 } from "../../db/schema/index.ts"
 import { createDeepSearchJobManager } from "./manager.ts"
 import type { LiveDeepSearchJob } from "./schemas.ts"
@@ -63,6 +64,7 @@ describe("createDeepSearchJobManager", () => {
     db.delete(ideaJobs).run()
     db.delete(deepSearchJobs).run()
     db.delete(llmGenerations).run()
+    db.delete(user).where(eq(user.id, "other-test-user-id")).run()
   })
 
   it("accepts completed research when a selected page cannot be extracted", async () => {
@@ -105,7 +107,7 @@ describe("createDeepSearchJobManager", () => {
     )
   })
 
-  it("numbers repeated generated titles and slugs", async () => {
+  it("numbers repeated generated titles and slugs across users", async () => {
     mocks.runDeepSearchJob.mockImplementation((deepSearchJobId: string) => {
       db.update(deepSearchJobs)
         .set({
@@ -125,7 +127,15 @@ describe("createDeepSearchJobManager", () => {
       maxResultsPerSearch: 3,
     })
     await expect(first.completion).rejects.toThrow("Stopped for identity test")
-    const second = await manager.start("test-user-id", {
+    db.insert(user)
+      .values({
+        id: "other-test-user-id",
+        name: "Other Test User",
+        email: "other-test-user@example.com",
+        emailVerified: true,
+      })
+      .run()
+    const second = await manager.start("other-test-user-id", {
       title: "London Energy Options",
       researchRequest: "Research this again",
       maxSearches: 3,

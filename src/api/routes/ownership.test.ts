@@ -327,6 +327,7 @@ describe("user-owned routes", () => {
     expect(debateStart).toHaveBeenCalledWith(ownerId, {
       prompt: "Debate ideas",
       isPublic: false,
+      numberOfIdeas: 12,
     })
   })
 })

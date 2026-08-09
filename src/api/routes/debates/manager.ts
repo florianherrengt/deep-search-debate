@@ -7,7 +7,6 @@ import { createReplayableEventLog } from "../../helpers/replayableEventLog.ts"
 import type { IdeaJobManager } from "../ideas/manager.ts"
 import { runDebateJob } from "./run.ts"
 import type { DebateJobEvent, LiveDebateJob } from "./schemas.ts"
-import { DEBATE_TOURNAMENT_FORMAT } from "./tournament.ts"
 
 type StartedDebateJob = {
   debateJobId: string
@@ -19,7 +18,7 @@ type StartedDebateJob = {
 export type DebateJobManager = {
   start(
     userId: string,
-    input: { prompt: string; isPublic: boolean },
+    input: { prompt: string; isPublic: boolean; numberOfIdeas: number },
   ): Promise<StartedDebateJob>
   getLiveJob(debateJobId: string): LiveDebateJob | undefined
 }
@@ -60,7 +59,7 @@ export function createDebateJobManager(
   const liveJobs = new Map<string, LiveDebateJob>()
 
   return {
-    async start(userId, { isPublic, prompt }) {
+    async start(userId, { isPublic, numberOfIdeas, prompt }) {
       const debateJobId = randomUUID()
       const randomSeed = getRandomSeed()
       const job = createReplayableEventLog<DebateJobEvent>()
@@ -68,7 +67,7 @@ export function createDebateJobManager(
         userId,
         {
           prompt,
-          numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
+          numberOfIdeas,
           deepSearchCount: 2,
           maxSearches: 3,
           maxResultsPerSearch: 3,
