@@ -13,11 +13,13 @@ The API runs TypeScript directly via `node --experimental-strip-types`. Conseque
 ## Configuration validation at import time
 
 `src/api/config.ts` reads and validates environment configuration before any
-server or provider is constructed. `DEEPSEEK_API_KEY`,
-`SCRAPINGANT_API_KEY`, `BETTER_AUTH_SECRET`, `GITHUB_CLIENT_ID`, and
-`GITHUB_CLIENT_SECRET` are required environment variables. Production also
-requires `BRAVE_SEARCH_API_KEY`. A missing, blank, or whitespace-only required
-secret fails startup.
+server or provider is constructed. `LLM_PROVIDER` and `LLM_MODEL_NAME` are
+required. `LLM_PROVIDER=deepseek` requires `DEEPSEEK_API_KEY`, while
+`LLM_PROVIDER=zen` requires `OPENCODE_ZEN_API_KEY`; the unselected key may be
+absent or blank. `SCRAPINGANT_API_KEY`, `BETTER_AUTH_SECRET`,
+`GITHUB_CLIENT_ID`, and `GITHUB_CLIENT_SECRET` are always required. Production
+also requires `BRAVE_SEARCH_API_KEY`. A missing, blank, or whitespace-only
+required secret fails startup.
 
 `BETTER_AUTH_SECRET` must contain at least 32 characters and production config
 rejects placeholder values. GitHub OAuth resolves both `GITHUB_CLIENT_ID` and
@@ -68,10 +70,17 @@ module, not an operator-selected fallback.
 
 ## Real external services in dev
 
-A SearXNG instance, a DeepSeek API key, and a ScrapingAnt API key are real runtime dependencies, not mocked outside tests:
+A SearXNG instance, the selected LLM provider credential, and a ScrapingAnt API
+key are real runtime dependencies, not mocked outside tests:
 
 - **SearXNG:** HTTP `/search?format=json`. Configure its URL via `SEARXNG_URL`.
-- **DeepSeek:** used by the LLM layer (`src/api/llms/`). Configure it with `DEEPSEEK_API_KEY`.
+- **LLM:** `deepseek` uses the native DeepSeek AI SDK provider and
+  `DEEPSEEK_API_KEY`. `zen` uses OpenCode Zen's OpenAI-compatible
+  `/chat/completions` endpoint and `OPENCODE_ZEN_API_KEY`. Configure the model
+  ID with `LLM_MODEL_NAME`; Zen model IDs are sent without an `opencode/`
+  prefix. The selected Zen model must be listed for the
+  `@ai-sdk/openai-compatible` package and support the structured output used by
+  the application.
 - **ScrapingAnt:** headless-browser renderer used for page extraction. Without it the Reddit/Amazon/Shopify/Trustpilot/GitHub/YouTube/Hacker News custom extractors can't run (they require a renderer), and any page whose plain-fetch text falls under ~200 chars falls back to a ScrapingAnt render. Configure it with `SCRAPINGANT_API_KEY`. Renders are serialized for the free-plan concurrency cap. HTTP 423 anti-bot detections are retried twice with exponential backoff by default; configure this with `SCRAPINGANT_MAX_RETRIES` and `SCRAPINGANT_RETRY_DELAY_MS`. `SCRAPINGANT_PROXY_TYPE` defaults to `datacenter`; `residential` has a higher success rate on protected sites and a much higher credit cost.
 
 ## Network binding

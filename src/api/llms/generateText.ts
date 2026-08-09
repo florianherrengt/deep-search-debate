@@ -1,28 +1,12 @@
-import { createDeepSeek } from "@ai-sdk/deepseek"
 import { generateText, Output, streamText } from "ai"
 import z from "zod"
-import { config } from "../config.ts"
 import { PromptName, loadPrompt } from "./prompts.ts"
+import { llm } from "./provider.ts"
 import {
   registerTextStream,
   type LlmGenerationOwner,
   type TextStreamPersistenceTransaction,
 } from "./streams.ts"
-
-const deepseek = createDeepSeek({
-  apiKey: config.llm.deepseek.apiKey,
-})
-
-const thinkingEnabled = {
-  deepseek: { thinking: { type: "enabled" as const } },
-}
-
-// Structured output must be written to the final response channel. With
-// thinking enabled, DeepSeek can put valid JSON in reasoning_content and leave
-// content empty, which the AI SDK correctly rejects as missing output.
-const thinkingDisabled = {
-  deepseek: { thinking: { type: "disabled" as const } },
-}
 
 const promptTitleSchema = z.object({
   title: z.string().trim().min(1).max(80),
@@ -43,13 +27,13 @@ export async function generateTextStream(
   params: GenerateTextStreamInput,
 ): Promise<{ id: string }> {
   const result = streamText({
-    model: deepseek(params.model ?? config.llm.deepseek.model),
+    model: llm.model(params.model),
     prompt: params.prompt,
     system: await loadPrompt(params.promptName),
     temperature: params.temperature,
     maxOutputTokens: params.maxOutputTokens,
     maxRetries: params.maxRetries,
-    providerOptions: thinkingEnabled,
+    ...llm.callOptions("enabled"),
   })
 
   return {
@@ -60,11 +44,11 @@ export async function generateTextStream(
 /** Generates the immutable display title used before a durable job starts. */
 export async function generatePromptTitle(prompt: string): Promise<string> {
   const result = await generateText({
-    model: deepseek(config.llm.deepseek.model),
+    model: llm.model(),
     prompt: `<user_request>\n${prompt}\n</user_request>`,
     system: await loadPrompt(PromptName.GeneratePromptTitle),
     maxOutputTokens: 50,
-    providerOptions: thinkingDisabled,
+    ...llm.callOptions("disabled"),
     output: Output.object({ schema: promptTitleSchema }),
   })
 
@@ -79,13 +63,13 @@ export async function generateArrayStream<Element>(
   elementStream: AsyncIterable<Element>
 }> {
   const result = streamText({
-    model: deepseek(params.model ?? config.llm.deepseek.model),
+    model: llm.model(params.model),
     prompt: params.prompt,
     system: await loadPrompt(params.promptName),
     temperature: params.temperature,
     maxOutputTokens: params.maxOutputTokens,
     maxRetries: params.maxRetries,
-    providerOptions: thinkingDisabled,
+    ...llm.callOptions("disabled"),
     output: Output.array({ element: params.element }),
   })
 
@@ -108,13 +92,13 @@ export async function generateObjectStream<Result>(
   },
 ): Promise<{ id: string; output: Promise<Result> }> {
   const result = streamText({
-    model: deepseek(params.model ?? config.llm.deepseek.model),
+    model: llm.model(params.model),
     prompt: params.prompt,
     system: await loadPrompt(params.promptName),
     temperature: params.temperature,
     maxOutputTokens: params.maxOutputTokens,
     maxRetries: params.maxRetries,
-    providerOptions: thinkingDisabled,
+    ...llm.callOptions("disabled"),
     output: Output.object({ schema: params.schema }),
   })
 

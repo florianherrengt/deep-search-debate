@@ -168,10 +168,78 @@ describe("config", () => {
   })
 
   it("requires the DeepSeek API key environment variable", async () => {
+    vi.stubEnv("LLM_PROVIDER", "deepseek")
     vi.stubEnv("DEEPSEEK_API_KEY", undefined)
     vi.resetModules()
 
     await expect(import("./config.ts")).rejects.toThrow("DEEPSEEK_API_KEY")
+  })
+
+  it("requires an explicit LLM provider", async () => {
+    vi.stubEnv("LLM_PROVIDER", undefined)
+    vi.resetModules()
+
+    await expect(import("./config.ts")).rejects.toThrow("LLM_PROVIDER")
+  })
+
+  it("rejects an unsupported LLM provider", async () => {
+    vi.stubEnv("LLM_PROVIDER", "unsupported")
+    vi.resetModules()
+
+    await expect(import("./config.ts")).rejects.toThrow("LLM_PROVIDER")
+  })
+
+  it("requires an explicit LLM model", async () => {
+    vi.stubEnv("LLM_MODEL_NAME", undefined)
+    vi.resetModules()
+
+    await expect(import("./config.ts")).rejects.toThrow("LLM_MODEL_NAME")
+  })
+
+  it("rejects a blank LLM model", async () => {
+    vi.stubEnv("LLM_MODEL_NAME", "   ")
+    vi.resetModules()
+
+    await expect(import("./config.ts")).rejects.toThrow("LLM_MODEL_NAME")
+  })
+
+  it("selects OpenCode Zen without requiring a DeepSeek key", async () => {
+    vi.stubEnv("LLM_PROVIDER", "zen")
+    vi.stubEnv("LLM_MODEL_NAME", "deepseek-v4-flash-free")
+    vi.stubEnv("OPENCODE_ZEN_API_KEY", "environment-zen-key")
+    vi.stubEnv("DEEPSEEK_API_KEY", undefined)
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.llm).toEqual({
+      provider: "zen",
+      model: "deepseek-v4-flash-free",
+      apiKey: "environment-zen-key",
+      baseUrl: "https://opencode.ai/zen/v1",
+    })
+  })
+
+  it("requires the OpenCode Zen key only when Zen is selected", async () => {
+    vi.stubEnv("LLM_PROVIDER", "zen")
+    vi.stubEnv("OPENCODE_ZEN_API_KEY", " ")
+    vi.stubEnv("DEEPSEEK_API_KEY", "unused-deepseek-key")
+    vi.resetModules()
+
+    await expect(import("./config.ts")).rejects.toThrow(
+      "OPENCODE_ZEN_API_KEY",
+    )
+  })
+
+  it("allows an unselected provider key to be blank", async () => {
+    vi.stubEnv("LLM_PROVIDER", "zen")
+    vi.stubEnv("OPENCODE_ZEN_API_KEY", "environment-zen-key")
+    vi.stubEnv("DEEPSEEK_API_KEY", "   ")
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.llm.provider).toBe("zen")
   })
 
   it("requires the GitHub client ID environment variable", async () => {
@@ -191,15 +259,21 @@ describe("config", () => {
   })
 
   it("uses a nonblank environment secret", async () => {
+    vi.stubEnv("LLM_PROVIDER", "deepseek")
     vi.stubEnv("DEEPSEEK_API_KEY", "environment-deepseek-key")
     vi.resetModules()
 
     const { config } = await import("./config.ts")
 
-    expect(config.llm.deepseek.apiKey).toBe("environment-deepseek-key")
+    expect(config.llm).toEqual({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      apiKey: "environment-deepseek-key",
+    })
   })
 
   it("rejects a blank environment secret", async () => {
+    vi.stubEnv("LLM_PROVIDER", "deepseek")
     vi.stubEnv("DEEPSEEK_API_KEY", "   ")
     vi.resetModules()
 

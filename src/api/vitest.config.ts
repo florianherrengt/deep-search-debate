@@ -8,6 +8,8 @@ export default defineConfig({
       SEARXNG_URL: "http://localhost:8090/",
       BRAVE_SEARCH_API_KEY: "test-key",
       DEEPSEEK_API_KEY: "test-key",
+      LLM_PROVIDER: "deepseek",
+      LLM_MODEL_NAME: "deepseek-v4-flash",
       SCRAPINGANT_API_KEY: "test-key",
       SCRAPINGANT_RETRY_DELAY_MS: "0",
       DATABASE_URL: ":memory:",

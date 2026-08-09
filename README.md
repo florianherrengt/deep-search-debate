@@ -13,7 +13,10 @@ at startup:
 
 | Environment variable | Required when |
 | --- | --- |
-| `DEEPSEEK_API_KEY` | Always |
+| `LLM_PROVIDER` | Always; `deepseek` or `zen` |
+| `LLM_MODEL_NAME` | Always |
+| `DEEPSEEK_API_KEY` | `LLM_PROVIDER=deepseek` |
+| `OPENCODE_ZEN_API_KEY` | `LLM_PROVIDER=zen` |
 | `SCRAPINGANT_API_KEY` | Always |
 | `BETTER_AUTH_SECRET` | Always; at least 32 characters |
 | `GITHUB_CLIENT_ID` | Always |
@@ -35,7 +38,10 @@ NODE_ENV=development
 PORT=3000
 BETTER_AUTH_URL=http://localhost:5173
 SEARXNG_URL=http://127.0.0.1:8090
+LLM_PROVIDER=deepseek
+LLM_MODEL_NAME=deepseek-v4-flash
 DEEPSEEK_API_KEY=
+OPENCODE_ZEN_API_KEY=
 SCRAPINGANT_API_KEY=
 BETTER_AUTH_SECRET=
 GITHUB_CLIENT_ID=
@@ -48,8 +54,9 @@ AUTH_DEBUG_USER_EMAIL=debug@local.invalid
 ```
 
 Do not put real credentials in `.env.example`; set them only in the ignored
-`src/api/.env` or the deployment platform. A missing, blank, or whitespace-only
-required secret fails startup.
+`src/api/.env` or the deployment platform. The selected LLM provider's key is
+required; the unselected provider's key may be absent or blank. A missing,
+blank, or whitespace-only required secret fails startup.
 
 `NODE_ENV` selects the application defaults. Development and test use
 `BETTER_AUTH_URL=http://localhost:5173` and `DATABASE_URL=data.db`; production

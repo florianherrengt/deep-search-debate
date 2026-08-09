@@ -82,16 +82,9 @@ else
   fi
 fi
 
-required_runtime_keys=(
-  BRAVE_SEARCH_API_KEY
-  DEEPSEEK_API_KEY
-  SCRAPINGANT_API_KEY
-  BETTER_AUTH_SECRET
-  GITHUB_CLIENT_ID
-  GITHUB_CLIENT_SECRET
-)
+check_required_runtime_key() {
+  local key="$1"
 
-for key in "${required_runtime_keys[@]}"; do
   if ! jq -e --arg key "${key}" '
     any(.[];
       .key == $key and
@@ -105,7 +98,53 @@ for key in "${required_runtime_keys[@]}"; do
     configuration_ok=false
     echo "${key} is missing, empty, or is not a literal production runtime variable." >&2
   fi
+}
+
+runtime_environment_value() {
+  local key="$1"
+
+  jq -r --arg key "${key}" '
+    [
+      .[] |
+      select(
+        .key == $key and
+        .is_preview == false and
+        .is_buildtime == false and
+        .is_runtime == true and
+        .is_literal == true
+      )
+    ][0] |
+    (.real_value // .value // "")
+  ' <<<"${environment_json}"
+}
+
+required_runtime_keys=(
+  BRAVE_SEARCH_API_KEY
+  LLM_PROVIDER
+  LLM_MODEL_NAME
+  SCRAPINGANT_API_KEY
+  BETTER_AUTH_SECRET
+  GITHUB_CLIENT_ID
+  GITHUB_CLIENT_SECRET
+)
+
+for key in "${required_runtime_keys[@]}"; do
+  check_required_runtime_key "${key}"
 done
+
+llm_provider="$(runtime_environment_value "LLM_PROVIDER")"
+case "${llm_provider}" in
+  deepseek)
+    check_required_runtime_key "DEEPSEEK_API_KEY"
+    ;;
+  zen)
+    check_required_runtime_key "OPENCODE_ZEN_API_KEY"
+    ;;
+  *)
+    configuration_ok=false
+    echo "LLM_PROVIDER must be either deepseek or zen." >&2
+    ;;
+esac
 
 check_optional_environment() {
   local key="$1"

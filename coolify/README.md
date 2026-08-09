@@ -58,7 +58,10 @@ Before the first deployment:
 | Variable | Requirement |
 | --- | --- |
 | `BRAVE_SEARCH_API_KEY` | Brave Search production credential |
-| `DEEPSEEK_API_KEY` | DeepSeek credential |
+| `LLM_PROVIDER` | `deepseek` or `zen` |
+| `LLM_MODEL_NAME` | Model ID accepted by the selected provider |
+| `DEEPSEEK_API_KEY` | Required when `LLM_PROVIDER=deepseek` |
+| `OPENCODE_ZEN_API_KEY` | Required when `LLM_PROVIDER=zen` |
 | `SCRAPINGANT_API_KEY` | ScrapingAnt credential |
 | `BETTER_AUTH_SECRET` | Better Auth signing secret, at least 32 characters |
 | `GITHUB_CLIENT_ID` | Production GitHub OAuth app client ID |
@@ -66,8 +69,9 @@ Before the first deployment:
 
 Set `is_runtime=true`, `is_buildtime=false`, and `is_preview=false`. The
 configuration script sets the container and health-check settings. It validates
-that all six names exist without printing their values. Missing or blank values
-fail application startup.
+the common variables and the selected LLM provider's credential without
+printing secret values. Missing or blank required values fail application
+startup.
 
 Configure the production GitHub OAuth callback as:
 

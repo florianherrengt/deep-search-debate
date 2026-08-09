@@ -2,17 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import z from "zod"
 
 const mocks = vi.hoisted(() => ({
-  deepseek: vi.fn((model: string) => model),
+  callOptions: vi.fn((reasoning: "enabled" | "disabled") => ({
+    providerOptions: { test: { reasoning } },
+  })),
   generateText: vi.fn(),
   loadPrompt: vi.fn(),
+  model: vi.fn((model?: string) => model ?? "configured-model"),
   outputArray: vi.fn((options: unknown) => ({ type: "array", options })),
   outputObject: vi.fn((options: unknown) => ({ type: "object", options })),
   registerTextStream: vi.fn(),
   streamText: vi.fn(),
-}))
-
-vi.mock("@ai-sdk/deepseek", () => ({
-  createDeepSeek: () => mocks.deepseek,
 }))
 
 vi.mock("ai", () => ({
@@ -34,13 +33,19 @@ vi.mock("./streams.ts", () => ({
   registerTextStream: mocks.registerTextStream,
 }))
 
+vi.mock("./provider.ts", () => ({
+  llm: {
+    callOptions: mocks.callOptions,
+    model: mocks.model,
+  },
+}))
+
 import {
   generateArrayStream,
   generateObjectStream,
   generatePromptTitle,
   generateTextStream,
 } from "./generateText.ts"
-import { config } from "../config.ts"
 
 describe("generateTextStream", () => {
   beforeEach(() => vi.clearAllMocks())
@@ -66,10 +71,11 @@ describe("generateTextStream", () => {
     expect(mocks.streamText).toHaveBeenCalledWith(
       expect.objectContaining({
         providerOptions: {
-          deepseek: { thinking: { type: "enabled" } },
+          test: { reasoning: "enabled" },
         },
       }),
     )
+    expect(mocks.callOptions).toHaveBeenCalledWith("enabled")
     expect(result).toEqual({ id: "stream-id" })
   })
 
@@ -85,12 +91,13 @@ describe("generateTextStream", () => {
     expect(mocks.generateText).toHaveBeenCalledWith(
       expect.objectContaining({
         providerOptions: {
-          deepseek: { thinking: { type: "disabled" } },
+          test: { reasoning: "disabled" },
         },
         system: "Title system prompt",
       }),
     )
-    expect(mocks.deepseek).toHaveBeenCalledWith(config.llm.deepseek.model)
+    expect(mocks.model).toHaveBeenCalledWith()
+    expect(mocks.callOptions).toHaveBeenCalledWith("disabled")
     expect(mocks.outputObject).toHaveBeenCalledOnce()
   })
 
@@ -116,11 +123,12 @@ describe("generateTextStream", () => {
       expect.objectContaining({
         output: { type: "array", options: { element } },
         providerOptions: {
-          deepseek: { thinking: { type: "disabled" } },
+          test: { reasoning: "disabled" },
         },
       }),
     )
     expect(result.id).toBe("stream-id")
+    expect(mocks.callOptions).toHaveBeenCalledWith("disabled")
     expect(result.elementStream).toBe(elementStream)
     await expect(result.output).resolves.toEqual(["first", "second"])
   })
@@ -146,11 +154,12 @@ describe("generateTextStream", () => {
       expect.objectContaining({
         output: { type: "object", options: { schema } },
         providerOptions: {
-          deepseek: { thinking: { type: "disabled" } },
+          test: { reasoning: "disabled" },
         },
       }),
     )
     expect(result.id).toBe("stream-id")
+    expect(mocks.callOptions).toHaveBeenCalledWith("disabled")
     await expect(result.output).resolves.toEqual({ winnerSlot: 0 })
   })
 

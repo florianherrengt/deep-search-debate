@@ -13,9 +13,16 @@ The enum value and the filename (minus `.md`) must be identical, or `loadPrompt`
 
 ## LLM calls
 
-`generateTextStream` (`src/api/llms/generateText.ts`) invokes DeepSeek via the AI SDK with thinking enabled (`providerOptions: { deepseek: { thinking: { type: "enabled" } } }`). It registers and starts consuming the provider stream immediately, then returns its stream ID. See `routes/docs/text-streaming.md` for the client contract.
+The LLM provider and model are selected by `LLM_PROVIDER` and
+`LLM_MODEL_NAME`. `generateTextStream` (`src/api/llms/generateText.ts`) requests
+reasoning and registers the provider stream immediately before returning its
+stream ID. The provider adapter translates that call-level intent into DeepSeek
+thinking or OpenCode Zen reasoning effort. See `routes/docs/text-streaming.md`
+for the client contract.
 
-`generatePromptTitle` uses the same configured model with thinking disabled and
-schema-validated `{ title }` output. Job creation awaits this short preflight
-call before inserting the durable job and returning its slug. Title generation
-is not exposed as a user-visible stream.
+`generatePromptTitle`, `generateArrayStream`, and `generateObjectStream` request
+reasoning-disabled calls and schema-validated output. Job creation awaits the
+short title preflight call before inserting the durable job and returning its
+slug. Title generation is not exposed as a user-visible stream. The provider
+adapter maps disabled reasoning to DeepSeek `thinking.type=disabled` or Zen
+`reasoning_effort=none`.

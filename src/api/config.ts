@@ -16,9 +16,16 @@ const nonWhitespaceSecretSchema = z.string().refine(
   "Secret must not be empty or whitespace-only",
 )
 
+const optionalSecretSchema = z.preprocess(
+  (value) =>
+    typeof value === "string" && value.trim().length === 0
+      ? undefined
+      : value,
+  nonWhitespaceSecretSchema.optional(),
+)
+
 const secretSchemas = {
   BRAVE_SEARCH_API_KEY: nonWhitespaceSecretSchema,
-  DEEPSEEK_API_KEY: nonWhitespaceSecretSchema,
   SCRAPINGANT_API_KEY: nonWhitespaceSecretSchema,
   BETTER_AUTH_SECRET: z
     .string()
@@ -40,6 +47,8 @@ const secretSchemas = {
 
 const nonSecretEnvironmentShape = {
   NODE_ENV: z.enum(["development", "test", "production"]),
+  LLM_PROVIDER: z.enum(["deepseek", "zen"]),
+  LLM_MODEL_NAME: z.string().trim().min(1),
   SEARXNG_URL: z.url().optional(),
   SCRAPINGANT_PROXY_TYPE: z
     .enum(["datacenter", "residential"])
@@ -62,7 +71,8 @@ const nonSecretEnvironmentShape = {
 const rawEnvironmentSchema = z.object({
   ...nonSecretEnvironmentShape,
   BRAVE_SEARCH_API_KEY: secretSchemas.BRAVE_SEARCH_API_KEY.optional(),
-  DEEPSEEK_API_KEY: secretSchemas.DEEPSEEK_API_KEY,
+  DEEPSEEK_API_KEY: optionalSecretSchema,
+  OPENCODE_ZEN_API_KEY: optionalSecretSchema,
   SCRAPINGANT_API_KEY: secretSchemas.SCRAPINGANT_API_KEY,
   BETTER_AUTH_SECRET: secretSchemas.BETTER_AUTH_SECRET,
   GITHUB_CLIENT_ID: secretSchemas.GITHUB_CLIENT_ID,
@@ -77,7 +87,8 @@ const environmentSchema = z.object({
   BETTER_AUTH_URL: z.url(),
   AUTH_DEBUG_USER_ENABLED: z.boolean(),
   BRAVE_SEARCH_API_KEY: secretSchemas.BRAVE_SEARCH_API_KEY.optional(),
-  DEEPSEEK_API_KEY: secretSchemas.DEEPSEEK_API_KEY,
+  DEEPSEEK_API_KEY: optionalSecretSchema,
+  OPENCODE_ZEN_API_KEY: optionalSecretSchema,
   SCRAPINGANT_API_KEY: secretSchemas.SCRAPINGANT_API_KEY,
   BETTER_AUTH_SECRET: secretSchemas.BETTER_AUTH_SECRET,
   GITHUB_CLIENT_ID: secretSchemas.GITHUB_CLIENT_ID,
@@ -85,6 +96,26 @@ const environmentSchema = z.object({
   AUTH_DEBUG_USER_PASSWORD:
     secretSchemas.AUTH_DEBUG_USER_PASSWORD.optional(),
 }).superRefine((environment, context) => {
+  if (
+    environment.LLM_PROVIDER === "deepseek" &&
+    environment.DEEPSEEK_API_KEY === undefined
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "DEEPSEEK_API_KEY is required when LLM_PROVIDER=deepseek",
+      path: ["DEEPSEEK_API_KEY"],
+    })
+  }
+  if (
+    environment.LLM_PROVIDER === "zen" &&
+    environment.OPENCODE_ZEN_API_KEY === undefined
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "OPENCODE_ZEN_API_KEY is required when LLM_PROVIDER=zen",
+      path: ["OPENCODE_ZEN_API_KEY"],
+    })
+  }
   if (
     environment.NODE_ENV === "production" &&
     environment.BRAVE_SEARCH_API_KEY === undefined
@@ -180,6 +211,42 @@ const environment = environmentSchema.parse({
     rawEnvironment.BETTER_AUTH_URL ?? environmentDefaults.betterAuthUrl,
 })
 
+export type LlmConfig =
+  | {
+      provider: "deepseek"
+      model: string
+      apiKey: string
+    }
+  | {
+      provider: "zen"
+      model: string
+      apiKey: string
+      baseUrl: string
+    }
+
+function resolveLlmConfig(): LlmConfig {
+  if (environment.LLM_PROVIDER === "deepseek") {
+    if (environment.DEEPSEEK_API_KEY === undefined) {
+      throw new Error("Validated DeepSeek API key is missing")
+    }
+    return {
+      provider: "deepseek",
+      model: environment.LLM_MODEL_NAME,
+      apiKey: environment.DEEPSEEK_API_KEY,
+    }
+  }
+
+  if (environment.OPENCODE_ZEN_API_KEY === undefined) {
+    throw new Error("Validated OpenCode Zen API key is missing")
+  }
+  return {
+    provider: "zen",
+    model: environment.LLM_MODEL_NAME,
+    apiKey: environment.OPENCODE_ZEN_API_KEY,
+    baseUrl: "https://opencode.ai/zen/v1",
+  }
+}
+
 export const config = {
   environment: environment.NODE_ENV,
   api: { hostname: environment.API_HOST, port: environment.PORT },
@@ -214,10 +281,5 @@ export const config = {
       retryDelayMs: environment.SCRAPINGANT_RETRY_DELAY_MS,
     },
   },
-  llm: {
-    deepseek: {
-      apiKey: environment.DEEPSEEK_API_KEY,
-      model: "deepseek-v4-flash",
-    },
-  },
+  llm: resolveLlmConfig(),
 }

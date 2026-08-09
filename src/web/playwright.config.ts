@@ -40,6 +40,8 @@ export default defineConfig({
         PORT: "3100",
         DATABASE_URL: e2eDatabase,
         DEEPSEEK_API_KEY: "e2e-deepseek-key",
+        LLM_PROVIDER: "deepseek",
+        LLM_MODEL_NAME: "deepseek-v4-flash",
         SEARXNG_URL: "https://e2e-search.test",
         SCRAPINGANT_API_KEY: "e2e-scrapingant-key",
         NODE_ENV: "test",
