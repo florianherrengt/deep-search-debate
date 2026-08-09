@@ -1,8 +1,7 @@
 import { zValidator } from "@hono/zod-validator"
 import type { Hono } from "hono"
-import { extractPage } from "deep-search-core/search-extract"
 import z from "zod"
-import { extractDeps } from "../web_search/webExtract.ts"
+import { webExtract } from "../web_search/webExtract.ts"
 import { webSearch } from "../web_search/index.ts"
 import type { AppEnv } from "../types/auth.ts"
 
@@ -42,17 +41,12 @@ export function debug(app: Hono<AppEnv>) {
     async (c) => {
       const { url } = c.req.valid("query")
       try {
-        const result = await extractPage(url, undefined, extractDeps)
+        const result = await webExtract({ url })
         return c.json({
           url: result.url,
           content: result.content,
           contentLength: result.content.length,
-          summary: result.summary,
-          method: result.method,
-          usedCustomExtractor: result.usedCustomExtractor,
-          extractorName: result.extractorName,
-          warnings: result.warnings ?? [],
-          htmlLength: result.html?.length ?? 0,
+          retrievalMethod: result.retrievalMethod,
         })
       } catch (error) {
         console.error("Debug extraction failed", error)

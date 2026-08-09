@@ -43,12 +43,12 @@ LLM_MODEL_NAME=deepseek-v4-flash
 DEEPSEEK_API_KEY=
 OPENCODE_ZEN_API_KEY=
 SCRAPINGANT_API_KEY=
+SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS=120000
+SCRAPINGANT_REQUEST_TIMEOUT_MS=35000
+SCRAPINGANT_MAX_RESPONSE_BYTES=2000000
 BETTER_AUTH_SECRET=
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
-SCRAPINGANT_PROXY_TYPE=datacenter
-SCRAPINGANT_MAX_RETRIES=2
-SCRAPINGANT_RETRY_DELAY_MS=1000
 AUTH_DEBUG_USER_ENABLED=false
 AUTH_DEBUG_USER_EMAIL=debug@local.invalid
 ```
@@ -73,9 +73,12 @@ Configure the GitHub OAuth callback as
 is accepted only when both the API binding and `BETTER_AUTH_URL` are loopback
 addresses.
 
-Set `SCRAPINGANT_PROXY_TYPE=residential` for sites that repeatedly return HTTP
-423 anti-bot detections. Residential browser renders use substantially more
-ScrapingAnt credits than the default datacenter proxy.
+Page retrieval always starts with ScrapingAnt's cheap non-browser request and
+escalates once to browser rendering through a US datacenter proxy when the
+result is clearly unusable. A failed browser render remains an individual page
+failure; there are no residential proxies or provider retries. All ScrapingAnt
+requests share one process-wide queue with concurrency fixed at exactly one;
+pending attempts expire after `SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS`.
 
 Install dependencies with `npm install`.
 
@@ -207,4 +210,4 @@ Run the end-to-end test separately:
 npm run test:e2e
 ```
 
-The E2E tests start isolated API and Vite servers with a migrated temporary SQLite database. Deterministic process-level mocks replace only outbound DeepSeek, SearXNG, and page HTTP responses; the Hono routes, extraction pipeline, persistence, NDJSON streams, React UI, replay, and history remain real. The Deep Search scenario covers query generation through final synthesis. The Ideas scenario covers planning, parallel child searches, research summarization, exact-count idea generation, child-search links, durable replay, and history. No provider credentials or network access are required.
+The E2E tests start isolated API and Vite servers with a migrated temporary SQLite database. Deterministic process-level mocks replace only outbound DeepSeek, SearXNG, and ScrapingAnt responses; the Hono routes, extraction pipeline, persistence, NDJSON streams, React UI, replay, and history remain real. The Deep Search scenario covers query generation through final synthesis. The Ideas scenario covers planning, parallel child searches, research summarization, exact-count idea generation, child-search links, durable replay, and history. No provider credentials or network access are required.

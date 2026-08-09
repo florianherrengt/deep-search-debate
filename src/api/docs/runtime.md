@@ -81,7 +81,26 @@ key are real runtime dependencies, not mocked outside tests:
   prefix. The selected Zen model must be listed for the
   `@ai-sdk/openai-compatible` package and support the structured output used by
   the application.
-- **ScrapingAnt:** headless-browser renderer used for page extraction. Without it the Reddit/Amazon/Shopify/Trustpilot/GitHub/YouTube/Hacker News custom extractors can't run (they require a renderer), and any page whose plain-fetch text falls under ~200 chars falls back to a ScrapingAnt render. Configure it with `SCRAPINGANT_API_KEY`. Renders are serialized for the free-plan concurrency cap. HTTP 423 anti-bot detections are retried twice with exponential backoff by default; configure this with `SCRAPINGANT_MAX_RETRIES` and `SCRAPINGANT_RETRY_DELAY_MS`. `SCRAPINGANT_PROXY_TYPE` defaults to `datacenter`; `residential` has a higher success rate on protected sites and a much higher credit cost.
+- **ScrapingAnt:** the only page-retrieval provider. Every selected URL first uses
+  its cheap non-browser request. Empty, trivial, challenged, or obvious error
+  content escalates once to headless-browser rendering through a US datacenter
+  proxy; failure there remains a page-level failure so deep research can use the
+  search snippet. Both tiers pass through the same local content extraction and
+  cheap validation. HTML uses the shared visible-text cleanup, while bounded PDF
+  responses use the existing memory-limited PDF parser. There are no provider
+  retries, residential proxies, domain rules, or caches. Configure
+  `SCRAPINGANT_API_KEY`, `SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS` (default 120
+  seconds),
+  `SCRAPINGANT_REQUEST_TIMEOUT_MS` (default 35 seconds, including five seconds
+  of client-side headroom), and `SCRAPINGANT_MAX_RESPONSE_BYTES` (default 2 MB).
+  Every ScrapingAnt request, across all URLs and both tiers, shares one
+  process-wide queue with concurrency fixed at exactly one for free-plan
+  compatibility. Pending work that cannot acquire the slot before its queue
+  deadline fails as an individual page attempt. A failed or timed-out active
+  request releases the slot.
+  Retrieval emits one flat structured console record per attempt with its
+  latency, outcome, provider status on failures, and ScrapingAnt credit cost when
+  the provider reports it.
 
 ## Network binding
 

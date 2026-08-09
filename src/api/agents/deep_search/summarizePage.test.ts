@@ -143,6 +143,50 @@ describe("page summaries", () => {
     expect(mocks.collectStreamText).not.toHaveBeenCalled()
   })
 
+  it("isolates one page retrieval failure while another page remains usable", async () => {
+    const onEvent = vi.fn()
+    mocks.webExtract.mockImplementation(({ url }: { url: string }) => {
+      if (url.endsWith("/failed")) {
+        return Promise.reject(new Error("All retrieval tiers failed"))
+      }
+      return Promise.resolve({
+        url,
+        content: "Usable content from the other page",
+      })
+    })
+    mocks.generateTextStream.mockResolvedValueOnce({ id: "usable-stream-id" })
+
+    const results = await Promise.all([
+      startPageSummary({
+        userId: "test-user-id",
+        deepSearchJobId: "deep-search-job-id",
+        researchRequest: "Research this",
+        url: "https://example.com/usable",
+        onEvent,
+      }),
+      startPageSummary({
+        userId: "test-user-id",
+        deepSearchJobId: "deep-search-job-id",
+        researchRequest: "Research this",
+        url: "https://example.com/failed",
+        onEvent,
+      }),
+    ])
+
+    expect(results).toEqual(["Completed page summary", undefined])
+    expect(onEvent).toHaveBeenCalledWith({
+      type: "page-summary-stream",
+      url: "https://example.com/usable",
+      streamId: "usable-stream-id",
+    })
+    expect(onEvent).toHaveBeenCalledWith({
+      type: "page-summary-error",
+      url: "https://example.com/failed",
+      stage: "extraction",
+      message: "All retrieval tiers failed",
+    })
+  })
+
   it("reports summary stream registration failures separately", async () => {
     const onEvent = vi.fn()
     mocks.generateTextStream.mockRejectedValueOnce(

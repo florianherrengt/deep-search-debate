@@ -1,29 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Hono } from "hono"
 
-vi.mock("../web_search/index.ts", () => ({
+const mocks = vi.hoisted(() => ({
+  webExtract: vi.fn(),
   webSearch: vi.fn(),
-}));
+}))
 
-const extractMocks = vi.hoisted(() => ({
-  extractPage: vi.fn(),
-}));
+vi.mock("../web_search/index.ts", () => ({
+  webSearch: mocks.webSearch,
+}))
 
-vi.mock("deep-search-core/search-extract", () => ({
-  extractPage: extractMocks.extractPage,
-  PdfExtractor: class {},
-  RedditExtractor: class {},
-  AmazonExtractor: class {},
-  ShopifyExtractor: class {},
-  TrustpilotExtractor: class {},
-  GithubExtractor: class {},
-  YouTubeExtractor: class {},
-  HackerNewsExtractor: class {},
-  createScrapingAntPageLoader: vi.fn(() => ({ renderHtml: vi.fn() })),
-}));
+vi.mock("../web_search/webExtract.ts", () => ({
+  webExtract: mocks.webExtract,
+}))
 
-import { webSearch } from "../web_search/index.ts";
-import { extractDeps } from "../web_search/webExtract.ts";
 import { debug } from "./debug.ts"
 import type { AppEnv } from "../types/auth.ts"
 
@@ -43,8 +33,8 @@ const regularUserApp = createApp(false)
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.spyOn(console, "error").mockImplementation(() => {})
-});
+  vi.spyOn(console, "error").mockImplementation(() => undefined)
+})
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -52,7 +42,7 @@ it("hides debug routes from ordinary authenticated users", async () => {
   const response = await regularUserApp.request("/api/debug/search?query=hello")
 
   expect(response.status).toBe(404)
-  expect(webSearch).not.toHaveBeenCalled()
+  expect(mocks.webSearch).not.toHaveBeenCalled()
 })
 
 describe("GET /api/debug/search", () => {
@@ -60,74 +50,67 @@ describe("GET /api/debug/search", () => {
     const mockResults = [
       { title: "Result 1", shortText: "Snippet 1", link: "https://one.com" },
       { title: "Result 2", shortText: "Snippet 2", link: "https://two.com" },
-    ];
-    vi.mocked(webSearch).mockResolvedValueOnce(mockResults);
+    ]
+    mocks.webSearch.mockResolvedValueOnce(mockResults)
 
-    const res = await app.request("/api/debug/search?query=hello");
-    expect(res.status).toBe(200);
+    const response = await app.request("/api/debug/search?query=hello")
 
-    const body: unknown = await res.json();
-    expect(body).toEqual({ results: mockResults });
-    expect(webSearch).toHaveBeenCalledWith({ query: "hello" });
-  });
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ results: mockResults })
+    expect(mocks.webSearch).toHaveBeenCalledWith({ query: "hello" })
+  })
 
   it("returns 500 when webSearch fails", async () => {
-    vi.mocked(webSearch).mockRejectedValueOnce(new Error("search failed"));
+    mocks.webSearch.mockRejectedValueOnce(new Error("search failed"))
 
-    const res = await app.request("/api/debug/search?query=fail");
-    expect(res.status).toBe(500);
-    await expect(res.json()).resolves.toEqual({ error: "Search failed" })
-  });
-});
+    const response = await app.request("/api/debug/search?query=fail")
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({ error: "Search failed" })
+  })
+})
 
 describe("GET /api/debug/extract", () => {
-  it("returns the full extraction result with diagnostics", async () => {
-    extractMocks.extractPage.mockResolvedValueOnce({
+  it("returns content and the successful retrieval method", async () => {
+    mocks.webExtract.mockResolvedValueOnce({
       url: "https://example.com",
       content: "Hello World",
-      method: "custom",
-      usedCustomExtractor: true,
-      extractorName: "reddit",
-      warnings: ["falling back"],
-      html: "<html>long</html>",
-    });
+      retrievalMethod: "scrapingant-browser-us",
+    })
 
-    const res = await app.request(
+    const response = await app.request(
       "/api/debug/extract?url=https%3A%2F%2Fexample.com",
-    );
-    expect(res.status).toBe(200);
+    )
 
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body).toMatchObject({
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
       url: "https://example.com",
       content: "Hello World",
       contentLength: 11,
-      method: "custom",
-      usedCustomExtractor: true,
-      extractorName: "reddit",
-      warnings: ["falling back"],
-      htmlLength: 17,
-    });
-    expect(extractMocks.extractPage).toHaveBeenCalledWith(
-      "https://example.com",
-      undefined,
-      extractDeps,
-    );
-  });
+      retrievalMethod: "scrapingant-browser-us",
+    })
+    expect(mocks.webExtract).toHaveBeenCalledWith({
+      url: "https://example.com",
+    })
+  })
 
   it("returns a sanitized 500 when extraction fails", async () => {
-    extractMocks.extractPage.mockRejectedValueOnce(new Error("fetch failed"));
+    mocks.webExtract.mockRejectedValueOnce(new Error("fetch failed"))
 
-    const res = await app.request(
+    const response = await app.request(
       "/api/debug/extract?url=https%3A%2F%2Fexample.com",
-    );
-    expect(res.status).toBe(500);
-    await expect(res.json()).resolves.toEqual({ error: "Extraction failed" })
-  });
+    )
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({
+      error: "Extraction failed",
+    })
+  })
 
   it("rejects non-URL inputs", async () => {
-    const res = await app.request("/api/debug/extract?url=not-a-url");
-    expect(res.status).toBe(400);
-    expect(extractMocks.extractPage).not.toHaveBeenCalled();
-  });
-});
+    const response = await app.request("/api/debug/extract?url=not-a-url")
+
+    expect(response.status).toBe(400)
+    expect(mocks.webExtract).not.toHaveBeenCalled()
+  })
+})

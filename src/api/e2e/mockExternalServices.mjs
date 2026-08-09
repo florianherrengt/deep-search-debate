@@ -564,6 +564,44 @@ function pageResponse(url) {
   )
 }
 
+async function scrapingAntResponse(request, url) {
+  if (request.method !== "GET" || url.pathname !== "/v2/general") {
+    throw new Error(
+      `Unexpected ScrapingAnt request: ${request.method} ${url.pathname}`,
+    )
+  }
+  if (request.headers.get("x-api-key") !== "e2e-scrapingant-key") {
+    throw new Error("ScrapingAnt request omitted its API key header")
+  }
+
+  const target = url.searchParams.get("url")
+  if (!target) throw new Error("ScrapingAnt request omitted its target URL")
+  const targetUrl = new URL(target)
+  if (targetUrl.hostname !== "e2e-content.test") {
+    throw new Error(`Unexpected ScrapingAnt target: ${targetUrl.href}`)
+  }
+
+  const browser = url.searchParams.get("browser")
+  if (browser !== "false" && browser !== "true") {
+    throw new Error(`Unexpected ScrapingAnt browser mode: ${browser}`)
+  }
+  if (
+    browser === "true" &&
+    (url.searchParams.get("proxy_type") !== "datacenter" ||
+      url.searchParams.get("proxy_country") !== "US")
+  ) {
+    throw new Error("Rendered ScrapingAnt request omitted its US proxy")
+  }
+
+  const targetResponse = pageResponse(targetUrl)
+  return new Response(await targetResponse.text(), {
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "ant-credits-cost": browser === "false" ? "1" : "10",
+    },
+  })
+}
+
 globalThis.fetch = async (input, init) => {
   const request = new Request(input, init)
   const url = new URL(request.url)
@@ -579,8 +617,8 @@ globalThis.fetch = async (input, init) => {
   if (url.hostname === "e2e-search.test") {
     return searXngResponse(url)
   }
-  if (url.hostname === "e2e-content.test") {
-    return pageResponse(url)
+  if (url.hostname === "api.scrapingant.com") {
+    return scrapingAntResponse(request, url)
   }
 
   throw new Error(`Unmocked outbound E2E request: ${request.method} ${url.href}`)

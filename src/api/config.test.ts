@@ -279,4 +279,37 @@ describe("config", () => {
 
     await expect(import("./config.ts")).rejects.toThrow("DEEPSEEK_API_KEY")
   })
+
+  it("uses bounded ScrapingAnt retrieval defaults", async () => {
+    vi.stubEnv("SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS", undefined)
+    vi.stubEnv("SCRAPINGANT_REQUEST_TIMEOUT_MS", undefined)
+    vi.stubEnv("SCRAPINGANT_MAX_RESPONSE_BYTES", undefined)
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.extraction.scrapingant).toMatchObject({
+      queueWaitTimeoutMs: 120_000,
+      requestTimeoutMs: 35_000,
+      maxResponseBytes: 2_000_000,
+    })
+  })
+
+  it("rejects an unbounded ScrapingAnt response limit", async () => {
+    vi.stubEnv("SCRAPINGANT_MAX_RESPONSE_BYTES", "10000001")
+    vi.resetModules()
+
+    await expect(import("./config.ts")).rejects.toThrow(
+      "SCRAPINGANT_MAX_RESPONSE_BYTES",
+    )
+  })
+
+  it("rejects an unbounded ScrapingAnt queue wait", async () => {
+    vi.stubEnv("SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS", "600001")
+    vi.resetModules()
+
+    await expect(import("./config.ts")).rejects.toThrow(
+      "SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS",
+    )
+  })
 })

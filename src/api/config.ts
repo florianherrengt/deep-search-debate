@@ -50,16 +50,24 @@ const nonSecretEnvironmentShape = {
   LLM_PROVIDER: z.enum(["deepseek", "zen"]),
   LLM_MODEL_NAME: z.string().trim().min(1),
   SEARXNG_URL: z.url().optional(),
-  SCRAPINGANT_PROXY_TYPE: z
-    .enum(["datacenter", "residential"])
-    .default("datacenter"),
-  SCRAPINGANT_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(2),
-  SCRAPINGANT_RETRY_DELAY_MS: z.coerce
+  SCRAPINGANT_REQUEST_TIMEOUT_MS: z.coerce
     .number()
     .int()
-    .min(0)
-    .max(60_000)
-    .default(1_000),
+    .min(10_000)
+    .max(65_000)
+    .default(35_000),
+  SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(10_000)
+    .max(600_000)
+    .default(120_000),
+  SCRAPINGANT_MAX_RESPONSE_BYTES: z.coerce
+    .number()
+    .int()
+    .min(10_000)
+    .max(10_000_000)
+    .default(2_000_000),
   DATABASE_URL: z.string().min(1).optional(),
   API_HOST: z.string().trim().min(1).default("127.0.0.1"),
   PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
@@ -276,9 +284,9 @@ export const config = {
   extraction: {
     scrapingant: {
       apiKey: environment.SCRAPINGANT_API_KEY,
-      proxyType: environment.SCRAPINGANT_PROXY_TYPE,
-      maxRetries: environment.SCRAPINGANT_MAX_RETRIES,
-      retryDelayMs: environment.SCRAPINGANT_RETRY_DELAY_MS,
+      queueWaitTimeoutMs: environment.SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS,
+      requestTimeoutMs: environment.SCRAPINGANT_REQUEST_TIMEOUT_MS,
+      maxResponseBytes: environment.SCRAPINGANT_MAX_RESPONSE_BYTES,
     },
   },
   llm: resolveLlmConfig(),

@@ -11,7 +11,6 @@ export default defineConfig({
       LLM_PROVIDER: "deepseek",
       LLM_MODEL_NAME: "deepseek-v4-flash",
       SCRAPINGANT_API_KEY: "test-key",
-      SCRAPINGANT_RETRY_DELAY_MS: "0",
       DATABASE_URL: ":memory:",
       NODE_ENV: "test",
       BETTER_AUTH_URL: "http://localhost:5173",

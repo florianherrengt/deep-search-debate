@@ -26,7 +26,7 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   // The real API and Vite app run on isolated ports. A Node preload replaces
-  // only outbound DeepSeek, SearXNG, and page-fetch responses, keeping routes,
+  // only outbound DeepSeek, SearXNG, and ScrapingAnt responses, keeping routes,
   // SQLite, extraction, NDJSON streams, and the browser UI deterministic.
   webServer: [
     {
