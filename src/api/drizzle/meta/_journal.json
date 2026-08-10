@@ -43,6 +43,13 @@
       "when": 1786305300025,
       "tag": "0005_lyrical_leader",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1786320116982,
+      "tag": "0006_striped_microchip",
+      "breakpoints": true
     }
   ]
 }

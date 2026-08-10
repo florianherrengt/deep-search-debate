@@ -2,7 +2,7 @@ import type { TextStreamEvent } from "../../../lib/textStreams.ts"
 import type {
   DeepSearchPageSummary,
   DeepSearchRunState,
-} from "../deepSearchState.ts"
+} from "../../../lib/deepSearchState.ts"
 
 const queryOne = "OpenAI current product portfolio official sources"
 const queryTwo = "OpenAI company history major milestones"

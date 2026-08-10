@@ -99,6 +99,49 @@ function buildCritiquePrompt(
 }
 
 type CritiquedIdea = PersistedIdea & { critique: string }
+type RefinedIdea = CritiquedIdea & {
+  refinedTitle: string
+  refinedDescription: string
+}
+
+function buildRefinementPrompt(
+  prompt: string,
+  researchSummary: string,
+  idea: CritiquedIdea,
+): string {
+  return [
+    "<user_request>",
+    prompt,
+    "</user_request>",
+    "<research_briefing>",
+    researchSummary,
+    "</research_briefing>",
+    "<original_idea>",
+    JSON.stringify({ title: idea.title, description: idea.description }),
+    "</original_idea>",
+    "<critique>",
+    idea.critique,
+    "</critique>",
+  ].join("\n")
+}
+
+function buildRefinedIdeaResearchRequest(
+  prompt: string,
+  idea: RefinedIdea,
+): string {
+  return [
+    "Research this proposed idea in relation to the user's request. Investigate relevant evidence, comparable approaches, feasibility, risks, and practical implementation considerations.",
+    "<user_request>",
+    prompt,
+    "</user_request>",
+    "<refined_idea>",
+    JSON.stringify({
+      title: idea.refinedTitle,
+      description: idea.refinedDescription,
+    }),
+    "</refined_idea>",
+  ].join("\n")
+}
 
 function buildSelectionPrompt(
   prompt: string,
@@ -357,6 +400,10 @@ async function critiqueIdea(
       description: idea.description,
     }),
     promptName: PromptName.CritiqueIdea,
+    // TODO: Revisit critique reasoning when Flash reliably terminates these
+    // streams. It can currently loop without ever emitting answer text, while
+    // a critique only needs the answer prose.
+    reasoning: "disabled",
     maxRetries: input.maxRetries,
   })
   try {
@@ -400,7 +447,7 @@ async function selectIdeas(
   input: RunIdeaJobInput,
   researchSummary: string,
   ideas: CritiquedIdea[],
-): Promise<void> {
+): Promise<CritiquedIdea[]> {
   const knownIdeaIds = new Set(ideas.map(({ ideaId }) => ideaId))
   const selectionSchema = ideaSelectionSchema.superRefine(
     ({ selectedIdeaIds }, context) => {
@@ -451,6 +498,168 @@ async function selectIdeas(
     collectStreamText({ id: generation.id }),
   ])
   input.job.publish({ type: "selected-ideas", ...selection })
+  const selectedIdeaIds = new Set(selection.selectedIdeaIds)
+  return ideas.filter(({ ideaId }) => selectedIdeaIds.has(ideaId))
+}
+
+function attachRefinementGeneration(
+  ideaJobId: string,
+  ideaId: string,
+  generationId: string,
+): void {
+  const result = db
+    .update(ideaRecords)
+    .set({ refinementGenerationId: generationId })
+    .where(
+      and(
+        eq(ideaRecords.ideaId, ideaId),
+        eq(ideaRecords.ideaJobId, ideaJobId),
+        eq(ideaRecords.selected, true),
+      ),
+    )
+    .run()
+  if (result.changes !== 1) throw new Error("Selected idea was not found")
+}
+
+async function refineIdea(
+  input: RunIdeaJobInput,
+  researchSummary: string,
+  idea: CritiquedIdea,
+): Promise<RefinedIdea> {
+  const generation = await generateObjectStream({
+    userId: input.userId,
+    owner: { ideaJobId: input.ideaJobId },
+    prompt: buildRefinementPrompt(input.prompt, researchSummary, idea),
+    promptName: PromptName.RefineIdea,
+    schema: ideaSchema,
+    maxRetries: input.maxRetries,
+    onCompleted: ({ id, output }, transaction) => {
+      const result = transaction
+        .update(ideaRecords)
+        .set({
+          refinedTitle: output.title,
+          refinedDescription: output.description,
+        })
+        .where(
+          and(
+            eq(ideaRecords.ideaId, idea.ideaId),
+            eq(ideaRecords.ideaJobId, input.ideaJobId),
+            eq(ideaRecords.refinementGenerationId, id),
+          ),
+        )
+        .run()
+      if (result.changes !== 1) {
+        throw new Error("Selected idea refinement was not found")
+      }
+    },
+  })
+  try {
+    attachRefinementGeneration(input.ideaJobId, idea.ideaId, generation.id)
+    input.job.publish({
+      type: "idea-refinement-stream",
+      ideaId: idea.ideaId,
+      streamId: generation.id,
+    })
+  } catch (error) {
+    await collectStreamText(generation).catch(() => undefined)
+    throw error
+  }
+
+  const [refined] = await Promise.all([
+    generation.output,
+    collectStreamText(generation),
+  ])
+  input.job.publish({
+    type: "refined-idea",
+    ideaId: idea.ideaId,
+    ...refined,
+  })
+  return {
+    ...idea,
+    refinedTitle: refined.title,
+    refinedDescription: refined.description,
+  }
+}
+
+async function refineIdeas(
+  input: RunIdeaJobInput,
+  researchSummary: string,
+  ideas: CritiquedIdea[],
+): Promise<RefinedIdea[]> {
+  const settled = await Promise.allSettled(
+    ideas.map((idea) => refineIdea(input, researchSummary, idea)),
+  )
+  const failed = settled.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  )
+  if (failed) throw failed.reason
+  return settled.map((result) => {
+    if (result.status === "rejected") throw result.reason
+    return result.value
+  })
+}
+
+function attachIdeaDeepSearch(
+  ideaJobId: string,
+  ideaId: string,
+  deepSearchJobId: string,
+): void {
+  const result = db
+    .update(ideaRecords)
+    .set({ deepSearchJobId })
+    .where(
+      and(
+        eq(ideaRecords.ideaId, ideaId),
+        eq(ideaRecords.ideaJobId, ideaJobId),
+        eq(ideaRecords.selected, true),
+      ),
+    )
+    .run()
+  if (result.changes !== 1) throw new Error("Refined idea was not found")
+}
+
+async function researchRefinedIdea(
+  input: RunIdeaJobInput,
+  idea: RefinedIdea,
+): Promise<void> {
+  const researchRequest = buildRefinedIdeaResearchRequest(input.prompt, idea)
+  const search = await input.deepSearchManager.start(input.userId, {
+    title: idea.refinedTitle,
+    researchRequest,
+    maxSearches: input.maxSearches,
+    maxResultsPerSearch: input.maxResultsPerSearch,
+    ideaJobId: input.ideaJobId,
+    ideaJobPosition: input.deepSearchCount + idea.position,
+    maxRetries: input.maxRetries,
+  })
+  try {
+    attachIdeaDeepSearch(input.ideaJobId, idea.ideaId, search.deepSearchJobId)
+    input.job.publish({
+      type: "idea-deep-search-started",
+      ideaId: idea.ideaId,
+      deepSearchJobId: search.deepSearchJobId,
+      title: search.title,
+      slug: search.slug,
+      researchRequest,
+    })
+  } catch (error) {
+    await search.completion.catch(() => undefined)
+    throw error
+  }
+  await search.completion
+}
+
+async function researchRefinedIdeas(
+  input: RunIdeaJobInput,
+  ideas: RefinedIdea[],
+): Promise<void> {
+  const settled = await Promise.allSettled(
+    ideas.map((idea) => researchRefinedIdea(input, idea)),
+  )
+  const failed = settled.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  )
+  if (failed) throw failed.reason
 }
 
 /** Runs the durable idea pipeline and publishes parent progress. */
@@ -476,7 +685,13 @@ export async function runIdeaJob(input: RunIdeaJobInput): Promise<void> {
     const critiquedIdeas = await critiqueIdeas(input, summary, persistedIdeas)
 
     stage = "selection"
-    await selectIdeas(input, summary, critiquedIdeas)
+    const selectedIdeas = await selectIdeas(input, summary, critiquedIdeas)
+
+    stage = "refinement"
+    const refinedIdeas = await refineIdeas(input, summary, selectedIdeas)
+
+    stage = "idea-research"
+    await researchRefinedIdeas(input, refinedIdeas)
 
     db.update(ideaJobs)
       .set({ status: "completed", completedAt: new Date() })
@@ -487,10 +702,15 @@ export async function runIdeaJob(input: RunIdeaJobInput): Promise<void> {
     try {
       db.update(ideaJobs)
         .set({
-          // Critique and selection are event subphases of the durable ideas
-          // stage. The linked generations preserve their detailed progress.
+          // Per-idea work remains an event subphase of the durable ideas stage.
+          // Linked generations and searches preserve its detailed progress.
           stage:
-            stage === "critique" || stage === "selection" ? "ideas" : stage,
+            stage === "critique" ||
+            stage === "selection" ||
+            stage === "refinement" ||
+            stage === "idea-research"
+              ? "ideas"
+              : stage,
           status: "failed",
           error: message,
           completedAt: new Date(),

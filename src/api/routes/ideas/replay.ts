@@ -1,4 +1,4 @@
-import { and, asc, eq, type SQL } from "drizzle-orm"
+import { aliasedTable, and, asc, eq, lt, type SQL } from "drizzle-orm"
 import { db } from "../../db/index.ts"
 import {
   deepSearchJobs,
@@ -9,12 +9,24 @@ import {
 import type { IdeaJobEvent } from "./schemas.ts"
 
 function replayNormalizedIdeas(ideaJobId: string): {
-  events: IdeaJobEvent[]
+  ideaEvents: IdeaJobEvent[]
+  critiqueEvents: IdeaJobEvent[]
+  refinementEvents: IdeaJobEvent[]
+  researchEvents: IdeaJobEvent[]
   hasIdeas: boolean
   allCritiquesCompleted: boolean
   selectionResolved: boolean
+  allRefinementsCompleted: boolean
   selectedIdeaIds: string[]
 } {
+  const critiqueGenerations = aliasedTable(
+    llmGenerations,
+    "idea_critique_generations",
+  )
+  const refinementGenerations = aliasedTable(
+    llmGenerations,
+    "idea_refinement_generations",
+  )
   const persistedIdeas = db
     .select({
       ideaId: ideas.ideaId,
@@ -22,13 +34,35 @@ function replayNormalizedIdeas(ideaJobId: string): {
       description: ideas.description,
       position: ideas.position,
       critiqueGenerationId: ideas.critiqueGenerationId,
-      critiqueStatus: llmGenerations.status,
+      critiqueStatus: critiqueGenerations.status,
       selected: ideas.selected,
+      refinementGenerationId: ideas.refinementGenerationId,
+      refinementStatus: refinementGenerations.status,
+      refinedTitle: ideas.refinedTitle,
+      refinedDescription: ideas.refinedDescription,
+      deepSearchJobId: ideas.deepSearchJobId,
+      deepSearchTitle: deepSearchJobs.title,
+      deepSearchSlug: deepSearchJobs.slug,
+      deepSearchResearchRequest: deepSearchJobs.researchRequest,
     })
     .from(ideas)
     .leftJoin(
-      llmGenerations,
-      eq(ideas.critiqueGenerationId, llmGenerations.llmGenerationId),
+      critiqueGenerations,
+      eq(
+        ideas.critiqueGenerationId,
+        critiqueGenerations.llmGenerationId,
+      ),
+    )
+    .leftJoin(
+      refinementGenerations,
+      eq(
+        ideas.refinementGenerationId,
+        refinementGenerations.llmGenerationId,
+      ),
+    )
+    .leftJoin(
+      deepSearchJobs,
+      eq(ideas.deepSearchJobId, deepSearchJobs.deepSearchJobId),
     )
     .where(eq(ideas.ideaJobId, ideaJobId))
     .orderBy(asc(ideas.position))
@@ -36,16 +70,19 @@ function replayNormalizedIdeas(ideaJobId: string): {
   const selectedIdeaIds = persistedIdeas
     .filter(({ selected }) => selected === true)
     .map(({ ideaId }) => ideaId)
+  const selectedIdeas = persistedIdeas.filter(
+    ({ selected }) => selected === true,
+  )
 
   return {
-    events: [
-      ...persistedIdeas.map(({ ideaId, title, description }) => ({
-        type: "idea" as const,
-        ideaId,
-        title,
-        description,
-      })),
-      ...persistedIdeas.flatMap(({ critiqueGenerationId, position }) =>
+    ideaEvents: persistedIdeas.map(({ ideaId, title, description }) => ({
+      type: "idea" as const,
+      ideaId,
+      title,
+      description,
+    })),
+    critiqueEvents: persistedIdeas.flatMap(
+      ({ critiqueGenerationId, position }) =>
         critiqueGenerationId
           ? [
               {
@@ -55,8 +92,59 @@ function replayNormalizedIdeas(ideaJobId: string): {
               },
             ]
           : [],
-      ),
-    ],
+    ),
+    refinementEvents: selectedIdeas.flatMap(
+      ({
+        ideaId,
+        refinementGenerationId,
+        refinedTitle,
+        refinedDescription,
+      }) => [
+        ...(refinementGenerationId
+          ? [
+              {
+                type: "idea-refinement-stream" as const,
+                ideaId,
+                streamId: refinementGenerationId,
+              },
+            ]
+          : []),
+        ...(refinedTitle && refinedDescription
+          ? [
+              {
+                type: "refined-idea" as const,
+                ideaId,
+                title: refinedTitle,
+                description: refinedDescription,
+              },
+            ]
+          : []),
+      ],
+    ),
+    researchEvents: selectedIdeas.flatMap(
+      ({
+        ideaId,
+        deepSearchJobId,
+        deepSearchTitle,
+        deepSearchSlug,
+        deepSearchResearchRequest,
+      }) =>
+        deepSearchJobId &&
+        deepSearchTitle &&
+        deepSearchSlug &&
+        deepSearchResearchRequest
+          ? [
+              {
+                type: "idea-deep-search-started" as const,
+                ideaId,
+                deepSearchJobId,
+                title: deepSearchTitle,
+                slug: deepSearchSlug,
+                researchRequest: deepSearchResearchRequest,
+              },
+            ]
+          : [],
+    ),
     hasIdeas: persistedIdeas.length > 0,
     allCritiquesCompleted:
       persistedIdeas.length > 0 &&
@@ -64,6 +152,14 @@ function replayNormalizedIdeas(ideaJobId: string): {
     selectionResolved:
       persistedIdeas.length > 0 &&
       persistedIdeas.every(({ selected }) => selected !== null),
+    allRefinementsCompleted:
+      selectedIdeas.length > 0 &&
+      selectedIdeas.every(
+        ({ refinementStatus, refinedTitle, refinedDescription }) =>
+          refinementStatus === "completed" &&
+          Boolean(refinedTitle) &&
+          Boolean(refinedDescription),
+      ),
     selectedIdeaIds,
   }
 }
@@ -90,7 +186,12 @@ export function reconstructIdeaJobEvents(
       researchRequest: deepSearchJobs.researchRequest,
     })
     .from(deepSearchJobs)
-    .where(eq(deepSearchJobs.ideaJobId, ideaJobId))
+    .where(
+      and(
+        eq(deepSearchJobs.ideaJobId, ideaJobId),
+        lt(deepSearchJobs.ideaJobPosition, job.deepSearchCount),
+      ),
+    )
     .orderBy(asc(deepSearchJobs.ideaJobPosition))
     .all()
   const normalizedIdeas = replayNormalizedIdeas(ideaJobId)
@@ -124,7 +225,8 @@ export function reconstructIdeaJobEvents(
           },
         ]
       : []),
-    ...normalizedIdeas.events,
+    ...normalizedIdeas.ideaEvents,
+    ...normalizedIdeas.critiqueEvents,
     ...(job.selectionGenerationId
       ? [
           {
@@ -141,6 +243,8 @@ export function reconstructIdeaJobEvents(
           },
         ]
       : []),
+    ...normalizedIdeas.refinementEvents,
+    ...normalizedIdeas.researchEvents,
     ...(job.status === "running"
       ? []
       : [
@@ -149,15 +253,15 @@ export function reconstructIdeaJobEvents(
                 {
                   type: "error" as const,
                   message: job.error,
-                  // Persisted ideas prove structured generation completed, so
-                  // a terminal error in this durable stage occurred during the
-                  // per-idea critique subphase.
                   stage:
                     job.stage === "ideas" && normalizedIdeas.hasIdeas
-                      ? job.selectionGenerationId ||
-                        normalizedIdeas.allCritiquesCompleted
-                        ? ("selection" as const)
-                        : ("critique" as const)
+                      ? !normalizedIdeas.allCritiquesCompleted
+                        ? ("critique" as const)
+                        : !normalizedIdeas.selectionResolved
+                          ? ("selection" as const)
+                          : !normalizedIdeas.allRefinementsCompleted
+                            ? ("refinement" as const)
+                            : ("idea-research" as const)
                       : job.stage,
                 },
               ]

@@ -1,5 +1,5 @@
 import { Stack, Typography } from "@mui/material"
-import type { DeepSearchSearchState } from "../deepSearchState.ts"
+import type { DeepSearchSearchState } from "../../../lib/deepSearchState.ts"
 import { SearchResultsGroup } from "./SearchResultsGroup.tsx"
 
 type SearchResultsProps = {

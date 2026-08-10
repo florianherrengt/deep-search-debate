@@ -80,6 +80,30 @@ describe("generateTextStream", () => {
     expect(result).toEqual({ id: "stream-id" })
   })
 
+  it("allows callers to disable provider reasoning", async () => {
+    const stream = { id: "raw-stream" }
+    mocks.loadPrompt.mockResolvedValue("System prompt")
+    mocks.streamText.mockReturnValue({ stream })
+    mocks.registerTextStream.mockReturnValue("stream-id")
+
+    await generateTextStream({
+      userId: "test-user-id",
+      owner: { standalone: true },
+      prompt: "Critique this idea",
+      promptName: "default",
+      reasoning: "disabled",
+    })
+
+    expect(mocks.streamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerOptions: {
+          test: { reasoning: "disabled" },
+        },
+      }),
+    )
+    expect(mocks.callOptions).toHaveBeenCalledWith("disabled")
+  })
+
   it("generates a structured title with the configured model", async () => {
     mocks.loadPrompt.mockResolvedValue("Title system prompt")
     mocks.generateText.mockResolvedValue({

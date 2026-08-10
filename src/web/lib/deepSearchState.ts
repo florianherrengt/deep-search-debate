@@ -2,7 +2,7 @@ import { produce, type Draft } from "immer"
 import type {
   DeepSearchJobEvent,
   DeepSearchResults,
-} from "../../lib/deepSearchJobs.ts"
+} from "./deepSearchJobs.ts"
 
 export type DeepSearchPageSummary =
   | { status: "extracting" }
@@ -37,9 +37,7 @@ export const initialDeepSearchState: DeepSearchRunState = {
   error: null,
 }
 
-type DeepSearchAction =
-  | DeepSearchJobEvent
-  | { type: "opened" }
+type DeepSearchAction = DeepSearchJobEvent | { type: "opened" }
 
 function createSearchState(
   searches: DeepSearchResults[],
@@ -74,10 +72,7 @@ export const deepSearchReducer = produce<
 >((state, action) => {
   switch (action.type) {
     case "opened":
-      return {
-        ...initialDeepSearchState,
-        status: "running",
-      }
+      return { ...initialDeepSearchState, status: "running" }
     case "query-stream":
       state.queryStreamId = action.streamId
       break
@@ -130,9 +125,7 @@ export const deepSearchReducer = produce<
       state.error = action.message
       break
     case "done":
-      if (state.status !== "failed") {
-        state.status = "completed"
-      }
+      if (state.status !== "failed") state.status = "completed"
       break
   }
 })

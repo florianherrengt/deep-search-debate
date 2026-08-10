@@ -14,6 +14,7 @@ Use this checklist for recurring Drizzle schema, relational-model, migration, an
 - Use SQL checks for row-local invariants, including allowed values, ranges, non-empty trimmed content, mutually exclusive fields, and valid local references.
 - Keep workflow-wide and cross-row invariants in transactional application validation when SQL enforcement would require duplicated ownership keys or disproportionate complexity.
 - Add a foreign key for every durable relation and choose deletion behavior deliberately: cascade owned children, protect independently valuable records, and account for SQLite cascade timing.
+- Use `references(() => table.column)` for single-column foreign keys. If a circular inference needs type erasure, annotate that callback with `AnySQLiteColumn`; do not add a getter that preserves the same module import cycle.
 - Document ownership invariants that ordinary foreign keys do not enforce, such as two referenced records belonging to the same parent.
 - Scope uniqueness to the owning aggregate when values only need to be unique within a parent.
 - Use unique indexes for business invariants; do not rely on application checks alone when SQLite can enforce the rule locally.

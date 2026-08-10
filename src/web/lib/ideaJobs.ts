@@ -17,6 +17,8 @@ const ideaEventStageSchema = z.union([
   ideaJobStageSchema,
   z.literal("critique"),
   z.literal("selection"),
+  z.literal("refinement"),
+  z.literal("idea-research"),
 ])
 
 const ideaJobEventSchema = z.discriminatedUnion("type", [
@@ -57,6 +59,20 @@ const ideaJobEventSchema = z.discriminatedUnion("type", [
       .max(100)
       .refine((ids) => ids.length % 2 === 0)
       .refine((ids) => new Set(ids).size === ids.length),
+  }),
+  z.object({
+    type: z.literal("idea-refinement-stream"),
+    ideaId: z.string().min(1),
+    streamId: z.string().min(1),
+  }),
+  z.object({ type: z.literal("refined-idea"), ...ideaSchema.shape }),
+  z.object({
+    type: z.literal("idea-deep-search-started"),
+    ideaId: z.string().min(1),
+    deepSearchJobId: z.string().min(1),
+    title: z.string().min(1),
+    slug: z.string().min(1),
+    researchRequest: z.string().min(1),
   }),
   z.object({
     type: z.literal("error"),

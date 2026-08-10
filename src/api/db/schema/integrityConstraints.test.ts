@@ -291,7 +291,7 @@ describe("aggregate integrity constraints", () => {
     ).toEqual([])
   })
 
-  it("allows ideas before critique and attaches each critique only once", () => {
+  it("allows ideas before critique and resolves pipeline links only once", () => {
     const ideaJobId = insertIdeaJob()
     const critiqueGenerationId = crypto.randomUUID()
     db.insert(llmGenerations)
@@ -346,7 +346,7 @@ describe("aggregate integrity constraints", () => {
         .set({ critiqueGenerationId: null })
         .where(sql`${ideas.ideaId} = ${firstIdeaId}`)
         .run(),
-    ).toThrow(/one-time critique and selection linkage/)
+    ).toThrow(/one-time pipeline linkage/)
 
     db.update(ideas)
       .set({ selected: true })
@@ -362,7 +362,147 @@ describe("aggregate integrity constraints", () => {
         .set({ selected: false })
         .where(sql`${ideas.ideaId} = ${firstIdeaId}`)
         .run(),
-    ).toThrow(/one-time critique and selection linkage/)
+    ).toThrow(/one-time pipeline linkage/)
+  })
+
+  it("links refinement and research only to the selected owning idea", () => {
+    const ideaJobId = insertIdeaJob()
+    const otherIdeaJobId = insertIdeaJob()
+    const selectedIdeaId = crypto.randomUUID()
+    const rejectedIdeaId = crypto.randomUUID()
+    const otherGenerationId = crypto.randomUUID()
+    const refinementGenerationIds = [
+      crypto.randomUUID(),
+      crypto.randomUUID(),
+    ]
+    db.insert(llmGenerations)
+      .values([
+        ...refinementGenerationIds.map((llmGenerationId) => ({
+          llmGenerationId,
+          userId,
+          ideaJobId,
+        })),
+        {
+          llmGenerationId: otherGenerationId,
+          userId,
+          ideaJobId: otherIdeaJobId,
+        },
+      ])
+      .run()
+    db.insert(ideas)
+      .values([
+        {
+          ideaId: selectedIdeaId,
+          ideaJobId,
+          position: 0,
+          title: "Selected idea",
+          description: "Selected description",
+          selected: true,
+        },
+        {
+          ideaId: rejectedIdeaId,
+          ideaJobId,
+          position: 1,
+          title: "Rejected idea",
+          description: "Rejected description",
+          selected: false,
+        },
+      ])
+      .run()
+
+    expect(() =>
+      db
+        .update(ideas)
+        .set({ refinementGenerationId: refinementGenerationIds[1] })
+        .where(sql`${ideas.ideaId} = ${rejectedIdeaId}`)
+        .run(),
+    ).toThrow(/ideas_refinement_lifecycle_check/)
+
+    expect(() =>
+      db
+        .update(ideas)
+        .set({ refinementGenerationId: otherGenerationId })
+        .where(sql`${ideas.ideaId} = ${selectedIdeaId}`)
+        .run(),
+    ).toThrow(/refinement generation must belong to the owning idea job/)
+
+    db.update(ideas)
+      .set({ refinementGenerationId: refinementGenerationIds[0] })
+      .where(sql`${ideas.ideaId} = ${selectedIdeaId}`)
+      .run()
+    expect(() =>
+      db
+        .update(ideas)
+        .set({ refinedTitle: "Partial refinement" })
+        .where(sql`${ideas.ideaId} = ${selectedIdeaId}`)
+        .run(),
+    ).toThrow(/one-time pipeline linkage/)
+    db.update(ideas)
+      .set({
+        refinedTitle: "Improved selected idea",
+        refinedDescription: "Improved selected description",
+      })
+      .where(sql`${ideas.ideaId} = ${selectedIdeaId}`)
+      .run()
+
+    const initialSearchId = crypto.randomUUID()
+    const refinedIdeaSearchId = crypto.randomUUID()
+    db.insert(deepSearchJobs)
+      .values([
+        {
+          deepSearchJobId: initialSearchId,
+          userId,
+          ideaJobId,
+          ideaJobPosition: 0,
+          slug: `initial-${initialSearchId}`,
+          researchRequest: "Initial research",
+          maxSearches: 3,
+          maxResultsPerSearch: 3,
+        },
+        {
+          deepSearchJobId: refinedIdeaSearchId,
+          userId,
+          ideaJobId,
+          ideaJobPosition: 1,
+          slug: `refined-${refinedIdeaSearchId}`,
+          researchRequest: "Refined idea research",
+          maxSearches: 3,
+          maxResultsPerSearch: 3,
+        },
+      ])
+      .run()
+
+    expect(() =>
+      db
+        .update(ideas)
+        .set({ deepSearchJobId: initialSearchId })
+        .where(sql`${ideas.ideaId} = ${selectedIdeaId}`)
+        .run(),
+    ).toThrow(/deep search must belong to the owning idea and position/)
+    db.update(ideas)
+      .set({ deepSearchJobId: refinedIdeaSearchId })
+      .where(sql`${ideas.ideaId} = ${selectedIdeaId}`)
+      .run()
+
+    expect(() =>
+      db
+        .update(ideas)
+        .set({ refinedTitle: "Rewritten refinement" })
+        .where(sql`${ideas.ideaId} = ${selectedIdeaId}`)
+        .run(),
+    ).toThrow(/one-time pipeline linkage/)
+    expect(
+      db
+        .select()
+        .from(ideas)
+        .where(sql`${ideas.ideaId} = ${selectedIdeaId}`)
+        .get(),
+    ).toMatchObject({
+      refinementGenerationId: refinementGenerationIds[0],
+      refinedTitle: "Improved selected idea",
+      refinedDescription: "Improved selected description",
+      deepSearchJobId: refinedIdeaSearchId,
+    })
   })
 
   it("rejects whitespace-only durable input and search facts", () => {

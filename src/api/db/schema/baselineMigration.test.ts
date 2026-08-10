@@ -37,7 +37,7 @@ describe("migration chain", () => {
   it("creates the complete schema through the real migrator", () => {
     expect(
       readdirSync(migrationsFolder).filter((name) => name.endsWith(".sql")),
-    ).toHaveLength(6)
+    ).toHaveLength(7)
 
     const sqlite = new Database(":memory:")
     sqlite.pragma("foreign_keys = ON")
@@ -55,7 +55,7 @@ describe("migration chain", () => {
         .prepare("SELECT count(*) FROM __drizzle_migrations")
         .pluck()
         .get(),
-    ).toBe(6)
+    ).toBe(7)
     expect(sqlite.pragma("foreign_key_check")).toEqual([])
     expect(sqlite.pragma("integrity_check", { simple: true })).toBe("ok")
 
@@ -75,6 +75,10 @@ describe("migration chain", () => {
         "idea_terminal_insert_guard",
         "idea_update_immutable",
         "idea_direct_delete_guard",
+        "idea_refinement_generation_owner_insert",
+        "idea_refinement_generation_owner_update",
+        "idea_deep_search_owner_insert",
+        "idea_deep_search_owner_update",
         "idea_job_selection_owner_insert",
         "idea_job_selection_owner_update",
       ]),
@@ -118,6 +122,41 @@ describe("migration chain", () => {
         "Existing ideas",
         12,
         2,
+      )
+    sqlite
+      .prepare(
+        `INSERT INTO ideas (
+          idea_id, idea_job_id, position, title, description
+        ) VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run("debate-idea-1", "existing-ideas", 0, "First idea", "First")
+    sqlite
+      .prepare(
+        `INSERT INTO ideas (
+          idea_id, idea_job_id, position, title, description
+        ) VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run("debate-idea-2", "existing-ideas", 1, "Second idea", "Second")
+    sqlite
+      .prepare(
+        `INSERT INTO debate_rounds (
+          debate_round_id, debate_job_id, stage, stage_round_number
+        ) VALUES (?, ?, ?, ?)`,
+      )
+      .run("existing-round", "existing-debate", "swiss", 1)
+    sqlite
+      .prepare(
+        `INSERT INTO debate_matches (
+          debate_match_id, debate_round_id, position,
+          first_idea_id, second_idea_id
+        ) VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "existing-match",
+        "existing-round",
+        0,
+        "debate-idea-1",
+        "debate-idea-2",
       )
     sqlite
       .prepare(
@@ -215,10 +254,18 @@ describe("migration chain", () => {
     expect(
       sqlite
         .prepare(
-          "SELECT critique_generation_id FROM ideas WHERE idea_id = ?",
+          `SELECT critique_generation_id, refinement_generation_id,
+            refined_title, refined_description, deep_search_job_id
+          FROM ideas WHERE idea_id = ?`,
         )
         .get("legacy-idea"),
-    ).toEqual({ critique_generation_id: null })
+    ).toEqual({
+      critique_generation_id: null,
+      refinement_generation_id: null,
+      refined_title: null,
+      refined_description: null,
+      deep_search_job_id: null,
+    })
     expect(
       sqlite
         .prepare(
@@ -235,10 +282,21 @@ describe("migration chain", () => {
     ).toEqual({ selected: null })
     expect(
       sqlite
+        .prepare(
+          `SELECT first_idea_id, second_idea_id
+          FROM debate_matches WHERE debate_match_id = ?`,
+        )
+        .get("existing-match"),
+    ).toEqual({
+      first_idea_id: "debate-idea-1",
+      second_idea_id: "debate-idea-2",
+    })
+    expect(
+      sqlite
         .prepare("SELECT count(*) FROM __drizzle_migrations")
         .pluck()
         .get(),
-    ).toBe(6)
+    ).toBe(7)
     expect(sqlite.pragma("foreign_key_check")).toEqual([])
     expect(sqlite.pragma("integrity_check", { simple: true })).toBe("ok")
     sqlite.close()

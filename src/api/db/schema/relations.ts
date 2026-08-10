@@ -64,6 +64,7 @@ export const deepSearchJobsRelations = relations(
       fields: [deepSearchJobs.ideaJobId],
       references: [ideaJobs.ideaJobId],
     }),
+    refinedIdea: one(ideas),
   }),
 )
 
@@ -218,6 +219,15 @@ export const ideasRelations = relations(ideas, ({ many, one }) => ({
     fields: [ideas.critiqueGenerationId],
     references: [llmGenerations.llmGenerationId],
     relationName: "ideaCritiqueGeneration",
+  }),
+  refinementGeneration: one(llmGenerations, {
+    fields: [ideas.refinementGenerationId],
+    references: [llmGenerations.llmGenerationId],
+    relationName: "ideaRefinementGeneration",
+  }),
+  deepSearchJob: one(deepSearchJobs, {
+    fields: [ideas.deepSearchJobId],
+    references: [deepSearchJobs.deepSearchJobId],
   }),
   matchesAsFirst: many(debateMatches, {
     relationName: "debateMatchFirstIdea",

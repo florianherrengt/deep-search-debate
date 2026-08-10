@@ -5,10 +5,12 @@ import {
   sqliteTable,
   text,
   uniqueIndex,
+  type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core"
 
 import { ideaJobs } from "./ideaJobs.ts"
-import { getLlmGenerationIdColumn } from "./llmGenerations.ts"
+import { deepSearchJobs } from "./deepSearchJobs.ts"
+import { llmGenerations } from "./llmGenerations.ts"
 
 /**
  * One stable idea produced by an idea-generation job. Ideas are normalized so
@@ -32,10 +34,31 @@ export const ideas = sqliteTable(
     // not couple this attachment to the parent job's terminal status.
     critiqueGenerationId: text("critique_generation_id")
       .unique()
-      .references(getLlmGenerationIdColumn, { onDelete: "no action" }),
+      .references(
+        (): AnySQLiteColumn => llmGenerations.llmGenerationId,
+        { onDelete: "no action" },
+      ),
     // Null means selection has not completed. Every idea is atomically resolved
     // to true or false when the selector generation completes.
     selected: integer("selected", { mode: "boolean" }),
+    // Selected ideas are refined once. The generation link is attached when
+    // refinement starts; validated output is written atomically on completion.
+    refinementGenerationId: text("refinement_generation_id")
+      .unique()
+      .references(
+        (): AnySQLiteColumn => llmGenerations.llmGenerationId,
+        { onDelete: "no action" },
+      ),
+    refinedTitle: text("refined_title"),
+    refinedDescription: text("refined_description"),
+    // Attached when the refined idea's automatic deep search starts. The
+    // search remains owned by the idea job and records its own terminal state.
+    deepSearchJobId: text("deep_search_job_id")
+      .unique()
+      .references(
+        (): AnySQLiteColumn => deepSearchJobs.deepSearchJobId,
+        { onDelete: "no action" },
+      ),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
@@ -46,6 +69,18 @@ export const ideas = sqliteTable(
     check(
       "ideas_content_check",
       sql`length(trim(${table.title})) > 0 and length(trim(${table.description})) > 0`,
+    ),
+    check(
+      "ideas_refinement_lifecycle_check",
+      sql`(
+        (${table.refinementGenerationId} is null and ${table.refinedTitle} is null and ${table.refinedDescription} is null and ${table.deepSearchJobId} is null)
+        or
+        (${table.selected} = 1 and ${table.refinementGenerationId} is not null and (
+          (${table.refinedTitle} is null and ${table.refinedDescription} is null and ${table.deepSearchJobId} is null)
+          or
+          (${table.refinedTitle} is not null and length(trim(${table.refinedTitle})) > 0 and ${table.refinedDescription} is not null and length(trim(${table.refinedDescription})) > 0)
+        ))
+      )`,
     ),
   ],
 )

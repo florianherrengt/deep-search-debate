@@ -14,7 +14,7 @@ import {
 } from "../../lib/deepSearchJobs.ts"
 import { DeepSearchHeader } from "./components/DeepSearchHeader.tsx"
 import { DeepSearchView } from "./components/DeepSearchView.tsx"
-import { useDeepSearchJob } from "./useDeepSearchJob.ts"
+import { useDeepSearchJob } from "../../lib/useDeepSearchJob.ts"
 
 const deepSearchJobsQueryKey = ["deep-search-jobs"] as const
 

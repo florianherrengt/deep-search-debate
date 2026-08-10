@@ -1,6 +1,8 @@
 import { Container } from "@mui/material"
 import type { Meta, StoryObj } from "@storybook/react"
 import type { TextStreamEvent } from "../../../lib/textStreams.ts"
+import type { DeepSearchJobEvent } from "../../../lib/deepSearchJobs.ts"
+import { DeepSearchJobStreamProvider } from "../../../lib/useDeepSearchJob.ts"
 import { TextStreamProvider } from "../../../components/streaming/useTextStream.ts"
 import type { IdeaJobRunState } from "../ideaJobState.ts"
 import { IdeaJobView } from "./IdeaJobView.tsx"
@@ -18,6 +20,9 @@ const baseRun: IdeaJobRunState = {
   ideas: [],
   critiqueGenerationStreamIds: {},
   ideaSelectionStreamId: null,
+  refinementGenerationStreamIds: {},
+  refinedIdeas: {},
+  refinedIdeaResearch: {},
   error: null,
 }
 
@@ -55,6 +60,61 @@ const ideas = [
   },
 ]
 
+const selectedIdeas = ideas.map((idea) => ({
+  ...idea,
+  selection: "selected" as const,
+}))
+
+const critiqueGenerationStreamIds = {
+  0: "critique-0",
+  1: "critique-1",
+}
+
+const refinementGenerationStreamIds = {
+  "prep-forecast": "prep-refinement",
+  "last-hour-bundles": "bundles-refinement",
+}
+
+const refinedIdeas: IdeaJobRunState["refinedIdeas"] = {
+  "prep-forecast": {
+    ideaId: "prep-forecast",
+    title: "Confidence-Aware Prep Forecast",
+    description:
+      "Recommend morning prep ranges from till history, weather, and local events, with staff overrides and visible confidence.",
+  },
+  "last-hour-bundles": {
+    ideaId: "last-hour-bundles",
+    title: "Automatic Closing Bundles",
+    description:
+      "Create timed leftover bundles from current till inventory inside the café's existing closing workflow.",
+  },
+}
+
+const completedRefinedIdeaResearch: IdeaJobRunState["refinedIdeaResearch"] = {
+  "prep-forecast": {
+    deepSearchJobId: "prep-research",
+    title: "Confidence-Aware Prep Forecast",
+    slug: "confidence-aware-prep-forecast",
+    researchRequest: "Research the refined prep forecast.",
+  },
+  "last-hour-bundles": {
+    deepSearchJobId: "bundles-research",
+    title: "Automatic Closing Bundles",
+    slug: "automatic-closing-bundles",
+    researchRequest: "Research the refined closing bundles.",
+  },
+}
+
+const selectedIdeaRun: IdeaJobRunState = {
+  ...baseRun,
+  research,
+  researchSummaryStreamId: "summary",
+  ideaGenerationStreamId: "ideas",
+  ideas: selectedIdeas,
+  critiqueGenerationStreamIds,
+  ideaSelectionStreamId: "selection",
+}
+
 const textById: Record<string, { reasoning: string; text: string }> = {
   planning: {
     reasoning: "I am separating operational causes from validated interventions.",
@@ -82,6 +142,14 @@ const textById: Record<string, { reasoning: string; text: string }> = {
       selectedIdeaIds: ["prep-forecast", "last-hour-bundles"],
     }),
   },
+  "research-answer-prep-research": {
+    reasoning: "I am combining evidence specific to the refined forecast.",
+    text: "The strongest evidence supports a low-friction pilot using till history, weather, confidence ranges, and manual overrides.",
+  },
+  "research-answer-bundles-research": {
+    reasoning: "I am combining evidence specific to closing-time bundles.",
+    text: "Comparable approaches validate demand, while automatic bundle creation and till integration address the main staff workflow risk.",
+  },
 }
 
 async function* subscribeToStoryText(
@@ -96,17 +164,37 @@ async function* subscribeToStoryText(
   yield { type: "done" }
 }
 
+async function* subscribeToStoryDeepSearch(
+  id: string,
+  signal?: AbortSignal,
+  onOpen?: () => void,
+): AsyncGenerator<DeepSearchJobEvent> {
+  onOpen?.()
+  await Promise.resolve()
+  if (id.endsWith("-pending")) {
+    await new Promise<void>((resolve) => {
+      if (signal?.aborted) resolve()
+      else signal?.addEventListener("abort", () => resolve(), { once: true })
+    })
+    return
+  }
+  yield { type: "final-answer-stream", streamId: `research-answer-${id}` }
+  yield { type: "done" }
+}
+
 const meta: Meta<typeof IdeaJobView> = {
   title: "Pages/Ideas",
   component: IdeaJobView,
   parameters: { layout: "fullscreen" },
   decorators: [
     (Story) => (
-      <TextStreamProvider subscribe={subscribeToStoryText}>
-        <Container maxWidth="sm" sx={{ py: 4 }}>
-          <Story />
-        </Container>
-      </TextStreamProvider>
+      <DeepSearchJobStreamProvider subscribe={subscribeToStoryDeepSearch}>
+        <TextStreamProvider subscribe={subscribeToStoryText}>
+          <Container maxWidth="sm" sx={{ py: 4 }}>
+            <Story />
+          </Container>
+        </TextStreamProvider>
+      </DeepSearchJobStreamProvider>
     ),
   ],
 }
@@ -136,29 +224,10 @@ export const GeneratingIdeas: Story = {
   },
 }
 
-export const Completed: Story = {
-  args: {
-    prompt,
-    title,
-    run: {
-      ...baseRun,
-      status: "completed",
-      research,
-      researchSummaryStreamId: "summary",
-      ideaGenerationStreamId: "ideas",
-      ideas: ideas.map((idea) => ({ ...idea, selection: "selected" as const })),
-      critiqueGenerationStreamIds: {
-        0: "critique-0",
-        1: "critique-1",
-      },
-      ideaSelectionStreamId: "selection",
-    },
-  },
-}
-
 export const CritiquingIdeas: Story = {
   args: {
     prompt,
+    title,
     run: {
       ...baseRun,
       research,
@@ -169,6 +238,55 @@ export const CritiquingIdeas: Story = {
         0: "critique-0",
         1: "critique-1",
       },
+    },
+  },
+}
+
+export const RefiningSelectedIdeas: Story = {
+  args: {
+    prompt,
+    title,
+    run: {
+      ...selectedIdeaRun,
+      refinementGenerationStreamIds: {
+        "prep-forecast": "prep-refinement",
+      },
+    },
+  },
+}
+
+export const ResearchingRefinedIdeas: Story = {
+  args: {
+    prompt,
+    title,
+    run: {
+      ...selectedIdeaRun,
+      refinementGenerationStreamIds,
+      refinedIdeas,
+      refinedIdeaResearch: {
+        "prep-forecast": {
+          ...completedRefinedIdeaResearch["prep-forecast"],
+          deepSearchJobId: "prep-research-pending",
+        },
+        "last-hour-bundles": {
+          ...completedRefinedIdeaResearch["last-hour-bundles"],
+          deepSearchJobId: "bundles-research-pending",
+        },
+      },
+    },
+  },
+}
+
+export const Completed: Story = {
+  args: {
+    prompt,
+    title,
+    run: {
+      ...selectedIdeaRun,
+      status: "completed",
+      refinementGenerationStreamIds,
+      refinedIdeas,
+      refinedIdeaResearch: completedRefinedIdeaResearch,
     },
   },
 }

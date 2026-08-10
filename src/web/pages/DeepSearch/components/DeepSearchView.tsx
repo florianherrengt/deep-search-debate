@@ -1,5 +1,5 @@
 import { Alert, CircularProgress, Stack, Typography } from "@mui/material"
-import type { DeepSearchRunState } from "../deepSearchState.ts"
+import type { DeepSearchRunState } from "../../../lib/deepSearchState.ts"
 import { DeepSearchHeader } from "./DeepSearchHeader.tsx"
 import { GenerationOutput } from "../../../components/streaming/GenerationOutput.tsx"
 import { SearchResults } from "./SearchResults.tsx"

@@ -68,7 +68,18 @@ The progress event sequence remains:
 
 The final-answer agent receives the original research request and every completed query-level summary. The job is marked complete only after its final-answer generation and every other linked LLM generation have persisted terminal text and reasoning. Page-summary failures stay attached to their web-page row and fall back to search snippets; a query-summary, final-answer, or wider pipeline failure marks the job failed.
 
-A deep-search job may belong to an idea job. It keeps the same extraction and failure semantics when used as a child: blocked, challenged, paywalled, unavailable, or unsupported pages retain their search-snippet fallback, while query and model-generation failures remain fatal. See [the idea-job contract](idea-jobs.md) for parent-pipeline behavior.
+SearXNG results without a non-empty snippet are omitted at the provider
+boundary because they cannot support that fallback. Malformed result titles or
+URLs still fail provider validation instead of being silently discarded.
+
+A deep-search job may belong to an idea job. Initial briefing searches occupy
+parent positions below `deepSearchCount`. After selection and refinement, each
+selected idea starts another child at `deepSearchCount + idea.position`, links
+that job from its `ideas` row, and reuses the initial request's search breadth
+settings. It keeps the same extraction and failure semantics when used as a
+child: blocked, challenged, paywalled, unavailable, or unsupported pages retain
+their search-snippet fallback, while query and model-generation failures remain
+fatal. See [the idea-job contract](idea-jobs.md) for parent-pipeline behavior.
 
 ## Persistence model
 

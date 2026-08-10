@@ -119,6 +119,8 @@ export function getDebateJobSnapshot(
       position: ideas.position,
       title: ideas.title,
       description: ideas.description,
+      refinedTitle: ideas.refinedTitle,
+      refinedDescription: ideas.refinedDescription,
       selected: ideas.selected,
     })
     .from(ideas)
@@ -131,7 +133,18 @@ export function getDebateJobSnapshot(
         ? idea.selected === true
         : job.stage !== "ideas",
     )
-    .map(({ selected: _selected, ...idea }) => idea)
+    .map(
+      ({
+        selected: _selected,
+        refinedTitle,
+        refinedDescription,
+        ...idea
+      }) => ({
+        ...idea,
+        title: refinedTitle ?? idea.title,
+        description: refinedDescription ?? idea.description,
+      }),
+    )
   const ideasById = new Map(ideaRows.map((idea) => [idea.ideaId, idea]))
 
   const roundRows = db

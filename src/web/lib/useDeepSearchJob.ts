@@ -1,13 +1,42 @@
-import { useEffect, useReducer, useState } from "react"
-import { subscribeToDeepSearchJob } from "../../lib/deepSearchJobs.ts"
-import { followReplayableStream } from "../../lib/replayStream.ts"
+import {
+  createContext,
+  createElement,
+  use,
+  useEffect,
+  useReducer,
+  useState,
+  type ReactNode,
+} from "react"
+import { subscribeToDeepSearchJob } from "./deepSearchJobs.ts"
+import { followReplayableStream } from "./replayStream.ts"
 import {
   deepSearchReducer,
   initialDeepSearchState,
 } from "./deepSearchState.ts"
 
-/** Replays and follows the durable job identified by the current URL. */
+type DeepSearchSubscription = typeof subscribeToDeepSearchJob
+
+const DeepSearchJobStreamContext = createContext<DeepSearchSubscription>(
+  subscribeToDeepSearchJob,
+)
+
+export function DeepSearchJobStreamProvider({
+  children,
+  subscribe,
+}: {
+  children: ReactNode
+  subscribe: DeepSearchSubscription
+}) {
+  return createElement(
+    DeepSearchJobStreamContext.Provider,
+    { value: subscribe },
+    children,
+  )
+}
+
+/** Replays and follows one durable deep-search job. */
 export function useDeepSearchJob(deepSearchJobId: string) {
+  const subscribe = use(DeepSearchJobStreamContext)
   const [state, dispatch] = useReducer(
     deepSearchReducer,
     initialDeepSearchState,
@@ -28,15 +57,9 @@ export function useDeepSearchJob(deepSearchJobId: string) {
     void followReplayableStream({
       signal: controller.signal,
       subscribe: (onOpen) =>
-        subscribeToDeepSearchJob(
-          deepSearchJobId,
-          controller.signal,
-          onOpen,
-        ),
+        subscribe(deepSearchJobId, controller.signal, onOpen),
       isTerminal: (event) => event.type === "done",
-      onOpen: () => {
-        setObservedSubscriptionError(null)
-      },
+      onOpen: () => setObservedSubscriptionError(null),
       onReplayStart: () => dispatch({ type: "opened" }),
       onEvent: dispatch,
       onDisconnect: (_error, willRetry) => {
@@ -50,7 +73,7 @@ export function useDeepSearchJob(deepSearchJobId: string) {
     })
 
     return () => controller.abort()
-  }, [deepSearchJobId])
+  }, [deepSearchJobId, subscribe])
 
   return { ...state, subscriptionError }
 }

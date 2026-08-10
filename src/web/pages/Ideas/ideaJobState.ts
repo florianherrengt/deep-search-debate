@@ -22,6 +22,9 @@ export type IdeaJobRunState = {
   ideas: Array<Idea & { selection: "pending" | "selected" | "rejected" }>
   critiqueGenerationStreamIds: Record<number, string>
   ideaSelectionStreamId: string | null
+  refinementGenerationStreamIds: Record<string, string>
+  refinedIdeas: Record<string, Idea>
+  refinedIdeaResearch: Record<string, IdeaResearchState>
   error: string | null
 }
 
@@ -35,6 +38,9 @@ export const initialIdeaJobState: IdeaJobRunState = {
   ideas: [],
   critiqueGenerationStreamIds: {},
   ideaSelectionStreamId: null,
+  refinementGenerationStreamIds: {},
+  refinedIdeas: {},
+  refinedIdeaResearch: {},
   error: null,
 }
 
@@ -88,6 +94,24 @@ export const ideaJobReducer = produce<IdeaJobRunState, [IdeaJobAction]>(
         }
         break
       }
+      case "idea-refinement-stream":
+        state.refinementGenerationStreamIds[action.ideaId] = action.streamId
+        break
+      case "refined-idea":
+        state.refinedIdeas[action.ideaId] = {
+          ideaId: action.ideaId,
+          title: action.title,
+          description: action.description,
+        }
+        break
+      case "idea-deep-search-started":
+        state.refinedIdeaResearch[action.ideaId] = {
+          deepSearchJobId: action.deepSearchJobId,
+          title: action.title,
+          slug: action.slug,
+          researchRequest: action.researchRequest,
+        }
+        break
       case "error":
         state.status = "failed"
         state.error = action.message

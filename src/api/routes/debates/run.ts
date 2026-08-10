@@ -13,8 +13,10 @@ import {
   buildJudgePrompt,
   buildOpeningPrompt,
   buildRebuttalPrompt,
+  loadDebateCandidateResearch,
   loadDebateContext,
   type DebateCandidate,
+  type DebateCandidateResearch,
   type DebateContext,
 } from "./context.ts"
 import {
@@ -81,12 +83,12 @@ function setStage(
 }
 
 function loadIdeas(ideaJobId: string): PersistedDebateIdea[] {
-  return db
+  const rows = db
     .select({
       ideaId: ideaRecords.ideaId,
       position: ideaRecords.position,
-      title: ideaRecords.title,
-      description: ideaRecords.description,
+      title: ideaRecords.refinedTitle,
+      description: ideaRecords.refinedDescription,
     })
     .from(ideaRecords)
     .where(
@@ -97,6 +99,15 @@ function loadIdeas(ideaJobId: string): PersistedDebateIdea[] {
     )
     .orderBy(asc(ideaRecords.position))
     .all()
+  if (rows.some(({ title, description }) => !title || !description)) {
+    throw new Error("Selected ideas were not refined")
+  }
+  return rows.map(({ ideaId, position, title, description }) => ({
+    ideaId,
+    position,
+    title: title!,
+    description: description!,
+  }))
 }
 
 async function runAgentMessage(input: {
@@ -135,6 +146,7 @@ async function runMatch(input: {
   debateJobId: string
   match: CreatedMatch
   ideasById: ReadonlyMap<string, DebateCandidate>
+  researchByIdeaId: ReadonlyMap<string, DebateCandidateResearch>
   context: DebateContext
   job: LiveDebateJob
 }): Promise<DebateMatchResult> {
@@ -142,6 +154,11 @@ async function runMatch(input: {
   const second = input.ideasById.get(input.match.secondIdeaId)
   if (!first || !second) {
     throw new Error("Debate match contains an unknown idea")
+  }
+  const firstResearch = input.researchByIdeaId.get(first.ideaId)
+  const secondResearch = input.researchByIdeaId.get(second.ideaId)
+  if (!firstResearch || !secondResearch) {
+    throw new Error("Debate candidate research was not found")
   }
 
   const [firstOpening, secondOpening] = await settleAll([
@@ -152,7 +169,12 @@ async function runMatch(input: {
       position: 0,
       speakerSlot: 0,
       promptName: PromptName.DebateOpening,
-      prompt: buildOpeningPrompt(input.context, first, second),
+      prompt: buildOpeningPrompt(
+        input.context,
+        first,
+        second,
+        firstResearch,
+      ),
       job: input.job,
     }),
     runAgentMessage({
@@ -162,7 +184,12 @@ async function runMatch(input: {
       position: 1,
       speakerSlot: 1,
       promptName: PromptName.DebateOpening,
-      prompt: buildOpeningPrompt(input.context, second, first),
+      prompt: buildOpeningPrompt(
+        input.context,
+        second,
+        first,
+        secondResearch,
+      ),
       job: input.job,
     }),
   ])
@@ -179,6 +206,7 @@ async function runMatch(input: {
         input.context,
         first,
         second,
+        firstResearch,
         firstOpening,
         secondOpening,
       ),
@@ -195,6 +223,7 @@ async function runMatch(input: {
         input.context,
         second,
         first,
+        secondResearch,
         secondOpening,
         firstOpening,
       ),
@@ -205,12 +234,19 @@ async function runMatch(input: {
   const judge = await generateObjectStream({
     userId: input.userId,
     owner: { debateJobId: input.debateJobId },
-    prompt: buildJudgePrompt(input.context, first, second, [
-      firstOpening,
-      secondOpening,
-      firstRebuttal,
-      secondRebuttal,
-    ]),
+    prompt: buildJudgePrompt(
+      input.context,
+      first,
+      second,
+      firstResearch,
+      secondResearch,
+      [
+        firstOpening,
+        secondOpening,
+        firstRebuttal,
+        secondRebuttal,
+      ],
+    ),
     promptName: PromptName.DebateJudge,
     schema: judgeVerdictSchema,
     maxRetries: 0,
@@ -252,6 +288,7 @@ async function runRound(input: {
   stageRoundNumber: number
   pairings: readonly DebatePairing[]
   ideasById: ReadonlyMap<string, DebateCandidate>
+  researchByIdeaId: ReadonlyMap<string, DebateCandidateResearch>
   context: DebateContext
   job: LiveDebateJob
 }): Promise<DebateMatchResult[]> {
@@ -275,6 +312,7 @@ async function runRound(input: {
         debateJobId: input.debateJobId,
         match,
         ideasById: input.ideasById,
+        researchByIdeaId: input.researchByIdeaId,
         context: input.context,
         job: input.job,
       }),
@@ -287,6 +325,7 @@ async function executeTournament(input: RunDebateJobInput): Promise<void> {
 
   const ideas = loadIdeas(input.ideaJobId)
   const context = loadDebateContext(input.ideaJobId)
+  const researchByIdeaId = loadDebateCandidateResearch(input.ideaJobId)
   // Tournament position is pairing metadata, not evidence. Project candidates
   // before serialization so advocates and judges cannot infer generation order.
   const ideasById = new Map(
@@ -298,6 +337,9 @@ async function executeTournament(input: RunDebateJobInput): Promise<void> {
   const tournamentIdeas: TournamentIdea[] = ideas.map(
     ({ ideaId, position }) => ({ ideaId, position }),
   )
+  if (researchByIdeaId.size !== ideas.length) {
+    throw new Error("Every selected idea must have completed research")
+  }
   const completedSwissRounds: CompletedSwissRound[] = []
 
   setStage(input.debateJobId, "swiss")
@@ -319,6 +361,7 @@ async function executeTournament(input: RunDebateJobInput): Promise<void> {
       stageRoundNumber: roundNumber,
       pairings,
       ideasById,
+      researchByIdeaId,
       context,
       job: input.job,
     })
@@ -339,6 +382,7 @@ async function executeTournament(input: RunDebateJobInput): Promise<void> {
     stageRoundNumber: 1,
     pairings: createSemifinalRound(standings, input.randomSeed),
     ideasById,
+    researchByIdeaId,
     context,
     job: input.job,
   })
@@ -352,6 +396,7 @@ async function executeTournament(input: RunDebateJobInput): Promise<void> {
     stageRoundNumber: 1,
     pairings: [createFinalRound(semifinalResults, input.randomSeed)],
     ideasById,
+    researchByIdeaId,
     context,
     job: input.job,
   })

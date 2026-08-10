@@ -1,7 +1,7 @@
 # Idea jobs
 
 Idea jobs are durable pipelines that turn a user prompt into research-backed,
-critiqued, selected ideas. Each run has an internal UUID, an LLM-generated
+critiqued, selected, refined, and individually researched ideas. Each run has an internal UUID, an LLM-generated
 immutable title, a readable slug, and four durable stages: `planning`,
 `research`, `summary`, and `ideas`. Per-idea critique and comparative selection
 are ordered subphases of `ideas`; each remains visible as its own stream and
@@ -43,9 +43,20 @@ terminal persistence fails.
    The selected ideas become `selected = true` and every other generated idea
    becomes `selected = false` in the same transaction as the selection
    generation's terminal output.
+8. One fresh structured refinement generation starts concurrently for each
+   selected idea. It receives the original request, shared research briefing,
+   original idea, and that idea's critique. Its generation link is attached
+   before publication; validated refined title and description commit together.
+9. One deep-search job then starts concurrently for each refined idea. These
+   searches reuse the request's existing `maxSearches`,
+   `maxResultsPerSearch`, and retry settings. Each search is attached directly
+   to its idea, and its parent-scoped position is `deepSearchCount +
+   idea.position`. The parent completes only after every selected-idea search
+   completes.
 
-Any planning, child-search, summary, idea-generation, critique-generation, or
-selection-generation failure fails the parent. An invalid selection count,
+Any planning, child-search, summary, idea-generation, critique-generation,
+selection-generation, refinement-generation, or selected-idea-search failure
+fails the parent. An invalid selection count,
 duplicate ID, or foreign ID is a selection failure. A critique or selection
 failure does not erase already-valid ideas or critiques; selection remains null
 when the selection transaction does not complete. Individual page-extraction
@@ -126,8 +137,15 @@ The event sequence is:
    critiques complete.
 8. `selected-ideas` with the unordered `selectedIdeaIds` array after the
    selector output and every selected flag commit atomically.
-9. On failure, one `error` with the failing stage and message.
-10. Exactly one terminal `done`.
+9. `idea-refinement-stream` once per selected idea, keyed by stable `ideaId`.
+10. `refined-idea` once per completed refinement, with its improved title and
+    description.
+11. `idea-deep-search-started` once per refined idea, with the stable `ideaId`,
+    child job ID, title, slug, and generated research request.
+12. On failure, one `error` with the failing stage and message. Refinement and
+    selected-idea research use the event stages `refinement` and
+    `idea-research`; both remain durable subphases of the DB's `ideas` stage.
+13. Exactly one terminal `done`.
 
 Each stream ID is read through `GET /api/streams/:id`, which exposes reasoning
 and text progress independently from the parent feed. Deep-search progress is
@@ -154,11 +172,16 @@ not duplicated in the parent; clients link to or subscribe to each existing
   with stable IDs and generation order. The complete batch is inserted before
   critique fan-out. Each nullable critique link attaches once when its call
   starts. The nullable selected flag then transitions once from pending to true
-  or false when selection commits.
+  or false when selection commits. Selected rows additionally own a one-time
+  refinement generation link, refined title/description pair, and attached
+  deep-search job ID. No extra refinement or join table is used.
 - New jobs complete only after every idea has terminal critique output, the
-  selection generation is terminal, and every selected flag has resolved.
+  selection generation is terminal, every selected flag has resolved, and all
+  selected ideas have completed refinement and attached deep research.
 - Child `deep_search_jobs` reference the parent with a matching owner and retain
-  both their planning order and complete normalized research state.
+  both their planning order and complete normalized research state. Initial
+  research uses positions below `deepSearchCount`; selected-idea research uses
+  `deepSearchCount + idea.position` and is linked back from that idea.
 - Idea cards, critique streams, and selected or rejected presentation replay
   from normalized `ideas` rows. Raw structured outputs remain available for
   stream inspection, not as duplicated domain state.

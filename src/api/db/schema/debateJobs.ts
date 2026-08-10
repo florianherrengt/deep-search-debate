@@ -10,7 +10,7 @@ import {
 } from "drizzle-orm/sqlite-core"
 
 import { ideas } from "./ideas.ts"
-import { getLlmGenerationIdColumn } from "./llmGenerations.ts"
+import { llmGenerations } from "./llmGenerations.ts"
 import {
   debateJobStages,
   debateRoundStages,
@@ -214,9 +214,10 @@ export const debateMessages = sqliteTable(
     llmGenerationId: text("llm_generation_id")
       .notNull()
       .unique()
-      .references(getLlmGenerationIdColumn, {
-        onDelete: "no action",
-      }),
+      .references(
+        (): AnySQLiteColumn => llmGenerations.llmGenerationId,
+        { onDelete: "no action" },
+      ),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),

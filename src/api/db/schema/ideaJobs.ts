@@ -13,7 +13,7 @@ import {
 import { getDebateJobOwnerColumns } from "./debateJobs.ts"
 import {
   getLlmGenerationIdeaOwnerColumns,
-  getLlmGenerationIdColumn,
+  llmGenerations,
 } from "./llmGenerations.ts"
 import { ideaJobStages, jobStatuses } from "./statuses.ts"
 import { user } from "./auth.ts"
@@ -44,7 +44,10 @@ export const ideaJobs = sqliteTable(
     ideaGenerationId: text("idea_generation_id").unique(),
     selectionGenerationId: text("selection_generation_id")
       .unique()
-      .references(getLlmGenerationIdColumn, { onDelete: "no action" }),
+      .references(
+        (): AnySQLiteColumn => llmGenerations.llmGenerationId,
+        { onDelete: "no action" },
+      ),
     status: text("status", { enum: jobStatuses })
       .notNull()
       .default("running"),

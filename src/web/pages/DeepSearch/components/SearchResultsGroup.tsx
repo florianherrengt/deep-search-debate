@@ -9,7 +9,7 @@ import {
   Stack,
   Typography,
 } from "@mui/material"
-import type { DeepSearchSearchState } from "../deepSearchState.ts"
+import type { DeepSearchSearchState } from "../../../lib/deepSearchState.ts"
 import { GenerationOutput } from "../../../components/streaming/GenerationOutput.tsx"
 import { QuerySummary } from "./QuerySummary.tsx"
 import { SearchResultCard } from "./SearchResultCard.tsx"

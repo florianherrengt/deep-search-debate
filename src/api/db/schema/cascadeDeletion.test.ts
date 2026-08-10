@@ -52,11 +52,13 @@ describe("aggregate deletion", () => {
     const debateJobId = crypto.randomUUID()
     const ideaJobId = crypto.randomUUID()
     const deepSearchJobId = crypto.randomUUID()
+    const refinedIdeaSearchJobId = crypto.randomUUID()
     const ideaGenerationId = crypto.randomUUID()
     const finalAnswerGenerationId = crypto.randomUUID()
     const queryGenerationId = crypto.randomUUID()
     const debateGenerationId = crypto.randomUUID()
     const critiqueGenerationIds = [crypto.randomUUID(), crypto.randomUUID()]
+    const refinementGenerationId = crypto.randomUUID()
 
     db.insert(debateJobs)
       .values({
@@ -82,7 +84,20 @@ describe("aggregate deletion", () => {
         ideaJobId,
         ideaJobPosition: 0,
         userId: "test-user-id",
+        slug: `initial-${deepSearchJobId}`,
         researchRequest: "Research the product market",
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+      })
+      .run()
+    db.insert(deepSearchJobs)
+      .values({
+        deepSearchJobId: refinedIdeaSearchJobId,
+        ideaJobId,
+        ideaJobPosition: 1,
+        userId: "test-user-id",
+        slug: `refined-${refinedIdeaSearchJobId}`,
+        researchRequest: "Research the refined product idea",
         maxSearches: 1,
         maxResultsPerSearch: 1,
       })
@@ -114,6 +129,11 @@ describe("aggregate deletion", () => {
           userId: "test-user-id",
           ideaJobId,
         })),
+        {
+          llmGenerationId: refinementGenerationId,
+          userId: "test-user-id",
+          ideaJobId,
+        },
       ])
       .run()
     db.update(ideaJobs)
@@ -121,16 +141,33 @@ describe("aggregate deletion", () => {
       .run()
     db.update(deepSearchJobs)
       .set({ finalAnswerGenerationId })
+      .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
       .run()
 
-    const ideaRows = [0, 1].map((position) => ({
-      ideaId: crypto.randomUUID(),
-      ideaJobId,
-      position,
-      title: `Idea ${position + 1}`,
-      description: `Description ${position + 1}`,
-      critiqueGenerationId: critiqueGenerationIds[position],
-    }))
+    const ideaRows = [
+      {
+        ideaId: crypto.randomUUID(),
+        ideaJobId,
+        position: 0,
+        title: "Idea 1",
+        description: "Description 1",
+        critiqueGenerationId: critiqueGenerationIds[0],
+        selected: true,
+        refinementGenerationId,
+        refinedTitle: "Improved idea 1",
+        refinedDescription: "Improved description 1",
+        deepSearchJobId: refinedIdeaSearchJobId,
+      },
+      {
+        ideaId: crypto.randomUUID(),
+        ideaJobId,
+        position: 1,
+        title: "Idea 2",
+        description: "Description 2",
+        critiqueGenerationId: critiqueGenerationIds[1],
+        selected: false,
+      },
+    ]
     db.insert(ideas).values(ideaRows).run()
 
     const debateRoundId = crypto.randomUUID()

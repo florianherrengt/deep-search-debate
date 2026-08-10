@@ -43,6 +43,30 @@ describe("searxng", () => {
     expect(url.searchParams.get("format")).toBe("json");
   });
 
+  it("drops provider results that have no usable search snippet", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: () =>
+        Promise.resolve(JSON.stringify(
+          mockJsonResponse({
+            results: [
+              { title: "No snippet", content: "   ", url: "https://empty.example.com" },
+              { title: "Useful result", content: "Useful evidence", url: "https://useful.example.com" },
+            ],
+          }),
+        )),
+    });
+
+    await expect(searxng({ query: "test" })).resolves.toEqual([
+      {
+        title: "Useful result",
+        shortText: "Useful evidence",
+        link: "https://useful.example.com",
+      },
+    ]);
+  });
+
   it("uses the configured base URL", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,

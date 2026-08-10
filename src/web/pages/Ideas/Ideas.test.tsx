@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   createIdeaJob: vi.fn(),
   getIdeaJob: vi.fn(),
   getIdeaJobs: vi.fn(),
+  subscribeToDeepSearchJob: vi.fn(),
   subscribeToIdeaJob: vi.fn(),
   subscribeToTextStream: vi.fn(),
 }))
@@ -26,6 +27,10 @@ vi.mock("../../lib/ideaJobs.ts", () => ({
 
 vi.mock("../../lib/textStreams.ts", () => ({
   subscribeToTextStream: mocks.subscribeToTextStream,
+}))
+
+vi.mock("../../lib/deepSearchJobs.ts", () => ({
+  subscribeToDeepSearchJob: mocks.subscribeToDeepSearchJob,
 }))
 
 import { Ideas } from "./index.tsx"
@@ -195,6 +200,9 @@ describe("Ideas", () => {
             1: "bundle-critique",
           },
           ideaSelectionStreamId: "selection",
+          refinementGenerationStreamIds: {},
+          refinedIdeas: {},
+          refinedIdeaResearch: {},
           error: null,
         }}
       />,
@@ -223,6 +231,102 @@ describe("Ideas", () => {
     expect(screen.queryByText("Raw structured output")).not.toBeInTheDocument()
   })
 
+  it("shows the original, improved idea, and its completed research inline", async () => {
+    mocks.subscribeToDeepSearchJob.mockImplementation(async function* (
+      _id: string,
+      _signal?: AbortSignal,
+      onOpen?: () => void,
+    ) {
+      await Promise.resolve()
+      onOpen?.()
+      yield { type: "final-answer-stream" as const, streamId: "idea-answer" }
+      yield { type: "done" as const }
+    })
+    mocks.subscribeToTextStream.mockImplementation(async function* (id: string) {
+      await Promise.resolve()
+      yield { type: "reasoning" as const, text: "Research reasoning" }
+      yield {
+        type: "text" as const,
+        text:
+          id === "idea-answer"
+            ? "Evidence supports a confidence-aware pilot."
+            : `Response from ${id}`,
+      }
+      yield { type: "done" as const }
+    })
+
+    render(
+      <MemoryRouter>
+        <IdeaJobView
+          title="Generated ideas"
+          prompt="Generate ideas"
+          run={{
+            status: "completed",
+            failedStage: null,
+            researchPromptStreamId: null,
+            research: [],
+            researchSummaryStreamId: null,
+            ideaGenerationStreamId: null,
+            ideas: [
+              {
+                ideaId: "prep-forecast-id",
+                title: "Prep Forecast",
+                description: "Recommend fixed prep quantities.",
+                selection: "selected",
+              },
+            ],
+            critiqueGenerationStreamIds: {},
+            ideaSelectionStreamId: null,
+            refinementGenerationStreamIds: {
+              "prep-forecast-id": "refinement",
+            },
+            refinedIdeas: {
+              "prep-forecast-id": {
+                ideaId: "prep-forecast-id",
+                title: "Confidence-Aware Prep Forecast",
+                description:
+                  "Recommend prep ranges with confidence and staff overrides.",
+              },
+            },
+            refinedIdeaResearch: {
+              "prep-forecast-id": {
+                deepSearchJobId: "prep-research",
+                title: "Confidence-Aware Prep Forecast",
+                slug: "confidence-aware-prep-forecast",
+                researchRequest: "Research the improved prep forecast.",
+              },
+            },
+            error: null,
+          }}
+        />
+      </MemoryRouter>,
+    )
+
+    expect(
+      screen.getByRole("button", {
+        name: /Improve and research selected ideas Complete/,
+      }),
+    ).toBeVisible()
+    const card = screen.getByRole("article", {
+      name: "Confidence-Aware Prep Forecast",
+    })
+    expect(within(card).queryByText("Selected idea")).not.toBeInTheDocument()
+    expect(within(card).getByText("Prep Forecast")).toBeVisible()
+    expect(
+      within(card).getByText(
+        "Recommend prep ranges with confidence and staff overrides.",
+      ),
+    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        within(card).getByTestId("idea-research-prep-research"),
+      ).toHaveTextContent("Evidence supports a confidence-aware pilot."),
+    )
+    expect(
+      within(card).getByRole("link", { name: "Open full research" }),
+    ).toHaveAttribute("href", "/deep-search/confidence-aware-prep-forecast")
+  })
+
   it("shows persisted ideas before their critique calls start", () => {
     render(
       <IdeaJobView
@@ -245,6 +349,9 @@ describe("Ideas", () => {
           ],
           critiqueGenerationStreamIds: {},
           ideaSelectionStreamId: null,
+          refinementGenerationStreamIds: {},
+          refinedIdeas: {},
+          refinedIdeaResearch: {},
           error: null,
         }}
       />,
@@ -287,6 +394,9 @@ describe("Ideas", () => {
           ideas: [],
           critiqueGenerationStreamIds: {},
           ideaSelectionStreamId: null,
+          refinementGenerationStreamIds: {},
+          refinedIdeas: {},
+          refinedIdeaResearch: {},
           error: "Planning failed",
         }}
       />,
@@ -323,6 +433,9 @@ describe("Ideas", () => {
           ideas: [],
           critiqueGenerationStreamIds: {},
           ideaSelectionStreamId: null,
+          refinementGenerationStreamIds: {},
+          refinedIdeas: {},
+          refinedIdeaResearch: {},
           error: "Idea generation failed before streaming",
         }}
       />,
@@ -358,6 +471,9 @@ describe("Ideas", () => {
           ],
           critiqueGenerationStreamIds: {},
           ideaSelectionStreamId: null,
+          refinementGenerationStreamIds: {},
+          refinedIdeas: {},
+          refinedIdeaResearch: {},
           error: "Critique failed before streaming",
         }}
       />,

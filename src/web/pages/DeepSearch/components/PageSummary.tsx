@@ -3,7 +3,7 @@ import {
   useTextStream,
   type TextStreamState,
 } from "../../../components/streaming/useTextStream.ts"
-import type { DeepSearchPageSummary } from "../deepSearchState.ts"
+import type { DeepSearchPageSummary } from "../../../lib/deepSearchState.ts"
 import { TextStreamOutput } from "../../../components/streaming/TextStreamOutput.tsx"
 
 type PageSummaryProps = {

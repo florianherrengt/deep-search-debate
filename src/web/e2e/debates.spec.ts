@@ -91,6 +91,7 @@ test.describe("Debate tournament", () => {
     expect(created.request().postDataJSON()).toEqual({
       prompt,
       isPublic: true,
+      numberOfIdeas: 12,
     })
     const { debateJobId, slug } = (await created.json()) as {
       debateJobId: string
@@ -199,11 +200,14 @@ test.describe("Debate tournament", () => {
     await expect(page.getByText("33/33 matches", { exact: true })).toBeVisible()
     await expect(page.getByText("Winning idea", { exact: true })).toBeVisible()
     await expect(
-      page.getByRole("heading", { name: "Renter Energy Idea 1", exact: true }),
+      page.getByRole("heading", {
+        name: "Improved Renter Energy Idea 1",
+        exact: true,
+      }),
     ).toBeVisible()
     await expect(
       page.getByText(
-        "A concrete renter-friendly energy product concept 1, grounded in the combined mock research evidence.",
+        "A concrete renter-friendly energy product concept 1, grounded in the combined mock research evidence. The improved version adds a specific validation plan and measurable adoption criteria.",
         { exact: true },
       ),
     ).toBeVisible()
@@ -271,7 +275,7 @@ test.describe("Debate tournament", () => {
     const winner = [final?.firstIdea, final?.secondIdea].find(
       (idea) => idea?.ideaId === final?.winnerIdeaId,
     )
-    expect(winner?.title).toBe("Renter Energy Idea 1")
+    expect(winner?.title).toBe("Improved Renter Energy Idea 1")
 
     const visibilityResponse = page.waitForResponse(
       (response) =>

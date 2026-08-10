@@ -52,6 +52,10 @@ const ideas = Array.from({ length: 12 }, (_, index) => ({
   title: `Renter Energy Idea ${index + 1}`,
   description: `A concrete renter-friendly energy product concept ${index + 1}, grounded in the combined mock research evidence.`,
 }))
+const refinedIdeas = ideas.map((idea, index) => ({
+  title: `Improved Renter Energy Idea ${index + 1}`,
+  description: `${idea.description} The improved version adds a specific validation plan and measurable adoption criteria.`,
+}))
 
 const debatePrompt =
   "Design a practical product that helps small apartment buildings reduce energy use without installing new hardware, changing utility providers, or adding substantial work for residents or building managers."
@@ -158,14 +162,36 @@ function assertDebateAgentInput(system, user) {
   )
   const candidateOrdinal = debateIdeaOrdinal(user, 0)
   const opponentOrdinal = debateIdeaOrdinal(user, 1)
+  const candidateResearch = parseTaggedJson(
+    user,
+    "assigned_candidate_research",
+  )
   if (
     candidateOrdinal === undefined ||
     opponentOrdinal === undefined ||
     candidateOrdinal === opponentOrdinal ||
-    candidate.title !== `Renter Energy Idea ${candidateOrdinal}` ||
-    opponent.title !== `Renter Energy Idea ${opponentOrdinal}`
+    candidate.title !== `Improved Renter Energy Idea ${candidateOrdinal}` ||
+    opponent.title !== `Improved Renter Energy Idea ${opponentOrdinal}`
   ) {
     throw new Error("Debate advocate request did not include both current ideas")
+  }
+  assertExactKeys(
+    candidateResearch,
+    ["researchRequest", "answer"],
+    "Assigned candidate research",
+  )
+  if (
+    !candidateResearch.researchRequest.includes(
+      `Improved Renter Energy Idea ${candidateOrdinal}`,
+    ) ||
+    !candidateResearch.answer.includes(
+      `Improved Renter Energy Idea ${candidateOrdinal}`,
+    )
+  ) {
+    throw new Error("Debate advocate did not receive its own candidate research")
+  }
+  if (user.includes("<candidate_a_research>") || user.includes("<candidate_b_research>")) {
+    throw new Error("Debate advocate received judge-only research tags")
   }
   assertCurrentMatchOnly(user, candidateOrdinal, opponentOrdinal)
 
@@ -193,6 +219,8 @@ function assertDebateJudgeInput(user) {
   assertDebateContext(user)
   const first = parseTaggedJson(user, "candidate_a")
   const second = parseTaggedJson(user, "candidate_b")
+  const firstResearch = parseTaggedJson(user, "candidate_a_research")
+  const secondResearch = parseTaggedJson(user, "candidate_b_research")
   const transcript = parseTaggedJson(user, "transcript")
   assertExactKeys(
     first,
@@ -214,10 +242,28 @@ function assertDebateJudgeInput(user) {
   if (
     firstOrdinal === undefined ||
     secondOrdinal === undefined ||
-    first.title !== `Renter Energy Idea ${firstOrdinal}` ||
-    second.title !== `Renter Energy Idea ${secondOrdinal}`
+    first.title !== `Improved Renter Energy Idea ${firstOrdinal}` ||
+    second.title !== `Improved Renter Energy Idea ${secondOrdinal}`
   ) {
     throw new Error("Debate judge request did not include Candidate A and B")
+  }
+  for (const [research, ordinal] of [
+    [firstResearch, firstOrdinal],
+    [secondResearch, secondOrdinal],
+  ]) {
+    assertExactKeys(
+      research,
+      ["researchRequest", "answer"],
+      "Candidate research",
+    )
+    if (
+      !research.researchRequest.includes(
+        `Improved Renter Energy Idea ${ordinal}`,
+      ) ||
+      !research.answer.includes(`Improved Renter Energy Idea ${ordinal}`)
+    ) {
+      throw new Error("Debate judge did not receive both candidate reports")
+    }
   }
   if (
     !Array.isArray(transcript) ||
@@ -266,7 +312,7 @@ function debateAgentOutput(system, user) {
     system,
     user,
   )
-  const title = `Renter Energy Idea ${ordinal}`
+  const title = `Improved Renter Energy Idea ${ordinal}`
 
   return {
     reasoning: `Build a concise mock ${isRebuttal ? "rebuttal" : "opening"} for idea ${ordinal}.`,
@@ -302,14 +348,32 @@ function messageText(body, role) {
 }
 
 function researchAngle(userMessage) {
+  const refinedIdeaOrdinal = /Improved Renter Energy Idea (\d+)/.exec(
+    userMessage,
+  )?.[1]
+  if (refinedIdeaOrdinal) return `idea-${refinedIdeaOrdinal}`
   const researchRequest = /^user_query:\s*(.*)$/m.exec(userMessage)?.[1]
-  return (researchRequest ?? userMessage).includes("interventions")
+  const source = researchRequest ?? userMessage
+  return source.includes("interventions")
     ? "interventions"
     : "constraints"
 }
 
-function assertThinkingMode(body) {
-  const expected = body.response_format ? "disabled" : "enabled"
+function assertThinkingMode(body, system) {
+  const selectionUsesReasoning = system.includes(
+    "Select the strongest generated ideas",
+  )
+  const critiqueSkipsReasoning = system.includes(
+    "Critique the generated idea against",
+  )
+  // Critiques deliberately bypass Flash thinking because it can produce an
+  // unbounded reasoning-only stream without ever emitting the answer. Keep
+  // this assertion strict so E2E catches accidental re-enabling later.
+  const expected =
+    critiqueSkipsReasoning ||
+    (body.response_format && !selectionUsesReasoning)
+      ? "disabled"
+      : "enabled"
   if (body.thinking?.type !== expected) {
     throw new Error(
       `Expected DeepSeek thinking=${expected} for ${body.response_format ? "structured" : "text"} output`,
@@ -318,9 +382,9 @@ function assertThinkingMode(body) {
 }
 
 function deepSeekOutput(body) {
-  assertThinkingMode(body)
   const system = messageText(body, "system")
   const user = messageText(body, "user")
+  assertThinkingMode(body, system)
 
   if (system.includes("You create short, descriptive titles")) {
     const title = user.includes("official MDN documentation")
@@ -346,7 +410,7 @@ function deepSeekOutput(body) {
     }
   }
   if (system.includes("You generate search-engine queries")) {
-    const angle = user.includes("interventions") ? "interventions" : "constraints"
+    const angle = researchAngle(user)
     return {
       reasoning: `Use one focused ${angle} query for the deterministic test.`,
       text: JSON.stringify({
@@ -365,7 +429,9 @@ function deepSeekOutput(body) {
     return {
       reasoning: "Extract the concrete finding relevant to the research request.",
       text:
-        angle === "interventions"
+        angle.startsWith("idea-")
+          ? `The mock source supports the practical assumptions for Improved Renter Energy Idea ${angle.slice(5)}.`
+          : angle === "interventions"
           ? "The mock source reports practical removable heating controls and draught-proofing interventions."
           : "The mock source reports insulation, heating-control, and landlord-permission constraints.",
     }
@@ -375,14 +441,18 @@ function deepSeekOutput(body) {
     return {
       reasoning: "Combine the selected page with the unselected search snippet.",
       text:
-        angle === "interventions"
+        angle.startsWith("idea-")
+          ? `The search validates implementation considerations for Improved Renter Energy Idea ${angle.slice(5)}.`
+          : angle === "interventions"
           ? "The search found removable heating controls and draught-proofing interventions for renters."
           : "The search found insulation, heating-control, and landlord-permission constraints for London renters.",
     }
   }
   if (system.includes("You are the final-answer agent for a deep research run")) {
-    const text =
-      researchAngle(user) === "interventions"
+    const angle = researchAngle(user)
+    const text = angle.startsWith("idea-")
+      ? `Research specific to Improved Renter Energy Idea ${angle.slice(5)} validates its practical workflow, risks, and measurable pilot criteria.`
+      : angle === "interventions"
         ? "Removable heating controls and draught-proofing are practical renter-friendly interventions."
         : "London renters face insulation, heating-control, and landlord-permission constraints."
     return {
@@ -430,6 +500,33 @@ function deepSeekOutput(body) {
       reasoning:
         "Assess this idea independently against the researched constraints.",
       text: `Idea ${position + 1} has a clear renter-friendly mechanism, but it needs stronger evidence of adoption and differentiation. Improve it by validating its specific workflow and measurable impact.`,
+    }
+  }
+  if (system.includes("Select the strongest generated ideas")) {
+    const candidates = [...user.matchAll(
+      /<critiqued_idea>\s*([\s\S]*?)\s*<\/critiqued_idea>/g,
+    )].map((match) => JSON.parse(match[1]))
+    if (candidates.length !== ideas.length) {
+      throw new Error("Idea selection request omitted critiqued ideas")
+    }
+    return {
+      reasoning: "Select all twelve distinct mock candidates for the tournament.",
+      text: JSON.stringify({
+        selectedIdeaIds: candidates.map(({ ideaId }) => ideaId),
+      }),
+    }
+  }
+  if (system.includes("Improve the selected idea using its critique")) {
+    const originalIdea = parseTaggedJson(user, "original_idea")
+    const position = ideas.findIndex(
+      (idea) => JSON.stringify(idea) === JSON.stringify(originalIdea),
+    )
+    if (position === -1 || !user.includes(`Idea ${position + 1} has a clear`)) {
+      throw new Error("Idea refinement request omitted its critique or original")
+    }
+    return {
+      reasoning: `Apply the critique to mock idea ${position + 1}.`,
+      text: JSON.stringify(refinedIdeas[position]),
     }
   }
   if (/independent judge/i.test(system)) {

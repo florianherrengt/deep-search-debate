@@ -250,10 +250,15 @@ table ideas {
   description text [not null]
   critique_generation_id text [unique]
   selected integer
+  refinement_generation_id text [unique]
+  refined_title text
+  refined_description text
+  deep_search_job_id text [unique]
   created_at integer [not null, default: `(cast(unixepoch('subsecond') * 1000 as integer))`]
 
   indexes {
     (idea_job_id, position) [name: 'ideas_job_position_idx', unique]
+
 
 
   }
@@ -386,6 +391,10 @@ ref idea_jobs_idea_generation_owner_fk: idea_jobs.(idea_generation_id, user_id, 
 ref ideas_idea_job_id_idea_jobs_idea_job_id_fk: ideas.idea_job_id > idea_jobs.idea_job_id [delete: cascade, update: no action]
 
 ref ideas_critique_generation_id_llm_generations_llm_generation_id_fk: ideas.critique_generation_id > llm_generations.llm_generation_id [delete: no action, update: no action]
+
+ref ideas_refinement_generation_id_llm_generations_llm_generation_id_fk: ideas.refinement_generation_id > llm_generations.llm_generation_id [delete: no action, update: no action]
+
+ref ideas_deep_search_job_id_deep_search_jobs_deep_search_job_id_fk: ideas.deep_search_job_id > deep_search_jobs.deep_search_job_id [delete: no action, update: no action]
 
 ref llm_generations_user_id_user_id_fk: llm_generations.user_id > user.id [delete: cascade, update: no action]
 

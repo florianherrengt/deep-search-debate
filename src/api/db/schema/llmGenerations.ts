@@ -107,11 +107,6 @@ export const llmGenerations = sqliteTable(
   ],
 )
 
-/** Breaks schema-module cycles while retaining real generation foreign keys. */
-export function getLlmGenerationIdColumn(): AnySQLiteColumn {
-  return llmGenerations.llmGenerationId
-}
-
 export function getLlmGenerationIdeaOwnerColumns(): [
   AnySQLiteColumn,
   AnySQLiteColumn,

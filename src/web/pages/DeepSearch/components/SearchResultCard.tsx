@@ -1,6 +1,6 @@
 import { Chip, Link, Paper, Stack, Typography } from "@mui/material"
 import { alpha, type Theme } from "@mui/material/styles"
-import type { DeepSearchResultState } from "../deepSearchState.ts"
+import type { DeepSearchResultState } from "../../../lib/deepSearchState.ts"
 import { PageSummary } from "./PageSummary.tsx"
 
 type SearchResultCardProps = {

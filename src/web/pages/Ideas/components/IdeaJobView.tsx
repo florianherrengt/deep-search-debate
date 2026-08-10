@@ -1,5 +1,6 @@
 import {
   Alert,
+  Button,
   Card,
   CardContent,
   Chip,
@@ -8,7 +9,9 @@ import {
   Typography,
 } from "@mui/material"
 import { alpha } from "@mui/material/styles"
+import { Link } from "react-router-dom"
 import { GenerationOutput } from "../../../components/streaming/GenerationOutput.tsx"
+import { useDeepSearchJob } from "../../../lib/useDeepSearchJob.ts"
 import type { IdeaJobRunState } from "../ideaJobState.ts"
 import {
   ProgressCard,
@@ -29,6 +32,135 @@ function getProgressStatus({
   if (running) return "running"
   if (completed) return "completed"
   return "waiting"
+}
+
+function InlineIdeaResearch({
+  research,
+}: {
+  research: IdeaJobRunState["refinedIdeaResearch"][string]
+}) {
+  const run = useDeepSearchJob(research.deepSearchJobId)
+
+  return (
+    <Stack spacing={1.5}>
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        spacing={1}
+        sx={{ alignItems: { sm: "center" }, justifyContent: "space-between" }}
+      >
+        <Typography component="h4" variant="subtitle1">
+          Idea-specific research
+        </Typography>
+        <Button
+          component={Link}
+          size="small"
+          target="_blank"
+          rel="noopener noreferrer"
+          to={`/deep-search/${research.slug}`}
+          variant="text"
+        >
+          Open full research
+        </Button>
+      </Stack>
+      {run.error && <Alert severity="error">{run.error}</Alert>}
+      {run.subscriptionError && !run.error && (
+        <Alert severity="warning">{run.subscriptionError}</Alert>
+      )}
+      {run.finalAnswerStreamId ? (
+        <GenerationOutput
+          announcementLabel={`Research for ${research.title}`}
+          format="markdown"
+          headingComponent="h4"
+          streamId={run.finalAnswerStreamId}
+          title="Research findings"
+          waitingText="Writing the research findings…"
+          testId={`idea-research-${research.deepSearchJobId}`}
+        />
+      ) : (
+        !run.error && (
+          <Stack
+            aria-live="polite"
+            direction="row"
+            role="status"
+            spacing={1}
+            sx={{ alignItems: "center" }}
+          >
+            <CircularProgress aria-hidden="true" size={18} />
+            <Typography color="text.secondary" variant="body2">
+              Researching this improved idea…
+            </Typography>
+          </Stack>
+        )
+      )}
+    </Stack>
+  )
+}
+
+function RefinedIdeaCard({
+  idea,
+  refinedIdea,
+  refinementStarted,
+  research,
+}: {
+  idea: IdeaJobRunState["ideas"][number]
+  refinedIdea: IdeaJobRunState["refinedIdeas"][string] | undefined
+  refinementStarted: boolean
+  research: IdeaJobRunState["refinedIdeaResearch"][string] | undefined
+}) {
+  const headingId = `refined-${idea.ideaId}-title`
+
+  return (
+    <Card component="article" aria-labelledby={headingId} variant="outlined">
+      <CardContent>
+        <Stack spacing={2}>
+          <Typography component="h3" id={headingId} variant="h6">
+            {refinedIdea?.title ?? idea.title}
+          </Typography>
+
+          <Stack spacing={0.5}>
+            <Typography component="h4" variant="subtitle1">
+              Original idea
+            </Typography>
+            <Typography variant="body2">{idea.title}</Typography>
+            <Typography color="text.secondary" variant="body2">
+              {idea.description}
+            </Typography>
+          </Stack>
+
+          {refinedIdea ? (
+            <Stack spacing={0.5}>
+              <Typography component="h4" variant="subtitle1">
+                Improved idea
+              </Typography>
+              <Typography variant="body2">{refinedIdea.title}</Typography>
+              <Typography color="text.secondary" variant="body2">
+                {refinedIdea.description}
+              </Typography>
+            </Stack>
+          ) : (
+            <Stack
+              aria-live="polite"
+              direction="row"
+              role="status"
+              spacing={1}
+              sx={{ alignItems: "center" }}
+            >
+              {refinementStarted && (
+                <CircularProgress aria-hidden="true" size={18} />
+              )}
+              <Typography color="text.secondary" variant="body2">
+                {refinementStarted
+                  ? "Improving this selected idea…"
+                  : "Waiting to improve this selected idea…"}
+              </Typography>
+            </Stack>
+          )}
+
+          {research && <InlineIdeaResearch research={research} />}
+        </Stack>
+      </CardContent>
+    </Card>
+  )
 }
 
 function IdeaCard({
@@ -139,24 +271,52 @@ export function IdeaJobView({
     failedStage === "summary" ||
     failedStage === "ideas" ||
     failedStage === "critique" ||
-    failedStage === "selection"
+    failedStage === "selection" ||
+    failedStage === "refinement" ||
+    failedStage === "idea-research"
   const failedAfterResearch =
     failedStage === "summary" ||
     failedStage === "ideas" ||
     failedStage === "critique" ||
-    failedStage === "selection"
+    failedStage === "selection" ||
+    failedStage === "refinement" ||
+    failedStage === "idea-research"
   const failedAfterSummary =
     failedStage === "ideas" ||
     failedStage === "critique" ||
-    failedStage === "selection"
+    failedStage === "selection" ||
+    failedStage === "refinement" ||
+    failedStage === "idea-research"
   const failedAfterIdeas =
-    failedStage === "critique" || failedStage === "selection"
+    failedStage === "critique" ||
+    failedStage === "selection" ||
+    failedStage === "refinement" ||
+    failedStage === "idea-research"
   const hasIdeas = run.ideas.length > 0
   const selectionCompleted =
     hasIdeas && run.ideas.every(({ selection }) => selection !== "pending")
   const selectedIdeaCount = run.ideas.filter(
     ({ selection }) => selection === "selected",
   ).length
+  const selectedIdeas = run.ideas.filter(
+    ({ selection }) => selection === "selected",
+  )
+  const refinementAndResearchStatus = getProgressStatus({
+    failed:
+      failedStage === "refinement" || failedStage === "idea-research",
+    running:
+      run.status === "running" &&
+      selectionCompleted &&
+      selectedIdeas.length > 0,
+    completed:
+      run.status === "completed" &&
+      selectedIdeas.length > 0 &&
+      selectedIdeas.every(
+        ({ ideaId }) =>
+          Boolean(run.refinedIdeas[ideaId]) &&
+          Boolean(run.refinedIdeaResearch[ideaId]),
+      ),
+  })
   const planningStatus = getProgressStatus({
     failed: failedStage === "planning",
     running: run.status === "running" && run.research.length === 0,
@@ -325,6 +485,31 @@ export function IdeaJobView({
               {selectedIdeaCount === 1 ? " idea selected." : " ideas selected."}
             </Typography>
           )}
+        </Stack>
+      </ProgressCard>
+
+      <ProgressCard
+        autoExpandStatuses={["running", "completed", "failed"]}
+        title="Improve and research selected ideas"
+        status={refinementAndResearchStatus}
+      >
+        <Stack spacing={2}>
+          {refinementAndResearchStatus === "waiting" && (
+            <Typography color="text.secondary" variant="body2">
+              Improvement starts after idea selection completes.
+            </Typography>
+          )}
+          {selectedIdeas.map((idea) => (
+            <RefinedIdeaCard
+              key={idea.ideaId}
+              idea={idea}
+              refinedIdea={run.refinedIdeas[idea.ideaId]}
+              refinementStarted={Boolean(
+                run.refinementGenerationStreamIds[idea.ideaId],
+              )}
+              research={run.refinedIdeaResearch[idea.ideaId]}
+            />
+          ))}
         </Stack>
       </ProgressCard>
     </Stack>

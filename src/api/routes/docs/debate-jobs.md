@@ -1,8 +1,9 @@
 # Debate jobs
 
 Debate jobs are durable automatic tournaments. A fresh user prompt first runs
-the existing researched, critiqued, and selected idea pipeline, then admits only
-its selected normalized ideas to Swiss play and a top-four knockout. The
+the existing researched, critiqued, selected, refined, and individually
+researched idea pipeline, then admits only its selected normalized ideas to
+Swiss play and a top-four knockout. The
 selection agent consumes critiques, but tournament advocates and judges do not.
 Critiques and selection reasoning remain available on the linked idea-job view.
 Closing or reloading the page does not cancel work. Live subscriptions replay
@@ -45,9 +46,11 @@ knockout run.
 
 Every match runs both openings concurrently, then both rebuttals concurrently,
 then one structured judge verdict. All matches in the same round also run
-concurrently. Advocates receive only the current matchup, original prompt,
-research briefing, and completed child deep-search answers. The judge receives
-that same evidence plus the complete current transcript.
+concurrently. Debates use each selected idea's refined title and description.
+Every advocate receives the current matchup, shared original prompt and
+briefing research, and only its assigned candidate's idea-specific research; it
+does not receive its opponent's report. The judge receives both candidates'
+idea-specific research plus the complete current transcript.
 
 Debate-owned idea and deep-search LLM calls set `maxRetries` to zero. Any model
 failure therefore fails the tournament with its original error instead of being

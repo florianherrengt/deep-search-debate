@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   createDebateRound: vi.fn(),
   generateObjectStream: vi.fn(),
   generateTextStream: vi.fn(),
+  loadDebateCandidateResearch: vi.fn(),
   loadDebateContext: vi.fn(),
 }))
 
@@ -19,6 +20,7 @@ vi.mock("../../llms/generateText.ts", () => ({
 }))
 vi.mock("./context.ts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./context.ts")>()),
+  loadDebateCandidateResearch: mocks.loadDebateCandidateResearch,
   loadDebateContext: mocks.loadDebateContext,
 }))
 vi.mock("./persistence.ts", () => ({
@@ -116,19 +118,42 @@ describe("runDebateJob", () => {
         title: `Idea ${position + 1}`,
         description: `Description ${position + 1}`,
         critiqueGenerationId: crypto.randomUUID(),
+        refinementGenerationId: crypto.randomUUID(),
+        refinedTitle: `Improved idea ${position + 1}`,
+        refinedDescription: `Improved description ${position + 1}`,
         selected: true,
       }),
     )
     db.insert(llmGenerations)
       .values(
-        ideaRows.map(({ critiqueGenerationId }) => ({
-          llmGenerationId: critiqueGenerationId,
-          userId: "test-user-id",
-          ideaJobId,
-        })),
+        ideaRows.flatMap(
+          ({ critiqueGenerationId, refinementGenerationId }) => [
+            {
+              llmGenerationId: critiqueGenerationId,
+              userId: "test-user-id",
+              ideaJobId,
+            },
+            {
+              llmGenerationId: refinementGenerationId,
+              userId: "test-user-id",
+              ideaJobId,
+            },
+          ],
+        ),
       )
       .run()
     db.insert(ideas).values(ideaRows).run()
+    mocks.loadDebateCandidateResearch.mockReturnValue(
+      new Map(
+        ideaRows.map(({ ideaId }, position) => [
+          ideaId,
+          {
+            researchRequest: `Research request ${position + 1}`,
+            answer: `Research answer ${position + 1}`,
+          },
+        ]),
+      ),
+    )
     const job = createReplayableEventLog<DebateJobEvent>()
     const events = collectEvents(job.subscribe())
     await runDebateJob({

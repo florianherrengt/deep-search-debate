@@ -113,6 +113,26 @@ test.describe("Ideas", () => {
     const critiqueGenerations = liveEvents.filter(
       (event) => event.type === "critique-generation-stream",
     )
+    const selection = liveEvents.find(
+      (event) => event.type === "idea-selection-stream",
+    )
+    const selected = liveEvents.find(
+      (event) => event.type === "selected-ideas",
+    )
+    const refinementGenerations = liveEvents.filter(
+      (event) => event.type === "idea-refinement-stream",
+    )
+    const refinedIdeas = liveEvents.filter(
+      (event) => event.type === "refined-idea",
+    )
+    const ideaResearch = liveEvents.filter(
+      (
+        event,
+      ): event is Extract<
+        IdeaJobEvent,
+        { type: "idea-deep-search-started" }
+      > => event.type === "idea-deep-search-started",
+    )
     const ideas = liveEvents.filter(
       (event): event is Extract<IdeaJobEvent, { type: "idea" }> =>
         event.type === "idea",
@@ -126,6 +146,14 @@ test.describe("Ideas", () => {
     expect(ideaGeneration).toBeDefined()
     expect(critiqueGenerations).toHaveLength(12)
     expect(ideas).toHaveLength(12)
+    expect(selection).toBeDefined()
+    expect(selected?.selectedIdeaIds).toHaveLength(12)
+    expect(refinementGenerations).toHaveLength(12)
+    expect(refinedIdeas).toHaveLength(12)
+    expect(ideaResearch).toHaveLength(12)
+    expect(new Set(ideaResearch.map(({ ideaId }) => ideaId))).toEqual(
+      new Set(selected?.selectedIdeaIds),
+    )
     expect(
       Math.max(...research.map((item) => liveEvents.indexOf(item))),
     ).toBeLessThan(liveEvents.indexOf(summary!))
@@ -144,6 +172,11 @@ test.describe("Ideas", () => {
         .toSorted((first, second) => first.position - second.position)
         .map((generation) => readTextStream(request, generation.streamId)),
     )
+    const refinementStreams = await Promise.all(
+      refinementGenerations.map((generation) =>
+        readTextStream(request, generation.streamId),
+      ),
+    )
     expect(planningStream.text.trim()).not.toBe("")
     expect(summaryStream.text).toContain("insulation, heating-control")
     expect(summaryStream.text).toContain("Removable controls")
@@ -154,6 +187,14 @@ test.describe("Ideas", () => {
       expect(
         critiqueStream.events.some((event) => event.type === "reasoning"),
       ).toBe(true)
+    }
+    for (const refinementStream of refinementStreams) {
+      const refined = JSON.parse(refinementStream.text) as {
+        title: string
+        description: string
+      }
+      expect(refined.title).toMatch(/^Improved Renter Energy Idea \d+$/)
+      expect(refined.description).toContain("measurable adoption criteria")
     }
 
     const structuredIdeas = JSON.parse(ideaStream.text) as {
@@ -195,6 +236,37 @@ test.describe("Ideas", () => {
       )
       expect(childFinalStream.text.trim()).not.toBe("")
     }
+    for (const child of ideaResearch) {
+      const detail = await request.get(`/api/deep-search-jobs/${child.slug}`)
+      expect(detail.status()).toBe(200)
+      expect(await detail.json()).toMatchObject({
+        deepSearchJob: {
+          deepSearchJobId: child.deepSearchJobId,
+          ideaJobId,
+          researchRequest: child.researchRequest,
+          maxSearches: 3,
+          maxResultsPerSearch: 3,
+          status: "completed",
+        },
+      })
+      const childReplay = await request.get(
+        `/api/deep-search-jobs/${child.deepSearchJobId}/events`,
+      )
+      const childEvents = parseEvents<DeepSearchJobEvent>(
+        await childReplay.text(),
+      )
+      const finalAnswer = childEvents.find(
+        (event) => event.type === "final-answer-stream",
+      )
+      expect(childEvents.at(-1)).toEqual({ type: "done" })
+      expect(finalAnswer).toBeDefined()
+      const answer = await readTextStream(
+        request,
+        finalAnswer?.streamId ?? "",
+      )
+      const refined = refinedIdeas.find(({ ideaId }) => ideaId === child.ideaId)
+      expect(answer.text).toContain(refined?.title ?? "missing refined title")
+    }
 
     const ideaStage = page.getByRole("button", { name: /Generate ideas/ })
     await expect(ideaStage).toContainText("Complete")
@@ -217,6 +289,22 @@ test.describe("Ideas", () => {
         critiqueStreams[position]?.text ?? "",
       )
     }
+    for (const refined of refinedIdeas) {
+      const refinedCard = page.getByRole("article", {
+        name: refined.title,
+        exact: true,
+      })
+      await expect(refinedCard.getByText("Original idea")).toBeVisible()
+      await expect(
+        refinedCard.getByText(refined.description, { exact: true }),
+      ).toBeVisible()
+      const child = ideaResearch.find(({ ideaId }) => ideaId === refined.ideaId)
+      await expect(
+        refinedCard.getByTestId(
+          `idea-research-${child?.deepSearchJobId ?? "missing"}`,
+        ),
+      ).toContainText(refined.title)
+    }
     await expect(
       page.getByRole("button", { name: /Critique each idea/ }),
     ).toHaveCount(0)
@@ -232,7 +320,7 @@ test.describe("Ideas", () => {
     const researchStage = page.getByRole("button", { name: /Deep research/ })
     await researchStage.click()
     const researchLinks = page.locator('a[href^="/deep-search/"]')
-    await expect(researchLinks).toHaveCount(2)
+    await expect(researchLinks).toHaveCount(14)
     for (const child of research) {
       const link = page.locator(
         `a[href="/deep-search/${child.slug}"]`,
@@ -260,6 +348,24 @@ test.describe("Ideas", () => {
     ).toEqual(
       critiqueGenerations.toSorted(
         (first, second) => first.position - second.position,
+      ),
+    )
+    expect(
+      replayEvents
+        .filter((event) => event.type === "refined-idea")
+        .toSorted((first, second) => first.ideaId.localeCompare(second.ideaId)),
+    ).toEqual(
+      refinedIdeas.toSorted((first, second) =>
+        first.ideaId.localeCompare(second.ideaId),
+      ),
+    )
+    expect(
+      replayEvents
+        .filter((event) => event.type === "idea-deep-search-started")
+        .toSorted((first, second) => first.ideaId.localeCompare(second.ideaId)),
+    ).toEqual(
+      ideaResearch.toSorted((first, second) =>
+        first.ideaId.localeCompare(second.ideaId),
       ),
     )
 
@@ -293,6 +399,11 @@ test.describe("Ideas", () => {
       await expect(
         ideaCard.getByTestId(`idea-critique-${position}`),
       ).toHaveText(critiqueStreams[position]?.text ?? "")
+    }
+    for (const refined of refinedIdeas) {
+      await expect(
+        page.getByRole("article", { name: refined.title, exact: true }),
+      ).toBeVisible()
     }
 
     await page.goto("/ideas")

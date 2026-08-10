@@ -9,7 +9,12 @@ export const ideaSchema = z.object({
 
 export type Idea = z.infer<typeof ideaSchema>
 export type IdeaJobStage = (typeof ideaJobStages)[number]
-export type IdeaEventStage = IdeaJobStage | "critique" | "selection"
+export type IdeaEventStage =
+  | IdeaJobStage
+  | "critique"
+  | "selection"
+  | "refinement"
+  | "idea-research"
 
 export const MIN_SELECTED_IDEAS = 6
 export const MAX_IDEAS = 100
@@ -47,6 +52,20 @@ export type IdeaJobEvent =
     }
   | { type: "idea-selection-stream"; streamId: string }
   | ({ type: "selected-ideas" } & IdeaSelection)
+  | {
+      type: "idea-refinement-stream"
+      ideaId: string
+      streamId: string
+    }
+  | ({ type: "refined-idea"; ideaId: string } & Idea)
+  | {
+      type: "idea-deep-search-started"
+      ideaId: string
+      deepSearchJobId: string
+      title: string
+      slug: string
+      researchRequest: string
+    }
   | { type: "error"; message: string; stage: IdeaEventStage }
   | { type: "done" }
 

@@ -17,6 +17,7 @@ type GenerateTextStreamInput = {
   owner: LlmGenerationOwner
   prompt: string
   promptName: PromptName
+  reasoning?: LlmCallReasoning
   model?: string
   temperature?: number
   maxOutputTokens?: number
@@ -49,7 +50,7 @@ export async function generateTextStream(
     temperature: params.temperature,
     maxOutputTokens: params.maxOutputTokens,
     maxRetries: params.maxRetries,
-    ...llm.callOptions("enabled"),
+    ...llm.callOptions(params.reasoning ?? "enabled"),
   })
 
   return {
