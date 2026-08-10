@@ -65,6 +65,14 @@ const selectedIdeas = ideas.map((idea) => ({
   selection: "selected" as const,
 }))
 
+const rejectedIdea: IdeaJobRunState["ideas"][number] = {
+  ideaId: "manual-waste-diary",
+  title: "Manual Waste Diary",
+  description:
+    "Ask staff to record every discarded item manually at the end of each shift.",
+  selection: "rejected",
+}
+
 const critiqueGenerationStreamIds = {
   0: "critique-0",
   1: "critique-1",
@@ -136,6 +144,10 @@ const textById: Record<string, { reasoning: string; text: string }> = {
     reasoning: "I am checking whether this idea has a defensible mechanism.",
     text: "Easy to understand, but crowded and vulnerable to low customer reach. Differentiate through automatic bundle creation inside existing closing workflows.",
   },
+  "critique-2": {
+    reasoning: "I am testing whether the workflow creates more value than burden.",
+    text: "Manual logging creates high staff friction, unreliable data, and little differentiation from existing waste diaries.",
+  },
   selection: {
     reasoning: "Both ideas address distinct, research-backed workflow failures.",
     text: JSON.stringify({
@@ -185,6 +197,7 @@ async function* subscribeToStoryDeepSearch(
 const meta: Meta<typeof IdeaJobView> = {
   title: "Pages/Ideas",
   component: IdeaJobView,
+  args: { jobSlug: "independent-cafe-food-waste" },
   parameters: { layout: "fullscreen" },
   decorators: [
     (Story) => (
@@ -284,6 +297,11 @@ export const Completed: Story = {
     run: {
       ...selectedIdeaRun,
       status: "completed",
+      ideas: [...selectedIdeas, rejectedIdea],
+      critiqueGenerationStreamIds: {
+        ...critiqueGenerationStreamIds,
+        2: "critique-2",
+      },
       refinementGenerationStreamIds,
       refinedIdeas,
       refinedIdeaResearch: completedRefinedIdeaResearch,

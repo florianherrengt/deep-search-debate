@@ -19,6 +19,7 @@ type TextStreamOutputProps = {
   textTestId: string
   announcementLabel?: string
   format?: StreamTextFormat
+  showText?: boolean
 }
 
 function getAnnouncement(status: TextStreamState["status"]): string {
@@ -41,6 +42,7 @@ function StreamText({
   waitingText,
   textTestId,
   format = "text",
+  showText = true,
 }: TextStreamOutputProps) {
   if (stream.status === "error" || stream.status === "reconnecting") {
     return (
@@ -52,7 +54,7 @@ function StreamText({
         >
           {stream.message}
         </Typography>
-        {stream.text && (
+        {showText && stream.text && (
           <FormattedStreamText
             format={format}
             text={stream.text}
@@ -62,6 +64,8 @@ function StreamText({
       </Stack>
     )
   }
+
+  if (!showText) return null
 
   return (
     <FormattedStreamText
@@ -133,6 +137,7 @@ export function TextStreamOutput({
   textTestId,
   announcementLabel,
   format = "text",
+  showText = true,
 }: TextStreamOutputProps) {
   return (
     <Stack spacing={1.5}>
@@ -167,6 +172,7 @@ export function TextStreamOutput({
       )}
       <StreamText
         format={format}
+        showText={showText}
         stream={stream}
         waitingText={waitingText}
         textTestId={textTestId}

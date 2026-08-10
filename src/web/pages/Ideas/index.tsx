@@ -14,6 +14,7 @@ import {
   type IdeaJob,
 } from "../../lib/ideaJobs.ts"
 import { IdeaJobView } from "./components/IdeaJobView.tsx"
+import { IdeaDetailView } from "./components/IdeaDetailView.tsx"
 import { useIdeaJob } from "./useIdeaJob.ts"
 
 const ideaJobsQueryKey = ["idea-jobs"] as const
@@ -66,12 +67,27 @@ function IdeaHistory() {
   )
 }
 
-function IdeaJobContent({ job }: { job: IdeaJob }) {
+function IdeaJobContent({ ideaId, job }: { ideaId?: string; job: IdeaJob }) {
   const run = useIdeaJob(job.ideaJobId)
-  return <IdeaJobView prompt={job.prompt} run={run} title={job.title} />
+  return ideaId ? (
+    <IdeaDetailView
+      ideaId={ideaId}
+      jobSlug={job.slug}
+      jobTitle={job.title}
+      numberOfIdeas={job.numberOfIdeas}
+      run={run}
+    />
+  ) : (
+    <IdeaJobView
+      jobSlug={job.slug}
+      prompt={job.prompt}
+      run={run}
+      title={job.title}
+    />
+  )
 }
 
-function IdeaDetail({ slug }: { slug: string }) {
+function IdeaRun({ ideaId, slug }: { ideaId?: string; slug: string }) {
   const job = useQuery({
     queryKey: [...ideaJobsQueryKey, slug],
     queryFn: ({ signal }) => getIdeaJob(slug, signal),
@@ -88,10 +104,10 @@ function IdeaDetail({ slug }: { slug: string }) {
       />
     )
   }
-  return <IdeaJobContent job={job.data} />
+  return <IdeaJobContent ideaId={ideaId} job={job.data} />
 }
 
 export function Ideas() {
-  const { slug } = useParams<{ slug: string }>()
-  return slug ? <IdeaDetail slug={slug} /> : <IdeaHistory />
+  const { ideaId, slug } = useParams<{ ideaId: string; slug: string }>()
+  return slug ? <IdeaRun ideaId={ideaId} slug={slug} /> : <IdeaHistory />
 }

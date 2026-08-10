@@ -215,6 +215,31 @@ describe("App", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("keeps individual idea pages shareable with anonymous viewers", () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/ideas/independent-cafe-ideas/prep-forecast-id",
+    )
+    authMocks.useSession.mockReturnValue({
+      data: null,
+      error: null,
+      isPending: false,
+      isRefetching: false,
+      refetch: authMocks.refetch,
+    })
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => undefined)))
+
+    renderApp()
+
+    expect(
+      screen.getByRole("link", { name: "Start your own debate" }),
+    ).toHaveAttribute("href", "/debates")
+    expect(
+      screen.queryByRole("heading", { name: "Sign in to continue" }),
+    ).not.toBeInTheDocument()
+  })
+
   it("keeps authenticated debate detail routes inside the application shell", () => {
     window.history.replaceState({}, "", "/debates/debate-id")
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => undefined)))

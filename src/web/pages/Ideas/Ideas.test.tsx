@@ -3,7 +3,6 @@ import {
   render,
   screen,
   waitFor,
-  within,
 } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
@@ -34,6 +33,7 @@ vi.mock("../../lib/deepSearchJobs.ts", () => ({
 }))
 
 import { Ideas } from "./index.tsx"
+import { IdeaDetailView } from "./components/IdeaDetailView.tsx"
 import { IdeaJobView } from "./components/IdeaJobView.tsx"
 
 function renderIdeas(initialEntry = "/ideas") {
@@ -46,6 +46,7 @@ function renderIdeas(initialEntry = "/ideas") {
         <Routes>
           <Route path="/ideas" element={<Ideas />} />
           <Route path="/ideas/:slug" element={<Ideas />} />
+          <Route path="/ideas/:slug/:ideaId" element={<Ideas />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -134,15 +135,16 @@ describe("Ideas", () => {
 
     expect(await screen.findByText("Prep Forecast")).toBeVisible()
     expect(
-      screen.getByText("Recommend daily prep quantities from recent demand."),
-    ).toBeVisible()
-    const ideaCard = screen.getByRole("article", { name: "Prep Forecast" })
-    expect(await within(ideaCard).findByTestId("idea-critique-0")).toHaveTextContent(
-      "critique text",
+      screen.queryByText("Recommend daily prep quantities from recent demand."),
+    ).not.toBeInTheDocument()
+    const ideaLink = screen.getByRole("link", { name: "View Prep Forecast" })
+    expect(ideaLink).toHaveAttribute(
+      "href",
+      "/ideas/independent-cafe-ideas/prep-forecast-id",
     )
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Critique for Prep Forecast: Response complete",
-    )
+    expect(ideaLink).toHaveAttribute("target", "_blank")
+    expect(ideaLink).toHaveAttribute("rel", "noopener noreferrer")
+    expect(screen.queryByTestId("idea-critique-0")).not.toBeInTheDocument()
     expect(screen.queryByText("Raw structured output")).not.toBeInTheDocument()
     expect(mocks.createIdeaJob).toHaveBeenCalledWith({
       prompt: "Ideas for independent cafés",
@@ -161,9 +163,10 @@ describe("Ideas", () => {
         name: "Proven Café Interventions",
       }),
     ).toHaveAttribute("href", "/deep-search/proven-cafe-interventions")
+
   })
 
-  it("nests each completed critique inside its idea card", async () => {
+  it("shows one idea list with selection progress and reasoning", async () => {
     mocks.subscribeToTextStream.mockImplementation(async function* (id: string) {
       await Promise.resolve()
       yield { type: "reasoning" as const, text: "Critique reasoning" }
@@ -171,11 +174,13 @@ describe("Ideas", () => {
       yield { type: "done" as const }
     })
     render(
-      <IdeaJobView
-        title="Generated ideas"
-        prompt="Generate ideas"
-        run={{
-          status: "completed",
+      <MemoryRouter>
+        <IdeaJobView
+          jobSlug="generated-ideas"
+          title="Generated ideas"
+          prompt="Generate ideas"
+          run={{
+          status: "running",
           failedStage: null,
           researchPromptStreamId: null,
           research: [],
@@ -194,72 +199,115 @@ describe("Ideas", () => {
               description: "Bundle likely leftovers before closing time.",
               selection: "rejected",
             },
+            {
+              ideaId: "demand-signals-id",
+              title: "Demand Signals",
+              description: "Surface local demand signals for café staff.",
+              selection: "selected",
+            },
           ],
           critiqueGenerationStreamIds: {
             0: "prep-critique",
             1: "bundle-critique",
           },
           ideaSelectionStreamId: "selection",
-          refinementGenerationStreamIds: {},
-          refinedIdeas: {},
-          refinedIdeaResearch: {},
+          refinementGenerationStreamIds: {
+            "prep-forecast-id": "prep-refinement",
+            "demand-signals-id": "demand-signals-refinement",
+          },
+          refinedIdeas: {
+            "prep-forecast-id": {
+              ideaId: "prep-forecast-id",
+              title: "Confidence-Aware Prep Forecast",
+              description: "Recommend prep ranges with staff overrides.",
+            },
+          },
+          refinedIdeaResearch: {
+            "prep-forecast-id": {
+              deepSearchJobId: "prep-research",
+              title: "Confidence-Aware Prep Forecast",
+              slug: "confidence-aware-prep-forecast",
+              researchRequest: "Research the improved prep forecast.",
+            },
+          },
           error: null,
-        }}
-      />,
+          }}
+        />
+      </MemoryRouter>,
+    )
+
+    const reasoningToggle = await screen.findByRole("button", {
+      name: "Show reasoning",
+    })
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Response complete"),
     )
 
     expect(
       screen.getByRole("button", { name: /Generate ideas Complete/ }),
     ).toHaveAttribute("aria-expanded", "true")
-    const prepCard = screen.getByRole("article", { name: "Prep Forecast" })
-    const bundleCard = screen.getByRole("article", { name: "Closing Bundles" })
-    expect(await within(prepCard).findByTestId("idea-critique-0")).toHaveTextContent(
-      "Response from prep-critique",
+    expect(
+      screen.getByRole("link", {
+        name: "View Confidence-Aware Prep Forecast",
+      }),
+    ).toHaveAttribute(
+      "href",
+      "/ideas/generated-ideas/prep-forecast-id#improved-idea",
+    )
+    expect(screen.getByRole("link", { name: "View Closing Bundles" })).toHaveAttribute(
+      "href",
+      "/ideas/generated-ideas/closing-bundles-id",
     )
     expect(
-      await within(bundleCard).findByTestId("idea-critique-1"),
-    ).toHaveTextContent("Response from bundle-critique")
-    expect(within(prepCard).queryByTestId("idea-critique-1")).not.toBeInTheDocument()
-    expect(within(bundleCard).queryByTestId("idea-critique-0")).not.toBeInTheDocument()
-    expect(within(prepCard).getByText("Selected idea")).toBeVisible()
-    expect(within(bundleCard).getByText("Not selected")).toBeVisible()
-    expect(await screen.findByTestId("idea-selection")).toBeVisible()
-    expect(screen.getByText("1 idea selected.")).toBeVisible()
+      screen.getByRole("link", { name: "View Demand Signals" }),
+    ).toHaveAttribute("href", "/ideas/generated-ideas/demand-signals-id")
+    expect(
+      screen.queryByRole("link", { name: "View selected Prep Forecast" }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", {
+        name: "View improved Confidence-Aware Prep Forecast",
+      }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByTestId("idea-critique-0")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("idea-critique-1")).not.toBeInTheDocument()
+    expect(screen.getByText("Rejected")).toBeVisible()
+    expect(screen.getByText("Improved")).toBeVisible()
+    expect(screen.getByText("Improving")).toBeVisible()
+    expect(screen.queryByTestId("idea-selection")).not.toBeInTheDocument()
+    expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(
+      "selection",
+      expect.any(AbortSignal),
+      expect.any(Function),
+    )
+    expect(screen.queryByText("Response from selection")).not.toBeInTheDocument()
+    fireEvent.click(reasoningToggle)
+    expect(screen.getByText("Critique reasoning")).toBeVisible()
+    expect(screen.getByText("2 ideas selected.")).toBeVisible()
+    expect(
+      screen.queryByRole("button", { name: /Select ideas/ }),
+    ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: /Critique each idea/ }),
     ).not.toBeInTheDocument()
     expect(screen.queryByText("Raw structured output")).not.toBeInTheDocument()
   })
 
-  it("shows the original, improved idea, and its completed research inline", async () => {
-    mocks.subscribeToDeepSearchJob.mockImplementation(async function* (
-      _id: string,
-      _signal?: AbortSignal,
-      onOpen?: () => void,
-    ) {
-      await Promise.resolve()
-      onOpen?.()
-      yield { type: "final-answer-stream" as const, streamId: "idea-answer" }
-      yield { type: "done" as const }
-    })
+  it("shows one idea's details and links to research without rendering it", async () => {
     mocks.subscribeToTextStream.mockImplementation(async function* (id: string) {
       await Promise.resolve()
       yield { type: "reasoning" as const, text: "Research reasoning" }
-      yield {
-        type: "text" as const,
-        text:
-          id === "idea-answer"
-            ? "Evidence supports a confidence-aware pilot."
-            : `Response from ${id}`,
-      }
+      yield { type: "text" as const, text: `Response from ${id}` }
       yield { type: "done" as const }
     })
 
     render(
       <MemoryRouter>
-        <IdeaJobView
-          title="Generated ideas"
-          prompt="Generate ideas"
+        <IdeaDetailView
+          ideaId="prep-forecast-id"
+          jobSlug="generated-ideas"
+          jobTitle="Generated ideas"
+          numberOfIdeas={1}
           run={{
             status: "completed",
             failedStage: null,
@@ -275,7 +323,7 @@ describe("Ideas", () => {
                 selection: "selected",
               },
             ],
-            critiqueGenerationStreamIds: {},
+            critiqueGenerationStreamIds: { 0: "prep-critique" },
             ideaSelectionStreamId: null,
             refinementGenerationStreamIds: {
               "prep-forecast-id": "refinement",
@@ -303,36 +351,39 @@ describe("Ideas", () => {
     )
 
     expect(
-      screen.getByRole("button", {
-        name: /Improve and research selected ideas Complete/,
+      screen.getByRole("heading", {
+        level: 1,
+        name: "Confidence-Aware Prep Forecast",
       }),
     ).toBeVisible()
-    const card = screen.getByRole("article", {
-      name: "Confidence-Aware Prep Forecast",
-    })
-    expect(within(card).queryByText("Selected idea")).not.toBeInTheDocument()
-    expect(within(card).getByText("Prep Forecast")).toBeVisible()
+    expect(screen.getByText("Prep Forecast")).toBeVisible()
     expect(
-      within(card).getByText(
+      screen.getByText(
         "Recommend prep ranges with confidence and staff overrides.",
       ),
     ).toBeVisible()
-    await waitFor(() =>
-      expect(
-        within(card).getByTestId("idea-research-prep-research"),
-      ).toHaveTextContent("Evidence supports a confidence-aware pilot."),
+    expect(await screen.findByTestId("idea-critique-0")).toHaveTextContent(
+      "Response from prep-critique",
     )
+    expect(screen.queryByTestId("idea-research-prep-research")).toBeNull()
+    expect(mocks.subscribeToDeepSearchJob).not.toHaveBeenCalled()
     expect(
-      within(card).getByRole("link", { name: "Open full research" }),
+      screen.getByRole("link", { name: "Open full research" }),
     ).toHaveAttribute("href", "/deep-search/confidence-aware-prep-forecast")
+    expect(screen.getByRole("link", { name: "Back to ideas" })).toHaveAttribute(
+      "href",
+      "/ideas/generated-ideas",
+    )
   })
 
   it("shows persisted ideas before their critique calls start", () => {
     render(
-      <IdeaJobView
-        prompt="Generate ideas"
-        title="Generated ideas"
-        run={{
+      <MemoryRouter>
+        <IdeaJobView
+          jobSlug="generated-ideas"
+          prompt="Generate ideas"
+          title="Generated ideas"
+          run={{
           status: "running",
           failedStage: null,
           researchPromptStreamId: "planning",
@@ -353,15 +404,18 @@ describe("Ideas", () => {
           refinedIdeas: {},
           refinedIdeaResearch: {},
           error: null,
-        }}
-      />,
+          }}
+        />
+      </MemoryRouter>,
     )
 
     expect(
-      screen.getByRole("button", { name: /Generate ideas Complete/ }),
+      screen.getByRole("button", { name: /Generate ideas Running/ }),
     ).toBeVisible()
-    const ideaCard = screen.getByRole("article", { name: "Prep Forecast" })
-    expect(within(ideaCard).getByText("Critique pending…")).toBeVisible()
+    expect(screen.getByRole("link", { name: "View Prep Forecast" })).toBeVisible()
+    expect(screen.getByText("Awaiting selection")).toBeVisible()
+    expect(screen.getByText(/Critiquing ideas/)).toBeVisible()
+    expect(screen.queryByText("Critique pending…")).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: /Critique each idea/ }),
     ).not.toBeInTheDocument()
@@ -382,6 +436,7 @@ describe("Ideas", () => {
 
     render(
       <IdeaJobView
+        jobSlug="generated-ideas"
         title="Generated ideas"
         prompt="Generate ideas"
         run={{
@@ -421,6 +476,7 @@ describe("Ideas", () => {
 
     render(
       <IdeaJobView
+        jobSlug="generated-ideas"
         title="Generated ideas"
         prompt="Generate ideas"
         run={{
@@ -449,12 +505,14 @@ describe("Ideas", () => {
     ).toBeVisible()
   })
 
-  it("marks generated ideas complete when critique creation fails", () => {
+  it("marks the combined idea stage failed when critique creation fails", () => {
     render(
-      <IdeaJobView
-        prompt="Generate ideas"
-        title="Generated ideas"
-        run={{
+      <MemoryRouter>
+        <IdeaJobView
+          jobSlug="generated-ideas"
+          prompt="Generate ideas"
+          title="Generated ideas"
+          run={{
           status: "failed",
           failedStage: "critique",
           researchPromptStreamId: "planning",
@@ -475,17 +533,146 @@ describe("Ideas", () => {
           refinedIdeas: {},
           refinedIdeaResearch: {},
           error: "Critique failed before streaming",
-        }}
-      />,
+          }}
+        />
+      </MemoryRouter>,
     )
 
     expect(
-      screen.getByRole("button", { name: /Generate ideas Complete/ }),
+      screen.getByRole("button", { name: /Generate ideas Failed/ }),
     ).toBeVisible()
-    const ideaCard = screen.getByRole("article", { name: "Prep Forecast" })
+    expect(screen.getByRole("link", { name: "View Prep Forecast" })).toBeVisible()
+    expect(screen.getByText("Selection incomplete")).toBeVisible()
+    expect(screen.queryByText("Awaiting selection")).not.toBeInTheDocument()
     expect(
-      within(ideaCard).getByText("Critique did not start for this idea."),
+      screen.queryByText("Critique did not start for this idea."),
+    ).not.toBeInTheDocument()
+  })
+
+  it("stops loading an invalid idea after every expected idea arrives", async () => {
+    mocks.getIdeaJob.mockResolvedValue({
+      ideaJobId: "idea-job-id",
+      title: "Independent Café Ideas",
+      slug: "independent-cafe-ideas",
+      prompt: "Ideas for independent cafés",
+      numberOfIdeas: 1,
+      deepSearchCount: 2,
+      stage: "ideas",
+      status: "running",
+      error: null,
+      createdAt: new Date(),
+      completedAt: null,
+    })
+    mocks.subscribeToIdeaJob.mockImplementation(async function* (
+      _id: string,
+      signal?: AbortSignal,
+    ) {
+      yield { type: "idea-generation-stream" as const, streamId: "ideas" }
+      yield {
+        type: "idea" as const,
+        ideaId: "prep-forecast-id",
+        title: "Prep Forecast",
+        description: "Recommend daily prep quantities.",
+      }
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) resolve()
+        else signal?.addEventListener("abort", () => resolve(), { once: true })
+      })
+    })
+
+    renderIdeas("/ideas/independent-cafe-ideas/missing-idea")
+
+    expect(
+      await screen.findByRole("heading", { name: "Idea not found" }),
     ).toBeVisible()
+    expect(
+      screen.queryByRole("heading", { name: "Loading idea…" }),
+    ).not.toBeInTheDocument()
+  })
+
+  it("shows a terminal selection failure on the idea detail page", () => {
+    render(
+      <MemoryRouter>
+        <IdeaDetailView
+          ideaId="prep-forecast-id"
+          jobSlug="generated-ideas"
+          jobTitle="Generated ideas"
+          numberOfIdeas={1}
+          run={{
+            status: "failed",
+            failedStage: "selection",
+            researchPromptStreamId: "planning",
+            research: [],
+            researchSummaryStreamId: "summary",
+            ideaGenerationStreamId: "ideas",
+            ideas: [
+              {
+                ideaId: "prep-forecast-id",
+                title: "Prep Forecast",
+                description: "Recommend daily prep quantities.",
+                selection: "pending",
+              },
+            ],
+            critiqueGenerationStreamIds: {},
+            ideaSelectionStreamId: "selection",
+            refinementGenerationStreamIds: {},
+            refinedIdeas: {},
+            refinedIdeaResearch: {},
+            error: "Selection failed",
+          }}
+        />
+      </MemoryRouter>,
+    )
+
+    expect(
+      screen.getByText("Selection did not complete for this idea."),
+    ).toBeVisible()
+    expect(screen.getByText("Selection incomplete")).toBeVisible()
+    expect(screen.queryByText("Awaiting selection")).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        "Selection starts after every idea has been critiqued…",
+      ),
+    ).not.toBeInTheDocument()
+  })
+
+  it("marks an unfinished refinement as failed instead of improving", () => {
+    render(
+      <MemoryRouter>
+        <IdeaJobView
+          jobSlug="generated-ideas"
+          prompt="Generate ideas"
+          title="Generated ideas"
+          run={{
+            status: "failed",
+            failedStage: "refinement",
+            researchPromptStreamId: "planning",
+            research: [],
+            researchSummaryStreamId: "summary",
+            ideaGenerationStreamId: "ideas",
+            ideas: [
+              {
+                ideaId: "prep-forecast-id",
+                title: "Prep Forecast",
+                description: "Recommend daily prep quantities.",
+                selection: "selected",
+              },
+            ],
+            critiqueGenerationStreamIds: {},
+            ideaSelectionStreamId: "selection",
+            refinementGenerationStreamIds: {
+              "prep-forecast-id": "prep-refinement",
+            },
+            refinedIdeas: {},
+            refinedIdeaResearch: {},
+            error: "Refinement failed",
+          }}
+        />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByText("Improvement failed")).toBeVisible()
+    expect(screen.queryByText("Improving")).not.toBeInTheDocument()
   })
 
   it("reconnects and replays when a job stream ends before done", async () => {

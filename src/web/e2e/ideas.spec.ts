@@ -272,42 +272,100 @@ test.describe("Ideas", () => {
     await expect(ideaStage).toContainText("Complete")
     await expect(ideaStage).toHaveAttribute("aria-expanded", "true")
     await expect(page.getByText("Raw structured output")).toHaveCount(0)
-    for (const [position, idea] of ideas.entries()) {
-      const ideaCard = page.getByRole("article", {
-        name: idea.title,
+    for (const idea of ideas) {
+      const refined = refinedIdeas.find(({ ideaId }) => ideaId === idea.ideaId)
+      const ideaLink = page.getByRole("link", {
+        name: `View ${refined?.title ?? idea.title}`,
         exact: true,
       })
-      await expect(
-        ideaCard.getByRole("heading", { name: idea.title, exact: true }),
-      ).toBeVisible()
-      await expect(
-        ideaCard.getByText(idea.description, { exact: true }),
-      ).toBeVisible()
-      await expect(
-        ideaCard.getByTestId(`idea-critique-${position}`),
-      ).toHaveText(
-        critiqueStreams[position]?.text ?? "",
+      await expect(ideaLink).toHaveAttribute(
+        "href",
+        `/ideas/${slug}/${idea.ideaId}#improved-idea`,
       )
+      await expect(ideaLink).toHaveAttribute("target", "_blank")
+      await expect(ideaLink).toHaveAttribute("rel", "noopener noreferrer")
+      await expect(
+        page.getByRole("link", {
+          name: `View selected ${idea.title}`,
+          exact: true,
+        }),
+      ).toHaveCount(0)
+      await expect(
+        page.getByRole("link", {
+          name: `View improved ${refined?.title ?? idea.title}`,
+          exact: true,
+        }),
+      ).toHaveCount(0)
+      await expect(
+        page.getByText(refined?.description ?? idea.description, { exact: true }),
+      ).toHaveCount(0)
     }
-    for (const refined of refinedIdeas) {
-      const refinedCard = page.getByRole("article", {
-        name: refined.title,
-        exact: true,
-      })
-      await expect(refinedCard.getByText("Original idea")).toBeVisible()
+    await expect(page.locator('[data-testid^="idea-critique-"]')).toHaveCount(0)
+    for (const child of ideaResearch) {
       await expect(
-        refinedCard.getByText(refined.description, { exact: true }),
-      ).toBeVisible()
-      const child = ideaResearch.find(({ ideaId }) => ideaId === refined.ideaId)
-      await expect(
-        refinedCard.getByTestId(
-          `idea-research-${child?.deepSearchJobId ?? "missing"}`,
-        ),
-      ).toContainText(refined.title)
+        page.getByTestId(`idea-research-${child.deepSearchJobId}`),
+      ).toHaveCount(0)
     }
     await expect(
       page.getByRole("button", { name: /Critique each idea/ }),
     ).toHaveCount(0)
+    await expect(
+      page.getByRole("button", { name: /Select ideas/ }),
+    ).toHaveCount(0)
+    await expect(
+      page.getByRole("heading", { name: "Selection reasoning" }),
+    ).toBeVisible()
+    await expect(page.getByText("selectedIdeaIds")).toHaveCount(0)
+
+    const firstIdea = ideas[0]
+    const firstRefined = refinedIdeas.find(
+      ({ ideaId }) => ideaId === firstIdea.ideaId,
+    )!
+    const firstResearch = ideaResearch.find(
+      ({ ideaId }) => ideaId === firstIdea.ideaId,
+    )!
+    const detailPagePromise = page.waitForEvent("popup")
+    await page
+      .getByRole("link", {
+        name: `View ${firstRefined.title}`,
+        exact: true,
+      })
+      .click()
+    const detailPage = await detailPagePromise
+    await expect(detailPage).toHaveURL(
+      new RegExp(`/ideas/${slug}/${firstIdea.ideaId}#improved-idea$`),
+    )
+    await expect(
+      detailPage.getByRole("heading", { level: 1, name: firstRefined.title }),
+    ).toBeVisible()
+    const improvedHeading = detailPage.getByRole("heading", {
+      level: 2,
+      name: "Improved idea",
+    })
+    await expect(improvedHeading).toBeFocused()
+    await expect(detailPage.getByText("Original idea")).toBeVisible()
+    await expect(
+      detailPage.getByText(firstIdea.description, { exact: true }),
+    ).toBeVisible()
+    await expect(detailPage.getByTestId("idea-critique-0")).toHaveText(
+      critiqueStreams[0]?.text ?? "",
+    )
+    await expect(
+      detailPage.getByTestId(`idea-research-${firstResearch.deepSearchJobId}`),
+    ).toHaveCount(0)
+    await expect(
+      detailPage.getByRole("link", { name: "Open full research" }),
+    ).toHaveAttribute("href", `/deep-search/${firstResearch.slug}`)
+
+    await detailPage.reload()
+    await expect(
+      detailPage.getByRole("heading", { level: 1, name: firstRefined.title }),
+    ).toBeVisible()
+    await expect(detailPage.getByTestId("idea-critique-0")).toHaveText(
+      critiqueStreams[0]?.text ?? "",
+    )
+    await expect(improvedHeading).toBeFocused()
+    await detailPage.close()
 
     const summaryStage = page.getByRole("button", {
       name: /Summarise the research/,
@@ -320,7 +378,7 @@ test.describe("Ideas", () => {
     const researchStage = page.getByRole("button", { name: /Deep research/ })
     await researchStage.click()
     const researchLinks = page.locator('a[href^="/deep-search/"]')
-    await expect(researchLinks).toHaveCount(14)
+    await expect(researchLinks).toHaveCount(2)
     for (const child of research) {
       const link = page.locator(
         `a[href="/deep-search/${child.slug}"]`,
@@ -388,23 +446,15 @@ test.describe("Ideas", () => {
     })
     await expect(replayedIdeaStage).toContainText("Complete")
     await expect(replayedIdeaStage).toHaveAttribute("aria-expanded", "true")
-    for (const [position, idea] of ideas.entries()) {
-      const ideaCard = page.getByRole("article", {
-        name: idea.title,
-        exact: true,
-      })
-      await expect(
-        ideaCard.getByRole("heading", { name: idea.title, exact: true }),
-      ).toBeVisible()
-      await expect(
-        ideaCard.getByTestId(`idea-critique-${position}`),
-      ).toHaveText(critiqueStreams[position]?.text ?? "")
-    }
     for (const refined of refinedIdeas) {
       await expect(
-        page.getByRole("article", { name: refined.title, exact: true }),
+        page.getByRole("link", {
+          name: `View ${refined.title}`,
+          exact: true,
+        }),
       ).toBeVisible()
     }
+    await expect(page.locator('[data-testid^="idea-critique-"]')).toHaveCount(0)
 
     await page.goto("/ideas")
     await expect(

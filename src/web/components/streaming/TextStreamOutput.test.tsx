@@ -67,6 +67,46 @@ describe("TextStreamOutput", () => {
     expect(screen.getByText("Partial child output")).toBeVisible()
   })
 
+  it("can show reasoning without rendering the structured response", () => {
+    render(
+      <TextStreamOutput
+        showText={false}
+        stream={{
+          status: "completed",
+          reasoning: "Selection reasoning",
+          text: '{"selectedIdeaIds":["idea-one"]}',
+        }}
+        textTestId="selection"
+        waitingText="Selecting ideas…"
+      />,
+    )
+
+    expect(screen.queryByText("selectedIdeaIds")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Show reasoning" }))
+    expect(screen.getByText("Selection reasoning")).toBeVisible()
+  })
+
+  it("keeps stream errors visible when the response body is hidden", () => {
+    render(
+      <TextStreamOutput
+        showText={false}
+        stream={{
+          status: "error",
+          reasoning: "",
+          text: '{"selectedIdeaIds":["idea-one"]}',
+          message: "Live response unavailable. Reload the page to try again.",
+        }}
+        textTestId="selection"
+        waitingText="Selecting ideas…"
+      />,
+    )
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Live response unavailable. Reload the page to try again.",
+    )
+    expect(screen.queryByText("selectedIdeaIds")).not.toBeInTheDocument()
+  })
+
   it("renders model Markdown as formatted, safe content", () => {
     render(
       <TextStreamOutput

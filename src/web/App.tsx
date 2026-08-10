@@ -178,6 +178,7 @@ function RoutedContent() {
         />
         <Route path="/ideas" element={<Ideas />} />
         <Route path="/ideas/:slug" element={<Ideas />} />
+        <Route path="/ideas/:slug/:ideaId" element={<Ideas />} />
         <Route path="/debates" element={<Debates />} />
         <Route path="/debates/:slug" element={<Debates />} />
         <Route path="/about" element={<About />} />
@@ -280,6 +281,14 @@ export function App() {
           element={
             <ShareableResourceRoute maxWidth="xl">
               <Debates />
+            </ShareableResourceRoute>
+          }
+        />
+        <Route
+          path="/ideas/:slug/:ideaId"
+          element={
+            <ShareableResourceRoute maxWidth="md">
+              <Ideas />
             </ShareableResourceRoute>
           }
         />

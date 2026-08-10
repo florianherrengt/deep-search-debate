@@ -11,6 +11,7 @@ type GenerationOutputProps = {
   headingComponent: "h2" | "h3" | "h4"
   announcementLabel?: string
   format?: StreamTextFormat
+  showText?: boolean
 }
 
 /** Displays one retained model-generation stream. */
@@ -22,6 +23,7 @@ export function GenerationOutput({
   headingComponent,
   announcementLabel,
   format,
+  showText,
 }: GenerationOutputProps) {
   const stream = useTextStream(streamId)
 
@@ -35,6 +37,7 @@ export function GenerationOutput({
           announcementLabel={announcementLabel}
           format={format}
           stream={stream}
+          showText={showText}
           waitingText={waitingText}
           textTestId={testId}
         />
