@@ -20,6 +20,10 @@ stream ID. The provider adapter translates that call-level intent into DeepSeek
 thinking or OpenCode Zen reasoning effort. See `routes/docs/text-streaming.md`
 for the client contract.
 
+For durable streams, `promptName` is also the operational stage name stored on
+`llm_generations` and emitted in the terminal lifecycle log. Prompts and model
+outputs themselves are never included in that log.
+
 `generatePromptTitle`, `generateArrayStream`, and `generateObjectStream` request
 reasoning-disabled calls and schema-validated output. Job creation awaits the
 short title preflight call before inserting the durable job and returning its

@@ -119,6 +119,32 @@ describe("webExtract", () => {
     expect(result.content).toContain("Useful PDF evidence line 8")
   })
 
+  it("rejects non-document binary payloads before visible-text extraction", async () => {
+    const harness = createHarness()
+    harness.fetchPage
+      .mockResolvedValueOnce({
+        body: new Uint8Array(500).fill(0xff),
+        contentType: "image/png",
+        credits: 1,
+      })
+      .mockResolvedValueOnce(htmlPage(usableHtml("Browser document"), {
+        contentType: "text/html; charset=utf-8",
+        credits: 10,
+      }))
+
+    const result = await harness.extract({ url: "https://example.com/image" })
+
+    expect(harness.fetchPage.mock.calls.map(([call]) => call.mode)).toEqual([
+      "http",
+      "browser-us",
+    ])
+    expect(result.content).toContain("Browser document explains")
+    expect(harness.logs[0]).toMatchObject({
+      outcome: "failure",
+      failure: "Unsupported page content type: image/png",
+    })
+  })
+
   it("logs a failed cheap request before escalating to browser rendering", async () => {
     const harness = createHarness()
     harness.fetchPage

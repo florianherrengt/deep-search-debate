@@ -56,7 +56,7 @@ const ideaJobEventSchema = z.discriminatedUnion("type", [
     selectedIdeaIds: z
       .array(z.string().min(1))
       .min(6)
-      .max(100)
+      .max(12)
       .refine((ids) => ids.length % 2 === 0)
       .refine((ids) => new Set(ids).size === ids.length),
   }),

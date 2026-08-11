@@ -5,7 +5,7 @@ the existing researched, critiqued, selected, refined, and individually
 researched idea pipeline, then admits only its selected normalized ideas to
 Swiss play and a top-four knockout. The
 selection agent consumes critiques, but tournament advocates and judges do not.
-Critiques and selection reasoning remain available on the linked idea-job view.
+Critiques and the selection output remain available on the linked idea-job view.
 Closing or reloading the page does not cancel work. Live subscriptions replay
 retained events and terminal jobs rebuild their UI snapshot from SQLite.
 
@@ -14,7 +14,7 @@ retained events and terminal jobs rebuild their UI snapshot from SQLite.
 The format is defined by `DEBATE_TOURNAMENT_FORMAT` and the participant-count
 helpers in `routes/debates/tournament.ts`:
 
-- an even selected field from 6 through 100 ideas
+- an even selected field from 6 through 12 ideas
 - five Swiss rounds with half the selected field competing in each round
 - one debate per idea per Swiss round and no repeated Swiss opponents
 - wins, then Elo, two-way head-to-head when applicable, then seeded random order
@@ -26,18 +26,20 @@ helpers in `routes/debates/tournament.ts`:
 
 Six is the minimum viable field because five Swiss rounds without rematches
 require at least five distinct opponents, while an even field lets every idea
-compete exactly once per round. Selection output below six, above 100, or with
+compete exactly once per round. Selection output below six, above 12, or with
 an odd count fails the idea pipeline before any debate round is created.
 
 Pairings and judge presentation slots are deterministic from the persisted
 random seed. The first Swiss round uses a seeded shuffle. Later rounds rank the
 field, then use deterministic score-ordered backtracking: the highest-ranked
 unpaired idea tries its closest eligible opponent by win and Elo gap, the search
-backtracks when a partial pairing dead-ends, and it stops at the first complete
-non-repeating pairing. This avoids the factorial cost of exhaustively scoring
-every possible matching, which cannot support 100 entrants. The tradeoff is that
-the chosen complete round is locally score-aware rather than guaranteed to be
-the globally minimum-gap matching.
+backtracks when a partial pairing dead-ends, and it accepts a complete pairing
+only when the unused opponent graph still contains enough edge-disjoint perfect
+matchings for every later Swiss round. The bounded 6–12 participant field and
+memoized feasibility search make this deterministic without a scheduler or a
+precomputed standings-blind bracket. The chosen complete round is locally
+score-aware and future-feasible rather than guaranteed to be the globally
+minimum-gap matching.
 
 Presentation order is randomized. Rankings and prior matches never enter an
 advocate or judge prompt. Every selected idea plays every Swiss round; a Swiss
@@ -46,16 +48,35 @@ knockout run.
 
 Every match runs both openings concurrently, then both rebuttals concurrently,
 then one structured judge verdict. All matches in the same round also run
-concurrently. Debates use each selected idea's refined title and description.
+concurrently at the orchestration layer; the shared process-wide LLM queue
+bounds actual provider concurrency to four by default. Debates use each
+selected idea's refined title and description.
+Advocate prose disables hidden reasoning so its output budget is reserved for
+the persisted opening or rebuttal rather than an invisible reasoning trace.
 Every advocate receives the current matchup, shared original prompt and
 briefing research, and only its assigned candidate's idea-specific research; it
 does not receive its opponent's report. The judge receives both candidates'
-idea-specific research plus the complete current transcript.
+idea-specific research plus the complete current transcript. Dynamic debate
+context shares the configured aggregate character ceiling, retaining a bounded
+entry for every required section rather than allowing candidate research and
+transcripts to grow without limit.
 
-Debate-owned idea and deep-search LLM calls set `maxRetries` to zero. Any model
-failure therefore fails the tournament with its original error instead of being
-hidden by an SDK retry. Standalone idea and deep-search requests retain the SDK's
-default retry behavior.
+Debate-owned LLM calls use the configured bounded SDK request policy: two
+retries with exponential backoff by default. This handles retryable request
+failures such as provider rate limits without adding an application retry service. Advocate
+and judge stages add one narrower application-level retry only when a completed
+provider stream is classified as a finish-reason failure with the AI SDK's
+unified `other` reason. This bounded heuristic covers the observed Zen case
+where an otherwise normal response ended prematurely with an unknown provider
+reason. It does not retry `length`, `content-filter`, exhausted stream/request,
+validation, or persistence failures.
+
+Each application-level generation attempt remains a durable `llm_generations`
+row; the SDK's transport retries occur inside that one generation. An advocate retry
+compare-and-swap replaces the stable transcript message's generation link only
+when it still points to the exact failed `other` attempt; concurrent or stale
+replacement fails closed. Failed judge attempts remain unlinked, and only the
+successful verdict transaction creates the judge message and match result.
 
 ## HTTP contract
 
@@ -63,6 +84,13 @@ Creation, history, and visibility changes require a Better Auth session.
 Creation records the authenticated user on the debate and its atomic idea-job
 parent; history includes the viewer's private debates and every public debate.
 Debates are private by default.
+
+Creation accepts the same `deepSearchCount`, `maxSearches`,
+`maxResultsPerSearch`, and `maxRounds` controls as an idea job. Their defaults
+remain `2`, `3`, `3`, and `3`; the shared root-workflow page-budget validation
+applies before any row or provider call is created. Narrower values let
+operators run a complete real-provider tournament smoke without a parallel
+test-only workflow.
 
 Detail and event reads allow either the owner or any viewer when the debate is
 public. Public read access follows the aggregate into the debate-owned idea job,
@@ -83,8 +111,8 @@ Starts idea generation and the automatic tournament. It returns `202 Accepted`:
 ```
 
 `numberOfIdeas` configures how many candidates the idea stage generates. It is
-an integer from 6 through 100 and defaults to 12. The selector may reject ideas,
-but its admitted set must still satisfy the even 6-through-100 tournament
+an integer from 6 through 20 and defaults to 12. The selector may reject ideas,
+but its admitted set must still satisfy the even 6-through-12 tournament
 invariant. `isPublic` is optional and defaults to `false`.
 
 ```json
@@ -122,15 +150,19 @@ from SQLite.
 ### `PATCH /api/debate-jobs/:debateJobId`
 
 The authenticated owner may update one or more mutable debate fields. The
-currently supported field publishes or revokes a debate at any time:
+currently supported field publishes a debate at any time and revokes it after
+the debate reaches a terminal state:
 
 ```json
 { "isPublic": true }
 ```
 
 It returns the debate's current mutable fields as `{ "isPublic": true }`.
-Non-owners and unknown UUIDs receive 404. Revoking visibility makes new
-anonymous requests to the debate and every nested resource return 404.
+Non-owners and unknown UUIDs receive 404. A running public debate cannot be made
+private because already accepted anonymous NDJSON responses cannot be revoked;
+that transition returns `409`. After completion, failure, or interruption,
+revoking visibility makes new anonymous requests to the debate and every nested
+resource return 404.
 
 ## Persistence and recovery
 

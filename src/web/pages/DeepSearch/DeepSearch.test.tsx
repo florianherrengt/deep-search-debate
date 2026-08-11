@@ -59,6 +59,7 @@ function deepSearchJob() {
     researchRequest: "Research this",
     maxSearches: 3,
     maxResultsPerSearch: 3,
+    maxRounds: 3,
     status: "completed" as const,
     error: null,
     createdAt: new Date(),
@@ -93,9 +94,14 @@ describe("DeepSearch", () => {
   it("creates a job, subscribes, and displays search results", async () => {
     async function* events() {
       await Promise.resolve()
-      yield { type: "query-stream" as const, streamId: "query-stream-id" }
+      yield {
+        type: "query-stream" as const,
+        round: 0,
+        streamId: "query-stream-id",
+      }
       yield {
         type: "search-results" as const,
+        round: 0,
         searches: [
           {
             query: "test query",
@@ -116,11 +122,13 @@ describe("DeepSearch", () => {
       }
       yield {
         type: "selection-stream" as const,
+        round: 0,
         query: "test query",
         streamId: "selection-stream-id",
       }
       yield {
         type: "selected-search-results" as const,
+        round: 0,
         query: "test query",
         selectedLinks: ["https://example.com/result"],
       }
@@ -131,6 +139,7 @@ describe("DeepSearch", () => {
       }
       yield {
         type: "query-summary-stream" as const,
+        round: 0,
         query: "test query",
         streamId: "query-summary-stream-id",
       }
@@ -210,7 +219,7 @@ describe("DeepSearch", () => {
     const reasoningSections = [
       {
         container: screen
-          .getByText("Generated search queries")
+          .getByText("Round 1 search queries")
           .closest(".MuiPaper-root"),
         reasoning: "Prioritizing queries",
       },
@@ -326,6 +335,7 @@ describe("DeepSearch", () => {
       await Promise.resolve()
       yield {
         type: "search-results" as const,
+        round: 0,
         searches: [
           {
             query: "test query",
@@ -346,6 +356,7 @@ describe("DeepSearch", () => {
       }
       yield {
         type: "selected-search-results" as const,
+        round: 0,
         query: "test query",
         selectedLinks: [
           "https://example.com/first",
@@ -449,6 +460,26 @@ describe("DeepSearch", () => {
     expect(
       screen.queryByText("Live updates were interrupted. Reconnecting…"),
     ).not.toBeInTheDocument()
+  })
+
+  it("shows the non-fatal fallback when round review fails", async () => {
+    mocks.subscribeToDeepSearchJob.mockImplementation(async function* () {
+      await Promise.resolve()
+      yield {
+        type: "round-review-error" as const,
+        round: 0,
+        message: "Review unavailable",
+      }
+      yield { type: "done" as const }
+    })
+
+    renderDeepSearch("/deep-search/research-this")
+
+    expect(
+      await screen.findByText(
+        "Review failed; continuing with the current evidence. Review unavailable",
+      ),
+    ).toBeVisible()
   })
 
   it("renders an explicit resource not-found state", async () => {

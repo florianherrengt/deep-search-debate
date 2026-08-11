@@ -7,7 +7,7 @@ vi.mock("./brave.ts", () => ({
   brave: vi.fn(),
 }))
 vi.mock("../config.ts", () => ({
-  config: { webSearch: { provider: "brave" } },
+  config: { webSearch: { provider: "brave", timeoutMs: 30_000 } },
 }))
 
 import { brave } from "./brave.ts"
@@ -25,7 +25,10 @@ describe("webSearch", () => {
     const results = await webSearch({ query: "hello" })
 
     expect(results).toEqual(mockResults)
-    expect(brave).toHaveBeenCalledWith({ query: "hello" })
+    expect(brave).toHaveBeenCalledOnce()
+    const providerInput = vi.mocked(brave).mock.calls[0]?.[0]
+    expect(providerInput?.query).toBe("hello")
+    expect(providerInput?.signal).toBeInstanceOf(AbortSignal)
     expect(searxng).not.toHaveBeenCalled()
   })
 })

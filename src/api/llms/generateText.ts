@@ -1,10 +1,15 @@
 import { generateText, Output, streamText } from "ai"
+import PQueue from "p-queue"
 import z from "zod"
+import { config } from "../config.ts"
 import { PromptName, loadPrompt } from "./prompts.ts"
 import { llm, type LlmCallReasoning } from "./provider.ts"
 import {
-  registerTextStream,
+  prepareTextGeneration,
+  getUnsuccessfulFinishReasonMessage,
+  type GenerationHandle,
   type LlmGenerationOwner,
+  type TextGenerationPersistenceCallbacks,
   type TextStreamPersistenceTransaction,
 } from "./streams.ts"
 
@@ -12,17 +17,66 @@ const promptTitleSchema = z.object({
   title: z.string().trim().min(1).max(80),
 })
 
-type GenerateTextStreamInput = {
+type GenerateStreamInput = {
   userId: string
   owner: LlmGenerationOwner
   prompt: string
   promptName: PromptName
-  reasoning?: LlmCallReasoning
   model?: string
   temperature?: number
   maxOutputTokens?: number
-  maxRetries?: number
 }
+
+const streamTimeout = {
+  totalMs: config.llmExecution.totalTimeoutMs,
+  firstChunkMs: config.llmExecution.firstChunkTimeoutMs,
+  chunkMs: config.llmExecution.chunkTimeoutMs,
+}
+
+const llmGenerationQueue = new PQueue({
+  concurrency: config.llmExecution.maxConcurrentGenerations,
+})
+
+function asError(error: unknown, fallback: string): Error {
+  return error instanceof Error ? error : new Error(fallback, { cause: error })
+}
+
+/** Keeps per-stage budgets below the operator's deployment-wide ceiling. */
+function boundedOutputTokens(requested?: number): number {
+  return Math.min(
+    requested ?? config.llmExecution.maxOutputTokens,
+    config.llmExecution.maxOutputTokens,
+  )
+}
+
+function enqueueStreamingGeneration<T extends GenerationHandle>(
+  start: () => T,
+): Promise<T> {
+  const ready = Promise.withResolvers<T>()
+  void llmGenerationQueue
+    .add(async () => {
+      const generation = start()
+      ready.resolve(generation)
+      await generation.completion
+    })
+    .catch((error: unknown) =>
+      ready.reject(asError(error, "LLM queue failed")),
+    )
+  return ready.promise
+}
+
+function rejectedOutput<OutputValue>(error: unknown): Promise<OutputValue> {
+  const output = Promise.reject<OutputValue>(
+    asError(error, "LLM generation failed"),
+  )
+  void output.catch(() => undefined)
+  return output
+}
+
+// The SDK's default stream handler logs the complete provider error object,
+// which can contain request details. Durable generation state and the bounded
+// terminal log provide the diagnostics this application exposes instead.
+const suppressProviderErrorLogging = () => undefined
 
 async function loadStructuredPrompt(
   promptName: PromptName,
@@ -41,102 +95,171 @@ async function loadStructuredPrompt(
 }
 
 export async function generateTextStream(
-  params: GenerateTextStreamInput,
-): Promise<{ id: string }> {
-  const result = streamText({
-    model: llm.model(params.model),
-    prompt: params.prompt,
-    system: await loadPrompt(params.promptName),
-    temperature: params.temperature,
-    maxOutputTokens: params.maxOutputTokens,
-    maxRetries: params.maxRetries,
-    ...llm.callOptions(params.reasoning ?? "enabled"),
+  params: GenerateStreamInput &
+    TextGenerationPersistenceCallbacks & { reasoning: LlmCallReasoning },
+): Promise<GenerationHandle> {
+  const model = llm.model(params.model)
+  const system = await loadPrompt(params.promptName)
+  return enqueueStreamingGeneration(() => {
+    const prepared = prepareTextGeneration(params.userId, params.owner, {
+      onRegistered: params.onRegistered,
+      onCompleted: params.onCompleted,
+      onFailed: params.onFailed,
+      metadata: { modelId: model.modelId, promptName: params.promptName },
+    })
+    try {
+      const result = streamText({
+        model,
+        prompt: params.prompt,
+        system,
+        temperature: params.temperature,
+        maxOutputTokens: boundedOutputTokens(params.maxOutputTokens),
+        maxRetries: config.llmExecution.maxRetries,
+        timeout: streamTimeout,
+        onError: suppressProviderErrorLogging,
+        ...llm.callOptions(params.reasoning),
+      })
+      return prepared.start(result.stream, {
+        finishReason: result.finishReason,
+        usage: result.usage,
+      })
+    } catch (error) {
+      return prepared.fail(error)
+    }
   })
-
-  return {
-    id: registerTextStream(params.userId, params.owner, result.stream),
-  }
 }
 
 /** Generates the immutable display title used before a durable job starts. */
 export async function generatePromptTitle(prompt: string): Promise<string> {
-  const result = await generateText({
-    model: llm.model(),
-    prompt: `<user_request>\n${prompt}\n</user_request>`,
-    system: await loadStructuredPrompt(
-      PromptName.GeneratePromptTitle,
-      promptTitleSchema,
-    ),
-    maxOutputTokens: 50,
-    ...llm.callOptions("disabled"),
-    output: Output.object({ schema: promptTitleSchema }),
-  })
+  const system = await loadStructuredPrompt(
+    PromptName.GeneratePromptTitle,
+    promptTitleSchema,
+  )
+  const result = await llmGenerationQueue.add(() =>
+    generateText({
+      model: llm.model(),
+      prompt: `<user_request>\n${prompt}\n</user_request>`,
+      system,
+      maxOutputTokens: 50,
+      maxRetries: config.llmExecution.maxRetries,
+      timeout: config.llmExecution.totalTimeoutMs,
+      ...llm.callOptions("disabled"),
+      output: Output.object({ schema: promptTitleSchema }),
+    }),
+  )
+
+  const finishError = getUnsuccessfulFinishReasonMessage(result.finishReason)
+  if (finishError) throw new Error(finishError)
 
   return result.output.title
 }
 
 export async function generateArrayStream<Element>(
-  params: GenerateTextStreamInput & { element: z.ZodType<Element> },
-): Promise<{
-  id: string
-  output: Promise<Element[]>
-  elementStream: AsyncIterable<Element>
-}> {
-  const outputSchema = z.object({ elements: z.array(params.element) })
-  const result = streamText({
-    model: llm.model(params.model),
-    prompt: params.prompt,
-    system: await loadStructuredPrompt(params.promptName, outputSchema),
-    temperature: params.temperature,
-    maxOutputTokens: params.maxOutputTokens,
-    maxRetries: params.maxRetries,
-    ...llm.callOptions("disabled"),
-    output: Output.array({ element: params.element }),
-  })
-
-  return {
-    id: registerTextStream(params.userId, params.owner, result.stream),
-    output: Promise.resolve(result.output),
-    // `output` resolves once with the full array; this iterable yields each
-    // schema-validated element as soon as that element is complete.
-    elementStream: result.elementStream,
+  params: GenerateStreamInput & {
+    element: z.ZodType<Element>
+    onRegistered?: TextGenerationPersistenceCallbacks["onRegistered"]
+  },
+): Promise<
+  GenerationHandle & {
+    output: Promise<Element[]>
   }
+> {
+  const outputSchema = z.object({ elements: z.array(params.element) })
+  const model = llm.model(params.model)
+  const system = await loadStructuredPrompt(params.promptName, outputSchema)
+  return enqueueStreamingGeneration(() => {
+    const prepared = prepareTextGeneration(params.userId, params.owner, {
+      metadata: {
+        modelId: model.modelId,
+        promptName: params.promptName,
+      },
+      onRegistered: params.onRegistered,
+    })
+    try {
+      const result = streamText({
+        model,
+        prompt: params.prompt,
+        system,
+        temperature: params.temperature,
+        maxOutputTokens: boundedOutputTokens(params.maxOutputTokens),
+        maxRetries: config.llmExecution.maxRetries,
+        timeout: streamTimeout,
+        onError: suppressProviderErrorLogging,
+        ...llm.callOptions("disabled"),
+        output: Output.array({ element: params.element }),
+      })
+      const generation = prepared.start(result.stream, {
+        finishReason: result.finishReason,
+        usage: result.usage,
+      })
+      return { ...generation, output: Promise.resolve(result.output) }
+    } catch (error) {
+      return {
+        ...prepared.fail(error),
+        output: rejectedOutput<Element[]>(error),
+      }
+    }
+  })
 }
 
 export async function generateObjectStream<Result>(
-  params: GenerateTextStreamInput & {
+  params: GenerateStreamInput & {
     schema: z.ZodType<Result>
     reasoning?: LlmCallReasoning
     onCompleted?: (
       completed: { id: string; output: Result },
       transaction: TextStreamPersistenceTransaction,
     ) => void
+    onRegistered?: (
+      id: string,
+      transaction: TextStreamPersistenceTransaction,
+    ) => void
   },
-): Promise<{ id: string; output: Promise<Result> }> {
-  const result = streamText({
-    model: llm.model(params.model),
-    prompt: params.prompt,
-    system: await loadStructuredPrompt(params.promptName, params.schema),
-    temperature: params.temperature,
-    maxOutputTokens: params.maxOutputTokens,
-    maxRetries: params.maxRetries,
-    ...llm.callOptions(params.reasoning ?? "disabled"),
-    output: Output.object({ schema: params.schema }),
-  })
-
-  const id = params.onCompleted
-    ? registerTextStream(params.userId, params.owner, result.stream, {
-        onCompleted: (completed, transaction) => {
-          const output = params.schema.parse(
-            JSON.parse(completed.text) as unknown,
-          )
-          params.onCompleted?.(
-            { id: completed.id, output },
-            transaction,
-          )
-        },
+): Promise<GenerationHandle & { output: Promise<Result> }> {
+  const model = llm.model(params.model)
+  const system = await loadStructuredPrompt(params.promptName, params.schema)
+  return enqueueStreamingGeneration(() => {
+    const prepared = prepareTextGeneration(params.userId, params.owner, {
+      metadata: {
+        modelId: model.modelId,
+        promptName: params.promptName,
+      },
+      onRegistered: params.onRegistered,
+      onCompleted: params.onCompleted
+        ? (completed, transaction) => {
+            const output = params.schema.parse(
+              JSON.parse(completed.text) as unknown,
+            )
+            params.onCompleted?.(
+              { id: completed.id, output },
+              transaction,
+            )
+          }
+          : undefined,
+    })
+    try {
+      const result = streamText({
+        model,
+        prompt: params.prompt,
+        system,
+        temperature: params.temperature,
+        maxOutputTokens: boundedOutputTokens(params.maxOutputTokens),
+        maxRetries: config.llmExecution.maxRetries,
+        timeout: streamTimeout,
+        onError: suppressProviderErrorLogging,
+        ...llm.callOptions(params.reasoning ?? "disabled"),
+        output: Output.object({ schema: params.schema }),
       })
-    : registerTextStream(params.userId, params.owner, result.stream)
-
-  return { id, output: Promise.resolve(result.output) }
+      const generation = prepared.start(result.stream, {
+        finishReason: result.finishReason,
+        usage: result.usage,
+      })
+      return { ...generation, output: Promise.resolve(result.output) }
+    } catch (error) {
+      return {
+        ...prepared.fail(error),
+        output: rejectedOutput<Result>(error),
+      }
+    }
+  })
 }

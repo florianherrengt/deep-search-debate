@@ -10,17 +10,17 @@ import {
 import { createReplayableEventLog } from "../../helpers/replayableEventLog.ts"
 import { generatePromptTitle } from "../../llms/generateText.ts"
 import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
+import { reserveRootResearchCapacity } from "../researchCapacity.ts"
 import { runIdeaJob } from "./run.ts"
-import type { IdeaJobEvent, LiveIdeaJob } from "./schemas.ts"
+import {
+  createIdeaJobInputSchema,
+  type CreateIdeaJobRequest,
+  type IdeaJobEvent,
+  type LiveIdeaJob,
+} from "./schemas.ts"
 
-type StartIdeaJobInput = {
+type StartIdeaJobInput = CreateIdeaJobRequest & {
   title?: string
-  prompt: string
-  numberOfIdeas: number
-  deepSearchCount: number
-  maxSearches: number
-  maxResultsPerSearch: number
-  maxRetries?: number
 }
 
 type StartedIdeaJob = {
@@ -96,28 +96,36 @@ export function createIdeaJobManager(
 
   return {
     async start(userId, input, options) {
+      const validatedInput = createIdeaJobInputSchema.parse(input)
+      const normalizedInput = { ...input, ...validatedInput }
+      const releaseCapacity = reserveRootResearchCapacity(userId)
       const ideaJobId = randomUUID()
       const job = createReplayableEventLog<IdeaJobEvent>()
-      const { title: suppliedTitle, ...runInput } = input
-      const generatedTitle =
-        suppliedTitle ?? (await generatePromptTitle(input.prompt))
-      const identity = createIdeaIdentity(generatedTitle)
+      const { title: suppliedTitle, ...runInput } = normalizedInput
+      let identity: PromptIdentity
+      try {
+        const generatedTitle =
+          suppliedTitle ?? (await generatePromptTitle(normalizedInput.prompt))
+        identity = createIdeaIdentity(generatedTitle)
 
-      db.transaction((transaction) => {
-        const parent = options?.createParent?.(transaction, ideaJobId)
-        transaction
-          .insert(ideaJobs)
-          .values({
-            ideaJobId,
-            userId,
-            ...parent,
-            ...identity,
-            prompt: input.prompt,
-            numberOfIdeas: input.numberOfIdeas,
-            deepSearchCount: input.deepSearchCount,
-          })
-          .run()
-      })
+        db.transaction((transaction) => {
+          const parent = options?.createParent?.(transaction, ideaJobId)
+          transaction
+            .insert(ideaJobs)
+            .values({
+              ideaJobId,
+              userId,
+              ...parent,
+              ...identity,
+              prompt: normalizedInput.prompt,
+              numberOfIdeas: normalizedInput.numberOfIdeas,
+              deepSearchCount: normalizedInput.deepSearchCount,
+            })
+            .run()
+        })
+      } finally {
+        releaseCapacity()
+      }
       liveJobs.set(ideaJobId, job)
 
       const completion = runIdeaJob({

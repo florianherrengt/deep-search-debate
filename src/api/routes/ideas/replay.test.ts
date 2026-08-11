@@ -223,4 +223,53 @@ describe("reconstructIdeaJobEvents", () => {
       },
     ])
   })
+
+  it("derives selected-idea research from the owned child position", () => {
+    db.insert(ideaJobs)
+      .values({
+        userId: "test-user-id",
+        ideaJobId,
+        prompt: "Generate concepts",
+        numberOfIdeas: 1,
+        deepSearchCount: 2,
+      })
+      .run()
+    insertGeneration("refinement-id", '{"title":"Refined","description":"Better"}')
+    const ideaId = "33333333-3333-4333-8333-333333333333"
+    db.insert(ideas)
+      .values({
+        ideaId,
+        ideaJobId,
+        position: 0,
+        title: "Original",
+        description: "Original description",
+        selected: true,
+        refinementGenerationId: "refinement-id",
+        refinedTitle: "Refined",
+        refinedDescription: "Better",
+      })
+      .run()
+    db.insert(deepSearchJobs)
+      .values({
+        userId: "test-user-id",
+        deepSearchJobId: "22222222-2222-4222-8222-222222222222",
+        title: "Refined",
+        slug: "refined",
+        ideaJobId,
+        ideaJobPosition: 2,
+        researchRequest: "Research the refined idea",
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+      })
+      .run()
+
+    expect(reconstructIdeaJobEvents(ideaJobId)).toContainEqual({
+      type: "idea-deep-search-started",
+      ideaId,
+      deepSearchJobId: "22222222-2222-4222-8222-222222222222",
+      title: "Refined",
+      slug: "refined",
+      researchRequest: "Research the refined idea",
+    })
+  })
 })

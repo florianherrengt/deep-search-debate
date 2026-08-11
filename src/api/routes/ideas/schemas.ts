@@ -1,10 +1,17 @@
 import z from "zod"
+import { config } from "../../config.ts"
 import { ideaJobStages } from "../../db/schema/index.ts"
 import type { ReplayableEventLog } from "../../helpers/replayableEventLog.ts"
+import {
+  deepSearchControlsSchema,
+  deepSearchResearchRequestSchema,
+  maximumSelectedPagesForChildren,
+  rootSelectedPageBudgetMessage,
+} from "../deepSearch/resourceLimits.ts"
 
 export const ideaSchema = z.object({
-  title: z.string().trim().min(1),
-  description: z.string().trim().min(1),
+  title: z.string().trim().min(1).max(160),
+  description: z.string().trim().min(1).max(2_000),
 })
 
 export type Idea = z.infer<typeof ideaSchema>
@@ -16,14 +23,15 @@ export type IdeaEventStage =
   | "refinement"
   | "idea-research"
 
-export const MIN_SELECTED_IDEAS = 6
-export const MAX_IDEAS = 100
+const MIN_SELECTED_IDEAS = 6
+const MAX_SELECTED_IDEAS = 12
+const MAX_IDEAS = 20
 
 export const ideaSelectionSchema = z.object({
   selectedIdeaIds: z
     .array(z.uuid())
     .min(MIN_SELECTED_IDEAS)
-    .max(MAX_IDEAS)
+    .max(MAX_SELECTED_IDEAS)
     .refine((ids) => ids.length % 2 === 0, {
       message: "The number of selected ideas must be even",
     })
@@ -71,15 +79,35 @@ export type IdeaJobEvent =
 
 export type LiveIdeaJob = ReplayableEventLog<IdeaJobEvent>
 
-// Search controls remain positive and otherwise configurable. Deployments must
-// enforce quotas and concurrency policy outside this request schema.
-export const createIdeaJobInputSchema = z.object({
-  prompt: z.string().trim().min(1),
-  numberOfIdeas: z.number().int().min(MIN_SELECTED_IDEAS).max(MAX_IDEAS).default(12),
-  deepSearchCount: z.number().int().positive().default(2),
-  maxSearches: z.number().int().positive().default(3),
-  maxResultsPerSearch: z.number().int().positive().default(3),
-})
+export const createIdeaJobInputSchema = deepSearchControlsSchema
+  .safeExtend({
+    prompt: deepSearchResearchRequestSchema,
+    numberOfIdeas: z
+      .number()
+      .int()
+      .min(MIN_SELECTED_IDEAS)
+      .max(MAX_IDEAS)
+      .default(12),
+    deepSearchCount: z
+      .number()
+      .int()
+      .positive()
+      .max(config.deepSearch.maxInitialIdeaSearches)
+      .default(2),
+  })
+  .refine(
+    (input) =>
+      maximumSelectedPagesForChildren(
+        input,
+        input.deepSearchCount +
+          Math.min(input.numberOfIdeas, MAX_SELECTED_IDEAS),
+      ) <= config.deepSearch.maxSelectedPagesPerRootJob,
+    {
+      message: rootSelectedPageBudgetMessage,
+      path: ["maxRounds"],
+    },
+  )
+export type CreateIdeaJobRequest = z.input<typeof createIdeaJobInputSchema>
 
 export const ideaJobEventParamsSchema = z.object({ ideaJobId: z.uuid() })
 

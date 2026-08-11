@@ -10,7 +10,7 @@ import {
   type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core"
 
-import { llmGenerationStatuses } from "./statuses.ts"
+import { llmFinishReasons, llmGenerationStatuses } from "./statuses.ts"
 import { user } from "./auth.ts"
 import { getDebateJobOwnerColumns } from "./debateJobs.ts"
 import { getDeepSearchJobOwnerColumns } from "./deepSearchJobs.ts"
@@ -27,12 +27,19 @@ export const llmGenerations = sqliteTable(
     debateJobId: text("debate_job_id"),
     ideaJobId: text("idea_job_id"),
     deepSearchJobId: text("deep_search_job_id"),
+    /** Requested call metadata; provider-dependent fields may remain null. */
+    modelId: text("model_id"),
+    promptName: text("prompt_name"),
     status: text("status", { enum: llmGenerationStatuses })
       .notNull()
       .default("running"),
     text: text("text"),
     reasoning: text("reasoning"),
     error: text("error"),
+    finishReason: text("finish_reason", { enum: llmFinishReasons }),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    reasoningTokens: integer("reasoning_tokens"),
     startedAt: integer("started_at", { mode: "timestamp_ms" })
       .notNull()
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
@@ -47,6 +54,10 @@ export const llmGenerations = sqliteTable(
     uniqueIndex("llm_generations_id_user_idea_job_idx").on(
       table.llmGenerationId,
       table.userId,
+      table.ideaJobId,
+    ),
+    uniqueIndex("llm_generations_id_idea_job_idx").on(
+      table.llmGenerationId,
       table.ideaJobId,
     ),
     uniqueIndex("llm_generations_id_user_deep_search_job_idx").on(
@@ -129,4 +140,11 @@ export function getLlmGenerationDeepSearchOwnerColumns(): [
     llmGenerations.userId,
     llmGenerations.deepSearchJobId,
   ]
+}
+
+export function getLlmGenerationIdeaColumns(): [
+  AnySQLiteColumn,
+  AnySQLiteColumn,
+] {
+  return [llmGenerations.llmGenerationId, llmGenerations.ideaJobId]
 }

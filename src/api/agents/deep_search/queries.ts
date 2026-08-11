@@ -1,79 +1,81 @@
 import z from "zod"
 import { generateArrayStream } from "../../llms/generateText.ts"
 import { PromptName } from "../../llms/prompts.ts"
-import { webSearch } from "../../web_search/index.ts"
-import type {
-  DeepSearchEvent,
-  DeepSearchSearchResults,
-} from "./schemas.ts"
+import {
+  awaitGenerationOutput,
+  type GenerationOutcome,
+} from "../../llms/streams.ts"
+import { formatSearchSummaryContext } from "./searchSummaryContext.ts"
 
 type GenerateWebSearchQueriesInput = {
   userId: string
   deepSearchJobId: string
   researchRequest: string
   maxSearches: number
-  onStreamCreated: (streamId: string) => void
-  maxRetries?: number
+  round?: number
+  previousQueries?: string[]
+  previousSearchSummaries?: { query: string; content: string }[]
+}
+
+export type QueryGeneration = {
+  streamId: string
+  queries: Promise<string[]>
+  completion: Promise<GenerationOutcome>
 }
 
 /**
- * Registers the query-generation text stream, announces its ID immediately, and
- * then collects the completed output into an ordered list of search queries.
+ * Registers query generation and exposes its stream, durable completion, and
+ * validated ordered result separately.
  */
 export async function generateWebSearchQueries(
   params: GenerateWebSearchQueriesInput,
-): Promise<string[]> {
-  const { id, output } = await generateArrayStream({
+): Promise<QueryGeneration> {
+  const round = params.round ?? 0
+  const previousQueries = params.previousQueries ?? []
+  const previousSearchSummaries = params.previousSearchSummaries ?? []
+  const previousResearch = formatSearchSummaryContext(previousSearchSummaries)
+  const generation = await generateArrayStream({
     userId: params.userId,
     owner: { deepSearchJobId: params.deepSearchJobId },
     prompt: [
       "<research_request>",
       params.researchRequest,
       "</research_request>",
-      `Generate exactly ${params.maxSearches} search queries.`,
+      ...(previousSearchSummaries.length > 0
+        ? [
+            "<previous_search_summaries>",
+            previousResearch,
+            "</previous_search_summaries>",
+          ]
+        : []),
+      `Generate exactly ${params.maxSearches} ${round === 0 ? "" : "new "}search queries.`,
     ].join("\n"),
     promptName: PromptName.GenerateWebSearchQueries,
-    element: z.string().trim().min(1),
-    maxRetries: params.maxRetries,
+    element: z.string().trim().min(1).max(500),
+    maxOutputTokens: 2_048,
   })
-  params.onStreamCreated(id)
 
-  return [...new Set(await output)].slice(0, params.maxSearches)
-}
-
-type GenerateSearchResultsInput = {
-  userId: string
-  deepSearchJobId: string
-  researchRequest: string
-  maxSearches: number
-  onEvent: (event: DeepSearchEvent) => void
-  onQueriesGenerated?: (queries: string[]) => void
-  maxRetries?: number
-}
-
-/**
- * Generates prioritized queries and executes the configured number of web
- * searches in parallel while exposing the query-generation stream to callers.
- */
-export async function generateSearchResults(
-  params: GenerateSearchResultsInput,
-): Promise<DeepSearchSearchResults> {
-  const queries = await generateWebSearchQueries({
-    userId: params.userId,
-    deepSearchJobId: params.deepSearchJobId,
-    researchRequest: params.researchRequest,
-    maxSearches: params.maxSearches,
-    onStreamCreated: (streamId) => {
-      params.onEvent({ type: "query-stream", streamId })
-    },
-    maxRetries: params.maxRetries,
+  const queries = awaitGenerationOutput(
+    generation,
+    generation.output,
+  ).then((output) => {
+    const seen = new Set(
+      previousQueries.map((query) => query.trim().toLocaleLowerCase()),
+    )
+    const uniqueQueries: string[] = []
+    for (const query of output) {
+      const normalized = query.trim().toLocaleLowerCase()
+      if (seen.has(normalized)) continue
+      seen.add(normalized)
+      uniqueQueries.push(query)
+      if (uniqueQueries.length === params.maxSearches) break
+    }
+    return uniqueQueries
   })
-  params.onQueriesGenerated?.(queries)
 
-  return Promise.all(
-    queries.map(async (query) => ({
-      query,
-      results: await webSearch({ query }),
-    })),
-  )
+  return {
+    streamId: generation.id,
+    queries,
+    completion: generation.completion,
+  }
 }

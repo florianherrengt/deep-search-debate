@@ -186,7 +186,7 @@ test.describe("Ideas", () => {
       expect(critiqueStream.text).toContain("clear renter-friendly mechanism")
       expect(
         critiqueStream.events.some((event) => event.type === "reasoning"),
-      ).toBe(true)
+      ).toBe(false)
     }
     for (const refinementStream of refinementStreams) {
       const refined = JSON.parse(refinementStream.text) as {

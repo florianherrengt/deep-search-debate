@@ -7,10 +7,9 @@ import {
   debateMatches,
   debateMessages,
   debateRounds,
-  deepSearchGeneratedQueries,
   deepSearchJobs,
   deepSearchQueries,
-  deepSearchQueryGenerations,
+  deepSearchRounds,
   deepSearchResults,
   deepSearchWebPages,
   ideaJobs,
@@ -156,7 +155,6 @@ describe("aggregate deletion", () => {
         refinementGenerationId,
         refinedTitle: "Improved idea 1",
         refinedDescription: "Improved description 1",
-        deepSearchJobId: refinedIdeaSearchJobId,
       },
       {
         ideaId: crypto.randomUUID(),
@@ -199,29 +197,22 @@ describe("aggregate deletion", () => {
       })
       .run()
 
-    const deepSearchQueryGenerationId = crypto.randomUUID()
-    const deepSearchGeneratedQueryId = crypto.randomUUID()
+    const deepSearchRoundId = crypto.randomUUID()
     const deepSearchQueryId = crypto.randomUUID()
     const deepSearchWebPageId = crypto.randomUUID()
-    db.insert(deepSearchQueryGenerations)
+    db.insert(deepSearchRounds)
       .values({
-        deepSearchQueryGenerationId,
+        deepSearchRoundId,
         deepSearchJobId,
         llmGenerationId: queryGenerationId,
-      })
-      .run()
-    db.insert(deepSearchGeneratedQueries)
-      .values({
-        deepSearchGeneratedQueryId,
-        deepSearchQueryGenerationId,
-        position: 0,
-        query: "product market",
       })
       .run()
     db.insert(deepSearchQueries)
       .values({
         deepSearchQueryId,
-        deepSearchGeneratedQueryId,
+        deepSearchRoundId,
+        position: 0,
+        query: "product market",
       })
       .run()
     db.insert(deepSearchWebPages)
@@ -239,7 +230,6 @@ describe("aggregate deletion", () => {
         title: "Research result",
         shortText: "Useful evidence",
         url: "https://example.com/research",
-        selectionStatus: "selected",
         deepSearchWebPageId,
       })
       .run()
@@ -262,8 +252,7 @@ describe("aggregate deletion", () => {
     expect(db.select().from(debateRounds).all()).toEqual([])
     expect(db.select().from(debateMatches).all()).toEqual([])
     expect(db.select().from(debateMessages).all()).toEqual([])
-    expect(db.select().from(deepSearchQueryGenerations).all()).toEqual([])
-    expect(db.select().from(deepSearchGeneratedQueries).all()).toEqual([])
+    expect(db.select().from(deepSearchRounds).all()).toEqual([])
     expect(db.select().from(deepSearchQueries).all()).toEqual([])
     expect(db.select().from(deepSearchWebPages).all()).toEqual([])
     expect(db.select().from(deepSearchResults).all()).toEqual([])

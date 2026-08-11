@@ -6,7 +6,12 @@ import { debateJobs } from "../../db/schema/index.ts"
 import { createReplayableEventLog } from "../../helpers/replayableEventLog.ts"
 import type { IdeaJobManager } from "../ideas/manager.ts"
 import { runDebateJob } from "./run.ts"
-import type { DebateJobEvent, LiveDebateJob } from "./schemas.ts"
+import {
+  createDebateJobInputSchema,
+  type CreateDebateJobRequest,
+  type DebateJobEvent,
+  type LiveDebateJob,
+} from "./schemas.ts"
 
 type StartedDebateJob = {
   debateJobId: string
@@ -18,7 +23,7 @@ type StartedDebateJob = {
 export type DebateJobManager = {
   start(
     userId: string,
-    input: { prompt: string; isPublic: boolean; numberOfIdeas: number },
+    input: CreateDebateJobRequest,
   ): Promise<StartedDebateJob>
   getLiveJob(debateJobId: string): LiveDebateJob | undefined
 }
@@ -59,7 +64,16 @@ export function createDebateJobManager(
   const liveJobs = new Map<string, LiveDebateJob>()
 
   return {
-    async start(userId, { isPublic, numberOfIdeas, prompt }) {
+    async start(userId, input) {
+      const {
+        deepSearchCount,
+        isPublic,
+        maxResultsPerSearch,
+        maxRounds,
+        maxSearches,
+        numberOfIdeas,
+        prompt,
+      } = createDebateJobInputSchema.parse(input)
       const debateJobId = randomUUID()
       const randomSeed = getRandomSeed()
       const job = createReplayableEventLog<DebateJobEvent>()
@@ -68,10 +82,10 @@ export function createDebateJobManager(
         {
           prompt,
           numberOfIdeas,
-          deepSearchCount: 2,
-          maxSearches: 3,
-          maxResultsPerSearch: 3,
-          maxRetries: 0,
+          deepSearchCount,
+          maxSearches,
+          maxResultsPerSearch,
+          maxRounds,
         },
         {
           createParent: (transaction) => {

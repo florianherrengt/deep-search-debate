@@ -11,6 +11,7 @@ import Typography from "@mui/material/Typography"
 import { useState } from "react"
 
 export type DebateVisibilityControlsProps = {
+  canMakePrivate: boolean
   error?: string
   isPending: boolean
   isPublic: boolean
@@ -19,6 +20,7 @@ export type DebateVisibilityControlsProps = {
 }
 
 export function DebateVisibilityControls({
+  canMakePrivate,
   error,
   isPending,
   isPublic,
@@ -50,7 +52,7 @@ export function DebateVisibilityControls({
               control={
                 <Switch
                   checked={isPublic}
-                  disabled={isPending}
+                  disabled={isPending || (isPublic && !canMakePrivate)}
                   onChange={(event) => onChange(event.target.checked)}
                 />
               }
@@ -59,7 +61,9 @@ export function DebateVisibilityControls({
             />
             <Typography color="text.secondary" variant="body2">
               {isPublic
-                ? "Anyone with the link can watch this debate live."
+                ? canMakePrivate
+                  ? "Anyone with the link can open this debate."
+                  : "A live public debate can be made private after it finishes."
                 : "Only you can open this debate."}
             </Typography>
           </Stack>

@@ -2,18 +2,15 @@ import z from "zod"
 
 import type { ReplayableEventLog } from "../../helpers/replayableEventLog.ts"
 import { debateJobStages, jobStatuses } from "../../db/schema/index.ts"
-import { MAX_IDEAS, MIN_SELECTED_IDEAS } from "../ideas/schemas.ts"
+import { createIdeaJobInputSchema } from "../ideas/schemas.ts"
 
-export const createDebateJobInputSchema = z.object({
-  prompt: z.string().trim().min(1),
+export const createDebateJobInputSchema = createIdeaJobInputSchema.safeExtend({
   isPublic: z.boolean().default(false),
-  numberOfIdeas: z
-    .number()
-    .int()
-    .min(MIN_SELECTED_IDEAS)
-    .max(MAX_IDEAS)
-    .default(12),
 })
+
+export type CreateDebateJobRequest = z.input<
+  typeof createDebateJobInputSchema
+>
 
 export const debateJobEventParamsSchema = z.object({ debateJobId: z.uuid() })
 

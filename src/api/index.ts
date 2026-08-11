@@ -1,4 +1,5 @@
-import { Hono } from "hono"
+import { Hono, type Context } from "hono"
+import { HTTPException } from "hono/http-exception"
 import { serveStatic } from "@hono/node-server/serve-static"
 import { fileURLToPath } from "node:url"
 import { ping } from "./routes/ping.ts"
@@ -24,7 +25,27 @@ import { loadOptionalSession } from "./middleware/loadOptionalSession.ts"
 
 recoverInterruptedWork()
 
+export function handleRequestError(
+  error: Error,
+  context: Context<AppEnv>,
+): Response {
+  if (error instanceof HTTPException) {
+    const response = error.getResponse()
+    return context.newResponse(response.body, response)
+  }
+
+  // Provider errors can retain full prompts, response bodies, and every retry
+  // attempt. Never pass the error object or its message to the process logger.
+  console.error("Unhandled request error", {
+    method: context.req.method,
+    path: context.req.path,
+    errorName: error.name,
+  })
+  return context.text("Internal Server Error", 500)
+}
+
 const app = new Hono<AppEnv>()
+app.onError(handleRequestError)
 const api = app.basePath("/api")
 
 ping(api)

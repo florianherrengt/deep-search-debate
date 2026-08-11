@@ -92,6 +92,33 @@ function isPdfBody(body: Uint8Array): boolean {
     .includes("%PDF-")
 }
 
+function normalizedContentType(contentType: string | undefined): string | undefined {
+  return contentType?.split(";", 1)[0]?.trim().toLowerCase()
+}
+
+function decodeTextDocument(body: Uint8Array, contentType: string | undefined): string {
+  const mediaType = normalizedContentType(contentType)
+  const supported = new Set([
+    "text/html",
+    "application/xhtml+xml",
+    "text/plain",
+    "text/markdown",
+  ])
+  if (mediaType !== undefined && !supported.has(mediaType)) {
+    throw new Error(`Unsupported page content type: ${mediaType}`)
+  }
+
+  const text = new TextDecoder().decode(body)
+  const replacementCount = text.split("\ufffd").length - 1
+  if (
+    text.includes("\0") ||
+    (text.length > 0 && replacementCount / text.length > 0.01)
+  ) {
+    throw new Error("Page response was not valid text content")
+  }
+  return text
+}
+
 async function extractContent(params: {
   body: Uint8Array
   contentType?: string
@@ -116,7 +143,10 @@ async function extractContent(params: {
     return { content: result?.content ?? "", html: "" }
   }
 
-  const html = new TextDecoder().decode(params.body)
+  const html = decodeTextDocument(params.body, params.contentType)
+  if (normalizedContentType(params.contentType) === "text/plain") {
+    return { content: html, html: "" }
+  }
   return { content: extractVisibleTextFromHtml(html), html }
 }
 

@@ -2,13 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import z from "zod"
 
 const mocks = vi.hoisted(() => ({
-  collectStreamText: vi.fn(),
   generateTextStream: vi.fn(),
   webExtract: vi.fn(),
-}))
-
-vi.mock("../../helpers/index.ts", () => ({
-  collectStreamText: mocks.collectStreamText,
 }))
 
 vi.mock("../../llms/generateText.ts", () => ({
@@ -21,6 +16,20 @@ vi.mock("../../web_search/webExtract.ts", () => ({
 
 import { startPageSummary, summarizePage } from "./summaries.ts"
 
+function completedGeneration(
+  id = "summary-stream-id",
+  text = "Completed page summary",
+) {
+  return {
+    id,
+    completion: Promise.resolve({
+      status: "completed" as const,
+      text,
+      reasoning: "",
+    }),
+  }
+}
+
 describe("page summaries", () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -28,11 +37,10 @@ describe("page summaries", () => {
       url: "https://example.com/page",
       content: "Extracted page content",
     })
-    mocks.collectStreamText.mockResolvedValue("Completed page summary")
   })
 
   it("registers a research-focused summary stream", async () => {
-    mocks.generateTextStream.mockResolvedValueOnce({ id: "summary-stream-id" })
+    mocks.generateTextStream.mockResolvedValueOnce(completedGeneration())
 
     const result = await summarizePage({
       userId: "test-user-id",
@@ -40,7 +48,6 @@ describe("page summaries", () => {
       researchRequest: "Research OpenAI products",
       url: "https://example.com/page",
       content: "Extracted page content",
-      maxRetries: 0,
     })
 
     expect(mocks.generateTextStream).toHaveBeenCalledWith({
@@ -55,13 +62,18 @@ describe("page summaries", () => {
         "</page_content>",
       ].join("\n"),
       promptName: "summarize-web-page",
-      maxRetries: 0,
+      reasoning: "disabled",
+      maxOutputTokens: 2_048,
     })
-    expect(result).toBe("summary-stream-id")
+    expect(result.streamId).toBe("summary-stream-id")
+    await expect(result.completion).resolves.toMatchObject({
+      status: "completed",
+      text: "Completed page summary",
+    })
   })
 
   it("bounds extracted content before sending it to the model", async () => {
-    mocks.generateTextStream.mockResolvedValueOnce({ id: "summary-stream-id" })
+    mocks.generateTextStream.mockResolvedValueOnce(completedGeneration())
     const content = `document-start-${"x".repeat(150_000)}-document-end`
 
     await summarizePage({
@@ -98,53 +110,41 @@ describe("page summaries", () => {
     ).rejects.toThrow("Stream registration failed")
   })
 
-  it("extracts a page and emits its registered summary stream", async () => {
-    const onEvent = vi.fn()
-    mocks.generateTextStream.mockResolvedValueOnce({ id: "summary-stream-id" })
+  it("extracts a page and returns its registered summary handle", async () => {
+    mocks.generateTextStream.mockResolvedValueOnce(completedGeneration())
 
     const result = await startPageSummary({
       userId: "test-user-id",
       deepSearchJobId: "deep-search-job-id",
       researchRequest: "Research this",
       url: "https://example.com/page",
-      onEvent,
     })
 
-    expect(onEvent).toHaveBeenCalledWith({
-      type: "page-summary-stream",
-      url: "https://example.com/page",
-      streamId: "summary-stream-id",
-    })
-    expect(mocks.collectStreamText).toHaveBeenCalledWith({
-      id: "summary-stream-id",
-    })
-    expect(result).toBe("Completed page summary")
+    expect(result.status).toBe("started")
+    if (result.status !== "started") throw new Error("Summary did not start")
+    expect(result.streamId).toBe("summary-stream-id")
+    await expect(result.summary).resolves.toBe("Completed page summary")
   })
 
-  it("emits extraction failures without starting a summary stream", async () => {
-    const onEvent = vi.fn()
+  it("returns extraction failures without starting a summary stream", async () => {
     mocks.webExtract.mockRejectedValueOnce(new Error("Extraction failed"))
 
-    await startPageSummary({
+    const result = await startPageSummary({
       userId: "test-user-id",
       deepSearchJobId: "deep-search-job-id",
       researchRequest: "Research this",
       url: "https://example.com/page",
-      onEvent,
     })
 
-    expect(onEvent).toHaveBeenCalledWith({
-      type: "page-summary-error",
-      url: "https://example.com/page",
+    expect(result).toEqual({
+      status: "failed",
       stage: "extraction",
       message: "Extraction failed",
     })
     expect(mocks.generateTextStream).not.toHaveBeenCalled()
-    expect(mocks.collectStreamText).not.toHaveBeenCalled()
   })
 
   it("isolates one page retrieval failure while another page remains usable", async () => {
-    const onEvent = vi.fn()
     mocks.webExtract.mockImplementation(({ url }: { url: string }) => {
       if (url.endsWith("/failed")) {
         return Promise.reject(new Error("All retrieval tiers failed"))
@@ -154,7 +154,9 @@ describe("page summaries", () => {
         content: "Usable content from the other page",
       })
     })
-    mocks.generateTextStream.mockResolvedValueOnce({ id: "usable-stream-id" })
+    mocks.generateTextStream.mockResolvedValueOnce(
+      completedGeneration("usable-stream-id"),
+    )
 
     const results = await Promise.all([
       startPageSummary({
@@ -162,75 +164,83 @@ describe("page summaries", () => {
         deepSearchJobId: "deep-search-job-id",
         researchRequest: "Research this",
         url: "https://example.com/usable",
-        onEvent,
       }),
       startPageSummary({
         userId: "test-user-id",
         deepSearchJobId: "deep-search-job-id",
         researchRequest: "Research this",
         url: "https://example.com/failed",
-        onEvent,
       }),
     ])
 
-    expect(results).toEqual(["Completed page summary", undefined])
-    expect(onEvent).toHaveBeenCalledWith({
-      type: "page-summary-stream",
-      url: "https://example.com/usable",
-      streamId: "usable-stream-id",
-    })
-    expect(onEvent).toHaveBeenCalledWith({
-      type: "page-summary-error",
-      url: "https://example.com/failed",
+    const [usable, failed] = results
+    expect(usable?.status).toBe("started")
+    if (usable?.status !== "started") throw new Error("Summary did not start")
+    expect(usable.streamId).toBe("usable-stream-id")
+    await expect(usable.summary).resolves.toBe("Completed page summary")
+    expect(failed).toEqual({
+      status: "failed",
       stage: "extraction",
       message: "All retrieval tiers failed",
     })
   })
 
-  it("reports summary stream registration failures separately", async () => {
-    const onEvent = vi.fn()
+  it("returns summary stream registration failures separately", async () => {
     mocks.generateTextStream.mockRejectedValueOnce(
       new Error("Stream registration failed"),
     )
 
-    await startPageSummary({
+    const result = await startPageSummary({
       userId: "test-user-id",
       deepSearchJobId: "deep-search-job-id",
       researchRequest: "Research this",
       url: "https://example.com/page",
-      onEvent,
     })
 
-    expect(onEvent).toHaveBeenCalledWith({
-      type: "page-summary-error",
-      url: "https://example.com/page",
+    expect(result).toEqual({
+      status: "failed",
       stage: "summary",
       message: "Stream registration failed",
     })
-    expect(mocks.collectStreamText).not.toHaveBeenCalled()
   })
 
   it("returns no summary when the registered stream fails", async () => {
-    const onEvent = vi.fn()
-    mocks.generateTextStream.mockResolvedValueOnce({ id: "summary-stream-id" })
-    mocks.collectStreamText.mockRejectedValueOnce(
-      new Error("Summary generation failed"),
-    )
-
-    await expect(
-      startPageSummary({
-        userId: "test-user-id",
-        deepSearchJobId: "deep-search-job-id",
-        researchRequest: "Research this",
-        url: "https://example.com/page",
-        onEvent,
+    mocks.generateTextStream.mockResolvedValueOnce({
+      id: "summary-stream-id",
+      completion: Promise.resolve({
+        status: "failed",
+        text: "",
+        reasoning: "",
+        error: "Summary generation failed",
       }),
-    ).resolves.toBeUndefined()
-
-    expect(onEvent).toHaveBeenCalledWith({
-      type: "page-summary-stream",
-      url: "https://example.com/page",
-      streamId: "summary-stream-id",
     })
+
+    const result = await startPageSummary({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
+      researchRequest: "Research this",
+      url: "https://example.com/page",
+    })
+    expect(result.status).toBe("started")
+    if (result.status !== "started") throw new Error("Summary did not start")
+    expect(result.streamId).toBe("summary-stream-id")
+    await expect(result.summary).resolves.toBeUndefined()
+  })
+
+  it("does not hide terminal persistence failures as snippet fallback", async () => {
+    mocks.generateTextStream.mockResolvedValueOnce({
+      id: "summary-stream-id",
+      completion: Promise.reject(new Error("SQLite unavailable")),
+    })
+
+    const result = await startPageSummary({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
+      researchRequest: "Research this",
+      url: "https://example.com/page",
+    })
+    expect(result.status).toBe("started")
+    if (result.status !== "started") throw new Error("Summary did not start")
+    await expect(result.summary).rejects.toThrow("SQLite unavailable")
   })
 })

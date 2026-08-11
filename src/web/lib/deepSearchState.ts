@@ -15,15 +15,29 @@ export type DeepSearchResultState = DeepSearchResults["results"][number] & {
 }
 
 export type DeepSearchSearchState = {
+  round: number
   query: string
   results: DeepSearchResultState[]
   selectionStreamId?: string
   querySummaryStreamId?: string
 }
 
+type DeepSearchQueryGenerationState = {
+  round: number
+  streamId: string
+}
+
+type DeepSearchRoundReviewState = {
+  round: number
+  streamId?: string
+  status: "running" | "continue" | "stop" | "error"
+  reason?: string
+}
+
 export type DeepSearchRunState = {
   status: "idle" | "running" | "completed" | "failed"
-  queryStreamId: string | null
+  queryGenerations: DeepSearchQueryGenerationState[]
+  roundReviews: DeepSearchRoundReviewState[]
   finalAnswerStreamId: string | null
   searches: DeepSearchSearchState[]
   error: string | null
@@ -31,7 +45,8 @@ export type DeepSearchRunState = {
 
 export const initialDeepSearchState: DeepSearchRunState = {
   status: "idle",
-  queryStreamId: null,
+  queryGenerations: [],
+  roundReviews: [],
   finalAnswerStreamId: null,
   searches: [],
   error: null,
@@ -40,15 +55,31 @@ export const initialDeepSearchState: DeepSearchRunState = {
 type DeepSearchAction = DeepSearchJobEvent | { type: "opened" }
 
 function createSearchState(
+  round: number,
   searches: DeepSearchResults[],
 ): DeepSearchSearchState[] {
   return searches.map((search) => ({
+    round,
     ...search,
     results: search.results.map((result) => ({
       ...result,
       selection: "pending",
     })),
   }))
+}
+
+function findSearch(
+  state: Draft<DeepSearchRunState>,
+  round: number,
+  query: string,
+) {
+  return state.searches.find(
+    (search) => search.round === round && search.query === query,
+  )
+}
+
+function findReview(state: Draft<DeepSearchRunState>, round: number) {
+  return state.roundReviews.find((review) => review.round === round)
 }
 
 function setPageSummary(
@@ -65,6 +96,18 @@ function setPageSummary(
   }
 }
 
+function findPageSummary(
+  state: Draft<DeepSearchRunState>,
+  url: string,
+): DeepSearchPageSummary | undefined {
+  for (const search of state.searches) {
+    const summary = search.results.find(
+      (result) => result.link === url && result.summary !== undefined,
+    )?.summary
+    if (summary) return summary
+  }
+}
+
 /** Folds local lifecycle actions and server events into rendered job state. */
 export const deepSearchReducer = produce<
   DeepSearchRunState,
@@ -74,25 +117,37 @@ export const deepSearchReducer = produce<
     case "opened":
       return { ...initialDeepSearchState, status: "running" }
     case "query-stream":
-      state.queryStreamId = action.streamId
+      state.queryGenerations = state.queryGenerations.filter(
+        ({ round }) => round !== action.round,
+      )
+      state.queryGenerations.push({
+        round: action.round,
+        streamId: action.streamId,
+      })
+      state.queryGenerations.sort((first, second) => first.round - second.round)
       break
     case "search-results":
-      state.searches = createSearchState(action.searches)
+      state.searches = state.searches.filter(
+        ({ round }) => round !== action.round,
+      )
+      state.searches.push(...createSearchState(action.round, action.searches))
+      state.searches.sort((first, second) => first.round - second.round)
       break
     case "selection-stream": {
-      const search = state.searches.find(({ query }) => query === action.query)
+      const search = findSearch(state, action.round, action.query)
       if (search) search.selectionStreamId = action.streamId
       break
     }
     case "selected-search-results": {
-      const search = state.searches.find(({ query }) => query === action.query)
+      const search = findSearch(state, action.round, action.query)
       if (!search) break
 
       const selectedLinks = new Set(action.selectedLinks)
       for (const result of search.results) {
         if (selectedLinks.has(result.link)) {
           result.selection = "selected"
-          result.summary ??= { status: "extracting" }
+          result.summary ??=
+            findPageSummary(state, result.link) ?? { status: "extracting" }
         } else {
           result.selection = "rejected"
           delete result.summary
@@ -113,8 +168,52 @@ export const deepSearchReducer = produce<
       })
       break
     case "query-summary-stream": {
-      const search = state.searches.find(({ query }) => query === action.query)
+      const search = findSearch(state, action.round, action.query)
       if (search) search.querySummaryStreamId = action.streamId
+      break
+    }
+    case "round-review-stream": {
+      const review = findReview(state, action.round)
+      if (review) {
+        review.streamId = action.streamId
+        review.status = "running"
+        delete review.reason
+      } else {
+        state.roundReviews.push({
+          round: action.round,
+          streamId: action.streamId,
+          status: "running",
+        })
+      }
+      state.roundReviews.sort((first, second) => first.round - second.round)
+      break
+    }
+    case "round-review": {
+      const review = findReview(state, action.round)
+      if (review) {
+        review.status = action.decision
+        review.reason = action.reason
+      } else {
+        state.roundReviews.push({
+          round: action.round,
+          status: action.decision,
+          reason: action.reason,
+        })
+      }
+      break
+    }
+    case "round-review-error": {
+      const review = findReview(state, action.round)
+      if (review) {
+        review.status = "error"
+        review.reason = action.message
+      } else {
+        state.roundReviews.push({
+          round: action.round,
+          status: "error",
+          reason: action.message,
+        })
+      }
       break
     }
     case "final-answer-stream":

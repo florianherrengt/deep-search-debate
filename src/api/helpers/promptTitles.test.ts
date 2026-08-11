@@ -27,4 +27,11 @@ describe("prompt titles", () => {
       slug: "london-energy-options-3",
     })
   })
+
+  it("normalizes supplied titles to the persisted display limit", () => {
+    const identity = createPromptIdentity("A".repeat(86), [])
+
+    expect(identity.title).toBe("A".repeat(80))
+    expect(identity.slug).toBe("a".repeat(80))
+  })
 })

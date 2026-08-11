@@ -32,10 +32,11 @@ function canonicalPair(firstIdeaId: string, secondIdeaId: string): string {
 }
 
 function assertGenerationOwnedByMatch(
+  transaction: TextStreamPersistenceTransaction,
   debateMatchId: string,
   llmGenerationId: string,
 ): void {
-  const ownedGeneration = db
+  const ownedGeneration = transaction
     .select({ llmGenerationId: llmGenerations.llmGenerationId })
     .from(debateMatches)
     .innerJoin(
@@ -286,13 +287,58 @@ export function createAgentMessage(input: {
   position: number
   speakerSlot: 0 | 1
   llmGenerationId: string
-}): string {
-  assertGenerationOwnedByMatch(input.debateMatchId, input.llmGenerationId)
-  const debateMessageId = randomUUID()
-  db.insert(debateMessages)
-    .values({ debateMessageId, ...input })
+}, transaction: TextStreamPersistenceTransaction): void {
+  assertGenerationOwnedByMatch(
+    transaction,
+    input.debateMatchId,
+    input.llmGenerationId,
+  )
+  transaction
+    .insert(debateMessages)
+    .values({ debateMessageId: randomUUID(), ...input })
     .run()
-  return debateMessageId
+}
+
+/** Repoints only the exact failed `other` attempt that authorized a retry. */
+export function replaceFailedAgentMessageGeneration(input: {
+  debateMatchId: string
+  position: number
+  failedGenerationId: string
+  retryGenerationId: string
+}, transaction: TextStreamPersistenceTransaction): void {
+  assertGenerationOwnedByMatch(
+    transaction,
+    input.debateMatchId,
+    input.retryGenerationId,
+  )
+  const failedAttempt = transaction
+    .select({ llmGenerationId: llmGenerations.llmGenerationId })
+    .from(llmGenerations)
+    .where(
+      and(
+        eq(llmGenerations.llmGenerationId, input.failedGenerationId),
+        eq(llmGenerations.status, "failed"),
+        eq(llmGenerations.finishReason, "other"),
+      ),
+    )
+    .get()
+  if (!failedAttempt) {
+    throw new Error("The replaced generation is not a failed other finish")
+  }
+  const replacement = transaction
+    .update(debateMessages)
+    .set({ llmGenerationId: input.retryGenerationId })
+    .where(
+      and(
+        eq(debateMessages.debateMatchId, input.debateMatchId),
+        eq(debateMessages.position, input.position),
+        eq(debateMessages.llmGenerationId, input.failedGenerationId),
+      ),
+    )
+    .run()
+  if (replacement.changes !== 1) {
+    throw new Error("The failed debate message generation link changed")
+  }
 }
 
 /** Adds the judge link and machine result to the generation's terminal transaction. */
@@ -302,6 +348,7 @@ export function completeDebateMatch(input: {
   judgeGenerationId: string
 }, transaction: TextStreamPersistenceTransaction): void {
   assertGenerationOwnedByMatch(
+    transaction,
     input.debateMatchId,
     input.judgeGenerationId,
   )

@@ -151,7 +151,7 @@ describe("database ownership constraints", () => {
         .set({ selectionGenerationId: llmGenerationId })
         .where(sql`${ideaJobs.ideaJobId} = ${ideaJobId}`)
         .run(),
-    ).toThrow(/selection generation must belong to the idea job owner/)
+    ).toThrow(/FOREIGN KEY constraint failed/)
 
     expect(() =>
       db

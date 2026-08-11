@@ -7,8 +7,13 @@ const providers = { brave, searxng }
 
 export async function webSearch(params: {
   query: string
+  signal?: AbortSignal
 }): Promise<WebSearchResult[]> {
-  return providers[config.webSearch.provider](params)
+  const deadline = AbortSignal.timeout(config.webSearch.timeoutMs)
+  const signal = params.signal
+    ? AbortSignal.any([params.signal, deadline])
+    : deadline
+  return providers[config.webSearch.provider]({ ...params, signal })
 }
 
 export type { WebSearchResult } from "./types.ts"

@@ -1,213 +1,265 @@
-import { and, asc, eq, type SQL } from "drizzle-orm"
+import { and, asc, eq, inArray, type SQL } from "drizzle-orm"
 import { db } from "../../db/index.ts"
 import {
-  deepSearchGeneratedQueries,
   deepSearchJobs as deepSearchJobsTable,
   deepSearchQueries,
-  deepSearchQueryGenerations,
+  deepSearchRounds,
   deepSearchResults,
   deepSearchWebPages,
 } from "../../db/schema/index.ts"
-import {
-  type DeepSearchJobEvent,
-} from "./schemas.ts"
+import type { DeepSearchJobEvent } from "./schemas.ts"
 
 /** Reconstructs reducer-compatible progress from normalized typed rows. */
 export function reconstructDeepSearchJobEvents(
   deepSearchJobId: string,
   readScope?: SQL,
 ): DeepSearchJobEvent[] | undefined {
-    const job = db
-      .select()
-      .from(deepSearchJobsTable)
-      .where(
-        and(
-          eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId),
-          readScope,
-        ),
-      )
-      .get()
-    if (!job) return
-
-    const queryGeneration = db
-      .select()
-      .from(deepSearchQueryGenerations)
-      .where(
-        eq(deepSearchQueryGenerations.deepSearchJobId, deepSearchJobId),
-      )
-      .get()
-    const queryGenerationEvents: DeepSearchJobEvent[] = queryGeneration
-      ? [
-          {
-            type: "query-stream",
-            streamId: queryGeneration.llmGenerationId,
-          },
-        ]
-      : []
-
-    const queryRows = db
-      .select({
-        deepSearchQueryId: deepSearchQueries.deepSearchQueryId,
-        query: deepSearchGeneratedQueries.query,
-        position: deepSearchGeneratedQueries.position,
-        status: deepSearchQueries.status,
-        selectionGenerationId: deepSearchQueries.selectionGenerationId,
-        summaryGenerationId: deepSearchQueries.summaryGenerationId,
-      })
-      .from(deepSearchQueries)
-      .innerJoin(
-        deepSearchGeneratedQueries,
-        eq(
-          deepSearchQueries.deepSearchGeneratedQueryId,
-          deepSearchGeneratedQueries.deepSearchGeneratedQueryId,
-        ),
-      )
-      .innerJoin(
-        deepSearchQueryGenerations,
-        eq(
-          deepSearchGeneratedQueries.deepSearchQueryGenerationId,
-          deepSearchQueryGenerations.deepSearchQueryGenerationId,
-        ),
-      )
-      .where(eq(deepSearchQueryGenerations.deepSearchJobId, deepSearchJobId))
-      .orderBy(asc(deepSearchGeneratedQueries.position))
-      .all()
-
-    const resultsByQuery = new Map(
-      queryRows.map(
-        (query) =>
-          [
-            query.deepSearchQueryId,
-            db
-              .select()
-              .from(deepSearchResults)
-              .where(
-                eq(deepSearchResults.deepSearchQueryId, query.deepSearchQueryId),
-              )
-              .orderBy(asc(deepSearchResults.position))
-              .all(),
-          ] as const,
+  const job = db
+    .select()
+    .from(deepSearchJobsTable)
+    .where(
+      and(
+        eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId),
+        readScope,
       ),
     )
+    .get()
+  if (!job) return
 
-    const searchResultsEvents: DeepSearchJobEvent[] =
-      queryRows.length > 0 || job.status === "completed"
+  const rounds = db
+    .select()
+    .from(deepSearchRounds)
+    .where(eq(deepSearchRounds.deepSearchJobId, deepSearchJobId))
+    .orderBy(asc(deepSearchRounds.position))
+    .all()
+
+  const queryRows = db
+    .select({
+      deepSearchQueryId: deepSearchQueries.deepSearchQueryId,
+      query: deepSearchQueries.query,
+      round: deepSearchRounds.position,
+      position: deepSearchQueries.position,
+      status: deepSearchQueries.status,
+      errorStage: deepSearchQueries.errorStage,
+      selectionGenerationId: deepSearchQueries.selectionGenerationId,
+      summaryGenerationId: deepSearchQueries.summaryGenerationId,
+    })
+    .from(deepSearchQueries)
+    .innerJoin(
+      deepSearchRounds,
+      eq(deepSearchQueries.deepSearchRoundId, deepSearchRounds.deepSearchRoundId),
+    )
+    .where(eq(deepSearchRounds.deepSearchJobId, deepSearchJobId))
+    .orderBy(
+      asc(deepSearchRounds.position),
+      asc(deepSearchQueries.position),
+    )
+    .all()
+
+  const resultsByQuery = new Map<
+    string,
+    (typeof deepSearchResults.$inferSelect)[]
+  >(
+    queryRows.map((query) => [query.deepSearchQueryId, []]),
+  )
+  if (queryRows.length > 0) {
+    const results = db
+      .select()
+      .from(deepSearchResults)
+      .where(
+        inArray(
+          deepSearchResults.deepSearchQueryId,
+          queryRows.map(({ deepSearchQueryId }) => deepSearchQueryId),
+        ),
+      )
+      .orderBy(
+        asc(deepSearchResults.deepSearchQueryId),
+        asc(deepSearchResults.position),
+      )
+      .all()
+    for (const result of results) {
+      resultsByQuery.get(result.deepSearchQueryId)?.push(result)
+    }
+  }
+
+  const planningAndSelectionEvents = rounds.flatMap<DeepSearchJobEvent>(
+    (round) => {
+      const queries = queryRows.filter(
+        (query) => query.round === round.position,
+      )
+      const queryProgressEvents = queries.flatMap<DeepSearchJobEvent>(
+        (query) => {
+          const results = resultsByQuery.get(query.deepSearchQueryId) ?? []
+          const selectionEvents: DeepSearchJobEvent[] =
+            query.selectionGenerationId
+              ? [
+                  {
+                    type: "selection-stream",
+                    round: round.position,
+                    query: query.query,
+                    streamId: query.selectionGenerationId,
+                  },
+                ]
+              : []
+          const selectionCompleted =
+            query.status === "summarizing" ||
+            query.status === "completed" ||
+            (query.status === "failed" && query.errorStage === "summary")
+          const selectedResultsEvents: DeepSearchJobEvent[] =
+            selectionCompleted
+              ? [
+                  {
+                    type: "selected-search-results",
+                    round: round.position,
+                    query: query.query,
+                    selectedLinks: results
+                      .filter(
+                        (result) => result.deepSearchWebPageId !== null,
+                      )
+                      .map((result) => result.url),
+                  },
+                ]
+              : []
+          return [...selectionEvents, ...selectedResultsEvents]
+        },
+      )
+      const searchesCompleted =
+        queries.length > 0 &&
+        queries.every(
+          (query) =>
+            query.status !== "searching" &&
+            !(query.status === "failed" && query.errorStage === "search"),
+        )
+      const searchResultEvents: DeepSearchJobEvent[] = searchesCompleted
         ? [
             {
               type: "search-results",
-              searches: queryRows.map((query) => ({
+              round: round.position,
+              searches: queries.map((query) => ({
                 query: query.query,
-                results: (resultsByQuery.get(query.deepSearchQueryId) ?? []).map(
-                  (result) => ({
-                    title: result.title,
-                    shortText: result.shortText,
-                    link: result.url,
-                  }),
-                ),
+                results: (
+                  resultsByQuery.get(query.deepSearchQueryId) ?? []
+                ).map((result) => ({
+                  title: result.title,
+                  shortText: result.shortText,
+                  link: result.url,
+                })),
               })),
             },
           ]
         : []
 
-    const queryProgressEvents = queryRows.flatMap<DeepSearchJobEvent>((query) => {
-      const results = resultsByQuery.get(query.deepSearchQueryId) ?? []
-      const selectionEvents: DeepSearchJobEvent[] = query.selectionGenerationId
-        ? [
-            {
-              type: "selection-stream",
-              query: query.query,
-              streamId: query.selectionGenerationId,
-            },
-          ]
-        : []
-      const selectionCompleted =
-        results.every((result) => result.selectionStatus !== "pending") &&
-        query.status !== "selecting"
-      const selectedResultsEvents: DeepSearchJobEvent[] = selectionCompleted
-        ? [
-            {
-              type: "selected-search-results",
-              query: query.query,
-              selectedLinks: results
-                .filter((result) => result.selectionStatus === "selected")
-                .map((result) => result.url),
-            },
-          ]
-        : []
-      return [...selectionEvents, ...selectedResultsEvents]
-    })
+      return [
+        {
+          type: "query-stream",
+          round: round.position,
+          streamId: round.llmGenerationId,
+        },
+        ...searchResultEvents,
+        ...queryProgressEvents,
+      ]
+    },
+  )
 
-    const querySummaryEvents = queryRows.flatMap<DeepSearchJobEvent>((query) =>
-      query.summaryGenerationId
+  const pages = db
+    .select()
+    .from(deepSearchWebPages)
+    .where(eq(deepSearchWebPages.deepSearchJobId, deepSearchJobId))
+    .orderBy(
+      asc(deepSearchWebPages.createdAt),
+      asc(deepSearchWebPages.deepSearchWebPageId),
+    )
+    .all()
+  const pageEvents = pages.flatMap<DeepSearchJobEvent>((page) => {
+    if (page.summaryGenerationId) {
+      return [
+        {
+          type: "page-summary-stream",
+          url: page.url,
+          streamId: page.summaryGenerationId,
+        },
+      ]
+    }
+    if (page.errorStage && page.errorMessage) {
+      return [
+        {
+          type: "page-summary-error",
+          url: page.url,
+          stage: page.errorStage,
+          message: page.errorMessage,
+        },
+      ]
+    }
+    return []
+  })
+
+  const summaryAndReviewEvents = rounds.flatMap<DeepSearchJobEvent>((round) => {
+    const summaryEvents = queryRows.flatMap<DeepSearchJobEvent>((query) =>
+      query.round === round.position && query.summaryGenerationId
         ? [
             {
               type: "query-summary-stream",
+              round: round.position,
               query: query.query,
               streamId: query.summaryGenerationId,
             },
           ]
         : [],
     )
-
-    const pages = db
-      .select()
-      .from(deepSearchWebPages)
-      .where(eq(deepSearchWebPages.deepSearchJobId, deepSearchJobId))
-      .orderBy(
-        asc(deepSearchWebPages.createdAt),
-        asc(deepSearchWebPages.deepSearchWebPageId),
-      )
-      .all()
-    const pageEvents = pages.flatMap<DeepSearchJobEvent>((page) => {
-      if (page.summaryGenerationId) {
-        return [
+    const reviewStreamEvents: DeepSearchJobEvent[] = round.reviewGenerationId
+      ? [
           {
-            type: "page-summary-stream",
-            url: page.url,
-            streamId: page.summaryGenerationId,
+            type: "round-review-stream",
+            round: round.position,
+            streamId: round.reviewGenerationId,
           },
         ]
-      }
-      if (page.errorStage && page.errorMessage) {
-        return [
-          {
-            type: "page-summary-error",
-            url: page.url,
-            stage: page.errorStage,
-            message: page.errorMessage,
-          },
-        ]
-      }
-      return []
-    })
-
-    const finalAnswerEvents: DeepSearchJobEvent[] =
-      job.finalAnswerGenerationId
+      : []
+    const reviewOutcomeEvents: DeepSearchJobEvent[] =
+      round.reviewDecision && round.reviewReason
         ? [
             {
-              type: "final-answer-stream",
-              streamId: job.finalAnswerGenerationId,
+              type: "round-review",
+              round: round.position,
+              decision: round.reviewDecision,
+              reason: round.reviewReason,
             },
           ]
-        : []
+        : round.reviewError
+          ? [
+              {
+                type: "round-review-error",
+                round: round.position,
+                message: round.reviewError,
+              },
+            ]
+          : []
+    return [...summaryEvents, ...reviewStreamEvents, ...reviewOutcomeEvents]
+  })
 
-    const terminalEvents: DeepSearchJobEvent[] =
-      job.status === "running"
-        ? []
-        : [
-            ...(job.error
-              ? [{ type: "error" as const, message: job.error }]
-              : []),
-            { type: "done" },
-          ]
+  const finalAnswerEvents: DeepSearchJobEvent[] = job.finalAnswerGenerationId
+    ? [
+        {
+          type: "final-answer-stream",
+          streamId: job.finalAnswerGenerationId,
+        },
+      ]
+    : []
+  const terminalEvents: DeepSearchJobEvent[] =
+    job.status === "running"
+      ? []
+      : [
+          ...(job.error
+            ? [{ type: "error" as const, message: job.error }]
+            : []),
+          { type: "done" },
+        ]
 
-    return [
-      ...queryGenerationEvents,
-      ...searchResultsEvents,
-      ...queryProgressEvents,
-      ...pageEvents,
-      ...querySummaryEvents,
-      ...finalAnswerEvents,
-      ...terminalEvents,
-    ]
+  return [
+    ...planningAndSelectionEvents,
+    ...pageEvents,
+    ...summaryAndReviewEvents,
+    ...finalAnswerEvents,
+    ...terminalEvents,
+  ]
 }

@@ -6,10 +6,11 @@ export default defineConfig({
     setupFiles: ["./db/testSetup.ts"],
     env: {
       SEARXNG_URL: "http://localhost:8090/",
+      SEARXNG_MIN_INTERVAL_MS: "0",
       BRAVE_SEARCH_API_KEY: "test-key",
       DEEPSEEK_API_KEY: "test-key",
       LLM_PROVIDER: "deepseek",
-      LLM_MODEL_NAME: "deepseek-v4-flash",
+      LLM_MODEL_NAME: "deepseek-chat",
       SCRAPINGANT_API_KEY: "test-key",
       DATABASE_URL: ":memory:",
       NODE_ENV: "test",

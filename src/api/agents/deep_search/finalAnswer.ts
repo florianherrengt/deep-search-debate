@@ -1,35 +1,35 @@
 import { generateTextStream } from "../../llms/generateText.ts"
 import { PromptName } from "../../llms/prompts.ts"
+import {
+  awaitGenerationText,
+  type GenerationOutcome,
+  type TextGenerationPersistenceCallbacks,
+} from "../../llms/streams.ts"
+import { formatSearchSummaryContext } from "./searchSummaryContext.ts"
 
 type SearchSummary = {
   query: string
   content: string
 }
 
-type AnswerResearchRequestInput = {
+type AnswerResearchRequestInput = TextGenerationPersistenceCallbacks & {
   userId: string
   deepSearchJobId: string
   researchRequest: string
   searchSummaries: SearchSummary[]
-  maxRetries?: number
 }
 
-/** Registers the final synthesis stream for a completed set of search summaries. */
+export type FinalAnswerGeneration = {
+  streamId: string
+  answer: Promise<string>
+  completion: Promise<GenerationOutcome>
+}
+
+/** Starts final synthesis for a completed set of search summaries. */
 export async function answerResearchRequest(
   params: AnswerResearchRequestInput,
-): Promise<string> {
-  const formattedSummaries = params.searchSummaries
-    .map(
-      (summary) =>
-        [
-          "<search_summary>",
-          `Search query: ${summary.query}`,
-          "Summary:",
-          summary.content,
-          "</search_summary>",
-        ].join("\n"),
-    )
-    .join("\n\n")
+): Promise<FinalAnswerGeneration> {
+  const formattedSummaries = formatSearchSummaryContext(params.searchSummaries)
 
   const prompt = [
     `user_query: ${params.researchRequest}`,
@@ -39,12 +39,21 @@ export async function answerResearchRequest(
     "</search_summaries>",
   ].join("\n")
 
-  const { id } = await generateTextStream({
+  const generation = await generateTextStream({
     userId: params.userId,
     owner: { deepSearchJobId: params.deepSearchJobId },
     prompt,
     promptName: PromptName.AnswerResearchRequest,
-    maxRetries: params.maxRetries,
+    // Final synthesis must always leave budget for user-visible text.
+    reasoning: "disabled",
+    maxOutputTokens: 4_096,
+    ...(params.onRegistered ? { onRegistered: params.onRegistered } : {}),
+    ...(params.onCompleted ? { onCompleted: params.onCompleted } : {}),
+    ...(params.onFailed ? { onFailed: params.onFailed } : {}),
   })
-  return id
+  return {
+    streamId: generation.id,
+    answer: awaitGenerationText(generation),
+    completion: generation.completion,
+  }
 }

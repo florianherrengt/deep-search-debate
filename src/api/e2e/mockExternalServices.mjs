@@ -65,9 +65,10 @@ const deepSearchAnswers = [
   "London renters face insulation, heating-control, and landlord-permission constraints.",
   "Removable heating controls and draught-proofing are practical renter-friendly interventions.",
 ]
-const debateFailureMarker = "[E2E_FAIL_FIRST_DEBATE_OPENING:"
+const debateFailureMarker = "[E2E_FAIL_DEBATE_OPENING:"
 const debateFailureMessage = "Injected debate opening failure"
-const injectedFailurePrompts = new Set()
+const debateFailureCandidateOrdinal = 12
+const debateFailureAttempts = new Map()
 
 function parseTaggedJson(text, tag) {
   const match = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(text)
@@ -79,6 +80,18 @@ function taggedText(text, tag) {
   const match = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(text)
   if (!match) throw new Error(`Debate request did not include <${tag}>`)
   return match[1].trim()
+}
+
+function firstSearchResultId(text) {
+  const match = /<search_result>([\s\S]*?)<\/search_result>/.exec(text)
+  if (!match) {
+    throw new Error("Search selection request did not include a result record")
+  }
+  const result = JSON.parse(match[1])
+  if (!result || typeof result !== "object" || typeof result.id !== "string") {
+    throw new Error("Search selection request did not include a result ID")
+  }
+  return result.id
 }
 
 function assertExactKeys(value, expectedKeys, label) {
@@ -360,18 +373,22 @@ function researchAngle(userMessage) {
 }
 
 function assertThinkingMode(body, system) {
-  const selectionUsesReasoning = system.includes(
-    "Select the strongest generated ideas",
+  const roundReviewUsesReasoning = system.includes(
+    "You decide whether a deep-research job",
   )
-  const critiqueSkipsReasoning = system.includes(
-    "Critique the generated idea against",
-  )
-  // Critiques deliberately bypass Flash thinking because it can produce an
-  // unbounded reasoning-only stream without ever emitting the answer. Keep
-  // this assertion strict so E2E catches accidental re-enabling later.
+  const budgetSensitiveTextSkipsReasoning =
+    system.includes("Critique the generated idea against") ||
+    system.includes("Combine the supplied research texts") ||
+    system.includes("You summarize an extracted web page") ||
+    system.includes("You summarize the results returned for one web search") ||
+    system.includes("You are the final-answer agent for a deep research run") ||
+    /debate|opening argument|rebuttal/i.test(system)
+  // These bounded prose stages deliberately bypass Flash thinking because it
+  // can consume the entire output budget without emitting the required text.
+  // Keep this assertion strict so E2E catches accidental re-enabling later.
   const expected =
-    critiqueSkipsReasoning ||
-    (body.response_format && !selectionUsesReasoning)
+    budgetSensitiveTextSkipsReasoning ||
+    (body.response_format && !roundReviewUsesReasoning)
       ? "disabled"
       : "enabled"
   if (body.thinking?.type !== expected) {
@@ -421,7 +438,16 @@ function deepSeekOutput(body) {
   if (system.includes("You are a search-result selection agent")) {
     return {
       reasoning: "The first result is the primary evidence source.",
-      text: JSON.stringify({ elements: ["result-0"] }),
+      text: JSON.stringify({ elements: [firstSearchResultId(user)] }),
+    }
+  }
+  if (system.includes("You decide whether a deep-research job")) {
+    return {
+      reasoning: "The deterministic evidence is sufficient for the answer.",
+      text: JSON.stringify({
+        decision: "stop",
+        reason: "The current evidence directly answers the request.",
+      }),
     }
   }
   if (system.includes("You summarize an extracted web page")) {
@@ -549,14 +575,23 @@ function deepSeekResponse(body) {
   if (
     context?.userRequest.includes(debateFailureMarker) &&
     !/rebuttal|rebut/i.test(system) &&
-    !injectedFailurePrompts.has(context.userRequest)
+    debateIdeaOrdinal(user, 0) === debateFailureCandidateOrdinal
   ) {
-    injectedFailurePrompts.add(context.userRequest)
+    const attempt = (debateFailureAttempts.get(context.userRequest) ?? 0) + 1
+    debateFailureAttempts.set(context.userRequest, attempt)
     return Response.json(
-      { error: { message: debateFailureMessage, type: "server_error" } },
+      {
+        error: {
+          message: `${debateFailureMessage} (attempt ${attempt})`,
+          type: "server_error",
+        },
+      },
       { status: 500 },
     )
   }
+
+  const reasoning =
+    body.thinking?.type === "enabled" ? output.reasoning : ""
 
   if (body.stream !== true) {
     return Response.json({
@@ -568,7 +603,7 @@ function deepSeekResponse(body) {
           message: {
             role: "assistant",
             content: output.text,
-            reasoning_content: output.reasoning,
+            ...(reasoning ? { reasoning_content: reasoning } : {}),
           },
           finish_reason: "stop",
         },
@@ -582,11 +617,13 @@ function deepSeekResponse(body) {
   }
 
   const midpoint = Math.ceil(output.text.length / 2)
-  const chunks = [
-    { reasoning_content: output.reasoning },
+  const deltas = [
+    ...(reasoning ? [{ reasoning_content: reasoning }] : []),
     { content: output.text.slice(0, midpoint) },
     { content: output.text.slice(midpoint) },
-  ].map((delta, index) => ({
+  ]
+  const secondTextIndex = reasoning ? 2 : 1
+  const chunks = deltas.map((delta, index) => ({
     id: `e2e-completion-${index}`,
     created: 0,
     model: body.model,
@@ -615,7 +652,9 @@ function deepSeekResponse(body) {
       const encoder = new TextEncoder()
       for (const [index, chunk] of encodedChunks.entries()) {
         const chunkDelayMs =
-          index === 2 ? (output.secondTextDelayMs ?? delayMs) : delayMs
+          index === secondTextIndex
+            ? (output.secondTextDelayMs ?? delayMs)
+            : delayMs
         if (chunkDelayMs > 0) {
           await new Promise((resolve) => setTimeout(resolve, chunkDelayMs))
         }

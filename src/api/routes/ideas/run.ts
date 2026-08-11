@@ -1,8 +1,13 @@
 import { and, eq } from "drizzle-orm"
 import z from "zod"
+import { config } from "../../config.ts"
 import { db } from "../../db/index.ts"
 import { ideaJobs, ideas as ideaRecords } from "../../db/schema/index.ts"
-import { collectStreamText } from "../../helpers/collectStreamText.ts"
+import {
+  allocateFairly,
+  formatBoundedTextEntries,
+  truncateMiddle,
+} from "../../helpers/boundedText.ts"
 import { getErrorMessage } from "../../helpers/getErrorMessage.ts"
 import {
   generateArrayStream,
@@ -10,7 +15,14 @@ import {
   generateTextStream,
 } from "../../llms/generateText.ts"
 import { PromptName } from "../../llms/prompts.ts"
+import {
+  awaitGenerationOutput,
+  awaitGenerationText,
+  type GenerationHandle,
+  type TextStreamPersistenceTransaction,
+} from "../../llms/streams.ts"
 import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
+import { deepSearchResearchRequestSchema } from "../deepSearch/resourceLimits.ts"
 import {
   ideaSchema,
   ideaSelectionSchema,
@@ -28,14 +40,16 @@ type RunIdeaJobInput = {
   deepSearchCount: number
   maxSearches: number
   maxResultsPerSearch: number
-  maxRetries?: number
+  maxRounds?: number
   job: LiveIdeaJob
   deepSearchManager: DeepSearchJobManager
 }
 
 const researchPromptSchema = z.object({
-  title: z.string().trim().min(1).max(80),
-  prompt: z.string().trim().min(1),
+  // The bounded generation response limits memory. Display-length ownership
+  // belongs to createPromptIdentity, which normalizes every supplied title.
+  title: z.string().trim().min(1),
+  prompt: deepSearchResearchRequestSchema,
 })
 type ResearchPrompt = z.infer<typeof researchPromptSchema>
 
@@ -44,16 +58,14 @@ function buildResearchPrompt(prompt: string, count: number): string {
 }
 
 function buildSummaryPrompt(prompt: string, research: string[]): string {
-  const results = research
-    .map(
-      (text, index) =>
-        [
-          `<research_text index="${index + 1}">`,
-          text,
-          "</research_text>",
-        ].join("\n"),
-    )
-    .join("\n\n")
+  const results = formatBoundedTextEntries(
+    research.map((text, index) => ({
+      opening: `<research_text index="${index + 1}">\n`,
+      text,
+      closing: "\n</research_text>",
+    })),
+    config.deepSearch.maxSummaryContextChars,
+  )
   return [
     "<user_request>",
     prompt,
@@ -129,18 +141,51 @@ function buildRefinedIdeaResearchRequest(
   prompt: string,
   idea: RefinedIdea,
 ): string {
-  return [
-    "Research this proposed idea in relation to the user's request. Investigate relevant evidence, comparable approaches, feasibility, risks, and practical implementation considerations.",
-    "<user_request>",
-    prompt,
-    "</user_request>",
-    "<refined_idea>",
-    JSON.stringify({
-      title: idea.refinedTitle,
-      description: idea.refinedDescription,
-    }),
-    "</refined_idea>",
-  ].join("\n")
+  const instruction =
+    "Research this proposed idea against the user's request. Investigate evidence, comparable approaches, feasibility, risks, and implementation."
+  const fixedParts = [
+    instruction,
+    "\n<user_request>\n",
+    "\n</user_request>\n<refined_idea>{\"title\":",
+    ",\"description\":",
+    "}</refined_idea>",
+  ]
+  const fixedChars = fixedParts.join("").length
+  const values = [prompt, idea.refinedTitle, idea.refinedDescription]
+  const budgets = allocateFairly(
+    values.map((value) => JSON.stringify(value).length),
+    config.deepSearch.maxRequestChars - fixedChars,
+  )
+  const serializeWithin = (value: string, maxChars: number): string => {
+    let low = 0
+    let high = Math.min(value.length, maxChars)
+    let fitted = JSON.stringify("")
+    while (low <= high) {
+      const middle = Math.floor((low + high) / 2)
+      const candidate = JSON.stringify(truncateMiddle(value, middle))
+      if (candidate.length <= maxChars) {
+        fitted = candidate
+        low = middle + 1
+      } else {
+        high = middle - 1
+      }
+    }
+    return fitted
+  }
+  const serialized = values.map((value, index) =>
+    serializeWithin(value, budgets[index]),
+  )
+  const request = [
+    instruction,
+    "\n<user_request>\n",
+    serialized[0],
+    "\n</user_request>\n<refined_idea>{\"title\":",
+    serialized[1],
+    ",\"description\":",
+    serialized[2],
+    "}</refined_idea>",
+  ].join("")
+  return deepSearchResearchRequestSchema.parse(request)
 }
 
 function buildSelectionPrompt(
@@ -148,29 +193,38 @@ function buildSelectionPrompt(
   researchSummary: string,
   ideas: CritiquedIdea[],
 ): string {
-  return [
-    "<user_request>",
-    prompt,
-    "</user_request>",
-    "<research_briefing>",
+  const briefing = truncateMiddle(
     researchSummary,
-    "</research_briefing>",
-    "<critiqued_ideas>",
-    ...ideas.flatMap((idea) => [
-      "<critiqued_idea>",
-      JSON.stringify({
+    Math.floor(config.deepSearch.maxSummaryContextChars * 0.2),
+  )
+  const critiquedIdeas = formatBoundedTextEntries(
+    ideas.map((idea) => ({
+      opening: "<critiqued_idea>\n",
+      text: JSON.stringify({
         ideaId: idea.ideaId,
         title: idea.title,
         description: idea.description,
         critique: idea.critique,
       }),
-      "</critiqued_idea>",
-    ]),
+      closing: "\n</critiqued_idea>",
+    })),
+    config.deepSearch.maxSummaryContextChars - briefing.length,
+  )
+  return [
+    "<user_request>",
+    prompt,
+    "</user_request>",
+    "<research_briefing>",
+    briefing,
+    "</research_briefing>",
+    "<critiqued_ideas>",
+    critiquedIdeas,
     "</critiqued_ideas>",
   ].join("\n")
 }
 
 function setGenerationId(
+  transaction: TextStreamPersistenceTransaction,
   ideaJobId: string,
   field:
     | "researchPromptGenerationId"
@@ -179,12 +233,24 @@ function setGenerationId(
     | "selectionGenerationId",
   id: string,
 ): void {
-  // Link the generation before advertising its stream ID. A client can then
-  // refresh immediately and reconstruct the same stage from durable state.
-  db.update(ideaJobs)
+  const result = transaction
+    .update(ideaJobs)
     .set({ [field]: id })
     .where(eq(ideaJobs.ideaJobId, ideaJobId))
     .run()
+  if (result.changes !== 1) throw new Error("Idea job was not found")
+}
+
+async function publishStartedGeneration(
+  generation: GenerationHandle,
+  publish: () => void,
+): Promise<void> {
+  try {
+    publish()
+  } catch (error) {
+    await generation.completion.catch(() => undefined)
+    throw error
+  }
 }
 
 function setStage(ideaJobId: string, stage: IdeaJobStage): void {
@@ -203,25 +269,24 @@ async function generateResearchPrompts(
     prompt: buildResearchPrompt(input.prompt, input.deepSearchCount),
     promptName: PromptName.GenerateIdeaResearchPrompts,
     element: researchPromptSchema,
-    maxRetries: input.maxRetries,
+    maxOutputTokens: 4_096,
+    onRegistered: (generationId, transaction) => {
+      setGenerationId(
+        transaction,
+        input.ideaJobId,
+        "researchPromptGenerationId",
+        generationId,
+      )
+    },
   })
-  setGenerationId(
-    input.ideaJobId,
-    "researchPromptGenerationId",
-    generation.id,
-  )
-  input.job.publish({
-    type: "research-prompt-stream",
-    streamId: generation.id,
+  await publishStartedGeneration(generation, () => {
+    input.job.publish({
+      type: "research-prompt-stream",
+      streamId: generation.id,
+    })
   })
 
-  // Await both views of the same invocation: `output` validates the structured
-  // array while collectStreamText waits for raw text/reasoning persistence and
-  // propagates provider stream errors.
-  const [prompts] = await Promise.all([
-    generation.output,
-    collectStreamText({ id: generation.id }),
-  ])
+  const prompts = await awaitGenerationOutput(generation, generation.output)
   if (prompts.length !== input.deepSearchCount) {
     throw new Error(
       `Expected ${input.deepSearchCount} research prompts, received ${prompts.length}`,
@@ -246,22 +311,27 @@ async function runResearch(
         researchRequest,
         maxSearches: input.maxSearches,
         maxResultsPerSearch: input.maxResultsPerSearch,
+        maxRounds: input.maxRounds ?? 3,
         ideaJobId: input.ideaJobId,
         ideaJobPosition,
-        maxRetries: input.maxRetries,
       }),
     ),
   )
+  let publicationError: unknown
   for (const [index, started] of starts.entries()) {
     if (started.status === "rejected") continue
     const search = started.value
-    input.job.publish({
-      type: "deep-search-started",
-      deepSearchJobId: search.deepSearchJobId,
-      title: search.title,
-      slug: search.slug,
-      researchRequest: prompts[index].prompt,
-    })
+    try {
+      input.job.publish({
+        type: "deep-search-started",
+        deepSearchJobId: search.deepSearchJobId,
+        title: search.title,
+        slug: search.slug,
+        researchRequest: prompts[index].prompt,
+      })
+    } catch (error) {
+      publicationError ??= error
+    }
   }
 
   // Wait for every launched child even after one fails. No later pipeline stage
@@ -272,9 +342,13 @@ async function runResearch(
       async (started): Promise<PromiseSettledResult<string>> => {
         if (started.status === "rejected") return started
         try {
+          const value = await started.value.completion
+          input.deepSearchManager.requireParentQualityAcceptance(
+            started.value.deepSearchJobId,
+          )
           return {
             status: "fulfilled",
-            value: await started.value.completion,
+            value,
           }
         } catch (reason) {
           return { status: "rejected", reason }
@@ -285,6 +359,11 @@ async function runResearch(
   const failed = settled.find(
     (result): result is PromiseRejectedResult => result.status === "rejected",
   )
+  if (publicationError !== undefined) {
+    throw publicationError instanceof Error
+      ? publicationError
+      : new Error("Publishing a child search event failed")
+  }
   if (failed) throw failed.reason
   return settled.map((result) => {
     if (result.status === "rejected") throw result.reason
@@ -303,18 +382,24 @@ async function summarizeResearch(
     owner: { ideaJobId: input.ideaJobId },
     prompt: buildSummaryPrompt(input.prompt, research),
     promptName: PromptName.SummarizeIdeaResearch,
-    maxRetries: input.maxRetries,
+    reasoning: "disabled",
+    maxOutputTokens: 4_096,
+    onRegistered: (generationId, transaction) => {
+      setGenerationId(
+        transaction,
+        input.ideaJobId,
+        "researchSummaryGenerationId",
+        generationId,
+      )
+    },
   })
-  setGenerationId(
-    input.ideaJobId,
-    "researchSummaryGenerationId",
-    generation.id,
-  )
-  input.job.publish({
-    type: "research-summary-stream",
-    streamId: generation.id,
+  await publishStartedGeneration(generation, () => {
+    input.job.publish({
+      type: "research-summary-stream",
+      streamId: generation.id,
+    })
   })
-  return collectStreamText(generation)
+  return awaitGenerationText(generation)
 }
 
 async function generateIdeas(
@@ -331,21 +416,24 @@ async function generateIdeas(
     ),
     promptName: PromptName.GenerateIdeas,
     element: ideaSchema,
-    maxRetries: input.maxRetries,
+    maxOutputTokens: 8_192,
+    onRegistered: (generationId, transaction) => {
+      setGenerationId(
+        transaction,
+        input.ideaJobId,
+        "ideaGenerationId",
+        generationId,
+      )
+    },
   })
-  setGenerationId(input.ideaJobId, "ideaGenerationId", generation.id)
-  input.job.publish({
-    type: "idea-generation-stream",
-    streamId: generation.id,
+  await publishStartedGeneration(generation, () => {
+    input.job.publish({
+      type: "idea-generation-stream",
+      streamId: generation.id,
+    })
   })
 
-  // Consume both complete representations concurrently:
-  // - output validates and returns the complete array;
-  // - collectStreamText retains raw JSON and reasoning for replay/debugging.
-  const [ideas] = await Promise.all([
-    generation.output,
-    collectStreamText({ id: generation.id }),
-  ])
+  const ideas = await awaitGenerationOutput(generation, generation.output)
   if (ideas.length !== input.numberOfIdeas) {
     throw new Error(
       `Expected ${input.numberOfIdeas} ideas, received ${ideas.length}`,
@@ -378,15 +466,6 @@ function persistIdeas(input: RunIdeaJobInput, ideas: Idea[]): PersistedIdea[] {
   return persistedIdeas
 }
 
-function attachCritiqueGeneration(ideaId: string, generationId: string): void {
-  const result = db
-    .update(ideaRecords)
-    .set({ critiqueGenerationId: generationId })
-    .where(eq(ideaRecords.ideaId, ideaId))
-    .run()
-  if (result.changes !== 1) throw new Error("Generated idea was not found")
-}
-
 async function critiqueIdea(
   input: RunIdeaJobInput,
   researchSummary: string,
@@ -404,22 +483,29 @@ async function critiqueIdea(
     // streams. It can currently loop without ever emitting answer text, while
     // a critique only needs the answer prose.
     reasoning: "disabled",
-    maxRetries: input.maxRetries,
+    maxOutputTokens: 1_024,
+    onRegistered: (generationId, transaction) => {
+      const result = transaction
+        .update(ideaRecords)
+        .set({ critiqueGenerationId: generationId })
+        .where(
+          and(
+            eq(ideaRecords.ideaId, idea.ideaId),
+            eq(ideaRecords.ideaJobId, input.ideaJobId),
+          ),
+        )
+        .run()
+      if (result.changes !== 1) throw new Error("Generated idea was not found")
+    },
   })
-  try {
-    attachCritiqueGeneration(idea.ideaId, generation.id)
+  await publishStartedGeneration(generation, () => {
     input.job.publish({
       type: "critique-generation-stream",
       position: idea.position,
       streamId: generation.id,
     })
-  } catch (error) {
-    // The provider invocation is already consuming. Wait for it before failing
-    // the parent so no started generation outlives the terminal job event.
-    await collectStreamText(generation).catch(() => undefined)
-    throw error
-  }
-  const critique = await collectStreamText(generation)
+  })
+  const critique = await awaitGenerationText(generation)
   return { ...idea, critique }
 }
 
@@ -466,8 +552,19 @@ async function selectIdeas(
     prompt: buildSelectionPrompt(input.prompt, researchSummary, ideas),
     promptName: PromptName.SelectIdeas,
     schema: selectionSchema,
-    reasoning: "enabled",
-    maxRetries: input.maxRetries,
+    // Selection is a small structured transform over an already-complete
+    // briefing. Hidden reasoning can consume the entire output budget before
+    // DeepSeek emits the required JSON.
+    reasoning: "disabled",
+    maxOutputTokens: 1_024,
+    onRegistered: (generationId, transaction) => {
+      setGenerationId(
+        transaction,
+        input.ideaJobId,
+        "selectionGenerationId",
+        generationId,
+      )
+    },
     onCompleted: ({ output }, transaction) => {
       const selectedIdeaIds = new Set(output.selectedIdeaIds)
       for (const { ideaId } of ideas) {
@@ -487,38 +584,20 @@ async function selectIdeas(
       }
     },
   })
-  setGenerationId(input.ideaJobId, "selectionGenerationId", generation.id)
-  input.job.publish({
-    type: "idea-selection-stream",
-    streamId: generation.id,
+  await publishStartedGeneration(generation, () => {
+    input.job.publish({
+      type: "idea-selection-stream",
+      streamId: generation.id,
+    })
   })
 
-  const [selection] = await Promise.all([
+  const selection = await awaitGenerationOutput(
+    generation,
     generation.output,
-    collectStreamText({ id: generation.id }),
-  ])
+  )
   input.job.publish({ type: "selected-ideas", ...selection })
   const selectedIdeaIds = new Set(selection.selectedIdeaIds)
   return ideas.filter(({ ideaId }) => selectedIdeaIds.has(ideaId))
-}
-
-function attachRefinementGeneration(
-  ideaJobId: string,
-  ideaId: string,
-  generationId: string,
-): void {
-  const result = db
-    .update(ideaRecords)
-    .set({ refinementGenerationId: generationId })
-    .where(
-      and(
-        eq(ideaRecords.ideaId, ideaId),
-        eq(ideaRecords.ideaJobId, ideaJobId),
-        eq(ideaRecords.selected, true),
-      ),
-    )
-    .run()
-  if (result.changes !== 1) throw new Error("Selected idea was not found")
 }
 
 async function refineIdea(
@@ -532,7 +611,21 @@ async function refineIdea(
     prompt: buildRefinementPrompt(input.prompt, researchSummary, idea),
     promptName: PromptName.RefineIdea,
     schema: ideaSchema,
-    maxRetries: input.maxRetries,
+    maxOutputTokens: 2_048,
+    onRegistered: (generationId, transaction) => {
+      const result = transaction
+        .update(ideaRecords)
+        .set({ refinementGenerationId: generationId })
+        .where(
+          and(
+            eq(ideaRecords.ideaId, idea.ideaId),
+            eq(ideaRecords.ideaJobId, input.ideaJobId),
+            eq(ideaRecords.selected, true),
+          ),
+        )
+        .run()
+      if (result.changes !== 1) throw new Error("Selected idea was not found")
+    },
     onCompleted: ({ id, output }, transaction) => {
       const result = transaction
         .update(ideaRecords)
@@ -553,22 +646,15 @@ async function refineIdea(
       }
     },
   })
-  try {
-    attachRefinementGeneration(input.ideaJobId, idea.ideaId, generation.id)
+  await publishStartedGeneration(generation, () => {
     input.job.publish({
       type: "idea-refinement-stream",
       ideaId: idea.ideaId,
       streamId: generation.id,
     })
-  } catch (error) {
-    await collectStreamText(generation).catch(() => undefined)
-    throw error
-  }
+  })
 
-  const [refined] = await Promise.all([
-    generation.output,
-    collectStreamText(generation),
-  ])
+  const refined = await awaitGenerationOutput(generation, generation.output)
   input.job.publish({
     type: "refined-idea",
     ideaId: idea.ideaId,
@@ -599,25 +685,6 @@ async function refineIdeas(
   })
 }
 
-function attachIdeaDeepSearch(
-  ideaJobId: string,
-  ideaId: string,
-  deepSearchJobId: string,
-): void {
-  const result = db
-    .update(ideaRecords)
-    .set({ deepSearchJobId })
-    .where(
-      and(
-        eq(ideaRecords.ideaId, ideaId),
-        eq(ideaRecords.ideaJobId, ideaJobId),
-        eq(ideaRecords.selected, true),
-      ),
-    )
-    .run()
-  if (result.changes !== 1) throw new Error("Refined idea was not found")
-}
-
 async function researchRefinedIdea(
   input: RunIdeaJobInput,
   idea: RefinedIdea,
@@ -628,12 +695,11 @@ async function researchRefinedIdea(
     researchRequest,
     maxSearches: input.maxSearches,
     maxResultsPerSearch: input.maxResultsPerSearch,
+    maxRounds: input.maxRounds ?? 3,
     ideaJobId: input.ideaJobId,
     ideaJobPosition: input.deepSearchCount + idea.position,
-    maxRetries: input.maxRetries,
   })
   try {
-    attachIdeaDeepSearch(input.ideaJobId, idea.ideaId, search.deepSearchJobId)
     input.job.publish({
       type: "idea-deep-search-started",
       ideaId: idea.ideaId,
@@ -647,6 +713,9 @@ async function researchRefinedIdea(
     throw error
   }
   await search.completion
+  input.deepSearchManager.requireParentQualityAcceptance(
+    search.deepSearchJobId,
+  )
 }
 
 async function researchRefinedIdeas(

@@ -12,6 +12,7 @@ vi.mock("../../llms/generateText.ts", () => ({
 }))
 
 import { db } from "../../db/index.ts"
+import { config } from "../../config.ts"
 import {
   deepSearchJobs,
   deepSearchWebPages,
@@ -67,10 +68,245 @@ describe("createDeepSearchJobManager", () => {
     db.delete(user).where(eq(user.id, "other-test-user-id")).run()
   })
 
+  it("rejects an excessive internal workload before creating a job", async () => {
+    const manager = createDeepSearchJobManager()
+
+    await expect(
+      manager.start("test-user-id", {
+        researchRequest: "Research this",
+        maxSearches: 10,
+        maxResultsPerSearch: 4,
+      }),
+    ).rejects.toThrow("30 selected URLs")
+    expect(mocks.generatePromptTitle).not.toHaveBeenCalled()
+    expect(mocks.runDeepSearchJob).not.toHaveBeenCalled()
+    expect(db.select().from(deepSearchJobs).all()).toEqual([])
+  })
+
+  it("rejects a root job when the user already has the active-job limit", async () => {
+    db.insert(deepSearchJobs)
+      .values(
+        Array.from(
+          { length: config.deepSearch.maxActiveRootJobsPerUser },
+          (_, position) => ({
+            deepSearchJobId: `active-root-${position}`,
+            userId: "test-user-id",
+            title: `Active root ${position}`,
+            slug: `active-root-${position}`,
+            researchRequest: "Research this",
+            maxSearches: 3,
+            maxResultsPerSearch: 3,
+          }),
+        ),
+      )
+      .run()
+
+    await expect(
+      createDeepSearchJobManager().start("test-user-id", {
+        title: "One too many",
+        researchRequest: "Research this",
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+      }),
+    ).rejects.toMatchObject({ status: 429 })
+    expect(mocks.runDeepSearchJob).not.toHaveBeenCalled()
+  })
+
+  it("reserves root capacity before generating an asynchronous title", async () => {
+    db.insert(deepSearchJobs)
+      .values(
+        Array.from(
+          {
+            length: config.deepSearch.maxActiveRootJobsPerUser - 1,
+          },
+          (_, position) => ({
+            deepSearchJobId: `existing-root-${position}`,
+            userId: "test-user-id",
+            title: `Existing root ${position}`,
+            slug: `existing-root-${position}`,
+            researchRequest: "Research this",
+            maxSearches: 3,
+            maxResultsPerSearch: 3,
+          }),
+        ),
+      )
+      .run()
+    const title = Promise.withResolvers<string>()
+    mocks.generatePromptTitle.mockReturnValueOnce(title.promise)
+    mocks.runDeepSearchJob.mockResolvedValue("Answer")
+    const manager = createDeepSearchJobManager()
+
+    const first = manager.start("test-user-id", {
+      researchRequest: "First request",
+      maxSearches: 3,
+      maxResultsPerSearch: 3,
+    })
+    await vi.waitFor(() => {
+      expect(mocks.generatePromptTitle).toHaveBeenCalledOnce()
+    })
+
+    await expect(
+      manager.start("test-user-id", {
+        researchRequest: "Second request",
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+      }),
+    ).rejects.toMatchObject({ status: 429 })
+    expect(mocks.generatePromptTitle).toHaveBeenCalledOnce()
+
+    title.resolve("First Request")
+    await expect(first).resolves.toMatchObject({ title: "First Request" })
+  })
+
+  it("runs only the configured number of deep-search jobs concurrently", async () => {
+    const parentIdeaJobId = "11111111-1111-4111-8111-111111111111"
+    db.insert(ideaJobs)
+      .values({
+        ideaJobId: parentIdeaJobId,
+        userId: "test-user-id",
+        title: "Parent ideas",
+        slug: "parent-ideas",
+        prompt: "Generate ideas",
+        numberOfIdeas: 12,
+        deepSearchCount: 2,
+      })
+      .run()
+    // Fill the remaining root slot. Child jobs must still be admitted because
+    // they are bounded by the shared execution queue, not counted as roots.
+    db.insert(deepSearchJobs)
+      .values({
+        deepSearchJobId: "active-standalone-root",
+        userId: "test-user-id",
+        title: "Active standalone root",
+        slug: "active-standalone-root",
+        researchRequest: "Research the root",
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+      })
+      .run()
+    const totalJobs = config.deepSearch.maxConcurrentJobs + 1
+    const completions = Array.from({ length: totalJobs }, () =>
+      Promise.withResolvers<string>(),
+    )
+    let invocation = 0
+    mocks.runDeepSearchJob.mockImplementation(() => {
+      const completion = completions[invocation]
+      invocation += 1
+      if (!completion) throw new Error("Missing test completion")
+      return completion.promise
+    })
+    const manager = createDeepSearchJobManager()
+
+    const jobs = await Promise.all(
+      completions.map((_, position) =>
+        manager.start("test-user-id", {
+          title: `Child search ${position}`,
+          researchRequest: `Research child ${position}`,
+          maxSearches: 3,
+          maxResultsPerSearch: 3,
+          ideaJobId: parentIdeaJobId,
+          ideaJobPosition: position,
+        }),
+      ),
+    )
+    await vi.waitFor(() => {
+      expect(mocks.runDeepSearchJob).toHaveBeenCalledTimes(
+        config.deepSearch.maxConcurrentJobs,
+      )
+    })
+
+    completions[0]?.resolve("First answer")
+    await vi.waitFor(() => {
+      expect(mocks.runDeepSearchJob).toHaveBeenCalledTimes(totalJobs)
+    })
+    for (const completion of completions.slice(1)) {
+      completion.resolve("Later answer")
+    }
+    await Promise.all(jobs.map(({ completion }) => completion))
+  })
+
+  it("runs a newly admitted root before queued children from one batch", async () => {
+    const parentIdeaJobId = "22222222-2222-4222-8222-222222222222"
+    db.insert(ideaJobs)
+      .values({
+        ideaJobId: parentIdeaJobId,
+        userId: "test-user-id",
+        title: "Parent ideas",
+        slug: "priority-parent-ideas",
+        prompt: "Generate ideas",
+        numberOfIdeas: 12,
+        deepSearchCount: 2,
+      })
+      .run()
+    db.insert(user)
+      .values({
+        id: "other-test-user-id",
+        name: "Other Test User",
+        email: "other-test-user@example.com",
+        emailVerified: true,
+      })
+      .run()
+    const totalJobs = config.deepSearch.maxConcurrentJobs + 2
+    const completions = Array.from({ length: totalJobs }, () =>
+      Promise.withResolvers<string>(),
+    )
+    let invocation = 0
+    mocks.runDeepSearchJob.mockImplementation(() => {
+      const completion = completions[invocation]
+      invocation += 1
+      if (!completion) throw new Error("Missing test completion")
+      return completion.promise
+    })
+    const manager = createDeepSearchJobManager()
+    const children = await Promise.all(
+      Array.from(
+        { length: config.deepSearch.maxConcurrentJobs + 1 },
+        (_, position) =>
+          manager.start("test-user-id", {
+            title: `Child ${position}`,
+            researchRequest: `Child request ${position}`,
+            maxSearches: 3,
+            maxResultsPerSearch: 3,
+            ideaJobId: parentIdeaJobId,
+            ideaJobPosition: position,
+          }),
+      ),
+    )
+    await vi.waitFor(() => {
+      expect(mocks.runDeepSearchJob).toHaveBeenCalledTimes(
+        config.deepSearch.maxConcurrentJobs,
+      )
+    })
+    const root = await manager.start("other-test-user-id", {
+      title: "Priority root",
+      researchRequest: "Priority root request",
+      maxSearches: 3,
+      maxResultsPerSearch: 3,
+    })
+
+    completions[0]?.resolve("Completed child")
+    await vi.waitFor(() => {
+      expect(mocks.runDeepSearchJob).toHaveBeenCalledTimes(
+        config.deepSearch.maxConcurrentJobs + 1,
+      )
+    })
+    expect(
+      mocks.runDeepSearchJob.mock.calls[
+        config.deepSearch.maxConcurrentJobs
+      ]?.[3],
+    ).toBe("Priority root request")
+
+    for (const completion of completions) completion.resolve("Answer")
+    await Promise.all([
+      ...children.map(({ completion }) => completion),
+      root.completion,
+    ])
+  })
+
   it("accepts completed research when a selected page cannot be extracted", async () => {
     mocks.runDeepSearchJob.mockImplementation((deepSearchJobId: string) => {
       completeWithFailedPage(deepSearchJobId, "extraction")
-      return Promise.resolve()
+      return Promise.resolve("Completed answer")
     })
     const manager = createDeepSearchJobManager()
     const started = await manager.start("test-user-id", {
@@ -80,19 +316,21 @@ describe("createDeepSearchJobManager", () => {
     })
 
     await expect(started.completion).resolves.toBe("Completed answer")
+    expect(() =>
+      manager.requireParentQualityAcceptance(started.deepSearchJobId),
+    ).not.toThrow()
     expect(manager.getLiveJob(started.deepSearchJobId)).toBeUndefined()
   })
 
-  it("passes an internal retry policy to the deep-search runner", async () => {
+  it("keeps provider retry policy out of the workflow manager", async () => {
     mocks.runDeepSearchJob.mockImplementation((deepSearchJobId: string) => {
       completeWithFailedPage(deepSearchJobId, "extraction")
-      return Promise.resolve()
+      return Promise.resolve("Completed answer")
     })
     const started = await createDeepSearchJobManager().start("test-user-id", {
       researchRequest: "Research this",
       maxSearches: 3,
       maxResultsPerSearch: 3,
-      maxRetries: 0,
     })
 
     await expect(started.completion).resolves.toBe("Completed answer")
@@ -103,7 +341,7 @@ describe("createDeepSearchJobManager", () => {
       "Research this",
       3,
       3,
-      0,
+      3,
     )
   })
 
@@ -117,7 +355,7 @@ describe("createDeepSearchJobManager", () => {
         })
         .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
         .run()
-      return Promise.resolve()
+      return Promise.reject(new Error("Stopped for identity test"))
     })
     const manager = createDeepSearchJobManager()
     const first = await manager.start("test-user-id", {
@@ -153,10 +391,10 @@ describe("createDeepSearchJobManager", () => {
     })
   })
 
-  it("rejects a failed page-summary generation", async () => {
+  it("separates durable completion from stricter parent acceptance", async () => {
     mocks.runDeepSearchJob.mockImplementation((deepSearchJobId: string) => {
       completeWithFailedPage(deepSearchJobId, "summary")
-      return Promise.resolve()
+      return Promise.resolve("Completed answer")
     })
     const manager = createDeepSearchJobManager()
     const started = await manager.start("test-user-id", {
@@ -165,7 +403,10 @@ describe("createDeepSearchJobManager", () => {
       maxResultsPerSearch: 3,
     })
 
-    await expect(started.completion).rejects.toThrow("Summary failed")
+    await expect(started.completion).resolves.toBe("Completed answer")
+    expect(() =>
+      manager.requireParentQualityAcceptance(started.deepSearchJobId),
+    ).toThrow("Summary failed")
     expect(manager.getLiveJob(started.deepSearchJobId)).toBeUndefined()
   })
 
@@ -179,7 +420,7 @@ describe("createDeepSearchJobManager", () => {
         job.publish({ type: "error", message: "SQLite unavailable" })
         job.publish({ type: "done" })
         job.close()
-        return Promise.resolve()
+        return Promise.reject(new Error("SQLite unavailable"))
       },
     )
     const manager = createDeepSearchJobManager()
@@ -189,7 +430,7 @@ describe("createDeepSearchJobManager", () => {
       maxResultsPerSearch: 3,
     })
 
-    await expect(started.completion).rejects.toThrow("Deep search failed")
+    await expect(started.completion).rejects.toThrow("SQLite unavailable")
     expect(manager.getLiveJob(started.deepSearchJobId)).toBeDefined()
   })
 })

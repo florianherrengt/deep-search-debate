@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   generateArrayStream: vi.fn(),
   generateObjectStream: vi.fn(),
   generateTextStream: vi.fn(),
+  requireParentQualityAcceptance: vi.fn(),
   startDeepSearch: vi.fn(),
 }))
 
@@ -16,6 +17,7 @@ vi.mock("../../llms/generateText.ts", () => ({
 }))
 
 import { db } from "../../db/index.ts"
+import { config } from "../../config.ts"
 import {
   deepSearchJobs,
   ideaJobs,
@@ -32,6 +34,7 @@ type SelectionOutput = { selectedIdeaIds: string[] }
 type SelectionMockInput = {
   prompt: string
   schema: z.ZodType<SelectionOutput>
+  onRegistered?: RegistrationHook
   onCompleted?: (
     result: { id: string; output: SelectionOutput },
     transaction: Parameters<Parameters<typeof db.transaction>[0]>[0],
@@ -41,10 +44,19 @@ type SelectionMockInput = {
 type RefinementMockInput = {
   prompt: string
   schema: z.ZodType<Idea>
+  onRegistered?: RegistrationHook
   onCompleted?: (
     result: { id: string; output: Idea },
     transaction: Parameters<Parameters<typeof db.transaction>[0]>[0],
   ) => void
+}
+
+type TestTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
+type RegistrationHook = (id: string, transaction: TestTransaction) => void
+type GenerationMockInput = { onRegistered?: RegistrationHook }
+
+function registerGeneration(input: GenerationMockInput, id: string): void {
+  db.transaction((transaction) => input.onRegistered?.(id, transaction))
 }
 
 type StartSearchInput = {
@@ -54,7 +66,6 @@ type StartSearchInput = {
   maxResultsPerSearch: number
   ideaJobId?: string
   ideaJobPosition?: number
-  maxRetries?: number
 }
 
 const researchPrompts = [
@@ -81,17 +92,15 @@ const refinementGenerationIds = generatedIdeas
 
 function expectedRefinedIdeaResearchRequest(position: number): string {
   return [
-    "Research this proposed idea in relation to the user's request. Investigate relevant evidence, comparable approaches, feasibility, risks, and practical implementation considerations.",
-    "<user_request>",
-    "Generate useful concepts",
-    "</user_request>",
-    "<refined_idea>",
-    JSON.stringify({
-      title: `Improved ${generatedIdeas[position].title}`,
-      description: `Improved ${generatedIdeas[position].description}`,
-    }),
-    "</refined_idea>",
-  ].join("\n")
+    "Research this proposed idea against the user's request. Investigate evidence, comparable approaches, feasibility, risks, and implementation.",
+    "\n<user_request>\n",
+    JSON.stringify("Generate useful concepts"),
+    "\n</user_request>\n<refined_idea>{\"title\":",
+    JSON.stringify(`Improved ${generatedIdeas[position].title}`),
+    ",\"description\":",
+    JSON.stringify(`Improved ${generatedIdeas[position].description}`),
+    "}</refined_idea>",
+  ].join("")
 }
 
 function insertGeneration(id: string, text: string): void {
@@ -108,9 +117,12 @@ function insertGeneration(id: string, text: string): void {
     .run()
 }
 
-async function* elements(values: Idea[]): AsyncGenerator<Idea> {
-  await Promise.resolve()
-  for (const value of values) yield value
+function completedGeneration(text: string) {
+  return Promise.resolve({
+    status: "completed" as const,
+    text,
+    reasoning: "Test reasoning",
+  })
 }
 
 function setupGenerations(options?: { refinementFailureAt?: number }): void {
@@ -131,26 +143,45 @@ function setupGenerations(options?: { refinementFailureAt?: number }): void {
     )
   }
   mocks.generateArrayStream
-    .mockResolvedValueOnce({
-      id: "planning-id",
-      output: Promise.resolve(researchPrompts),
-      elementStream: elements([]),
+    .mockImplementationOnce((input: GenerationMockInput) => {
+      registerGeneration(input, "planning-id")
+      return Promise.resolve({
+        id: "planning-id",
+        output: Promise.resolve(researchPrompts),
+        completion: completedGeneration(JSON.stringify(researchPrompts)),
+      })
     })
-    .mockResolvedValueOnce({
-      id: "ideas-id",
-      output: Promise.resolve(generatedIdeas),
-      elementStream: elements(generatedIdeas),
+    .mockImplementationOnce((input: GenerationMockInput) => {
+      registerGeneration(input, "ideas-id")
+      return Promise.resolve({
+        id: "ideas-id",
+        output: Promise.resolve(generatedIdeas),
+        completion: completedGeneration(JSON.stringify(generatedIdeas)),
+      })
     })
   mocks.generateTextStream
-    .mockResolvedValueOnce({ id: "summary-id" })
-  for (const id of critiqueGenerationIds) {
-    mocks.generateTextStream.mockResolvedValueOnce({ id })
+    .mockImplementationOnce((input: GenerationMockInput) => {
+      registerGeneration(input, "summary-id")
+      return Promise.resolve({
+        id: "summary-id",
+        completion: completedGeneration("Combined research briefing"),
+      })
+    })
+  for (const [position, id] of critiqueGenerationIds.entries()) {
+    mocks.generateTextStream.mockImplementationOnce((input: GenerationMockInput) => {
+      registerGeneration(input, id)
+      return Promise.resolve({
+        id,
+        completion: completedGeneration(`Critique ${position + 1}`),
+      })
+    })
   }
   let refinementPosition = 0
   mocks.generateObjectStream.mockImplementation(
     (rawInput: SelectionMockInput | RefinementMockInput) => {
       if (!rawInput.prompt.includes("<original_idea>")) {
-        const { onCompleted, schema } = rawInput as SelectionMockInput
+        const { onCompleted, onRegistered, schema } = rawInput as SelectionMockInput
+        registerGeneration({ onRegistered }, "selection-id")
         const selectedIdeaIds = db
           .select({ ideaId: ideas.ideaId })
           .from(ideas)
@@ -165,10 +196,11 @@ function setupGenerations(options?: { refinementFailureAt?: number }): void {
         return Promise.resolve({
           id: "selection-id",
           output: Promise.resolve(output),
+          completion: completedGeneration(JSON.stringify(output)),
         })
       }
 
-      const { onCompleted, schema } = rawInput as RefinementMockInput
+      const { onCompleted, onRegistered, schema } = rawInput as RefinementMockInput
       const position = refinementPosition
       refinementPosition += 1
       if (position === options?.refinementFailureAt) {
@@ -177,20 +209,27 @@ function setupGenerations(options?: { refinementFailureAt?: number }): void {
         )
       }
       const id = refinementGenerationIds[position]
+      registerGeneration({ onRegistered }, id)
       const output = schema.parse({
         title: `Improved ${generatedIdeas[position].title}`,
         description: `Improved ${generatedIdeas[position].description}`,
       })
+      const outputPromise = new Promise<Idea>((resolve) => {
+        setTimeout(() => {
+          db.transaction((transaction) => {
+            onCompleted?.({ id, output }, transaction)
+          })
+          resolve(output)
+        }, 0)
+      })
       return Promise.resolve({
         id,
-        output: new Promise<Idea>((resolve) => {
-          setTimeout(() => {
-            db.transaction((transaction) => {
-              onCompleted?.({ id, output }, transaction)
-            })
-            resolve(output)
-          }, 0)
-        }),
+        output: outputPromise,
+        completion: outputPromise.then((value) => ({
+          status: "completed" as const,
+          text: JSON.stringify(value),
+          reasoning: "Test reasoning",
+        })),
       })
     },
   )
@@ -261,7 +300,7 @@ async function collectEvents(
   return result
 }
 
-function createInput(maxRetries?: number) {
+function createInput() {
   const job = createReplayableEventLog<IdeaJobEvent>()
   db.insert(ideaJobs)
     .values({
@@ -274,6 +313,8 @@ function createInput(maxRetries?: number) {
     .run()
   const manager: DeepSearchJobManager = {
     start: mocks.startDeepSearch,
+    requireParentQualityAcceptance:
+      mocks.requireParentQualityAcceptance,
     getLiveJob: vi.fn(),
   }
   return {
@@ -285,7 +326,7 @@ function createInput(maxRetries?: number) {
       deepSearchCount: 2,
       maxSearches: 3,
       maxResultsPerSearch: 3,
-      ...(maxRetries === undefined ? {} : { maxRetries }),
+      maxRounds: 3,
       job,
       deepSearchManager: manager,
     },
@@ -296,12 +337,67 @@ function createInput(maxRetries?: number) {
 describe("runIdeaJob", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.requireParentQualityAcceptance.mockReset()
     db.delete(ideaJobs).run()
     db.delete(llmGenerations).run()
   })
 
+  it("waits for durable generation completion after structured output fails", async () => {
+    const { input, events } = createInput()
+    insertGeneration("planning-id", "invalid structured output")
+    const terminal = Promise.withResolvers<{
+      status: "completed"
+      text: string
+      reasoning: string
+    }>()
+    mocks.generateArrayStream.mockResolvedValue({
+      id: "planning-id",
+      output: Promise.reject(new Error("Invalid structured output")),
+      completion: terminal.promise,
+    })
+
+    const running = runIdeaJob(input)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(db.select().from(ideaJobs).get()).toMatchObject({
+      status: "running",
+      stage: "planning",
+    })
+
+    terminal.resolve({
+      status: "completed",
+      text: "invalid structured output",
+      reasoning: "Test reasoning",
+    })
+    await running
+
+    const { element } = z
+      .object({
+        element: z.custom<z.ZodType<unknown>>(
+          (value) => value instanceof z.ZodType,
+        ),
+      })
+      .parse(mocks.generateArrayStream.mock.calls[0]?.[0] as unknown)
+    expect(
+      element.safeParse({
+        title: "A".repeat(86),
+        prompt: "A bounded research request",
+      }).success,
+    ).toBe(true)
+
+    await expect(events).resolves.toEqual([
+      { type: "research-prompt-stream", streamId: "planning-id" },
+      {
+        type: "error",
+        message: "Invalid structured output",
+        stage: "planning",
+      },
+      { type: "done" },
+    ])
+  })
+
   it("runs research, critiques every idea, and selects an admitted set", async () => {
-    const { input, events } = createInput(0)
+    const { input, events } = createInput()
     setupGenerations()
     mocks.startDeepSearch.mockImplementation(
       (_userId: string, searchInput: StartSearchInput) => {
@@ -318,6 +414,7 @@ describe("runIdeaJob", () => {
     await runIdeaJob(input)
 
     expect(mocks.startDeepSearch).toHaveBeenCalledTimes(8)
+    expect(mocks.requireParentQualityAcceptance).toHaveBeenCalledTimes(8)
     expect(mocks.startDeepSearch).toHaveBeenNthCalledWith(
       1,
       "test-user-id",
@@ -326,28 +423,27 @@ describe("runIdeaJob", () => {
         researchRequest: researchPrompts[0].prompt,
         maxSearches: 3,
         maxResultsPerSearch: 3,
+        maxRounds: 3,
         ideaJobId: input.ideaJobId,
         ideaJobPosition: 0,
-        maxRetries: 0,
       },
     )
     expect(mocks.generateArrayStream).toHaveBeenCalledTimes(2)
     for (const [generationInput] of mocks.generateArrayStream.mock.calls) {
-      expect(generationInput).toEqual(
-        expect.objectContaining({ maxRetries: 0 }),
-      )
+      expect(generationInput).not.toHaveProperty("maxRetries")
     }
     expect(mocks.generateTextStream).toHaveBeenCalledTimes(
       generatedIdeas.length + 1,
     )
     for (const [generationInput] of mocks.generateTextStream.mock.calls) {
-      expect(generationInput).toEqual(
-        expect.objectContaining({ maxRetries: 0 }),
-      )
+      expect(generationInput).not.toHaveProperty("maxRetries")
     }
-    const summaryInput = z.object({ prompt: z.string() }).parse(
-      mocks.generateTextStream.mock.calls[0]?.[0] as unknown,
-    )
+    const summaryInput = z
+      .object({
+        prompt: z.string(),
+        reasoning: z.literal("disabled"),
+      })
+      .parse(mocks.generateTextStream.mock.calls[0]?.[0] as unknown)
     const ideaInput = z.object({ prompt: z.string() }).parse(
       mocks.generateArrayStream.mock.calls[1]?.[0] as unknown,
     )
@@ -358,6 +454,7 @@ describe("runIdeaJob", () => {
           .object({
             prompt: z.string(),
             reasoning: z.literal("disabled"),
+            maxOutputTokens: z.literal(1_024),
           })
           .parse(value as unknown),
       )
@@ -372,8 +469,7 @@ describe("runIdeaJob", () => {
     }
     expect(mocks.generateObjectStream).toHaveBeenCalledWith(
       expect.objectContaining({
-        maxRetries: 0,
-        reasoning: "enabled",
+        reasoning: "disabled",
       }),
     )
     expect(mocks.generateObjectStream).toHaveBeenCalledTimes(7)
@@ -409,7 +505,6 @@ describe("runIdeaJob", () => {
           maxResultsPerSearch: 3,
           ideaJobId: input.ideaJobId,
           ideaJobPosition: position + 2,
-          maxRetries: 0,
           researchRequest: expectedRefinedIdeaResearchRequest(position),
         }),
       )
@@ -417,7 +512,6 @@ describe("runIdeaJob", () => {
         refinementGenerationId: refinementGenerationIds[position],
         refinedTitle: `Improved ${generatedIdeas[position].title}`,
         refinedDescription: `Improved ${generatedIdeas[position].description}`,
-        deepSearchJobId: `idea-search-${position + 2}`,
       })
     }
     await expect(events).resolves.toEqual([
@@ -491,8 +585,6 @@ describe("runIdeaJob", () => {
         refinedTitle: position < 6 ? `Improved ${idea.title}` : null,
         refinedDescription:
           position < 6 ? `Improved ${idea.description}` : null,
-        deepSearchJobId:
-          position < 6 ? `idea-search-${position + 2}` : null,
       })),
     )
     expect(reconstructIdeaJobEvents(ideaJobId)).toEqual(
@@ -521,13 +613,50 @@ describe("runIdeaJob", () => {
     )
   })
 
+  it("fits refined-idea child requests under the external request ceiling", async () => {
+    const { input, events } = createInput()
+    input.prompt = "x".repeat(config.deepSearch.maxRequestChars)
+    db.update(ideaJobs)
+      .set({ prompt: input.prompt })
+      .where(eq(ideaJobs.ideaJobId, ideaJobId))
+      .run()
+    setupGenerations()
+    mocks.startDeepSearch.mockImplementation(
+      (_userId: string, searchInput: StartSearchInput) => {
+        const position = searchInput.ideaJobPosition ?? 0
+        return Promise.resolve(
+          persistCompletedSearch(`bounded-search-${position}`, searchInput),
+        )
+      },
+    )
+
+    await runIdeaJob(input)
+    await events
+
+    const refinedRequests = mocks.startDeepSearch.mock.calls
+      .map(([, searchInput]) => searchInput as StartSearchInput)
+      .filter(
+        ({ ideaJobPosition }) =>
+          ideaJobPosition !== undefined &&
+          ideaJobPosition >= input.deepSearchCount,
+      )
+      .map(({ researchRequest }) => researchRequest)
+    expect(refinedRequests).toHaveLength(6)
+    for (const request of refinedRequests) {
+      expect(request.length).toBeLessThanOrEqual(
+        config.deepSearch.maxRequestChars,
+      )
+      expect(request).toContain("[... omitted ...]")
+    }
+  })
+
   it("fails the whole pipeline without summarising when any research fails", async () => {
     const { input, events } = createInput()
     insertGeneration("planning-id", JSON.stringify(researchPrompts))
     mocks.generateArrayStream.mockResolvedValue({
       id: "planning-id",
       output: Promise.resolve(researchPrompts),
-      elementStream: elements([]),
+      completion: completedGeneration(JSON.stringify(researchPrompts)),
     })
     mocks.startDeepSearch
       .mockReturnValueOnce({
@@ -576,13 +705,54 @@ describe("runIdeaJob", () => {
     })
   })
 
+  it("fails the parent quality gate after a child durably completes", async () => {
+    const { input, events } = createInput()
+    insertGeneration("planning-id", JSON.stringify(researchPrompts))
+    mocks.generateArrayStream.mockResolvedValue({
+      id: "planning-id",
+      output: Promise.resolve(researchPrompts),
+      completion: completedGeneration(JSON.stringify(researchPrompts)),
+    })
+    mocks.startDeepSearch
+      .mockReturnValueOnce({
+        deepSearchJobId: "search-one",
+        title: "Market Constraints",
+        slug: "market-constraints",
+        completion: Promise.resolve("First research result"),
+      })
+      .mockReturnValueOnce({
+        deepSearchJobId: "search-two",
+        title: "User Needs",
+        slug: "user-needs",
+        completion: Promise.resolve("Second research result"),
+      })
+    mocks.requireParentQualityAcceptance.mockImplementation((jobId: string) => {
+      if (jobId === "search-two") throw new Error("Summary failed")
+    })
+
+    await runIdeaJob(input)
+
+    expect(mocks.generateTextStream).not.toHaveBeenCalled()
+    expect(mocks.requireParentQualityAcceptance).toHaveBeenCalledTimes(2)
+    await expect(events).resolves.toContainEqual({
+      type: "error",
+      message: "Summary failed",
+      stage: "research",
+    })
+    expect(db.select().from(ideaJobs).get()).toMatchObject({
+      status: "failed",
+      error: "Summary failed",
+      stage: "research",
+    })
+  })
+
   it("waits for started sibling research when another child cannot start", async () => {
     const { input, events } = createInput()
     insertGeneration("planning-id", JSON.stringify(researchPrompts))
     mocks.generateArrayStream.mockResolvedValue({
       id: "planning-id",
       output: Promise.resolve(researchPrompts),
-      elementStream: elements([]),
+      completion: completedGeneration(JSON.stringify(researchPrompts)),
     })
     let finishFirstResearch!: (value: string) => void
     const firstCompletion = new Promise<string>((resolve) => {
@@ -640,7 +810,7 @@ describe("runIdeaJob", () => {
     mocks.generateArrayStream.mockResolvedValue({
       id: "planning-id",
       output: Promise.resolve(researchPrompts),
-      elementStream: elements([]),
+      completion: completedGeneration(JSON.stringify(researchPrompts)),
     })
     mocks.startDeepSearch
       .mockReturnValueOnce({
@@ -684,18 +854,30 @@ describe("runIdeaJob", () => {
       .mockResolvedValueOnce({
         id: "planning-id",
         output: Promise.resolve(researchPrompts),
-        elementStream: elements([]),
+        completion: completedGeneration(JSON.stringify(researchPrompts)),
       })
       .mockResolvedValueOnce({
         id: "ideas-id",
         output: Promise.resolve(generatedIdeas),
-        elementStream: elements(generatedIdeas),
+        completion: completedGeneration(JSON.stringify(generatedIdeas)),
       })
     mocks.generateTextStream
-      .mockResolvedValueOnce({ id: "summary-id" })
+      .mockImplementationOnce((input: GenerationMockInput) => {
+        registerGeneration(input, "summary-id")
+        return Promise.resolve({
+          id: "summary-id",
+          completion: completedGeneration("Combined research briefing"),
+        })
+      })
       .mockRejectedValueOnce(new Error("Critique failed before streaming"))
-    for (const id of critiqueGenerationIds.slice(1)) {
-      mocks.generateTextStream.mockResolvedValueOnce({ id })
+    for (const [position, id] of critiqueGenerationIds.slice(1).entries()) {
+      mocks.generateTextStream.mockImplementationOnce((input: GenerationMockInput) => {
+        registerGeneration(input, id)
+        return Promise.resolve({
+          id,
+          completion: completedGeneration(`Critique ${position + 2}`),
+        })
+      })
     }
     mocks.startDeepSearch
       .mockReturnValueOnce({
@@ -768,10 +950,13 @@ describe("runIdeaJob", () => {
     expect(
       db
         .select()
-        .from(ideas)
-        .orderBy(ideas.position)
+        .from(deepSearchJobs)
+        .where(eq(deepSearchJobs.ideaJobId, ideaJobId))
         .all()
-        .filter(({ deepSearchJobId }) => deepSearchJobId !== null),
+        .filter(
+          ({ ideaJobPosition }) =>
+            ideaJobPosition !== null && ideaJobPosition >= input.deepSearchCount,
+        ),
     ).toEqual([])
     expect(reconstructIdeaJobEvents(ideaJobId)).toContainEqual({
       type: "error",

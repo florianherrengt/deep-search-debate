@@ -65,10 +65,12 @@ export const researchRequest =
 
 export const completedRun: DeepSearchRunState = {
   status: "completed",
-  queryStreamId: null,
+  queryGenerations: [],
+  roundReviews: [],
   finalAnswerStreamId: "final-answer",
   searches: [
     {
+      round: 0,
       query: queryOne,
       querySummaryStreamId: "query-summary-products",
       results: [
@@ -96,6 +98,7 @@ export const completedRun: DeepSearchRunState = {
       ],
     },
     {
+      round: 0,
       query: queryTwo,
       querySummaryStreamId: "query-summary-history",
       results: [
@@ -123,6 +126,7 @@ export const completedRun: DeepSearchRunState = {
       ],
     },
     {
+      round: 0,
       query: queryThree,
       querySummaryStreamId: "query-summary-criticism",
       results: [

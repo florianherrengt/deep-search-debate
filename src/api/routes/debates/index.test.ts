@@ -28,6 +28,29 @@ describe("debate job routes", () => {
     db.delete(debateJobsTable).run()
   })
 
+  it("rejects an oversized research prompt", async () => {
+    const start = vi.fn()
+    const manager: DebateJobManager = {
+      start,
+      getLiveJob: vi.fn(),
+    }
+    const app = new Hono<AppEnv>()
+    app.use("*", async (c, next) => {
+      c.set("userId", "test-user-id")
+      await next()
+    })
+    debateJobs(app, manager)
+
+    const response = await app.request("/debate-jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: "x".repeat(10_001) }),
+    })
+
+    expect(response.status).toBe(400)
+    expect(start).not.toHaveBeenCalled()
+  })
+
   it("lists newest debate summaries with their idea prompts", async () => {
     const olderIdeaJobId = crypto.randomUUID()
     const newerIdeaJobId = crypto.randomUUID()
@@ -135,6 +158,66 @@ describe("debate job routes", () => {
         .where(eq(debateJobsTable.debateJobId, debateJobId))
         .get()?.isPublic,
     ).toBe(true)
+  })
+
+  it("does not revoke public access while a debate is running", async () => {
+    const debateJobId = crypto.randomUUID()
+    db.insert(debateJobsTable)
+      .values({
+        userId: "test-user-id",
+        debateJobId,
+        randomSeed: 1,
+        isPublic: true,
+      })
+      .run()
+
+    const response = await createApp().request(
+      `/debate-jobs/${debateJobId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isPublic: false }),
+      },
+    )
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toEqual({
+      error: "A public debate cannot be made private while it is running",
+    })
+    expect(
+      db
+        .select({ isPublic: debateJobsTable.isPublic })
+        .from(debateJobsTable)
+        .where(eq(debateJobsTable.debateJobId, debateJobId))
+        .get()?.isPublic,
+    ).toBe(true)
+  })
+
+  it("lets the owner revoke public access after a debate finishes", async () => {
+    const debateJobId = crypto.randomUUID()
+    db.insert(debateJobsTable)
+      .values({
+        userId: "test-user-id",
+        debateJobId,
+        randomSeed: 1,
+        isPublic: true,
+        stage: "final",
+        status: "completed",
+        completedAt: new Date(),
+      })
+      .run()
+
+    const response = await createApp().request(
+      `/debate-jobs/${debateJobId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isPublic: false }),
+      },
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ isPublic: false })
   })
 
   it("rejects an empty debate update", async () => {

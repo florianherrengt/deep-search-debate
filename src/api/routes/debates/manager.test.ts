@@ -16,7 +16,7 @@ describe("debate job manager", () => {
     db.delete(debateJobs).run()
   })
 
-  it("disables retries for the complete debate-owned idea pipeline", async () => {
+  it("uses the SDK's bounded retries for the debate-owned idea pipeline", async () => {
     const ideaJobId = crypto.randomUUID()
     const startIdeaJob = vi.fn(
       (
@@ -70,6 +70,10 @@ describe("debate job manager", () => {
         prompt: "Debate products",
         isPublic: true,
         numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
+        deepSearchCount: 1,
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+        maxRounds: 1,
       },
     )
 
@@ -78,10 +82,10 @@ describe("debate job manager", () => {
     expect(startIdeaJob.mock.calls[0]?.[1]).toEqual({
       prompt: "Debate products",
       numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
-      deepSearchCount: 2,
-      maxSearches: 3,
-      maxResultsPerSearch: 3,
-      maxRetries: 0,
+      deepSearchCount: 1,
+      maxSearches: 1,
+      maxResultsPerSearch: 1,
+      maxRounds: 1,
     })
     expect(startIdeaJob.mock.calls[0]?.[2]?.createParent).toBeTypeOf(
       "function",

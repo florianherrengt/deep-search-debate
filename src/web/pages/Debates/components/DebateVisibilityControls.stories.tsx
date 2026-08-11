@@ -19,6 +19,7 @@ export default meta
 type Story = StoryObj<typeof DebateVisibilityControls>
 
 const baseArgs = {
+  canMakePrivate: true,
   isPending: false,
   onChange: () => undefined,
   shareUrl: "https://rethinkloop.com/debates/3c6cd152-0a60-4e17-b837-21406bb338e1",
@@ -30,6 +31,10 @@ export const Private: Story = {
 
 export const Public: Story = {
   args: { ...baseArgs, isPublic: true },
+}
+
+export const RunningPublic: Story = {
+  args: { ...baseArgs, canMakePrivate: false, isPublic: true },
 }
 
 export const UpdateFailed: Story = {

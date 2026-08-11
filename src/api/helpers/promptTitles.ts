@@ -37,7 +37,7 @@ export function createPromptIdentity(
   generatedTitle: string,
   usedSlugs: Iterable<string>,
 ): PromptIdentity {
-  const title = generatedTitle.trim()
+  const title = generatedTitle.trim().slice(0, MAX_TITLE_LENGTH).trimEnd()
   const baseSlug = slugifyPromptTitle(title)
   const occupied = new Set(usedSlugs)
   if (!occupied.has(baseSlug)) return { title, slug: baseSlug }

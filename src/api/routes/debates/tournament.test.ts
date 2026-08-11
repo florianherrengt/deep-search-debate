@@ -51,7 +51,7 @@ describe("debate tournament format", () => {
   it("keeps the configurable, five-round Elo configuration explicit", () => {
     expect(DEBATE_TOURNAMENT_FORMAT).toEqual({
       minParticipantCount: 6,
-      maxParticipantCount: 100,
+      maxParticipantCount: 12,
       defaultParticipantCount: 12,
       participantCount: 12,
       swissRounds: 5,
@@ -67,7 +67,7 @@ describe("debate tournament format", () => {
 })
 
 describe("Swiss pairing", () => {
-  it.each([6, 100])(
+  it.each([6, 12])(
     "builds five non-repeating Swiss rounds for %i selected ideas",
     (participantCount) => {
       const field: TournamentIdea[] = Array.from(
@@ -219,6 +219,68 @@ describe("Swiss pairing", () => {
     ).toThrow("All Swiss rounds are already complete")
   })
 
+  it("does not choose a locally valid round that makes later rounds impossible", () => {
+    const field: TournamentIdea[] = [
+      ["f2605666-1f3d-4829-9188-a3ed606280b5", 0],
+      ["682a278e-d6e5-4801-a1d1-3ec01661059a", 1],
+      ["3ed18fb8-a7b4-49ad-8d8f-aeacea8a5016", 2],
+      ["d027d0d4-d8a7-4e25-a677-373cfff346e1", 3],
+      ["c465757d-f8da-49cb-adac-eab4cd5d7c07", 4],
+      ["c79eb167-2e97-48e3-b372-1e0a42b0e21b", 5],
+    ].map(([ideaId, position]) => ({
+      ideaId: ideaId as string,
+      position: position as number,
+    }))
+    const completedRounds: CompletedSwissRound[] = [
+      [
+        {
+          firstIdeaId: field[2].ideaId,
+          secondIdeaId: field[0].ideaId,
+          winnerIdeaId: field[0].ideaId,
+        },
+        {
+          firstIdeaId: field[4].ideaId,
+          secondIdeaId: field[5].ideaId,
+          winnerIdeaId: field[4].ideaId,
+        },
+        {
+          firstIdeaId: field[1].ideaId,
+          secondIdeaId: field[3].ideaId,
+          winnerIdeaId: field[1].ideaId,
+        },
+      ],
+      [
+        {
+          firstIdeaId: field[0].ideaId,
+          secondIdeaId: field[1].ideaId,
+          winnerIdeaId: field[1].ideaId,
+        },
+        {
+          firstIdeaId: field[4].ideaId,
+          secondIdeaId: field[2].ideaId,
+          winnerIdeaId: field[4].ideaId,
+        },
+        {
+          firstIdeaId: field[5].ideaId,
+          secondIdeaId: field[3].ideaId,
+          winnerIdeaId: field[5].ideaId,
+        },
+      ],
+    ]
+
+    for (let roundNumber = 2; roundNumber < 5; roundNumber += 1) {
+      const pairings = createNextSwissRound({
+        ideas: field,
+        completedRounds,
+        randomSeed: 1_250_142_477,
+      })
+      expect(pairings).toHaveLength(3)
+      completedRounds.push(complete(pairings))
+    }
+
+    expect(new Set(completedRounds.flat().map(key))).toHaveLength(15)
+  })
+
   it("rejects malformed membership, rounds, winners, and repeat opponents", () => {
     expect(() =>
       createNextSwissRound({
@@ -226,7 +288,7 @@ describe("Swiss pairing", () => {
         completedRounds: [],
         randomSeed: 0,
       }),
-    ).toThrow("an even number of ideas between 6 and 100")
+    ).toThrow("an even number of ideas between 6 and 12")
     expect(() =>
       createNextSwissRound({
         ideas: [

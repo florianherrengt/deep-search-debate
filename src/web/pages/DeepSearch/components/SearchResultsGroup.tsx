@@ -40,7 +40,7 @@ export function SearchResultsGroup({
           sx={{ justifyContent: "space-between", alignItems: { sm: "center" } }}
         >
           <Typography variant="overline" color="text.secondary">
-            Search {position}
+            Round {search.round + 1} · Search {position}
           </Typography>
           <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
             <Chip

@@ -16,6 +16,7 @@ export const PromptName = {
   Default: "default",
   GeneratePromptTitle: "generate-prompt-title",
   GenerateWebSearchQueries: "generate-websearch-queries",
+  ReviewDeepSearchRound: "review-deep-search-round",
   GenerateIdeaResearchPrompts: "generate-idea-research-prompts",
   GenerateIdeas: "generate-ideas",
   SelectIdeas: "select-ideas",

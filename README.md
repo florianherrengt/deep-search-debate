@@ -38,19 +38,43 @@ NODE_ENV=development
 PORT=3000
 BETTER_AUTH_URL=http://localhost:5173
 SEARXNG_URL=http://127.0.0.1:8090
+SEARXNG_CATEGORIES=general,science
+SEARXNG_MAX_CONCURRENT_REQUESTS=1
+SEARXNG_MIN_INTERVAL_MS=1000
 LLM_PROVIDER=deepseek
-LLM_MODEL_NAME=deepseek-v4-flash
+LLM_MODEL_NAME=deepseek-chat
+LLM_GENERATION_TIMEOUT_MS=300000
+LLM_FIRST_CHUNK_TIMEOUT_MS=120000
+LLM_CHUNK_TIMEOUT_MS=60000
+LLM_MAX_OUTPUT_TOKENS=8192
+LLM_MAX_RETRIES=2
+LLM_MAX_CONCURRENT_GENERATIONS=4
+LLM_MAX_ACTIVE_STANDALONE_GENERATIONS_PER_USER=2
 DEEPSEEK_API_KEY=
 OPENCODE_ZEN_API_KEY=
 SCRAPINGANT_API_KEY=
 SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS=120000
 SCRAPINGANT_REQUEST_TIMEOUT_MS=35000
 SCRAPINGANT_MAX_RESPONSE_BYTES=2000000
+DEEP_SEARCH_MAX_SEARCHES=10
+DEEP_SEARCH_MAX_RESULTS_PER_SEARCH=10
+DEEP_SEARCH_MAX_SELECTED_URLS_PER_ROUND=30
+DEEP_SEARCH_MAX_ROUNDS=3
+DEEP_SEARCH_MAX_REQUEST_CHARS=10000
+DEEP_SEARCH_MAX_SUMMARY_CONTEXT_CHARS=100000
+DEEP_SEARCH_MAX_CONCURRENT_JOBS=2
+DEEP_SEARCH_MAX_CONCURRENT_PAGE_TASKS=4
+RESEARCH_MAX_ACTIVE_ROOT_JOBS_PER_USER=2
+RESEARCH_MAX_SELECTED_PAGES_PER_ROOT_JOB=400
+IDEA_JOB_MAX_DEEP_SEARCH_COUNT=10
+WEB_SEARCH_TIMEOUT_MS=30000
+WEB_SEARCH_MAX_RESPONSE_BYTES=2000000
 BETTER_AUTH_SECRET=
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
 AUTH_DEBUG_USER_ENABLED=false
 AUTH_DEBUG_USER_EMAIL=debug@local.invalid
+AUTH_DEBUG_USER_PASSWORD=
 ```
 
 Do not put real credentials in `.env.example`; set them only in the ignored
@@ -79,6 +103,11 @@ result is clearly unusable. A failed browser render remains an individual page
 failure; there are no residential proxies or provider retries. All ScrapingAnt
 requests share one process-wide queue with concurrency fixed at exactly one;
 pending attempts expire after `SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS`.
+Deep-search pipelines also use process-wide admission and page-task queues so
+idea jobs cannot bypass provider backpressure by starting many child searches.
+All workflows additionally share a process-wide LLM queue configured by
+`LLM_MAX_CONCURRENT_GENERATIONS`; a permit covers SDK retries and remains held
+until durable terminal persistence settles.
 
 Install dependencies with `npm install`.
 
@@ -166,19 +195,22 @@ After the page summaries settle, every executed query receives a query-level Mar
 
 The page displays the research request, generated queries, result-selection output, model reasoning, query summaries, and page summaries. Results are grouped by executed search query. Sources explored in depth are distinguished from listings represented by their search descriptions. Queries and results are priority ordered; the client currently runs at most three searches and explores at most three results per search.
 
-The history page lists durable jobs newest first. Structural progress is stored in normalized typed SQLite tables; no JSON snapshot or event log is stored. See [the deep-search job contract](src/api/routes/docs/deep-search-jobs.md).
+The history page lists durable jobs newest first. Structural progress is stored in normalized typed SQLite tables; no JSON snapshot or event log is stored. See [how the deep-search pipeline works](src/api/routes/docs/deep-search-pipeline.md) for the query, extraction, and layered-summary data flow, and [the deep-search job contract](src/api/routes/docs/deep-search-jobs.md) for the HTTP, persistence, and failure contracts.
 
 ## Ideas
 
 Open `/ideas` and enter a prompt to start a researched idea run. The UI requests
-12 ideas by default, and the API accepts 6 through 100 through
-`numberOfIdeas`. Runs use two parallel deep searches by default; the API also
+12 ideas by default, and the API accepts values from 6 through 20 via
+`numberOfIdeas`. The selector keeps an even field of 6 through 12. Runs use two
+parallel deep searches by default; the API also
 accepts `deepSearchCount`, `maxSearches`, and `maxResultsPerSearch`.
 
-The pipeline uses six visible phases:
+The pipeline uses nine visible phases:
 
 1. One planning generation creates exactly one distinct prompt per requested deep search.
-2. Every deep search starts in parallel. Its existing `/deep-search/:id` page opens in a new tab from the Ideas run.
+2. Every child deep-search row starts together and is visible immediately. Its
+   existing `/deep-search/:slug` page opens in a new tab from the Ideas run;
+   actual pipeline execution passes through the shared deep-search queue.
 3. A fresh generation combines only the child searches' final-answer text into one research briefing.
 4. A fresh generation receives the user prompt and briefing, then streams the requested title-and-description ideas.
 5. Every persisted idea receives an independent critique using the original
@@ -186,11 +218,17 @@ The pipeline uses six visible phases:
    pipeline waits for all of them to settle.
 6. One structured selector receives the request, briefing, every idea, and each
    critique's final text. It returns an unordered, unique, even set of 6 through
-   100 idea IDs. The UI retains the selector's reasoning and marks every idea as
+   12 idea IDs. The UI retains the selector's reasoning and marks every idea as
    selected or rejected.
+7. Every selected idea receives a structured refinement generation using its
+   original content, critique, request, and shared research briefing.
+8. Each refined idea starts its own durable deep search through the same shared
+   execution queue.
+9. The parent completes only after all selected-idea research completes.
 
 The run is all-or-nothing: a planning, child-search, summary, idea-generation,
-critique, or selection failure fails the parent run and prevents later stages.
+critique, selection, refinement, or selected-idea-research failure fails the
+parent run and prevents later stages.
 Individual blocked, challenged, paywalled, unavailable, or unsupported pages
 remain non-fatal inside a child search because their search snippets can still
 support its synthesis.
@@ -201,7 +239,7 @@ Runs and their generated output are durable and appear newest first under "Previ
 
 Open `/debates` to run the researched idea pipeline and an automatic tournament.
 The generated candidate count defaults to 12 and is configurable from 6 through
-100. Only ideas admitted by the selector enter the tournament.
+20. Only ideas admitted by the selector enter the tournament.
 
 Every admitted idea plays five Swiss rounds without repeat opponents; losing a
 Swiss match does not eliminate it. Later-round matchmaking uses deterministic

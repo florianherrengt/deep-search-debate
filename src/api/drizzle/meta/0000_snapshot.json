@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "c1e0c785-3861-4d54-aef8-fde88a729101",
+  "id": "d290c1fa-008c-4bcb-862f-6156d6150207",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "deep_search_jobs": {
@@ -35,6 +35,22 @@
           "notNull": false,
           "autoincrement": false
         },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'Untitled'"
+        },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'untitled'"
+        },
         "research_request": {
           "name": "research_request",
           "type": "text",
@@ -55,6 +71,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "max_rounds": {
+          "name": "max_rounds",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 3
         },
         "final_answer_generation_id": {
           "name": "final_answer_generation_id",
@@ -110,6 +134,13 @@
             "deep_search_job_id"
           ],
           "isUnique": false
+        },
+        "deep_search_jobs_slug_idx": {
+          "name": "deep_search_jobs_slug_idx",
+          "columns": [
+            "slug"
+          ],
+          "isUnique": true
         },
         "deep_search_jobs_id_user_id_idx": {
           "name": "deep_search_jobs_id_user_id_idx",
@@ -184,7 +215,7 @@
         },
         "deep_search_jobs_limits_check": {
           "name": "deep_search_jobs_limits_check",
-          "value": "\"deep_search_jobs\".\"max_searches\" > 0 and \"deep_search_jobs\".\"max_results_per_search\" > 0"
+          "value": "\"deep_search_jobs\".\"max_searches\" > 0 and \"deep_search_jobs\".\"max_results_per_search\" > 0 and \"deep_search_jobs\".\"max_rounds\" > 0"
         },
         "deep_search_jobs_research_request_content_check": {
           "name": "deep_search_jobs_research_request_content_check",
@@ -200,18 +231,18 @@
         }
       }
     },
-    "deep_search_generated_queries": {
-      "name": "deep_search_generated_queries",
+    "deep_search_queries": {
+      "name": "deep_search_queries",
       "columns": {
-        "deep_search_generated_query_id": {
-          "name": "deep_search_generated_query_id",
+        "deep_search_query_id": {
+          "name": "deep_search_query_id",
           "type": "text",
           "primaryKey": true,
           "notNull": true,
           "autoincrement": false
         },
-        "deep_search_query_generation_id": {
-          "name": "deep_search_query_generation_id",
+        "deep_search_round_id": {
+          "name": "deep_search_round_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -231,77 +262,13 @@
           "notNull": true,
           "autoincrement": false
         },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "deep_search_generated_queries_generation_position_idx": {
-          "name": "deep_search_generated_queries_generation_position_idx",
-          "columns": [
-            "deep_search_query_generation_id",
-            "position"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {
-        "deep_search_generated_queries_deep_search_query_generation_id_deep_search_query_generations_deep_search_query_generation_id_fk": {
-          "name": "deep_search_generated_queries_deep_search_query_generation_id_deep_search_query_generations_deep_search_query_generation_id_fk",
-          "tableFrom": "deep_search_generated_queries",
-          "tableTo": "deep_search_query_generations",
-          "columnsFrom": [
-            "deep_search_query_generation_id"
-          ],
-          "columnsTo": [
-            "deep_search_query_generation_id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "deep_search_generated_queries_position_check": {
-          "name": "deep_search_generated_queries_position_check",
-          "value": "\"deep_search_generated_queries\".\"position\" >= 0"
-        },
-        "deep_search_generated_queries_content_check": {
-          "name": "deep_search_generated_queries_content_check",
-          "value": "length(trim(\"deep_search_generated_queries\".\"query\")) > 0"
-        }
-      }
-    },
-    "deep_search_queries": {
-      "name": "deep_search_queries",
-      "columns": {
-        "deep_search_query_id": {
-          "name": "deep_search_query_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "deep_search_generated_query_id": {
-          "name": "deep_search_generated_query_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "status": {
           "name": "status",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'pending'"
+          "default": "'searching'"
         },
         "selection_generation_id": {
           "name": "selection_generation_id",
@@ -348,10 +315,11 @@
         }
       },
       "indexes": {
-        "deep_search_queries_deep_search_generated_query_id_unique": {
-          "name": "deep_search_queries_deep_search_generated_query_id_unique",
+        "deep_search_queries_round_position_idx": {
+          "name": "deep_search_queries_round_position_idx",
           "columns": [
-            "deep_search_generated_query_id"
+            "deep_search_round_id",
+            "position"
           ],
           "isUnique": true
         },
@@ -371,15 +339,15 @@
         }
       },
       "foreignKeys": {
-        "deep_search_queries_deep_search_generated_query_id_deep_search_generated_queries_deep_search_generated_query_id_fk": {
-          "name": "deep_search_queries_deep_search_generated_query_id_deep_search_generated_queries_deep_search_generated_query_id_fk",
+        "deep_search_queries_deep_search_round_id_deep_search_rounds_deep_search_round_id_fk": {
+          "name": "deep_search_queries_deep_search_round_id_deep_search_rounds_deep_search_round_id_fk",
           "tableFrom": "deep_search_queries",
-          "tableTo": "deep_search_generated_queries",
+          "tableTo": "deep_search_rounds",
           "columnsFrom": [
-            "deep_search_generated_query_id"
+            "deep_search_round_id"
           ],
           "columnsTo": [
-            "deep_search_generated_query_id"
+            "deep_search_round_id"
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -416,7 +384,15 @@
       "checkConstraints": {
         "deep_search_queries_status_check": {
           "name": "deep_search_queries_status_check",
-          "value": "\"deep_search_queries\".\"status\" in ('pending', 'searching', 'selecting', 'summarizing', 'completed', 'failed')"
+          "value": "\"deep_search_queries\".\"status\" in ('searching', 'selecting', 'summarizing', 'completed', 'failed')"
+        },
+        "deep_search_queries_position_check": {
+          "name": "deep_search_queries_position_check",
+          "value": "\"deep_search_queries\".\"position\" >= 0"
+        },
+        "deep_search_queries_content_check": {
+          "name": "deep_search_queries_content_check",
+          "value": "length(trim(\"deep_search_queries\".\"query\")) > 0"
         },
         "deep_search_queries_error_stage_check": {
           "name": "deep_search_queries_error_stage_check",
@@ -428,15 +404,15 @@
         },
         "deep_search_queries_lifecycle_check": {
           "name": "deep_search_queries_lifecycle_check",
-          "value": "(\n        (\"deep_search_queries\".\"status\" in ('pending', 'searching') and \"deep_search_queries\".\"selection_generation_id\" is null and \"deep_search_queries\".\"summary_generation_id\" is null and \"deep_search_queries\".\"completed_at\" is null and \"deep_search_queries\".\"error_stage\" is null and \"deep_search_queries\".\"error_message\" is null)\n        or\n        (\"deep_search_queries\".\"status\" = 'selecting' and \"deep_search_queries\".\"summary_generation_id\" is null and \"deep_search_queries\".\"completed_at\" is null and \"deep_search_queries\".\"error_stage\" is null and \"deep_search_queries\".\"error_message\" is null)\n        or\n        (\"deep_search_queries\".\"status\" = 'summarizing' and \"deep_search_queries\".\"selection_generation_id\" is not null and \"deep_search_queries\".\"completed_at\" is null and \"deep_search_queries\".\"error_stage\" is null and \"deep_search_queries\".\"error_message\" is null)\n        or\n        (\"deep_search_queries\".\"status\" = 'completed' and \"deep_search_queries\".\"selection_generation_id\" is not null and \"deep_search_queries\".\"summary_generation_id\" is not null and \"deep_search_queries\".\"completed_at\" is not null and \"deep_search_queries\".\"error_stage\" is null and \"deep_search_queries\".\"error_message\" is null)\n        or\n        (\"deep_search_queries\".\"status\" = 'failed' and \"deep_search_queries\".\"completed_at\" is not null and \"deep_search_queries\".\"error_stage\" is not null and \"deep_search_queries\".\"error_message\" is not null and (\n          (\"deep_search_queries\".\"error_stage\" = 'search' and \"deep_search_queries\".\"selection_generation_id\" is null and \"deep_search_queries\".\"summary_generation_id\" is null)\n          or\n          (\"deep_search_queries\".\"error_stage\" = 'selection' and \"deep_search_queries\".\"summary_generation_id\" is null)\n          or\n          (\"deep_search_queries\".\"error_stage\" = 'summary' and \"deep_search_queries\".\"selection_generation_id\" is not null)\n        ))\n      )"
+          "value": "(\n        (\"deep_search_queries\".\"status\" = 'searching' and \"deep_search_queries\".\"selection_generation_id\" is null and \"deep_search_queries\".\"summary_generation_id\" is null and \"deep_search_queries\".\"completed_at\" is null and \"deep_search_queries\".\"error_stage\" is null and \"deep_search_queries\".\"error_message\" is null)\n        or\n        (\"deep_search_queries\".\"status\" = 'selecting' and \"deep_search_queries\".\"summary_generation_id\" is null and \"deep_search_queries\".\"completed_at\" is null and \"deep_search_queries\".\"error_stage\" is null and \"deep_search_queries\".\"error_message\" is null)\n        or\n        (\"deep_search_queries\".\"status\" = 'summarizing' and \"deep_search_queries\".\"selection_generation_id\" is not null and \"deep_search_queries\".\"completed_at\" is null and \"deep_search_queries\".\"error_stage\" is null and \"deep_search_queries\".\"error_message\" is null)\n        or\n        (\"deep_search_queries\".\"status\" = 'completed' and \"deep_search_queries\".\"completed_at\" is not null and \"deep_search_queries\".\"error_stage\" is null and \"deep_search_queries\".\"error_message\" is null and (\n          (\"deep_search_queries\".\"selection_generation_id\" is not null and \"deep_search_queries\".\"summary_generation_id\" is not null)\n          or\n          (\"deep_search_queries\".\"selection_generation_id\" is null and \"deep_search_queries\".\"summary_generation_id\" is null)\n        ))\n        or\n        (\"deep_search_queries\".\"status\" = 'failed' and \"deep_search_queries\".\"completed_at\" is not null and \"deep_search_queries\".\"error_stage\" is not null and \"deep_search_queries\".\"error_message\" is not null and (\n          (\"deep_search_queries\".\"error_stage\" = 'search' and \"deep_search_queries\".\"selection_generation_id\" is null and \"deep_search_queries\".\"summary_generation_id\" is null)\n          or\n          (\"deep_search_queries\".\"error_stage\" = 'selection' and \"deep_search_queries\".\"summary_generation_id\" is null)\n          or\n          (\"deep_search_queries\".\"error_stage\" = 'summary' and \"deep_search_queries\".\"selection_generation_id\" is not null)\n        ))\n      )"
         }
       }
     },
-    "deep_search_query_generations": {
-      "name": "deep_search_query_generations",
+    "deep_search_rounds": {
+      "name": "deep_search_rounds",
       "columns": {
-        "deep_search_query_generation_id": {
-          "name": "deep_search_query_generation_id",
+        "deep_search_round_id": {
+          "name": "deep_search_round_id",
           "type": "text",
           "primaryKey": true,
           "notNull": true,
@@ -449,11 +425,54 @@
           "notNull": true,
           "autoincrement": false
         },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
         "llm_generation_id": {
           "name": "llm_generation_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "review_generation_id": {
+          "name": "review_generation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "review_decision": {
+          "name": "review_decision",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "review_reason": {
+          "name": "review_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "review_error": {
+          "name": "review_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "review_completed_at": {
+          "name": "review_completed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "created_at": {
@@ -466,25 +485,33 @@
         }
       },
       "indexes": {
-        "deep_search_query_generations_deep_search_job_id_unique": {
-          "name": "deep_search_query_generations_deep_search_job_id_unique",
+        "deep_search_rounds_llm_generation_id_unique": {
+          "name": "deep_search_rounds_llm_generation_id_unique",
           "columns": [
-            "deep_search_job_id"
+            "llm_generation_id"
           ],
           "isUnique": true
         },
-        "deep_search_query_generations_llm_generation_id_unique": {
-          "name": "deep_search_query_generations_llm_generation_id_unique",
+        "deep_search_rounds_review_generation_id_unique": {
+          "name": "deep_search_rounds_review_generation_id_unique",
           "columns": [
-            "llm_generation_id"
+            "review_generation_id"
+          ],
+          "isUnique": true
+        },
+        "deep_search_rounds_job_position_idx": {
+          "name": "deep_search_rounds_job_position_idx",
+          "columns": [
+            "deep_search_job_id",
+            "position"
           ],
           "isUnique": true
         }
       },
       "foreignKeys": {
-        "deep_search_query_generations_deep_search_job_id_deep_search_jobs_deep_search_job_id_fk": {
-          "name": "deep_search_query_generations_deep_search_job_id_deep_search_jobs_deep_search_job_id_fk",
-          "tableFrom": "deep_search_query_generations",
+        "deep_search_rounds_deep_search_job_id_deep_search_jobs_deep_search_job_id_fk": {
+          "name": "deep_search_rounds_deep_search_job_id_deep_search_jobs_deep_search_job_id_fk",
+          "tableFrom": "deep_search_rounds",
           "tableTo": "deep_search_jobs",
           "columnsFrom": [
             "deep_search_job_id"
@@ -495,12 +522,25 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "deep_search_query_generations_llm_generation_id_llm_generations_llm_generation_id_fk": {
-          "name": "deep_search_query_generations_llm_generation_id_llm_generations_llm_generation_id_fk",
-          "tableFrom": "deep_search_query_generations",
+        "deep_search_rounds_llm_generation_id_llm_generations_llm_generation_id_fk": {
+          "name": "deep_search_rounds_llm_generation_id_llm_generations_llm_generation_id_fk",
+          "tableFrom": "deep_search_rounds",
           "tableTo": "llm_generations",
           "columnsFrom": [
             "llm_generation_id"
+          ],
+          "columnsTo": [
+            "llm_generation_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "deep_search_rounds_review_generation_id_llm_generations_llm_generation_id_fk": {
+          "name": "deep_search_rounds_review_generation_id_llm_generations_llm_generation_id_fk",
+          "tableFrom": "deep_search_rounds",
+          "tableTo": "llm_generations",
+          "columnsFrom": [
+            "review_generation_id"
           ],
           "columnsTo": [
             "llm_generation_id"
@@ -511,7 +551,20 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "deep_search_rounds_position_check": {
+          "name": "deep_search_rounds_position_check",
+          "value": "\"deep_search_rounds\".\"position\" >= 0"
+        },
+        "deep_search_rounds_review_decision_check": {
+          "name": "deep_search_rounds_review_decision_check",
+          "value": "\"deep_search_rounds\".\"review_decision\" is null or \"deep_search_rounds\".\"review_decision\" in ('continue', 'stop')"
+        },
+        "deep_search_rounds_review_lifecycle_check": {
+          "name": "deep_search_rounds_review_lifecycle_check",
+          "value": "(\n        (\"deep_search_rounds\".\"review_generation_id\" is null and \"deep_search_rounds\".\"review_decision\" is null and \"deep_search_rounds\".\"review_reason\" is null and \"deep_search_rounds\".\"review_error\" is null and \"deep_search_rounds\".\"review_completed_at\" is null)\n        or\n        (\"deep_search_rounds\".\"review_generation_id\" is not null and \"deep_search_rounds\".\"review_decision\" is null and \"deep_search_rounds\".\"review_reason\" is null and \"deep_search_rounds\".\"review_error\" is null and \"deep_search_rounds\".\"review_completed_at\" is null)\n        or\n        (\"deep_search_rounds\".\"review_generation_id\" is not null and \"deep_search_rounds\".\"review_decision\" is not null and \"deep_search_rounds\".\"review_reason\" is not null and \"deep_search_rounds\".\"review_error\" is null and \"deep_search_rounds\".\"review_completed_at\" is not null)\n        or\n        (\"deep_search_rounds\".\"review_decision\" is null and \"deep_search_rounds\".\"review_reason\" is null and \"deep_search_rounds\".\"review_error\" is not null and \"deep_search_rounds\".\"review_completed_at\" is not null)\n      )"
+        }
+      }
     },
     "deep_search_results": {
       "name": "deep_search_results",
@@ -557,14 +610,6 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "selection_status": {
-          "name": "selection_status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'pending'"
         },
         "deep_search_web_page_id": {
           "name": "deep_search_web_page_id",
@@ -637,14 +682,6 @@
         "deep_search_results_content_check": {
           "name": "deep_search_results_content_check",
           "value": "length(trim(\"deep_search_results\".\"title\")) > 0 and length(trim(\"deep_search_results\".\"short_text\")) > 0 and length(trim(\"deep_search_results\".\"url\")) > 0"
-        },
-        "deep_search_results_selection_status_check": {
-          "name": "deep_search_results_selection_status_check",
-          "value": "\"deep_search_results\".\"selection_status\" in ('pending', 'selected', 'rejected')"
-        },
-        "deep_search_results_selection_page_check": {
-          "name": "deep_search_results_selection_page_check",
-          "value": "(\n        (\"deep_search_results\".\"selection_status\" = 'selected' and \"deep_search_results\".\"deep_search_web_page_id\" is not null)\n        or\n        (\"deep_search_results\".\"selection_status\" in ('pending', 'rejected') and \"deep_search_results\".\"deep_search_web_page_id\" is null)\n      )"
         }
       }
     },
@@ -811,6 +848,14 @@
           "notNull": true,
           "autoincrement": false
         },
+        "is_public": {
+          "name": "is_public",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
         "stage": {
           "name": "stage",
           "type": "text",
@@ -890,6 +935,10 @@
         "debate_jobs_config_check": {
           "name": "debate_jobs_config_check",
           "value": "\"debate_jobs\".\"random_seed\" >= 0 and \"debate_jobs\".\"random_seed\" <= 4294967295"
+        },
+        "debate_jobs_visibility_check": {
+          "name": "debate_jobs_visibility_check",
+          "value": "\"debate_jobs\".\"is_public\" in (0, 1)"
         },
         "debate_jobs_stage_check": {
           "name": "debate_jobs_stage_check",
@@ -1280,6 +1329,22 @@
           "notNull": false,
           "autoincrement": false
         },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'Untitled'"
+        },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'untitled'"
+        },
         "prompt": {
           "name": "prompt",
           "type": "text",
@@ -1325,6 +1390,13 @@
         },
         "idea_generation_id": {
           "name": "idea_generation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "selection_generation_id": {
+          "name": "selection_generation_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -1390,6 +1462,13 @@
           ],
           "isUnique": true
         },
+        "idea_jobs_selection_generation_id_unique": {
+          "name": "idea_jobs_selection_generation_id_unique",
+          "columns": [
+            "selection_generation_id"
+          ],
+          "isUnique": true
+        },
         "idea_jobs_user_created_at_idx": {
           "name": "idea_jobs_user_created_at_idx",
           "columns": [
@@ -1398,6 +1477,13 @@
             "idea_job_id"
           ],
           "isUnique": false
+        },
+        "idea_jobs_slug_idx": {
+          "name": "idea_jobs_slug_idx",
+          "columns": [
+            "slug"
+          ],
+          "isUnique": true
         },
         "idea_jobs_id_user_id_idx": {
           "name": "idea_jobs_id_user_id_idx",
@@ -1487,6 +1573,23 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
+        },
+        "idea_jobs_selection_generation_owner_fk": {
+          "name": "idea_jobs_selection_generation_owner_fk",
+          "tableFrom": "idea_jobs",
+          "tableTo": "llm_generations",
+          "columnsFrom": [
+            "selection_generation_id",
+            "user_id",
+            "idea_job_id"
+          ],
+          "columnsTo": [
+            "llm_generation_id",
+            "user_id",
+            "idea_job_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1552,6 +1655,41 @@
           "notNull": true,
           "autoincrement": false
         },
+        "critique_generation_id": {
+          "name": "critique_generation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "selected": {
+          "name": "selected",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "refinement_generation_id": {
+          "name": "refinement_generation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "refined_title": {
+          "name": "refined_title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "refined_description": {
+          "name": "refined_description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -1562,6 +1700,20 @@
         }
       },
       "indexes": {
+        "ideas_critique_generation_id_unique": {
+          "name": "ideas_critique_generation_id_unique",
+          "columns": [
+            "critique_generation_id"
+          ],
+          "isUnique": true
+        },
+        "ideas_refinement_generation_id_unique": {
+          "name": "ideas_refinement_generation_id_unique",
+          "columns": [
+            "refinement_generation_id"
+          ],
+          "isUnique": true
+        },
         "ideas_job_position_idx": {
           "name": "ideas_job_position_idx",
           "columns": [
@@ -1584,6 +1736,36 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "ideas_critique_generation_owner_fk": {
+          "name": "ideas_critique_generation_owner_fk",
+          "tableFrom": "ideas",
+          "tableTo": "llm_generations",
+          "columnsFrom": [
+            "critique_generation_id",
+            "idea_job_id"
+          ],
+          "columnsTo": [
+            "llm_generation_id",
+            "idea_job_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "ideas_refinement_generation_owner_fk": {
+          "name": "ideas_refinement_generation_owner_fk",
+          "tableFrom": "ideas",
+          "tableTo": "llm_generations",
+          "columnsFrom": [
+            "refinement_generation_id",
+            "idea_job_id"
+          ],
+          "columnsTo": [
+            "llm_generation_id",
+            "idea_job_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1596,6 +1778,10 @@
         "ideas_content_check": {
           "name": "ideas_content_check",
           "value": "length(trim(\"ideas\".\"title\")) > 0 and length(trim(\"ideas\".\"description\")) > 0"
+        },
+        "ideas_refinement_lifecycle_check": {
+          "name": "ideas_refinement_lifecycle_check",
+          "value": "(\n        (\"ideas\".\"refinement_generation_id\" is null and \"ideas\".\"refined_title\" is null and \"ideas\".\"refined_description\" is null)\n        or\n        (\"ideas\".\"selected\" = 1 and \"ideas\".\"refinement_generation_id\" is not null and (\n          (\"ideas\".\"refined_title\" is null and \"ideas\".\"refined_description\" is null)\n          or\n          (\"ideas\".\"refined_title\" is not null and length(trim(\"ideas\".\"refined_title\")) > 0 and \"ideas\".\"refined_description\" is not null and length(trim(\"ideas\".\"refined_description\")) > 0)\n        ))\n      )"
         }
       }
     },
@@ -1637,6 +1823,20 @@
           "notNull": false,
           "autoincrement": false
         },
+        "model_id": {
+          "name": "model_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "prompt_name": {
+          "name": "prompt_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "status": {
           "name": "status",
           "type": "text",
@@ -1662,6 +1862,34 @@
         "error": {
           "name": "error",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "finish_reason": {
+          "name": "finish_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "input_tokens": {
+          "name": "input_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "output_tokens": {
+          "name": "output_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reasoning_tokens": {
+          "name": "reasoning_tokens",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -1697,6 +1925,14 @@
           "columns": [
             "llm_generation_id",
             "user_id",
+            "idea_job_id"
+          ],
+          "isUnique": true
+        },
+        "llm_generations_id_idea_job_idx": {
+          "name": "llm_generations_id_idea_job_idx",
+          "columns": [
+            "llm_generation_id",
             "idea_job_id"
           ],
           "isUnique": true

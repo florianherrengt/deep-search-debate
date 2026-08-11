@@ -34,6 +34,51 @@ uses `BETTER_AUTH_URL=https://rethinkloop.com` and
 `DATABASE_URL=/app/data/data.db`. Explicit environment overrides remain
 available for tests and alternate deployments.
 
+Deep-search work is bounded in application configuration. Defaults allow at
+most 10 searches, 10 explored results per search, 30 selected URLs per round,
+3 rounds, 400 selected pages across one complete root workflow, and 10,000
+characters per research request. Accumulated query, result, idea, critique, and
+debate context is rebuilt in memory under a 100,000-character ceiling while
+retaining a bounded entry for every item. Internally synthesized refined-idea
+requests allocate that same external request budget across the original prompt
+and generated fields before a child can start. Idea jobs may request at most 10 initial child
+searches. At most two root research workflows per user may be active, two
+deep-search pipelines execute per process, and four selected page
+extraction-plus-summary tasks execute per process. Four LLM generations execute
+per process across all workflows by default. Root capacity is reserved
+before asynchronous title generation, and an admitted root takes priority over
+waiting children without pre-empting running work. Operators may adjust
+these ceilings within the hard safety ranges
+validated by `config.ts` through `DEEP_SEARCH_MAX_SEARCHES`,
+`DEEP_SEARCH_MAX_RESULTS_PER_SEARCH`,
+`DEEP_SEARCH_MAX_SELECTED_URLS_PER_ROUND`, `DEEP_SEARCH_MAX_ROUNDS`,
+`DEEP_SEARCH_MAX_REQUEST_CHARS`, `DEEP_SEARCH_MAX_SUMMARY_CONTEXT_CHARS`,
+`DEEP_SEARCH_MAX_CONCURRENT_JOBS`,
+`DEEP_SEARCH_MAX_CONCURRENT_PAGE_TASKS`,
+`LLM_MAX_CONCURRENT_GENERATIONS`,
+`RESEARCH_MAX_ACTIVE_ROOT_JOBS_PER_USER`,
+`RESEARCH_MAX_SELECTED_PAGES_PER_ROOT_JOB`, and
+`IDEA_JOB_MAX_DEEP_SEARCH_COUNT`.
+
+Every LLM stream has total, first-content, and inter-content deadlines. The
+defaults are 300, 120, and 60 seconds and are configured with
+`LLM_GENERATION_TIMEOUT_MS`, `LLM_FIRST_CHUNK_TIMEOUT_MS`, and
+`LLM_CHUNK_TIMEOUT_MS`. `LLM_MAX_OUTPUT_TOKENS` is an 8,192-token operator
+ceiling by default; stages send smaller explicit budgets when their outputs are
+known to be short. This avoids both provider-specific implicit limits and
+oversized structured responses. Provider-request failures use two SDK retries by default,
+configured through `LLM_MAX_RETRIES`, so dependency upgrades cannot silently
+change retry cost or latency. The short title generation retains its narrower
+per-call limit. Evidence-transformation and prose-only stages—including
+page/query/final research synthesis, idea briefing, critique, and debate
+advocacy—disable hidden reasoning so it cannot consume that budget without
+producing the required durable text. Web searches have a 30-second deadline configured by
+`WEB_SEARCH_TIMEOUT_MS`. Direct `POST /api/streams` calls reuse the research
+request length limit and permit two active standalone generations per user by
+default, configurable through
+`LLM_MAX_ACTIVE_STANDALONE_GENERATIONS_PER_USER`. The process-wide provider
+queue is configured through `LLM_MAX_CONCURRENT_GENERATIONS`.
+
 Debug sign-in is disabled unless `AUTH_DEBUG_USER_ENABLED=true`. When enabled,
 `AUTH_DEBUG_USER_PASSWORD` is required. Config validation rejects debug sign-in
 in `NODE_ENV=production`, when `API_HOST` is not loopback, or when
@@ -74,6 +119,14 @@ A SearXNG instance, the selected LLM provider credential, and a ScrapingAnt API
 key are real runtime dependencies, not mocked outside tests:
 
 - **SearXNG:** HTTP `/search?format=json`. Configure its URL via `SEARXNG_URL`.
+  `SEARXNG_CATEGORIES` defaults to `general,science`, so evidence-oriented
+  searches retain academic results when general engines throttle. Requests pass
+  through one process-wide queue; `SEARXNG_MAX_CONCURRENT_REQUESTS` defaults to
+  `1` and `SEARXNG_MIN_INTERVAL_MS` to `1000` to avoid burst-blocking the
+  upstream engines aggregated by a local instance.
+  Search-provider responses are bounded by `WEB_SEARCH_MAX_RESPONSE_BYTES`
+  (default 2 MB), then capped to 30 validated, canonical, unique public HTTPS
+  results per query before persistence or prompting.
 - **LLM:** `deepseek` uses the native DeepSeek AI SDK provider and
   `DEEPSEEK_API_KEY`. `zen` uses OpenCode Zen's OpenAI-compatible
   `/chat/completions` endpoint and `OPENCODE_ZEN_API_KEY`. Configure the model
@@ -87,7 +140,9 @@ key are real runtime dependencies, not mocked outside tests:
   proxy; failure there remains a page-level failure so deep research can use the
   search snippet. Both tiers pass through the same local content extraction and
   cheap validation. HTML uses the shared visible-text cleanup, while bounded PDF
-  responses use the existing memory-limited PDF parser. There are no provider
+  responses use the existing memory-limited PDF parser. Declared non-document
+  media and binary-looking untyped bodies are rejected rather than decoded as
+  text. There are no provider
   retries, residential proxies, domain rules, or caches. Configure
   `SCRAPINGANT_API_KEY`, `SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS` (default 120
   seconds),
@@ -97,7 +152,9 @@ key are real runtime dependencies, not mocked outside tests:
   process-wide queue with concurrency fixed at exactly one for free-plan
   compatibility. Pending work that cannot acquire the slot before its queue
   deadline fails as an individual page attempt. A failed or timed-out active
-  request releases the slot.
+  request releases the slot. The higher-level page-task queue prevents every
+  selected URL from entering this single provider queue at once while still
+  allowing extraction and LLM summarization to overlap.
   Retrieval emits one flat structured console record per attempt with its
   latency, outcome, provider status on failures, and ScrapingAnt credit cost when
   the provider reports it.

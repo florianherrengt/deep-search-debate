@@ -17,29 +17,39 @@ terminal persistence fails.
 
 1. One fresh planning generation creates exactly `deepSearchCount` distinct,
    non-empty `{ title, prompt }` research plans.
-2. One durable deep-search job starts immediately for each prompt. All child
-   jobs run in parallel, while a scoped position preserves prompt order for
-   replay and briefing construction.
-3. The parent waits for every launched child to settle. If any child fails, the
-   parent fails and no summary or idea generation starts.
+2. One durable deep-search job is created immediately for each prompt. All
+   child rows and links become visible together, while actual execution passes
+   through the process-wide deep-search queue. A scoped position preserves
+   prompt order for replay and briefing construction.
+3. The parent waits for every launched child to settle. Durable child
+   completion returns its committed final-answer text. The parent then applies
+   its separately named quality gate: extraction failures remain acceptable
+   snippet fallbacks, while a failed model-generated page summary rejects the
+   child. If completion or parent acceptance fails, the parent fails and no
+   summary or idea generation starts.
 4. One fresh summary generation receives the original user prompt and only each
    child's final-answer text. Page records, source metadata, and intermediate
-   output are not copied into this call.
+   output are not copied into this call. Hidden reasoning is disabled so the
+   output budget is reserved for the durable research briefing.
 5. One fresh idea generation receives the original user prompt, the final
    research briefing, and `numberOfIdeas`. After the complete array passes
    validation, every `{ title, description }` is persisted and published in
    generation order with a stable ID and no critique link yet.
 6. One fresh critique generation starts for each persisted idea. Each call
    receives only the original user prompt, research briefing, and that one idea.
-   The calls run concurrently. As each call starts, its generation ID is
-   attached to that idea before the stream event is published. The parent waits
-   for every critique to settle before selection starts.
+   Hidden reasoning is disabled because some reasoning models can otherwise
+   exhaust the output budget before producing critique text. The prompt limits
+   each critique to 400 words and the stage caps output at 1,024 tokens; the
+   downstream selector needs a concise comparison, not six essays. The calls run
+   concurrently. As each call starts, its generation ID is attached to that
+   idea before the stream event is published. The parent waits for every
+   critique to settle before selection starts.
 7. One fresh structured selection generation receives the original user prompt,
    the final research briefing passed into idea generation, and every generated
    idea paired with its critique's final text. Critique reasoning is deliberately
-   excluded. Selection reasoning and structured output use the normal LLM
-   stream. The output is an unordered array of unique idea IDs containing an
-   even number of ideas from 6 through 100. Every ID must belong to this job.
+   excluded. Hidden selection reasoning is disabled so the bounded output is
+   reserved for the required JSON. The output is an unordered array of unique idea IDs containing an
+   even number of ideas from 6 through 12. Every ID must belong to this job.
    The selected ideas become `selected = true` and every other generated idea
    becomes `selected = false` in the same transaction as the selection
    generation's terminal output.
@@ -47,12 +57,11 @@ terminal persistence fails.
    selected idea. It receives the original request, shared research briefing,
    original idea, and that idea's critique. Its generation link is attached
    before publication; validated refined title and description commit together.
-9. One deep-search job then starts concurrently for each refined idea. These
+9. One deep-search job is then created for each refined idea. These
    searches reuse the request's existing `maxSearches`,
-   `maxResultsPerSearch`, and retry settings. Each search is attached directly
-   to its idea, and its parent-scoped position is `deepSearchCount +
-   idea.position`. The parent completes only after every selected-idea search
-   completes.
+   `maxResultsPerSearch`, and `maxRounds`. Each search's parent-scoped position is
+   `deepSearchCount + idea.position`. The parent completes only after every
+   selected-idea search completes.
 
 Any planning, child-search, summary, idea-generation, critique-generation,
 selection-generation, refinement-generation, or selected-idea-search failure
@@ -61,9 +70,12 @@ duplicate ID, or foreign ID is a selection failure. A critique or selection
 failure does not erase already-valid ideas or critiques; selection remains null
 when the selection transaction does not complete. Individual page-extraction
 failures inside a child search are non-fatal when the search-result description
-can be used as a fallback. Once concurrent work has started, the parent waits
-for all of it to finish even if one operation fails, so it never reports a
-terminal state while visible children or critique streams are still running.
+can be used as a fallback. A page-summary failure may likewise produce a
+durably completed standalone child using its snippet, but the idea pipeline's
+explicit parent-quality gate rejects it. Once concurrent work has started, the
+parent waits for all of it to finish even if one operation fails, so it never
+reports a terminal state while visible children or critique streams are still
+running.
 
 ## HTTP contract
 
@@ -85,15 +97,29 @@ Starts a run and returns `202 Accepted`:
   "numberOfIdeas": 12,
   "deepSearchCount": 2,
   "maxSearches": 3,
-  "maxResultsPerSearch": 3
+  "maxResultsPerSearch": 3,
+  "maxRounds": 3
 }
 ```
 
-Only `prompt` is required. `numberOfIdeas` is an integer from 6 through 100 and
+Only `prompt` is required. `numberOfIdeas` is an integer from 6 through 20 and
 defaults to 12. The remaining numeric fields are positive integers with the
-defaults shown above. Search breadth remains intentionally uncapped for trusted
-local callers; a network deployment must enforce authentication, quotas,
-request-size limits, and concurrency policy at its gateway.
+defaults shown above. The configured defaults cap `deepSearchCount` at 10,
+`maxSearches` and `maxResultsPerSearch` at 10 each, `maxRounds` at 3, selected
+URLs per child-search round at 30, and `prompt` at 10,000 characters. The same
+deep-search limits apply to both initial briefing searches and refined-idea
+searches; the manager validates generated child requests again before starting
+provider work. The root request also accounts for all initial searches plus up
+to 12 selected-idea searches against a 400-page aggregate worst-case selected
+page budget by default. Invalid limit combinations fail before title generation
+or job creation.
+
+Creation returns `429` when the user already has the configured active root-job
+limit (two by default). A running idea or debate pipeline consumes one root
+slot; its child searches do not consume more slots and instead share the
+process-wide deep-search execution queue. The slot is reserved before the
+asynchronous title preflight so racing requests cannot both consume provider
+work for one remaining slot.
 
 The response is:
 
@@ -152,6 +178,11 @@ and text progress independently from the parent feed. Deep-search progress is
 not duplicated in the parent; clients link to or subscribe to each existing
 `/api/deep-search-jobs/:id/events` feed.
 
+The server-side idea coordinator does not subscribe to these presentation
+streams. It awaits each generation's durable completion handle and structured
+result directly, so a validation failure cannot make the parent terminal while
+the same generation still has an unfinished database write.
+
 ## Persistence model
 
 - `idea_jobs` owns the generated title, slug, request, requested counts, current
@@ -173,15 +204,16 @@ not duplicated in the parent; clients link to or subscribe to each existing
   critique fan-out. Each nullable critique link attaches once when its call
   starts. The nullable selected flag then transitions once from pending to true
   or false when selection commits. Selected rows additionally own a one-time
-  refinement generation link, refined title/description pair, and attached
-  deep-search job ID. No extra refinement or join table is used.
+  refinement generation link and refined title/description pair. No extra
+  refinement or join table is used.
 - New jobs complete only after every idea has terminal critique output, the
   selection generation is terminal, every selected flag has resolved, and all
   selected ideas have completed refinement and attached deep research.
 - Child `deep_search_jobs` reference the parent with a matching owner and retain
   both their planning order and complete normalized research state. Initial
   research uses positions below `deepSearchCount`; selected-idea research uses
-  `deepSearchCount + idea.position` and is linked back from that idea.
+  `deepSearchCount + idea.position`. Replay and debate context derive that
+  relationship; the idea does not store a redundant child-search ID.
 - Idea cards, critique streams, and selected or rejected presentation replay
   from normalized `ideas` rows. Raw structured outputs remain available for
   stream inspection, not as duplicated domain state.

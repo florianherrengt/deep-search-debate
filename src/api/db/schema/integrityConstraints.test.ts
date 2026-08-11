@@ -1,12 +1,11 @@
-import { sql } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 import { describe, expect, it } from "vitest"
 
 import { db } from "../index.ts"
 import {
-  deepSearchGeneratedQueries,
   deepSearchJobs,
   deepSearchQueries,
-  deepSearchQueryGenerations,
+  deepSearchRounds,
   deepSearchResults,
   deepSearchWebPages,
   ideaJobs,
@@ -48,8 +47,7 @@ function insertDeepSearchJob(): string {
 }
 
 function insertDeepSearchQuery(deepSearchJobId: string): {
-  deepSearchGeneratedQueryId: string
-  deepSearchQueryGenerationId: string
+  deepSearchRoundId: string
   deepSearchQueryId: string
 } {
   const llmGenerationId = crypto.randomUUID()
@@ -57,34 +55,25 @@ function insertDeepSearchQuery(deepSearchJobId: string): {
     .values({ llmGenerationId, userId, deepSearchJobId })
     .run()
 
-  const deepSearchQueryGenerationId = crypto.randomUUID()
-  db.insert(deepSearchQueryGenerations)
+  const deepSearchRoundId = crypto.randomUUID()
+  db.insert(deepSearchRounds)
     .values({
-      deepSearchQueryGenerationId,
+      deepSearchRoundId,
       deepSearchJobId,
       llmGenerationId,
     })
     .run()
 
-  const deepSearchGeneratedQueryId = crypto.randomUUID()
-  db.insert(deepSearchGeneratedQueries)
+  const deepSearchQueryId = crypto.randomUUID()
+  db.insert(deepSearchQueries)
     .values({
-      deepSearchGeneratedQueryId,
-      deepSearchQueryGenerationId,
+      deepSearchQueryId,
+      deepSearchRoundId,
       position: 0,
       query: "research query",
     })
     .run()
-
-  const deepSearchQueryId = crypto.randomUUID()
-  db.insert(deepSearchQueries)
-    .values({ deepSearchQueryId, deepSearchGeneratedQueryId })
-    .run()
-  return {
-    deepSearchGeneratedQueryId,
-    deepSearchQueryGenerationId,
-    deepSearchQueryId,
-  }
+  return { deepSearchRoundId, deepSearchQueryId }
 }
 
 describe("aggregate integrity constraints", () => {
@@ -197,9 +186,9 @@ describe("aggregate integrity constraints", () => {
     db.insert(llmGenerations)
       .values({ llmGenerationId, userId, deepSearchJobId: firstDeepSearchJobId })
       .run()
-    db.insert(deepSearchQueryGenerations)
+    db.insert(deepSearchRounds)
       .values({
-        deepSearchQueryGenerationId: crypto.randomUUID(),
+        deepSearchRoundId: crypto.randomUUID(),
         deepSearchJobId: firstDeepSearchJobId,
         llmGenerationId,
       })
@@ -219,6 +208,78 @@ describe("aggregate integrity constraints", () => {
         .where(sql`${llmGenerations.llmGenerationId} = ${llmGenerationId}`)
         .run(),
     ).toThrow(/LLM generation ownership columns are immutable/)
+  })
+
+  it("keeps search rounds ordered and review outcomes internally consistent", () => {
+    const deepSearchJobId = insertDeepSearchJob()
+    const generationIds = Array.from({ length: 4 }, () => crypto.randomUUID())
+    db.insert(llmGenerations)
+      .values(
+        generationIds.map((llmGenerationId) => ({
+          llmGenerationId,
+          userId,
+          deepSearchJobId,
+        })),
+      )
+      .run()
+    db.insert(deepSearchRounds)
+      .values([
+        {
+          deepSearchRoundId: crypto.randomUUID(),
+          deepSearchJobId,
+          position: 0,
+          llmGenerationId: generationIds[0],
+        },
+        {
+          deepSearchRoundId: crypto.randomUUID(),
+          deepSearchJobId,
+          position: 1,
+          llmGenerationId: generationIds[1],
+        },
+      ])
+      .run()
+
+    expect(() =>
+      db
+        .insert(deepSearchRounds)
+        .values({
+          deepSearchRoundId: crypto.randomUUID(),
+          deepSearchJobId,
+          position: 1,
+          llmGenerationId: generationIds[2],
+        })
+        .run(),
+    ).toThrow(/UNIQUE constraint failed/)
+
+    expect(() =>
+      db
+        .update(deepSearchRounds)
+        .set({
+          reviewGenerationId: generationIds[3],
+          reviewDecision: "continue",
+        })
+        .where(
+          and(
+            eq(deepSearchRounds.deepSearchJobId, deepSearchJobId),
+            eq(deepSearchRounds.position, 0),
+          ),
+        )
+        .run(),
+    ).toThrow(/deep_search_rounds_review_lifecycle_check/)
+
+    expect(() =>
+      db
+        .insert(deepSearchJobs)
+        .values({
+          deepSearchJobId: crypto.randomUUID(),
+          userId,
+          researchRequest: "Invalid round limit",
+          maxSearches: 1,
+          maxResultsPerSearch: 1,
+          maxRounds: 0,
+        })
+        .run(),
+    ).toThrow(/deep_search_jobs_limits_check/)
   })
 
   it("freezes ideas after completion without blocking aggregate deletion", () => {
@@ -424,7 +485,7 @@ describe("aggregate integrity constraints", () => {
         .set({ refinementGenerationId: otherGenerationId })
         .where(sql`${ideas.ideaId} = ${selectedIdeaId}`)
         .run(),
-    ).toThrow(/refinement generation must belong to the owning idea job/)
+    ).toThrow(/FOREIGN KEY constraint failed/)
 
     db.update(ideas)
       .set({ refinementGenerationId: refinementGenerationIds[0] })
@@ -445,45 +506,6 @@ describe("aggregate integrity constraints", () => {
       .where(sql`${ideas.ideaId} = ${selectedIdeaId}`)
       .run()
 
-    const initialSearchId = crypto.randomUUID()
-    const refinedIdeaSearchId = crypto.randomUUID()
-    db.insert(deepSearchJobs)
-      .values([
-        {
-          deepSearchJobId: initialSearchId,
-          userId,
-          ideaJobId,
-          ideaJobPosition: 0,
-          slug: `initial-${initialSearchId}`,
-          researchRequest: "Initial research",
-          maxSearches: 3,
-          maxResultsPerSearch: 3,
-        },
-        {
-          deepSearchJobId: refinedIdeaSearchId,
-          userId,
-          ideaJobId,
-          ideaJobPosition: 1,
-          slug: `refined-${refinedIdeaSearchId}`,
-          researchRequest: "Refined idea research",
-          maxSearches: 3,
-          maxResultsPerSearch: 3,
-        },
-      ])
-      .run()
-
-    expect(() =>
-      db
-        .update(ideas)
-        .set({ deepSearchJobId: initialSearchId })
-        .where(sql`${ideas.ideaId} = ${selectedIdeaId}`)
-        .run(),
-    ).toThrow(/deep search must belong to the owning idea and position/)
-    db.update(ideas)
-      .set({ deepSearchJobId: refinedIdeaSearchId })
-      .where(sql`${ideas.ideaId} = ${selectedIdeaId}`)
-      .run()
-
     expect(() =>
       db
         .update(ideas)
@@ -501,7 +523,6 @@ describe("aggregate integrity constraints", () => {
       refinementGenerationId: refinementGenerationIds[0],
       refinedTitle: "Improved selected idea",
       refinedDescription: "Improved selected description",
-      deepSearchJobId: refinedIdeaSearchId,
     })
   })
 
@@ -534,28 +555,28 @@ describe("aggregate integrity constraints", () => {
 
     const deepSearchJobId = insertDeepSearchJob()
     const llmGenerationId = crypto.randomUUID()
-    const deepSearchQueryGenerationId = crypto.randomUUID()
+    const deepSearchRoundId = crypto.randomUUID()
     db.insert(llmGenerations)
       .values({ llmGenerationId, userId, deepSearchJobId })
       .run()
-    db.insert(deepSearchQueryGenerations)
+    db.insert(deepSearchRounds)
       .values({
-        deepSearchQueryGenerationId,
+        deepSearchRoundId,
         deepSearchJobId,
         llmGenerationId,
       })
       .run()
     expect(() =>
       db
-        .insert(deepSearchGeneratedQueries)
+        .insert(deepSearchQueries)
         .values({
-          deepSearchGeneratedQueryId: crypto.randomUUID(),
-          deepSearchQueryGenerationId,
+          deepSearchQueryId: crypto.randomUUID(),
+          deepSearchRoundId,
           position: 0,
           query: "   ",
         })
         .run(),
-    ).toThrow(/deep_search_generated_queries_content_check/)
+    ).toThrow(/deep_search_queries_content_check/)
     expect(() =>
       db
         .insert(deepSearchWebPages)
@@ -676,7 +697,11 @@ describe("aggregate integrity constraints", () => {
     expect(() =>
       db
         .update(deepSearchQueries)
-        .set({ status: "completed", completedAt: new Date() })
+        .set({
+          status: "completed",
+          summaryGenerationId,
+          completedAt: new Date(),
+        })
         .where(sql`${deepSearchQueries.deepSearchQueryId} = ${deepSearchQueryId}`)
         .run(),
     ).toThrow(/deep_search_queries_lifecycle_check/)
@@ -733,17 +758,7 @@ describe("aggregate integrity constraints", () => {
     expect(() =>
       db
         .update(deepSearchResults)
-        .set({ selectionStatus: "selected" })
-        .where(
-          sql`${deepSearchResults.deepSearchResultId} = ${deepSearchResultId}`,
-        )
-        .run(),
-    ).toThrow(/deep_search_results_selection_page_check/)
-
-    expect(() =>
-      db
-        .update(deepSearchResults)
-        .set({ selectionStatus: "selected", deepSearchWebPageId })
+        .set({ deepSearchWebPageId })
         .where(
           sql`${deepSearchResults.deepSearchResultId} = ${deepSearchResultId}`,
         )
@@ -774,7 +789,6 @@ describe("aggregate integrity constraints", () => {
           title: "Cross-owned result",
           shortText: "Evidence",
           url: "https://example.com/cross-owned",
-          selectionStatus: "selected",
           deepSearchWebPageId,
         })
         .run(),
@@ -794,7 +808,7 @@ describe("aggregate integrity constraints", () => {
     expect(() =>
       db
         .update(deepSearchResults)
-        .set({ selectionStatus: "selected", deepSearchWebPageId })
+        .set({ deepSearchWebPageId })
         .where(
           sql`${deepSearchResults.deepSearchResultId} = ${deepSearchResultId}`,
         )
@@ -824,7 +838,6 @@ describe("aggregate integrity constraints", () => {
         title: "Immutable result",
         shortText: "Evidence",
         url: "https://example.com/immutable",
-        selectionStatus: "selected",
         deepSearchWebPageId,
       })
       .run()
@@ -837,7 +850,7 @@ describe("aggregate integrity constraints", () => {
           sql`${deepSearchWebPages.deepSearchWebPageId} = ${deepSearchWebPageId}`,
         )
         .run(),
-    ).toThrow(/deep-search ownership columns are immutable/)
+    ).toThrow(/deep-search structural columns are immutable/)
     expect(() =>
       db
         .update(deepSearchWebPages)
@@ -846,35 +859,16 @@ describe("aggregate integrity constraints", () => {
           sql`${deepSearchWebPages.deepSearchWebPageId} = ${deepSearchWebPageId}`,
         )
         .run(),
-    ).toThrow(/deep-search ownership columns are immutable/)
+    ).toThrow(/deep-search structural columns are immutable/)
     expect(() =>
       db
-        .update(deepSearchQueryGenerations)
+        .update(deepSearchRounds)
         .set({ deepSearchJobId: otherJobId })
         .where(
-          sql`${deepSearchQueryGenerations.deepSearchQueryGenerationId} = ${query.deepSearchQueryGenerationId}`,
+          sql`${deepSearchRounds.deepSearchRoundId} = ${query.deepSearchRoundId}`,
         )
         .run(),
-    ).toThrow(/deep-search ownership columns are immutable/)
-
-    db.update(deepSearchGeneratedQueries)
-      .set({ position: 1 })
-      .where(
-        sql`${deepSearchGeneratedQueries.deepSearchGeneratedQueryId} = ${otherQuery.deepSearchGeneratedQueryId}`,
-      )
-      .run()
-    expect(() =>
-      db
-        .update(deepSearchGeneratedQueries)
-        .set({
-          deepSearchQueryGenerationId:
-            otherQuery.deepSearchQueryGenerationId,
-        })
-        .where(
-          sql`${deepSearchGeneratedQueries.deepSearchGeneratedQueryId} = ${query.deepSearchGeneratedQueryId}`,
-        )
-        .run(),
-    ).toThrow(/deep-search ownership columns are immutable/)
+    ).toThrow(/deep-search structural columns are immutable/)
 
     db.delete(deepSearchQueries)
       .where(
@@ -885,14 +879,13 @@ describe("aggregate integrity constraints", () => {
       db
         .update(deepSearchQueries)
         .set({
-          deepSearchGeneratedQueryId:
-            otherQuery.deepSearchGeneratedQueryId,
+          deepSearchRoundId: otherQuery.deepSearchRoundId,
         })
         .where(
           sql`${deepSearchQueries.deepSearchQueryId} = ${query.deepSearchQueryId}`,
         )
         .run(),
-    ).toThrow(/deep-search ownership columns are immutable/)
+    ).toThrow(/deep-search structural columns are immutable/)
   })
 
   it("requires a selected result and its page to use the same URL", () => {
@@ -917,7 +910,6 @@ describe("aggregate integrity constraints", () => {
           title: "Mismatched URL",
           shortText: "Evidence",
           url: "https://example.com/result",
-          selectionStatus: "selected",
           deepSearchWebPageId,
         })
         .run(),
@@ -932,7 +924,6 @@ describe("aggregate integrity constraints", () => {
         title: "Matching URL",
         shortText: "Evidence",
         url: "https://example.com/page",
-        selectionStatus: "selected",
         deepSearchWebPageId,
       })
       .run()

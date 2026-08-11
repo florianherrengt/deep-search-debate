@@ -13,7 +13,10 @@ export type DeepSearchViewProps = {
 
 function getProgressMessage(run: DeepSearchRunState): string | undefined {
   if (run.status !== "running") return undefined
-  if (!run.queryStreamId) return "Starting deep search…"
+  if (run.queryGenerations.length === 0) return "Starting deep search…"
+  if (run.roundReviews.at(-1)?.status === "running") {
+    return "Reviewing whether more research is needed…"
+  }
   if (run.searches.length === 0) return "Searching the web…"
   if (!run.finalAnswerStreamId) return "Researching and summarizing…"
   return undefined
@@ -43,16 +46,41 @@ export function DeepSearchView({
           <Typography color="text.secondary">{progressMessage}</Typography>
         </Stack>
       )}
-      {run.queryStreamId && (
+      {run.queryGenerations.map((generation) => (
         <GenerationOutput
           format="structured-list"
           headingComponent="h2"
-          streamId={run.queryStreamId}
-          title="Generated search queries"
+          key={generation.round}
+          streamId={generation.streamId}
+          title={`Round ${generation.round + 1} search queries`}
           waitingText="Generating search queries…"
-          testId="generated-search-queries"
+          testId={`generated-search-queries-${generation.round}`}
         />
-      )}
+      ))}
+      {run.roundReviews.map((review) => (
+        <Stack key={review.round} spacing={1}>
+          {review.streamId && (
+            <GenerationOutput
+              headingComponent="h2"
+              showText={false}
+              streamId={review.streamId}
+              title={`Round ${review.round + 1} research review`}
+              waitingText="Reviewing the available evidence…"
+              testId={`round-review-${review.round}`}
+            />
+          )}
+          {review.status !== "running" && (
+            <Alert severity={review.status === "error" ? "warning" : "info"}>
+              {review.status === "continue"
+                ? "More research requested. "
+                : review.status === "stop"
+                  ? "Research is sufficient. "
+                  : "Review failed; continuing with the current evidence. "}
+              {review.reason}
+            </Alert>
+          )}
+        </Stack>
+      ))}
       {run.finalAnswerStreamId && (
         <GenerationOutput
           announcementLabel="Final answer"

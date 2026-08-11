@@ -7,6 +7,10 @@ import {
   debateJobs,
   debateMatches,
   debateRounds,
+  deepSearchJobs,
+  deepSearchQueries,
+  deepSearchRounds,
+  deepSearchWebPages,
   ideaJobs,
   ideas,
   llmGenerations,
@@ -97,7 +101,137 @@ function createFinalStageJob(finalMatchCompleted: boolean): string {
 describe("restart recovery", () => {
   beforeEach(() => {
     db.delete(debateJobs).run()
+    db.delete(deepSearchJobs).run()
     db.delete(llmGenerations).run()
+  })
+
+  it("interrupts every active layer of an orphaned deep-search job", () => {
+    const deepSearchJobId = crypto.randomUUID()
+    const queryGenerationId = crypto.randomUUID()
+    const selectionGenerationId = crypto.randomUUID()
+    const pageSummaryGenerationId = crypto.randomUUID()
+    const reviewGenerationId = crypto.randomUUID()
+    const deepSearchRoundId = crypto.randomUUID()
+    const deepSearchQueryId = crypto.randomUUID()
+    const deepSearchWebPageId = crypto.randomUUID()
+
+    db.insert(deepSearchJobs)
+      .values({
+        deepSearchJobId,
+        userId: "test-user-id",
+        slug: `search-${deepSearchJobId}`,
+        researchRequest: "Research restart recovery",
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+      })
+      .run()
+    db.insert(llmGenerations)
+      .values(
+        [
+          queryGenerationId,
+          selectionGenerationId,
+          pageSummaryGenerationId,
+          reviewGenerationId,
+        ].map((llmGenerationId) => ({
+          llmGenerationId,
+          userId: "test-user-id",
+          deepSearchJobId,
+        })),
+      )
+      .run()
+    db.insert(deepSearchRounds)
+      .values({
+        deepSearchRoundId,
+        deepSearchJobId,
+        llmGenerationId: queryGenerationId,
+        reviewGenerationId,
+      })
+      .run()
+    db.insert(deepSearchQueries)
+      .values({
+        deepSearchQueryId,
+        deepSearchRoundId,
+        position: 0,
+        query: "restart recovery",
+        status: "selecting",
+        selectionGenerationId,
+      })
+      .run()
+    db.insert(deepSearchWebPages)
+      .values({
+        deepSearchWebPageId,
+        deepSearchJobId,
+        url: "https://example.com/recovery",
+        status: "summarizing",
+        summaryGenerationId: pageSummaryGenerationId,
+      })
+      .run()
+
+    recoverInterruptedWork()
+
+    expect(
+      db
+        .select({ status: deepSearchJobs.status, error: deepSearchJobs.error })
+        .from(deepSearchJobs)
+        .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+        .get(),
+    ).toEqual({
+      status: "interrupted",
+      error: "Interrupted by a server restart",
+    })
+    expect(
+      db
+        .select({
+          status: deepSearchQueries.status,
+          errorStage: deepSearchQueries.errorStage,
+          errorMessage: deepSearchQueries.errorMessage,
+        })
+        .from(deepSearchQueries)
+        .where(eq(deepSearchQueries.deepSearchQueryId, deepSearchQueryId))
+        .get(),
+    ).toEqual({
+      status: "failed",
+      errorStage: "selection",
+      errorMessage: "Interrupted by a server restart",
+    })
+    expect(
+      db
+        .select({
+          status: deepSearchWebPages.status,
+          errorStage: deepSearchWebPages.errorStage,
+          errorMessage: deepSearchWebPages.errorMessage,
+        })
+        .from(deepSearchWebPages)
+        .where(eq(deepSearchWebPages.deepSearchWebPageId, deepSearchWebPageId))
+        .get(),
+    ).toEqual({
+      status: "failed",
+      errorStage: "summary",
+      errorMessage: "Interrupted by a server restart",
+    })
+    const recoveredRound = db
+      .select({
+          reviewError: deepSearchRounds.reviewError,
+          reviewCompletedAt: deepSearchRounds.reviewCompletedAt,
+        })
+        .from(deepSearchRounds)
+        .where(
+          eq(deepSearchRounds.deepSearchRoundId, deepSearchRoundId),
+      )
+      .get()
+    expect(recoveredRound?.reviewError).toBe(
+      "Interrupted by a server restart",
+    )
+    expect(recoveredRound?.reviewCompletedAt).toBeInstanceOf(Date)
+    expect(
+      db
+        .select({ status: llmGenerations.status })
+        .from(llmGenerations)
+        .where(eq(llmGenerations.deepSearchJobId, deepSearchJobId))
+        .all(),
+    ).toEqual(
+      Array.from({ length: 4 }, () => ({ status: "interrupted" })),
+    )
   })
 
   it("finalizes a job whose final verdict committed before the restart", () => {

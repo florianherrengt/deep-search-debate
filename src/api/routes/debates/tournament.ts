@@ -1,5 +1,5 @@
 const minParticipantCount = 6
-const maxParticipantCount = 100
+const maxParticipantCount = 12
 const defaultParticipantCount = 12
 const swissRounds = 5
 const knockoutSize = 4
@@ -387,18 +387,117 @@ function addPairingScore(
 }
 
 /**
+ * Checks that the unused opponent graph still contains enough edge-disjoint
+ * perfect matchings for every remaining Swiss round. Fields are at most 12,
+ * and memoization keeps this bounded while avoiding locally valid dead ends.
+ */
+function canScheduleSwissRounds(
+  ideaIds: readonly string[],
+  unavailablePairings: ReadonlySet<string>,
+  roundCount: number,
+  memo: Map<string, boolean>,
+): boolean {
+  if (roundCount === 0) return true
+
+  const stateKey = JSON.stringify([
+    roundCount,
+    [...unavailablePairings].sort(),
+  ])
+  const cached = memo.get(stateKey)
+  if (cached !== undefined) return cached
+
+  for (const ideaId of ideaIds) {
+    const availableOpponentCount = ideaIds.filter(
+      (opponentId) =>
+        opponentId !== ideaId &&
+        !unavailablePairings.has(pairingKey(ideaId, opponentId)),
+    ).length
+    if (availableOpponentCount < roundCount) {
+      memo.set(stateKey, false)
+      return false
+    }
+  }
+
+  function buildRound(
+    remainingIdeaIds: readonly string[],
+    roundPairings: readonly string[],
+  ): boolean {
+    if (remainingIdeaIds.length === 0) {
+      const nextUnavailable = new Set(unavailablePairings)
+      for (const key of roundPairings) nextUnavailable.add(key)
+      return canScheduleSwissRounds(
+        ideaIds,
+        nextUnavailable,
+        roundCount - 1,
+        memo,
+      )
+    }
+
+    const ordered = [...remainingIdeaIds].sort((left, right) => {
+      const available = (ideaId: string) =>
+        remainingIdeaIds.filter(
+          (opponentId) =>
+            opponentId !== ideaId &&
+            !unavailablePairings.has(pairingKey(ideaId, opponentId)),
+        ).length
+      return available(left) - available(right) || left.localeCompare(right)
+    })
+    const firstIdeaId = ordered[0]
+    const opponents = ordered
+      .slice(1)
+      .filter(
+        (secondIdeaId) =>
+          !unavailablePairings.has(pairingKey(firstIdeaId, secondIdeaId)),
+      )
+
+    for (const secondIdeaId of opponents) {
+      const nextRemaining = ordered.filter(
+        (ideaId) => ideaId !== firstIdeaId && ideaId !== secondIdeaId,
+      )
+      if (
+        buildRound(nextRemaining, [
+          ...roundPairings,
+          pairingKey(firstIdeaId, secondIdeaId),
+        ])
+      ) {
+        return true
+      }
+    }
+    return false
+  }
+
+  const possible = buildRound([...ideaIds].sort(), [])
+  memo.set(stateKey, possible)
+  return possible
+}
+
+/**
  * Finds the first valid perfect matching after ordering each opponent choice by
- * Swiss-score proximity. Backtracking avoids greedy no-repeat dead ends without
- * exhaustively scoring every matching, which is intractable for large fields.
+ * Swiss-score proximity. Backtracking also rejects a complete current matching
+ * when it would make the remaining Swiss schedule impossible.
  */
 function findBestSwissPairing(
   orderedStandings: readonly SwissStanding[],
   previousPairings: ReadonlySet<string>,
+  futureRoundCount: number,
 ): DebatePairing[] {
+  const futureScheduleMemo = new Map<string, boolean>()
   function visit(
     remaining: readonly SwissStanding[],
+    selectedPairingKeys: readonly string[],
   ): DebatePairing[] | undefined {
-    if (remaining.length === 0) return []
+    if (remaining.length === 0) {
+      const unavailablePairings = new Set(previousPairings)
+      for (const key of selectedPairingKeys) unavailablePairings.add(key)
+      return canScheduleSwissRounds(
+        orderedStandings.map(({ ideaId }) => ideaId),
+        unavailablePairings,
+        futureRoundCount,
+        futureScheduleMemo,
+      )
+        ? []
+        : undefined
+    }
 
     const first = remaining[0]
     const opponents = remaining
@@ -420,7 +519,10 @@ function findBestSwissPairing(
           candidate.ideaId !== first.ideaId &&
           candidate.ideaId !== second.ideaId,
       )
-      const remainder = visit(nextRemaining)
+      const remainder = visit(nextRemaining, [
+        ...selectedPairingKeys,
+        pairingKey(first.ideaId, second.ideaId),
+      ])
       if (remainder) {
         return [
           { firstIdeaId: first.ideaId, secondIdeaId: second.ideaId },
@@ -431,7 +533,7 @@ function findBestSwissPairing(
     return undefined
   }
 
-  const pairings = visit(orderedStandings)
+  const pairings = visit(orderedStandings, [])
   if (!pairings) {
     throw new Error("No valid non-repeating Swiss pairing exists")
   }
@@ -493,7 +595,13 @@ export function createNextSwissRound(input: {
       second.elo - first.elo ||
       compareBySeedOrder(first, second, seedOrder),
   )
-  const pairings = findBestSwissPairing(orderedStandings, previousPairings)
+  const futureRoundCount =
+    DEBATE_TOURNAMENT_FORMAT.swissRounds - completedRounds.length - 1
+  const pairings = findBestSwissPairing(
+    orderedStandings,
+    previousPairings,
+    futureRoundCount,
+  )
   return randomizePresentation(
     pairings,
     deriveSeed(randomSeed, 10 + completedRounds.length),

@@ -180,6 +180,35 @@ export function debateJobs(app: Hono<AppEnv>, manager: DebateJobManager): void {
     (c) => {
       const { debateJobId } = c.req.valid("param")
       const update = c.req.valid("json")
+      const current = db
+        .select({
+          isPublic: debateJobsTable.isPublic,
+          status: debateJobsTable.status,
+        })
+        .from(debateJobsTable)
+        .where(
+          and(
+            eq(debateJobsTable.debateJobId, debateJobId),
+            eq(debateJobsTable.userId, c.get("userId")),
+          ),
+        )
+        .get()
+      if (!current) return c.json({ error: "Debate job not found" }, 404)
+      if (
+        current.status === "running" &&
+        current.isPublic &&
+        update.isPublic === false
+      ) {
+        // Existing anonymous NDJSON responses cannot be revoked mid-response.
+        // Keep visibility monotonic until all live streams have terminated.
+        return c.json(
+          {
+            error:
+              "A public debate cannot be made private while it is running",
+          },
+          409,
+        )
+      }
       const updated = db
         .update(debateJobsTable)
         .set(update)

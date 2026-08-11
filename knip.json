@@ -5,8 +5,7 @@
     "src/api": {
       "entry": [
         "db/index.ts",
-        "e2e/mockExternalServices.mjs",
-        "helpers/index.ts"
+        "e2e/mockExternalServices.mjs"
       ]
     },
     "src/web": {

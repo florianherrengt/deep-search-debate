@@ -125,6 +125,7 @@ function DebateDetail({ slug }: { slug: string }) {
       )}
       {job.data.isOwner ? (
         <DebateVisibilityControls
+          canMakePrivate={job.data.status !== "running"}
           error={
             visibility.error
               ? getRequestErrorMessage(visibility.error)

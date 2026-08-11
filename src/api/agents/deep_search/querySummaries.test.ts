@@ -8,15 +8,24 @@ vi.mock("../../llms/generateText.ts", () => ({
 
 import { summarizeSearchQuery } from "./querySummaries.ts"
 
+function completedGeneration(text = "Completed query summary") {
+  return {
+    id: "query-summary-stream-id",
+    completion: Promise.resolve({
+      status: "completed" as const,
+      text,
+      reasoning: "",
+    }),
+  }
+}
+
 describe("query summaries", () => {
   beforeEach(() => vi.clearAllMocks())
 
   it("registers a synthesis stream with uniform result content", async () => {
-    mocks.generateTextStream.mockResolvedValueOnce({
-      id: "query-summary-stream-id",
-    })
+    mocks.generateTextStream.mockResolvedValueOnce(completedGeneration())
 
-    const streamId = await summarizeSearchQuery({
+    const generation = await summarizeSearchQuery({
       userId: "test-user-id",
       deepSearchJobId: "deep-search-job-id",
       researchRequest: "Find the best longboard for a beginner",
@@ -33,7 +42,6 @@ describe("query summaries", () => {
           content: "Search result description for cruising boards.",
         },
       ],
-      maxRetries: 0,
     })
 
     expect(mocks.generateTextStream).toHaveBeenCalledWith({
@@ -45,24 +53,28 @@ describe("query summaries", () => {
         "results:",
         "<results>",
         "<result>",
-        "Title: Beginner boards",
-        "URL: https://example.com/beginners",
-        "Content:",
-        "A detailed summary of the explored page.",
+        JSON.stringify({
+          title: "Beginner boards",
+          url: "https://example.com/beginners",
+          content: "A detailed summary of the explored page.",
+        }),
         "</result>",
         "",
         "<result>",
-        "Title: Cruising boards",
-        "URL: https://example.com/cruising",
-        "Content:",
-        "Search result description for cruising boards.",
+        JSON.stringify({
+          title: "Cruising boards",
+          url: "https://example.com/cruising",
+          content: "Search result description for cruising boards.",
+        }),
         "</result>",
         "</results>",
       ].join("\n"),
       promptName: "summarize-search-query",
-      maxRetries: 0,
+      reasoning: "disabled",
+      maxOutputTokens: 2_048,
     })
-    expect(streamId).toBe("query-summary-stream-id")
+    expect(generation.streamId).toBe("query-summary-stream-id")
+    await expect(generation.summary).resolves.toBe("Completed query summary")
   })
 
   it("propagates stream registration failures", async () => {

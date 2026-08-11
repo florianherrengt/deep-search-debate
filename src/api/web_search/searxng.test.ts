@@ -31,16 +31,19 @@ describe("searxng", () => {
         )),
     });
 
-    const results = await searxng({ query: "test" });
+    const signal = AbortSignal.timeout(30_000);
+    const results = await searxng({ query: "test", signal });
 
     expect(results).toEqual([
-      { title: "Test Title", shortText: "Test snippet", link: "https://example.com" },
-      { title: "Second Result", shortText: "Another snippet", link: "https://example.org" },
+      { title: "Test Title", shortText: "Test snippet", link: "https://example.com/" },
+      { title: "Second Result", shortText: "Another snippet", link: "https://example.org/" },
     ]);
 
     const url = new URL(mockFetch.mock.calls[0][0] as string);
     expect(url.searchParams.get("q")).toBe("test");
     expect(url.searchParams.get("format")).toBe("json");
+    expect(url.searchParams.get("categories")).toBe("general,science");
+    expect((mockFetch.mock.calls[0][1] as RequestInit).signal).toBe(signal);
   });
 
   it("drops provider results that have no usable search snippet", async () => {
@@ -62,7 +65,44 @@ describe("searxng", () => {
       {
         title: "Useful result",
         shortText: "Useful evidence",
-        link: "https://useful.example.com",
+        link: "https://useful.example.com/",
+      },
+    ]);
+  });
+
+  it("normalizes, de-duplicates, and filters unsupported result URLs", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: () =>
+        Promise.resolve(JSON.stringify(
+          mockJsonResponse({
+            results: [
+              {
+                title: "First",
+                content: "Useful evidence",
+                url: "https://example.com/path?utm_source=test#section",
+              },
+              {
+                title: "Duplicate",
+                content: "Duplicate evidence",
+                url: "https://example.com/path",
+              },
+              {
+                title: "Unsafe",
+                content: "Should be ignored",
+                url: "javascript:alert(1)",
+              },
+            ],
+          }),
+        )),
+    });
+
+    await expect(searxng({ query: "test" })).resolves.toEqual([
+      {
+        title: "First",
+        shortText: "Useful evidence",
+        link: "https://example.com/path",
       },
     ]);
   });
@@ -76,7 +116,7 @@ describe("searxng", () => {
 
     await searxng({ query: "test" });
 
-    const fetchedUrl = mockFetch.mock.calls[0][0] as string;
+    const fetchedUrl = String(mockFetch.mock.calls[0][0]);
     expect(fetchedUrl).toMatch(/^http:\/\/localhost:8090\//);
   });
 
@@ -117,7 +157,7 @@ describe("searxng", () => {
     await expect(searxng({ query: "test" })).rejects.toThrow();
   });
 
-  it("rejects empty search facts and invalid result URLs", async () => {
+  it("drops empty search facts and invalid result URLs", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -130,6 +170,6 @@ describe("searxng", () => {
         })),
     });
 
-    await expect(searxng({ query: "test" })).rejects.toThrow();
+    await expect(searxng({ query: "test" })).resolves.toEqual([]);
   });
 });

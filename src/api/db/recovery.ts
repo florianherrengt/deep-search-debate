@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { db } from "./index.ts"
 import {
   debateJobs,
@@ -6,6 +6,7 @@ import {
   debateRounds,
   deepSearchJobs,
   deepSearchQueries,
+  deepSearchRounds,
   deepSearchWebPages,
   llmGenerations,
   ideaJobs,
@@ -26,17 +27,28 @@ export function recoverInterruptedWork(): void {
     .where(eq(llmGenerations.status, "running"))
     .run()
 
-  for (const status of ["pending", "searching"] as const) {
-    db.update(deepSearchQueries)
-      .set({
-        status: "failed",
-        errorStage: "search",
-        errorMessage: interruptionMessage,
-        completedAt,
-      })
-      .where(eq(deepSearchQueries.status, status))
-      .run()
-  }
+  db.update(deepSearchRounds)
+    .set({
+      reviewError: interruptionMessage,
+      reviewCompletedAt: completedAt,
+    })
+    .where(
+      and(
+        isNotNull(deepSearchRounds.reviewGenerationId),
+        isNull(deepSearchRounds.reviewCompletedAt),
+      ),
+    )
+    .run()
+
+  db.update(deepSearchQueries)
+    .set({
+      status: "failed",
+      errorStage: "search",
+      errorMessage: interruptionMessage,
+      completedAt,
+    })
+    .where(eq(deepSearchQueries.status, "searching"))
+    .run()
   db.update(deepSearchQueries)
     .set({
       status: "failed",

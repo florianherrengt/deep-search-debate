@@ -13,7 +13,6 @@ import {
 import { getDebateJobOwnerColumns } from "./debateJobs.ts"
 import {
   getLlmGenerationIdeaOwnerColumns,
-  llmGenerations,
 } from "./llmGenerations.ts"
 import { ideaJobStages, jobStatuses } from "./statuses.ts"
 import { user } from "./auth.ts"
@@ -42,12 +41,7 @@ export const ideaJobs = sqliteTable(
       "research_summary_generation_id",
     ).unique(),
     ideaGenerationId: text("idea_generation_id").unique(),
-    selectionGenerationId: text("selection_generation_id")
-      .unique()
-      .references(
-        (): AnySQLiteColumn => llmGenerations.llmGenerationId,
-        { onDelete: "no action" },
-      ),
+    selectionGenerationId: text("selection_generation_id").unique(),
     status: text("status", { enum: jobStatuses })
       .notNull()
       .default("running"),
@@ -94,6 +88,11 @@ export const ideaJobs = sqliteTable(
     foreignKey({
       name: "idea_jobs_idea_generation_owner_fk",
       columns: [table.ideaGenerationId, table.userId, table.ideaJobId],
+      foreignColumns: getLlmGenerationIdeaOwnerColumns(),
+    }).onDelete("no action"),
+    foreignKey({
+      name: "idea_jobs_selection_generation_owner_fk",
+      columns: [table.selectionGenerationId, table.userId, table.ideaJobId],
       foreignColumns: getLlmGenerationIdeaOwnerColumns(),
     }).onDelete("no action"),
     check(

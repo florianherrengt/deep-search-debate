@@ -14,6 +14,7 @@ import {
 import {
   createAgentMessage,
   createDebateRound,
+  replaceFailedAgentMessageGeneration,
   type DebateRoundStage,
   type IdeaPair,
 } from "./persistence.ts"
@@ -226,12 +227,17 @@ describe("debate round persistence", () => {
       .run()
 
     expect(() =>
-      createAgentMessage({
-        debateMatchId: match.debateMatchId,
-        position: 0,
-        speakerSlot: 0,
-        llmGenerationId,
-      }),
+      db.transaction((transaction) =>
+        createAgentMessage(
+          {
+            debateMatchId: match.debateMatchId,
+            position: 0,
+            speakerSlot: 0,
+            llmGenerationId,
+          },
+          transaction,
+        ),
+      ),
     ).toThrow("LLM generation must belong to the debate job owner")
     expect(
       db
@@ -240,5 +246,157 @@ describe("debate round persistence", () => {
         .where(eq(debateMessages.debateMatchId, match.debateMatchId))
         .all(),
     ).toEqual([])
+  })
+
+  it("replaces a transcript generation link for a bounded retry", () => {
+    const fixture = createFixture()
+    const [match] = createDebateRound({
+      debateJobId: fixture.debateJobId,
+      stage: "swiss",
+      stageRoundNumber: 1,
+      pairs: sequentialPairs(fixture.ideaIds),
+    })
+    const firstGenerationId = crypto.randomUUID()
+    const retryGenerationId = crypto.randomUUID()
+    const staleRetryGenerationId = crypto.randomUUID()
+    db.insert(llmGenerations)
+      .values(
+        [
+          firstGenerationId,
+          retryGenerationId,
+          staleRetryGenerationId,
+        ].map((llmGenerationId) => ({
+            llmGenerationId,
+            userId: "test-user-id",
+            debateJobId: fixture.debateJobId,
+          })),
+      )
+      .run()
+
+    db.transaction((transaction) =>
+      createAgentMessage(
+        {
+          debateMatchId: match.debateMatchId,
+          position: 0,
+          speakerSlot: 0,
+          llmGenerationId: firstGenerationId,
+        },
+        transaction,
+      ),
+    )
+    expect(() =>
+      db.transaction((transaction) =>
+        createAgentMessage(
+          {
+            debateMatchId: match.debateMatchId,
+            position: 0,
+            speakerSlot: 0,
+            llmGenerationId: retryGenerationId,
+          },
+          transaction,
+        ),
+      ),
+    ).toThrow("UNIQUE constraint failed")
+    db.update(llmGenerations)
+      .set({
+        status: "failed",
+        text: "Partial opening:",
+        reasoning: "",
+        error: 'Text generation ended with finish reason "other"',
+        finishReason: "other",
+        completedAt: new Date(),
+      })
+      .where(eq(llmGenerations.llmGenerationId, firstGenerationId))
+      .run()
+    db.transaction((transaction) =>
+      replaceFailedAgentMessageGeneration(
+        {
+          debateMatchId: match.debateMatchId,
+          position: 0,
+          failedGenerationId: firstGenerationId,
+          retryGenerationId,
+        },
+        transaction,
+      ),
+    )
+
+    expect(
+      db
+        .select({
+          position: debateMessages.position,
+          speakerSlot: debateMessages.speakerSlot,
+          llmGenerationId: debateMessages.llmGenerationId,
+        })
+        .from(debateMessages)
+        .where(eq(debateMessages.debateMatchId, match.debateMatchId))
+        .all(),
+    ).toEqual([
+      {
+        position: 0,
+        speakerSlot: 0,
+        llmGenerationId: retryGenerationId,
+      },
+    ])
+
+    expect(() =>
+      db.transaction((transaction) =>
+        replaceFailedAgentMessageGeneration(
+          {
+            debateMatchId: match.debateMatchId,
+            position: 0,
+            failedGenerationId: firstGenerationId,
+            retryGenerationId: staleRetryGenerationId,
+          },
+          transaction,
+        ),
+      ),
+    ).toThrow("The failed debate message generation link changed")
+
+    db.update(llmGenerations)
+      .set({
+        status: "completed",
+        text: "Completed retry",
+        reasoning: "",
+        finishReason: "stop",
+        completedAt: new Date(),
+      })
+      .where(eq(llmGenerations.llmGenerationId, retryGenerationId))
+      .run()
+    expect(() =>
+      db.transaction((transaction) =>
+        replaceFailedAgentMessageGeneration(
+          {
+            debateMatchId: match.debateMatchId,
+            position: 0,
+            failedGenerationId: retryGenerationId,
+            retryGenerationId: staleRetryGenerationId,
+          },
+          transaction,
+        ),
+      ),
+    ).toThrow("The replaced generation is not a failed other finish")
+
+    const foreignDebateJobId = createFixture().debateJobId
+    const foreignGenerationId = crypto.randomUUID()
+    db.insert(llmGenerations)
+      .values({
+        llmGenerationId: foreignGenerationId,
+        userId: "test-user-id",
+        debateJobId: foreignDebateJobId,
+      })
+      .run()
+    expect(() =>
+      db.transaction((transaction) =>
+        replaceFailedAgentMessageGeneration(
+          {
+            debateMatchId: match.debateMatchId,
+            position: 0,
+            failedGenerationId: firstGenerationId,
+            retryGenerationId: foreignGenerationId,
+          },
+          transaction,
+        ),
+      ),
+    ).toThrow("LLM generation must belong to the debate job owner")
   })
 })

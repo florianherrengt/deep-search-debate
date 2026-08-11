@@ -12,7 +12,6 @@ import { deepSearchJobs } from "./deepSearchJobs.ts"
 import { deepSearchQueries } from "./deepSearchQueries.ts"
 import { llmGenerations } from "./llmGenerations.ts"
 import {
-  deepSearchResultSelectionStatuses,
   deepSearchWebPageErrorStages,
   deepSearchWebPageStatuses,
 } from "./statuses.ts"
@@ -101,11 +100,7 @@ export const deepSearchResults = sqliteTable(
     title: text("title").notNull(),
     shortText: text("short_text").notNull(),
     url: text("url").notNull(),
-    selectionStatus: text("selection_status", {
-      enum: deepSearchResultSelectionStatuses,
-    })
-      .notNull()
-      .default("pending"),
+    /** Non-null exactly when the selector chose this result for exploration. */
     deepSearchWebPageId: text("deep_search_web_page_id").references(
       () => deepSearchWebPages.deepSearchWebPageId,
       // Block partial page deletion while allowing a root-job cascade to
@@ -128,18 +123,6 @@ export const deepSearchResults = sqliteTable(
     check(
       "deep_search_results_content_check",
       sql`length(trim(${table.title})) > 0 and length(trim(${table.shortText})) > 0 and length(trim(${table.url})) > 0`,
-    ),
-    check(
-      "deep_search_results_selection_status_check",
-      sql`${table.selectionStatus} in ('pending', 'selected', 'rejected')`,
-    ),
-    check(
-      "deep_search_results_selection_page_check",
-      sql`(
-        (${table.selectionStatus} = 'selected' and ${table.deepSearchWebPageId} is not null)
-        or
-        (${table.selectionStatus} in ('pending', 'rejected') and ${table.deepSearchWebPageId} is null)
-      )`,
     ),
   ],
 )

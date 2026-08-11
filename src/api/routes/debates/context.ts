@@ -1,5 +1,6 @@
-import { and, asc, eq, lt } from "drizzle-orm"
+import { and, asc, eq, lt, sql } from "drizzle-orm"
 
+import { config } from "../../config.ts"
 import { db } from "../../db/index.ts"
 import {
   deepSearchJobs,
@@ -7,6 +8,7 @@ import {
   ideas,
   llmGenerations,
 } from "../../db/schema/index.ts"
+import { formatBoundedTextEntries } from "../../helpers/boundedText.ts"
 
 export type DebateContext = {
   userRequest: string
@@ -96,6 +98,12 @@ export function loadDebateContext(ideaJobId: string): DebateContext {
 export function loadDebateCandidateResearch(
   ideaJobId: string,
 ): Map<string, DebateCandidateResearch> {
+  const job = db
+    .select({ deepSearchCount: ideaJobs.deepSearchCount })
+    .from(ideaJobs)
+    .where(eq(ideaJobs.ideaJobId, ideaJobId))
+    .get()
+  if (!job) throw new Error("Idea job was not found")
   const rows = db
     .select({
       ideaId: ideas.ideaId,
@@ -107,7 +115,10 @@ export function loadDebateCandidateResearch(
     .from(ideas)
     .innerJoin(
       deepSearchJobs,
-      eq(ideas.deepSearchJobId, deepSearchJobs.deepSearchJobId),
+      and(
+        eq(deepSearchJobs.ideaJobId, ideaJobId),
+        sql`${deepSearchJobs.ideaJobPosition} = ${job.deepSearchCount} + ${ideas.position}`,
+      ),
     )
     .innerJoin(
       llmGenerations,
@@ -142,26 +153,42 @@ function serialize(value: unknown): string {
   return JSON.stringify(value, null, 2)
 }
 
+function formatPromptSections(
+  sections: readonly { tag: string; value: unknown }[],
+): string {
+  return formatBoundedTextEntries(
+    sections.map(({ tag, value }) => ({
+      opening: `<${tag}>\n`,
+      text: serialize(value),
+      closing: `\n</${tag}>`,
+    })),
+    config.deepSearch.maxSummaryContextChars,
+  )
+}
+
+function openingSections(
+  context: DebateContext,
+  candidate: DebateCandidate,
+  opponent: DebateCandidate,
+  candidateResearch: DebateCandidateResearch,
+) {
+  return [
+    { tag: "debate_context", value: context },
+    { tag: "assigned_candidate", value: candidate },
+    { tag: "assigned_candidate_research", value: candidateResearch },
+    { tag: "opponent_candidate", value: opponent },
+  ]
+}
+
 export function buildOpeningPrompt(
   context: DebateContext,
   candidate: DebateCandidate,
   opponent: DebateCandidate,
   candidateResearch: DebateCandidateResearch,
 ): string {
-  return [
-    "<debate_context>",
-    serialize(context),
-    "</debate_context>",
-    "<assigned_candidate>",
-    serialize(candidate),
-    "</assigned_candidate>",
-    "<assigned_candidate_research>",
-    serialize(candidateResearch),
-    "</assigned_candidate_research>",
-    "<opponent_candidate>",
-    serialize(opponent),
-    "</opponent_candidate>",
-  ].join("\n")
+  return formatPromptSections(
+    openingSections(context, candidate, opponent, candidateResearch),
+  )
 }
 
 export function buildRebuttalPrompt(
@@ -172,15 +199,11 @@ export function buildRebuttalPrompt(
   candidateOpening: string,
   opponentOpening: string,
 ): string {
-  return [
-    buildOpeningPrompt(context, candidate, opponent, candidateResearch),
-    "<assigned_candidate_opening>",
-    candidateOpening,
-    "</assigned_candidate_opening>",
-    "<opponent_opening>",
-    opponentOpening,
-    "</opponent_opening>",
-  ].join("\n")
+  return formatPromptSections([
+    ...openingSections(context, candidate, opponent, candidateResearch),
+    { tag: "assigned_candidate_opening", value: candidateOpening },
+    { tag: "opponent_opening", value: opponentOpening },
+  ])
 }
 
 export function buildJudgePrompt(
@@ -191,29 +214,20 @@ export function buildJudgePrompt(
   secondCandidateResearch: DebateCandidateResearch,
   transcript: string[],
 ): string {
-  return [
-    "<debate_context>",
-    serialize(context),
-    "</debate_context>",
-    "<candidate_a>",
-    serialize(firstCandidate),
-    "</candidate_a>",
-    "<candidate_a_research>",
-    serialize(firstCandidateResearch),
-    "</candidate_a_research>",
-    "<candidate_b>",
-    serialize(secondCandidate),
-    "</candidate_b>",
-    "<candidate_b_research>",
-    serialize(secondCandidateResearch),
-    "</candidate_b_research>",
-    "<transcript>",
-    serialize([
-      { speaker: "Candidate A", message: transcript[0] },
-      { speaker: "Candidate B", message: transcript[1] },
-      { speaker: "Candidate A", message: transcript[2] },
-      { speaker: "Candidate B", message: transcript[3] },
-    ]),
-    "</transcript>",
-  ].join("\n")
+  return formatPromptSections([
+    { tag: "debate_context", value: context },
+    { tag: "candidate_a", value: firstCandidate },
+    { tag: "candidate_a_research", value: firstCandidateResearch },
+    { tag: "candidate_b", value: secondCandidate },
+    { tag: "candidate_b_research", value: secondCandidateResearch },
+    {
+      tag: "transcript",
+      value: [
+        { speaker: "Candidate A", message: transcript[0] },
+        { speaker: "Candidate B", message: transcript[1] },
+        { speaker: "Candidate A", message: transcript[2] },
+        { speaker: "Candidate B", message: transcript[3] },
+      ],
+    },
+  ])
 }

@@ -31,6 +31,7 @@ export const deepSearchJobs = sqliteTable(
     researchRequest: text("research_request").notNull(),
     maxSearches: integer("max_searches").notNull(),
     maxResultsPerSearch: integer("max_results_per_search").notNull(),
+    maxRounds: integer("max_rounds").notNull().default(3),
     finalAnswerGenerationId: text("final_answer_generation_id").unique(),
     status: text("status", { enum: jobStatuses })
       .notNull()
@@ -80,7 +81,7 @@ export const deepSearchJobs = sqliteTable(
     ),
     check(
       "deep_search_jobs_limits_check",
-      sql`${table.maxSearches} > 0 and ${table.maxResultsPerSearch} > 0`,
+      sql`${table.maxSearches} > 0 and ${table.maxResultsPerSearch} > 0 and ${table.maxRounds} > 0`,
     ),
     check(
       "deep_search_jobs_research_request_content_check",

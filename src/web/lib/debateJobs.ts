@@ -103,6 +103,10 @@ export type CreateDebateJobInput = {
   prompt: string
   isPublic: boolean
   numberOfIdeas?: number
+  deepSearchCount?: number
+  maxSearches?: number
+  maxResultsPerSearch?: number
+  maxRounds?: number
 }
 export type UpdateDebateJobInput = z.input<typeof updateDebateJobInputSchema>
 export type UpdatedDebateJob = z.output<typeof mutableDebateJobFieldsSchema>

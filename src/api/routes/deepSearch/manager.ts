@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto"
 import { and, eq } from "drizzle-orm"
+import PQueue from "p-queue"
+import { config } from "../../config.ts"
 import { db } from "../../db/index.ts"
 import {
   deepSearchJobs as deepSearchJobsTable,
-  deepSearchGeneratedQueries,
   deepSearchQueries,
-  deepSearchQueryGenerations,
+  deepSearchRounds,
   deepSearchWebPages,
-  llmGenerations,
 } from "../../db/schema/index.ts"
 import {
   createPromptIdentity,
@@ -15,17 +15,18 @@ import {
 } from "../../helpers/promptTitles.ts"
 import { createReplayableEventLog } from "../../helpers/replayableEventLog.ts"
 import { generatePromptTitle } from "../../llms/generateText.ts"
+import { reserveRootResearchCapacity } from "../researchCapacity.ts"
 import { runDeepSearchJob } from "./run.ts"
+import {
+  deepSearchExecutionInputSchema,
+  type DeepSearchExecutionRequest,
+} from "./resourceLimits.ts"
 import type { DeepSearchJobEvent, LiveDeepSearchJob } from "./schemas.ts"
 
-type StartDeepSearchJobInput = {
+type StartDeepSearchJobInput = DeepSearchExecutionRequest & {
   title?: string
-  researchRequest: string
-  maxSearches: number
-  maxResultsPerSearch: number
   ideaJobId?: string
   ideaJobPosition?: number
-  maxRetries?: number
 }
 
 type StartedDeepSearchJob = {
@@ -36,27 +37,21 @@ type StartedDeepSearchJob = {
   completion: Promise<string>
 }
 
-function getInternalFailure(deepSearchJobId: string): string | undefined {
+const deepSearchJobQueue = new PQueue({
+  concurrency: config.deepSearch.maxConcurrentJobs,
+})
+
+function getParentQualityFailure(deepSearchJobId: string): string | undefined {
   const failedQuery = db
     .select({ message: deepSearchQueries.errorMessage })
     .from(deepSearchQueries)
     .innerJoin(
-      deepSearchGeneratedQueries,
-      eq(
-        deepSearchQueries.deepSearchGeneratedQueryId,
-        deepSearchGeneratedQueries.deepSearchGeneratedQueryId,
-      ),
-    )
-    .innerJoin(
-      deepSearchQueryGenerations,
-      eq(
-        deepSearchGeneratedQueries.deepSearchQueryGenerationId,
-        deepSearchQueryGenerations.deepSearchQueryGenerationId,
-      ),
+      deepSearchRounds,
+      eq(deepSearchQueries.deepSearchRoundId, deepSearchRounds.deepSearchRoundId),
     )
     .where(
       and(
-        eq(deepSearchQueryGenerations.deepSearchJobId, deepSearchJobId),
+        eq(deepSearchRounds.deepSearchJobId, deepSearchJobId),
         eq(deepSearchQueries.status, "failed"),
       ),
     )
@@ -85,6 +80,8 @@ export type DeepSearchJobManager = {
     userId: string,
     input: StartDeepSearchJobInput,
   ): Promise<StartedDeepSearchJob>
+  /** Applies the idea pipeline's stricter policy after durable completion. */
+  requireParentQualityAcceptance(deepSearchJobId: string): void
   getLiveJob(deepSearchJobId: string): LiveDeepSearchJob | undefined
 }
 
@@ -112,45 +109,26 @@ function hasDurableTerminalState(deepSearchJobId: string): boolean {
   }
 }
 
-/** Turns the deep-search job's persisted terminal state into a parent result. */
-function getCompletedAnswer(deepSearchJobId: string): string {
-  const result = db
+/** Applies parent-only quality policy without redefining durable job success. */
+function requireParentQualityAcceptance(deepSearchJobId: string): void {
+  const job = db
     .select({
-      jobStatus: deepSearchJobsTable.status,
-      jobError: deepSearchJobsTable.error,
-      generationStatus: llmGenerations.status,
-      generationText: llmGenerations.text,
-      generationError: llmGenerations.error,
+      status: deepSearchJobsTable.status,
+      error: deepSearchJobsTable.error,
     })
     .from(deepSearchJobsTable)
-    .leftJoin(
-      llmGenerations,
-      eq(
-        deepSearchJobsTable.finalAnswerGenerationId,
-        llmGenerations.llmGenerationId,
-      ),
-    )
     .where(eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId))
     .get()
 
-  if (!result) throw new Error("Deep search job was not found")
-  if (result.jobStatus !== "completed") {
-    throw new Error(result.jobError ?? "Deep search failed")
+  if (!job) throw new Error("Deep search job was not found")
+  if (job.status !== "completed") {
+    throw new Error(job.error ?? "Deep search did not complete")
   }
   // Blocked or unavailable pages are expected research misses and already fall
   // back to search snippets. The idea pipeline only rejects failures in work we
   // control: query processing and model-generated page summaries.
-  const internalFailure = getInternalFailure(deepSearchJobId)
-  if (internalFailure) throw new Error(internalFailure)
-  if (
-    result.generationStatus !== "completed" ||
-    result.generationText === null
-  ) {
-    throw new Error(
-      result.generationError ?? "Deep search final answer did not complete",
-    )
-  }
-  return result.generationText
+  const qualityFailure = getParentQualityFailure(deepSearchJobId)
+  if (qualityFailure) throw new Error(qualityFailure)
 }
 
 /** Owns the live logs used by both direct and idea-pipeline deep searches. */
@@ -159,34 +137,49 @@ export function createDeepSearchJobManager(): DeepSearchJobManager {
 
   return {
     async start(userId, input) {
+      const validatedInput = deepSearchExecutionInputSchema.parse(input)
+      const normalizedInput = { ...input, ...validatedInput }
+      const isRootJob = normalizedInput.ideaJobId === undefined
+      const releaseCapacity = isRootJob
+        ? reserveRootResearchCapacity(userId)
+        : undefined
       const deepSearchJobId = randomUUID()
       const job = createReplayableEventLog<DeepSearchJobEvent>()
-      const { maxRetries, title: suppliedTitle, ...persistedInput } = input
-      const generatedTitle =
-        suppliedTitle ?? (await generatePromptTitle(input.researchRequest))
-      const identity = createDeepSearchIdentity(generatedTitle)
+      let identity: PromptIdentity
+      try {
+        const { title: suppliedTitle, ...persistedInput } = normalizedInput
+        const generatedTitle =
+          suppliedTitle ??
+          (await generatePromptTitle(normalizedInput.researchRequest))
+        identity = createDeepSearchIdentity(generatedTitle)
 
-      db.insert(deepSearchJobsTable)
-        .values({ deepSearchJobId, userId, ...identity, ...persistedInput })
-        .run()
+        db.insert(deepSearchJobsTable)
+          .values({ deepSearchJobId, userId, ...identity, ...persistedInput })
+          .run()
+      } finally {
+        releaseCapacity?.()
+      }
 
       // The route serving child events reads this same log while the durable
       // database rows remain the source used after a process restart.
       liveJobs.set(deepSearchJobId, job)
 
-      // runDeepSearchJob persists normal failures instead of throwing them.
-      // Reading the terminal row converts those failures into a rejection so
-      // an owning idea pipeline does not advance from failed research.
-      const completion = runDeepSearchJob(
-        deepSearchJobId,
-        userId,
-        job,
-        input.researchRequest,
-        input.maxSearches,
-        input.maxResultsPerSearch,
-        maxRetries,
-      )
-        .then(() => getCompletedAnswer(deepSearchJobId))
+      const completion = deepSearchJobQueue
+        .add(
+          () =>
+            runDeepSearchJob(
+              deepSearchJobId,
+              userId,
+              job,
+              normalizedInput.researchRequest,
+              normalizedInput.maxSearches,
+              normalizedInput.maxResultsPerSearch,
+              normalizedInput.maxRounds,
+            ),
+          // A newly admitted root should not wait behind an entire eagerly
+          // queued child batch. Running jobs are never pre-empted.
+          { priority: isRootJob ? 1 : 0 },
+        )
         .finally(() => {
           if (hasDurableTerminalState(deepSearchJobId)) {
             // Existing subscribers retain their iterator. New subscribers use
@@ -197,6 +190,7 @@ export function createDeepSearchJobManager(): DeepSearchJobManager {
 
       return { deepSearchJobId, ...identity, completion }
     },
+    requireParentQualityAcceptance,
     getLiveJob(deepSearchJobId) {
       return liveJobs.get(deepSearchJobId)
     },

@@ -1,4 +1,4 @@
-import { aliasedTable, and, asc, eq, lt, type SQL } from "drizzle-orm"
+import { aliasedTable, and, asc, eq, lt, sql, type SQL } from "drizzle-orm"
 import { db } from "../../db/index.ts"
 import {
   deepSearchJobs,
@@ -8,7 +8,7 @@ import {
 } from "../../db/schema/index.ts"
 import type { IdeaJobEvent } from "./schemas.ts"
 
-function replayNormalizedIdeas(ideaJobId: string): {
+function replayNormalizedIdeas(ideaJobId: string, deepSearchCount: number): {
   ideaEvents: IdeaJobEvent[]
   critiqueEvents: IdeaJobEvent[]
   refinementEvents: IdeaJobEvent[]
@@ -40,7 +40,7 @@ function replayNormalizedIdeas(ideaJobId: string): {
       refinementStatus: refinementGenerations.status,
       refinedTitle: ideas.refinedTitle,
       refinedDescription: ideas.refinedDescription,
-      deepSearchJobId: ideas.deepSearchJobId,
+      deepSearchJobId: deepSearchJobs.deepSearchJobId,
       deepSearchTitle: deepSearchJobs.title,
       deepSearchSlug: deepSearchJobs.slug,
       deepSearchResearchRequest: deepSearchJobs.researchRequest,
@@ -62,7 +62,10 @@ function replayNormalizedIdeas(ideaJobId: string): {
     )
     .leftJoin(
       deepSearchJobs,
-      eq(ideas.deepSearchJobId, deepSearchJobs.deepSearchJobId),
+      and(
+        eq(deepSearchJobs.ideaJobId, ideas.ideaJobId),
+        sql`${deepSearchJobs.ideaJobPosition} = ${deepSearchCount} + ${ideas.position}`,
+      ),
     )
     .where(eq(ideas.ideaJobId, ideaJobId))
     .orderBy(asc(ideas.position))
@@ -194,7 +197,10 @@ export function reconstructIdeaJobEvents(
     )
     .orderBy(asc(deepSearchJobs.ideaJobPosition))
     .all()
-  const normalizedIdeas = replayNormalizedIdeas(ideaJobId)
+  const normalizedIdeas = replayNormalizedIdeas(
+    ideaJobId,
+    job.deepSearchCount,
+  )
 
   return [
     ...(job.researchPromptGenerationId

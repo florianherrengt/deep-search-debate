@@ -5,50 +5,8 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1786024188543,
-      "tag": "0000_complete_masked_marvel",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1786212713107,
-      "tag": "0001_puzzling_medusa",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1786230640194,
-      "tag": "0002_chilly_big_bertha",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1786237922044,
-      "tag": "0003_deep_nebula",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1786238139375,
-      "tag": "0004_ambiguous_wendell_rand",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "6",
-      "when": 1786305300025,
-      "tag": "0005_lyrical_leader",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "6",
-      "when": 1786320116982,
-      "tag": "0006_striped_microchip",
+      "when": 1786386512034,
+      "tag": "0000_fresh-baseline",
       "breakpoints": true
     }
   ]

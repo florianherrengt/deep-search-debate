@@ -1,37 +1,59 @@
 import { createSearXNGFetchSearch } from "deep-search-core/search-extract"
+import PQueue from "p-queue"
 import { config } from "../config.ts"
-import { webSearchResultsSchema, type WebSearchResult } from "./types.ts"
+import { createBoundedFetch } from "./boundedFetch.ts"
+import {
+  normalizeWebSearchResults,
+  type WebSearchResult,
+} from "./types.ts"
 
-const resultIdentitySchema = webSearchResultsSchema.element.omit({
-  shortText: true,
-})
+const boundedFetch = createBoundedFetch(
+  config.webSearch.maxResponseBytes,
+  (input, init) => globalThis.fetch(input, init),
+)
 
 const search =
   config.webSearch.searxng.url === undefined
     ? undefined
     : createSearXNGFetchSearch({
         baseUrl: config.webSearch.searxng.url,
-        fetch: (input, init) => globalThis.fetch(input, init),
+        fetch: (input, init) => {
+          const inputUrl = input instanceof Request ? input.url : input.toString()
+          const url = new URL(inputUrl)
+          url.searchParams.set(
+            "categories",
+            config.webSearch.searxng.categories.join(","),
+          )
+          return boundedFetch(url, init)
+        },
       })
+
+const searchQueue = new PQueue({
+  concurrency: config.webSearch.searxng.maxConcurrentRequests,
+  ...(config.webSearch.searxng.minIntervalMs > 0
+    ? {
+        interval: config.webSearch.searxng.minIntervalMs,
+        intervalCap: 1,
+        carryoverConcurrencyCount: true,
+      }
+    : {}),
+})
 
 export async function searxng(params: {
   query: string
+  signal?: AbortSignal
 }): Promise<WebSearchResult[]> {
   if (search === undefined) throw new Error("SearXNG is not configured")
-  const results = await search(params.query)
+  const results = await searchQueue.add(
+    () => search(params.query, params.signal),
+    params.signal ? { signal: params.signal } : undefined,
+  )
   const mappedResults = results.map((result) => ({
     title: result.title,
     shortText: result.description,
     link: result.url,
   }))
-  // Snippet absence is allowed by SearXNG, but malformed identity fields are
-  // still provider-contract violations and must not be silently discarded.
-  for (const result of mappedResults) resultIdentitySchema.parse(result)
-  return webSearchResultsSchema.parse(
-    mappedResults
-      // SearXNG legitimately includes results without snippets. They cannot
-      // provide the fallback evidence required when page extraction fails, so
-      // omit them at the provider boundary instead of rejecting usable peers.
-      .filter((result) => result.shortText.trim().length > 0),
-  )
+  // Results without snippets cannot provide fallback evidence. Unsupported or
+  // duplicate URLs are likewise omitted before anything reaches persistence.
+  return normalizeWebSearchResults(mappedResults)
 }

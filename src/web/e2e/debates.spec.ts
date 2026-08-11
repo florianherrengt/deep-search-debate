@@ -321,7 +321,7 @@ test.describe("Debate tournament", () => {
     expect(unexpectedBrowserRequests).toEqual([])
   })
 
-  test("fails on one provider error without retrying or starting another round", async ({
+  test("fails after one opening exhausts provider retries without starting another round", async ({
     page,
     request,
   }) => {
@@ -337,7 +337,7 @@ test.describe("Debate tournament", () => {
       }
     })
 
-    const failurePrompt = `${debatePrompt} [E2E_FAIL_FIRST_DEBATE_OPENING:${crypto.randomUUID()}]`
+    const failurePrompt = `${debatePrompt} [E2E_FAIL_DEBATE_OPENING:${crypto.randomUUID()}]`
     await page.goto("/debates")
     const createdResponse = page.waitForResponse(
       (response) =>
@@ -365,7 +365,7 @@ test.describe("Debate tournament", () => {
       ),
     ).toBeVisible()
     await expect(
-      page.getByText(injectedFailureMessage, { exact: true }),
+      page.getByText(new RegExp(injectedFailureMessage)),
     ).toHaveCount(0)
     await expect(
       page.getByRole("link", { name: "Start a new debate" }),
@@ -382,8 +382,10 @@ test.describe("Debate tournament", () => {
       prompt: failurePrompt,
       stage: "swiss",
       status: "failed",
-      error: injectedFailureMessage,
+      error: expect.stringContaining(injectedFailureMessage),
     })
+    expect(debateJob.error).not.toBeNull()
+    expect(debateJob.error).toContain(`${injectedFailureMessage} (attempt 3)`)
     expect(debateJob.rounds).toHaveLength(1)
     expect(debateJob.rounds[0]).toMatchObject({
       stage: "swiss",
@@ -412,7 +414,7 @@ test.describe("Debate tournament", () => {
     )
     expect(parseEvents(await terminalEvents.text())).toEqual([
       { type: "updated" },
-      { type: "error", message: injectedFailureMessage },
+      { type: "error", message: debateJob.error },
       { type: "done" },
     ])
     expect(createRequestCount).toBe(1)

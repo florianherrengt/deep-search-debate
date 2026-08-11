@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest"
-import { app } from "./index.ts"
+import { describe, expect, it, vi } from "vitest"
+import { Hono } from "hono"
+import { HTTPException } from "hono/http-exception"
+import { app, handleRequestError } from "./index.ts"
+import type { AppEnv } from "./types/auth.ts"
 import { pingResponseSchema } from "./routes/ping.ts"
 import { authConfigResponseSchema } from "./routes/auth.ts"
 
@@ -17,6 +20,59 @@ describe("GET /api/health", () => {
 
     expect(res.status).toBe(200)
     await expect(res.json()).resolves.toEqual({ status: "ok" })
+  })
+})
+
+describe("request error handling", () => {
+  it("preserves intentional HTTP errors", async () => {
+    const testApp = new Hono<AppEnv>()
+    testApp.onError(handleRequestError)
+    testApp.use("*", async (context, next) => {
+      context.header("X-Middleware", "kept")
+      await next()
+    })
+    testApp.get("/teapot", () => {
+      throw new HTTPException(418, { message: "Short and stout" })
+    })
+
+    const response = await testApp.request("/teapot")
+
+    expect(response.status).toBe(418)
+    expect(response.headers.get("X-Middleware")).toBe("kept")
+    await expect(response.text()).resolves.toBe("Short and stout")
+  })
+
+  it("does not log provider request or response payloads", async () => {
+    const sentinel = "sensitive-prompt-and-provider-response"
+    const error = Object.assign(new Error(`Provider rejected ${sentinel}`), {
+      name: "RetryError",
+      requestBodyValues: { messages: [{ content: sentinel }] },
+      responseBody: sentinel,
+    })
+    const testApp = new Hono<AppEnv>()
+    testApp.onError(handleRequestError)
+    testApp.get("/unhandled-provider-error", () => {
+      throw error
+    })
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+
+    try {
+      const response = await testApp.request("/unhandled-provider-error")
+      const responseBody = await response.text()
+      const logged = JSON.stringify(consoleError.mock.calls)
+
+      expect(response.status).toBe(500)
+      expect(responseBody).toBe("Internal Server Error")
+      expect(responseBody).not.toContain(sentinel)
+      expect(logged).not.toContain(sentinel)
+      expect(consoleError).toHaveBeenCalledWith("Unhandled request error", {
+        method: "GET",
+        path: "/unhandled-provider-error",
+        errorName: "RetryError",
+      })
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 })
 

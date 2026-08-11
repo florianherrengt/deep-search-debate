@@ -44,6 +44,87 @@ describe("config", () => {
     expect(config.api.port).toBe(4321)
   })
 
+  it("uses typed deep-search concurrency limits", async () => {
+    vi.stubEnv("DEEP_SEARCH_MAX_CONCURRENT_JOBS", "3")
+    vi.stubEnv("DEEP_SEARCH_MAX_CONCURRENT_PAGE_TASKS", "5")
+    vi.stubEnv("RESEARCH_MAX_ACTIVE_ROOT_JOBS_PER_USER", "4")
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.deepSearch).toMatchObject({
+      maxConcurrentJobs: 3,
+      maxConcurrentPageTasks: 5,
+      maxActiveRootJobsPerUser: 4,
+    })
+  })
+
+  it("uses a typed accumulated-summary context limit", async () => {
+    vi.stubEnv("DEEP_SEARCH_MAX_SUMMARY_CONTEXT_CHARS", "75000")
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.deepSearch.maxSummaryContextChars).toBe(75_000)
+  })
+
+  it("uses typed provider deadlines and standalone generation admission", async () => {
+    vi.stubEnv("LLM_GENERATION_TIMEOUT_MS", "240000")
+    vi.stubEnv("LLM_FIRST_CHUNK_TIMEOUT_MS", "90000")
+    vi.stubEnv("LLM_CHUNK_TIMEOUT_MS", "45000")
+    vi.stubEnv("LLM_MAX_OUTPUT_TOKENS", "12000")
+    vi.stubEnv("LLM_MAX_RETRIES", "4")
+    vi.stubEnv("LLM_MAX_CONCURRENT_GENERATIONS", "5")
+    vi.stubEnv("LLM_MAX_ACTIVE_STANDALONE_GENERATIONS_PER_USER", "3")
+    vi.stubEnv("WEB_SEARCH_TIMEOUT_MS", "25000")
+    vi.stubEnv("WEB_SEARCH_MAX_RESPONSE_BYTES", "1500000")
+    vi.stubEnv("SEARXNG_CATEGORIES", "general, science,science")
+    vi.stubEnv("SEARXNG_MAX_CONCURRENT_REQUESTS", "2")
+    vi.stubEnv("SEARXNG_MIN_INTERVAL_MS", "750")
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.llmExecution).toEqual({
+      totalTimeoutMs: 240_000,
+      firstChunkTimeoutMs: 90_000,
+      chunkTimeoutMs: 45_000,
+      maxOutputTokens: 12_000,
+      maxRetries: 4,
+      maxConcurrentGenerations: 5,
+      maxActiveStandaloneGenerationsPerUser: 3,
+    })
+    expect(config.webSearch.timeoutMs).toBe(25_000)
+    expect(config.webSearch.maxResponseBytes).toBe(1_500_000)
+    expect(config.webSearch.searxng).toMatchObject({
+      categories: ["general", "science"],
+      maxConcurrentRequests: 2,
+      minIntervalMs: 750,
+    })
+  })
+
+  it("rejects invalid deep-search concurrency limits", async () => {
+    vi.stubEnv("DEEP_SEARCH_MAX_CONCURRENT_JOBS", "0")
+    vi.resetModules()
+
+    await expect(import("./config.ts")).rejects.toThrow(
+      "DEEP_SEARCH_MAX_CONCURRENT_JOBS",
+    )
+  })
+
+  it("keeps omitted request defaults within a lower configured round ceiling", async () => {
+    vi.stubEnv("DEEP_SEARCH_MAX_ROUNDS", "1")
+    vi.resetModules()
+
+    const { deepSearchExecutionInputSchema } = await import(
+      "./routes/deepSearch/resourceLimits.ts"
+    )
+
+    expect(
+      deepSearchExecutionInputSchema.parse({ researchRequest: "Research this" }),
+    ).toMatchObject({ maxRounds: 1 })
+  })
+
   it("derives development URLs and paths from NODE_ENV", async () => {
     vi.stubEnv("NODE_ENV", "development")
     vi.stubEnv("BETTER_AUTH_URL", undefined)
@@ -267,7 +348,7 @@ describe("config", () => {
 
     expect(config.llm).toEqual({
       provider: "deepseek",
-      model: "deepseek-v4-flash",
+      model: "deepseek-chat",
       apiKey: "environment-deepseek-key",
     })
   })
@@ -310,6 +391,59 @@ describe("config", () => {
 
     await expect(import("./config.ts")).rejects.toThrow(
       "SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS",
+    )
+  })
+
+  it("uses bounded deep-search defaults", async () => {
+    for (const name of [
+      "DEEP_SEARCH_MAX_SEARCHES",
+      "DEEP_SEARCH_MAX_RESULTS_PER_SEARCH",
+      "DEEP_SEARCH_MAX_SELECTED_URLS_PER_ROUND",
+      "DEEP_SEARCH_MAX_ROUNDS",
+      "DEEP_SEARCH_MAX_REQUEST_CHARS",
+      "DEEP_SEARCH_MAX_SUMMARY_CONTEXT_CHARS",
+      "DEEP_SEARCH_MAX_CONCURRENT_JOBS",
+      "DEEP_SEARCH_MAX_CONCURRENT_PAGE_TASKS",
+      "RESEARCH_MAX_ACTIVE_ROOT_JOBS_PER_USER",
+      "RESEARCH_MAX_SELECTED_PAGES_PER_ROOT_JOB",
+      "IDEA_JOB_MAX_DEEP_SEARCH_COUNT",
+    ]) {
+      vi.stubEnv(name, undefined)
+    }
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.deepSearch).toEqual({
+      maxSearches: 10,
+      maxResultsPerSearch: 10,
+      maxSelectedUrlsPerRound: 30,
+      maxRounds: 3,
+      maxRequestChars: 10_000,
+      maxSummaryContextChars: 100_000,
+      maxConcurrentJobs: 2,
+      maxConcurrentPageTasks: 4,
+      maxActiveRootJobsPerUser: 2,
+      maxSelectedPagesPerRootJob: 400,
+      maxInitialIdeaSearches: 10,
+    })
+  })
+
+  it("rejects unsafe deep-search configuration ceilings", async () => {
+    vi.stubEnv("DEEP_SEARCH_MAX_SELECTED_URLS_PER_ROUND", "101")
+    vi.resetModules()
+
+    await expect(import("./config.ts")).rejects.toThrow(
+      "DEEP_SEARCH_MAX_SELECTED_URLS_PER_ROUND",
+    )
+  })
+
+  it("rejects an unsafe accumulated-summary context limit", async () => {
+    vi.stubEnv("DEEP_SEARCH_MAX_SUMMARY_CONTEXT_CHARS", "24999")
+    vi.resetModules()
+
+    await expect(import("./config.ts")).rejects.toThrow(
+      "DEEP_SEARCH_MAX_SUMMARY_CONTEXT_CHARS",
     )
   })
 })

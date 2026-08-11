@@ -49,7 +49,73 @@ const nonSecretEnvironmentShape = {
   NODE_ENV: z.enum(["development", "test", "production"]),
   LLM_PROVIDER: z.enum(["deepseek", "zen"]),
   LLM_MODEL_NAME: z.string().trim().min(1),
+  LLM_GENERATION_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(10_000)
+    .max(900_000)
+    .default(300_000),
+  LLM_FIRST_CHUNK_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(5_000)
+    .max(300_000)
+    .default(120_000),
+  LLM_CHUNK_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(5_000)
+    .max(300_000)
+    .default(60_000),
+  LLM_MAX_OUTPUT_TOKENS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(65_536)
+    .default(8_192),
+  LLM_MAX_RETRIES: z.coerce.number().int().min(0).max(10).default(2),
+  LLM_MAX_CONCURRENT_GENERATIONS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .default(4),
+  LLM_MAX_ACTIVE_STANDALONE_GENERATIONS_PER_USER: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(20)
+    .default(2),
   SEARXNG_URL: z.url().optional(),
+  SEARXNG_CATEGORIES: z
+    .string()
+    .trim()
+    .regex(/^[a-z0-9 -]+(?:\s*,\s*[a-z0-9 -]+)*$/i)
+    .default("general,science"),
+  SEARXNG_MAX_CONCURRENT_REQUESTS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(10)
+    .default(1),
+  SEARXNG_MIN_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(60_000)
+    .default(1_000),
+  WEB_SEARCH_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(120_000)
+    .default(30_000),
+  WEB_SEARCH_MAX_RESPONSE_BYTES: z.coerce
+    .number()
+    .int()
+    .min(10_000)
+    .max(10_000_000)
+    .default(2_000_000),
   SCRAPINGANT_REQUEST_TIMEOUT_MS: z.coerce
     .number()
     .int()
@@ -68,6 +134,72 @@ const nonSecretEnvironmentShape = {
     .min(10_000)
     .max(10_000_000)
     .default(2_000_000),
+  DEEP_SEARCH_MAX_SEARCHES: z.coerce
+    .number()
+    .int()
+    .min(3)
+    .max(25)
+    .default(10),
+  DEEP_SEARCH_MAX_RESULTS_PER_SEARCH: z.coerce
+    .number()
+    .int()
+    .min(3)
+    .max(20)
+    .default(10),
+  DEEP_SEARCH_MAX_SELECTED_URLS_PER_ROUND: z.coerce
+    .number()
+    .int()
+    .min(9)
+    .max(100)
+    .default(30),
+  DEEP_SEARCH_MAX_ROUNDS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(10)
+    .default(3),
+  DEEP_SEARCH_MAX_REQUEST_CHARS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(50_000)
+    .default(10_000),
+  DEEP_SEARCH_MAX_SUMMARY_CONTEXT_CHARS: z.coerce
+    .number()
+    .int()
+    .min(25_000)
+    .max(200_000)
+    .default(100_000),
+  DEEP_SEARCH_MAX_CONCURRENT_JOBS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(20)
+    .default(2),
+  DEEP_SEARCH_MAX_CONCURRENT_PAGE_TASKS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .default(4),
+  RESEARCH_MAX_ACTIVE_ROOT_JOBS_PER_USER: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(20)
+    .default(2),
+  RESEARCH_MAX_SELECTED_PAGES_PER_ROOT_JOB: z.coerce
+    .number()
+    .int()
+    .min(100)
+    .max(2_000)
+    .default(400),
+  IDEA_JOB_MAX_DEEP_SEARCH_COUNT: z.coerce
+    .number()
+    .int()
+    .min(2)
+    .max(20)
+    .default(10),
   DATABASE_URL: z.string().min(1).optional(),
   API_HOST: z.string().trim().min(1).default("127.0.0.1"),
   PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
@@ -104,6 +236,27 @@ const environmentSchema = z.object({
   AUTH_DEBUG_USER_PASSWORD:
     secretSchemas.AUTH_DEBUG_USER_PASSWORD.optional(),
 }).superRefine((environment, context) => {
+  if (
+    environment.LLM_FIRST_CHUNK_TIMEOUT_MS >
+    environment.LLM_GENERATION_TIMEOUT_MS
+  ) {
+    context.addIssue({
+      code: "custom",
+      message:
+        "LLM_FIRST_CHUNK_TIMEOUT_MS cannot exceed LLM_GENERATION_TIMEOUT_MS",
+      path: ["LLM_FIRST_CHUNK_TIMEOUT_MS"],
+    })
+  }
+  if (
+    environment.LLM_CHUNK_TIMEOUT_MS >
+    environment.LLM_GENERATION_TIMEOUT_MS
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "LLM_CHUNK_TIMEOUT_MS cannot exceed LLM_GENERATION_TIMEOUT_MS",
+      path: ["LLM_CHUNK_TIMEOUT_MS"],
+    })
+  }
   if (
     environment.LLM_PROVIDER === "deepseek" &&
     environment.DEEPSEEK_API_KEY === undefined
@@ -279,7 +432,20 @@ export const config = {
         ? ("brave" as const)
         : ("searxng" as const),
     brave: { apiKey: environment.BRAVE_SEARCH_API_KEY },
-    searxng: { url: environment.SEARXNG_URL },
+    searxng: {
+      url: environment.SEARXNG_URL,
+      categories: [
+        ...new Set(
+          environment.SEARXNG_CATEGORIES.split(",").map((category) =>
+            category.trim(),
+          ),
+        ),
+      ],
+      maxConcurrentRequests: environment.SEARXNG_MAX_CONCURRENT_REQUESTS,
+      minIntervalMs: environment.SEARXNG_MIN_INTERVAL_MS,
+    },
+    timeoutMs: environment.WEB_SEARCH_TIMEOUT_MS,
+    maxResponseBytes: environment.WEB_SEARCH_MAX_RESPONSE_BYTES,
   },
   extraction: {
     scrapingant: {
@@ -289,5 +455,32 @@ export const config = {
       maxResponseBytes: environment.SCRAPINGANT_MAX_RESPONSE_BYTES,
     },
   },
+  deepSearch: {
+    maxSearches: environment.DEEP_SEARCH_MAX_SEARCHES,
+    maxResultsPerSearch: environment.DEEP_SEARCH_MAX_RESULTS_PER_SEARCH,
+    maxSelectedUrlsPerRound:
+      environment.DEEP_SEARCH_MAX_SELECTED_URLS_PER_ROUND,
+    maxRounds: environment.DEEP_SEARCH_MAX_ROUNDS,
+    maxRequestChars: environment.DEEP_SEARCH_MAX_REQUEST_CHARS,
+    maxSummaryContextChars: environment.DEEP_SEARCH_MAX_SUMMARY_CONTEXT_CHARS,
+    maxConcurrentJobs: environment.DEEP_SEARCH_MAX_CONCURRENT_JOBS,
+    maxConcurrentPageTasks:
+      environment.DEEP_SEARCH_MAX_CONCURRENT_PAGE_TASKS,
+    maxActiveRootJobsPerUser:
+      environment.RESEARCH_MAX_ACTIVE_ROOT_JOBS_PER_USER,
+    maxSelectedPagesPerRootJob:
+      environment.RESEARCH_MAX_SELECTED_PAGES_PER_ROOT_JOB,
+    maxInitialIdeaSearches: environment.IDEA_JOB_MAX_DEEP_SEARCH_COUNT,
+  },
   llm: resolveLlmConfig(),
+  llmExecution: {
+    totalTimeoutMs: environment.LLM_GENERATION_TIMEOUT_MS,
+    firstChunkTimeoutMs: environment.LLM_FIRST_CHUNK_TIMEOUT_MS,
+    chunkTimeoutMs: environment.LLM_CHUNK_TIMEOUT_MS,
+    maxOutputTokens: environment.LLM_MAX_OUTPUT_TOKENS,
+    maxRetries: environment.LLM_MAX_RETRIES,
+    maxConcurrentGenerations: environment.LLM_MAX_CONCURRENT_GENERATIONS,
+    maxActiveStandaloneGenerationsPerUser:
+      environment.LLM_MAX_ACTIVE_STANDALONE_GENERATIONS_PER_USER,
+  },
 }

@@ -22,9 +22,13 @@ export function SearchResults({ searches }: SearchResultsProps) {
 
       {searches.map((search, index) => (
         <SearchResultsGroup
-          key={search.query}
+          key={`${search.round}:${search.query}`}
           search={search}
-          position={index + 1}
+          position={
+            searches
+              .slice(0, index + 1)
+              .filter(({ round }) => round === search.round).length
+          }
         />
       ))}
     </Stack>

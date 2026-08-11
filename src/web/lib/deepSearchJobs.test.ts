@@ -29,6 +29,7 @@ describe("deep search jobs client", () => {
   it("creates a job and subscribes to its search results", async () => {
     const searchResults: DeepSearchJobEvent = {
       type: "search-results",
+      round: 0,
       searches: [
         {
           query: "test query",
@@ -52,15 +53,17 @@ describe("deep search jobs client", () => {
       )
       .mockResolvedValueOnce(
         ndjsonResponse([
-          { type: "query-stream", streamId: "query-stream-id" },
+          { type: "query-stream", round: 0, streamId: "query-stream-id" },
           searchResults,
           {
             type: "selection-stream",
+            round: 0,
             query: "test query",
             streamId: "selection-stream-id",
           },
           {
             type: "selected-search-results",
+            round: 0,
             query: "test query",
             selectedLinks: ["https://example.com"],
           },
@@ -71,8 +74,20 @@ describe("deep search jobs client", () => {
           },
           {
             type: "query-summary-stream",
+            round: 0,
             query: "test query",
             streamId: "query-summary-stream-id",
+          },
+          {
+            type: "round-review-stream",
+            round: 0,
+            streamId: "review-stream-id",
+          },
+          {
+            type: "round-review",
+            round: 0,
+            decision: "stop",
+            reason: "The evidence is sufficient.",
           },
           {
             type: "final-answer-stream",
@@ -93,15 +108,17 @@ describe("deep search jobs client", () => {
       slug: "research-this",
     })
     expect(events).toEqual([
-      { type: "query-stream", streamId: "query-stream-id" },
+      { type: "query-stream", round: 0, streamId: "query-stream-id" },
       searchResults,
       {
         type: "selection-stream",
+        round: 0,
         query: "test query",
         streamId: "selection-stream-id",
       },
       {
         type: "selected-search-results",
+        round: 0,
         query: "test query",
         selectedLinks: ["https://example.com"],
       },
@@ -112,8 +129,20 @@ describe("deep search jobs client", () => {
       },
       {
         type: "query-summary-stream",
+        round: 0,
         query: "test query",
         streamId: "query-summary-stream-id",
+      },
+      {
+        type: "round-review-stream",
+        round: 0,
+        streamId: "review-stream-id",
+      },
+      {
+        type: "round-review",
+        round: 0,
+        decision: "stop",
+        reason: "The evidence is sufficient.",
       },
       {
         type: "final-answer-stream",
@@ -126,8 +155,6 @@ describe("deep search jobs client", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         researchRequest: "Research this",
-        maxSearches: 3,
-        maxResultsPerSearch: 3,
       }),
       signal: undefined,
     })
@@ -160,6 +187,7 @@ describe("deep search jobs client", () => {
       researchRequest: "Research this",
       maxSearches: 3,
       maxResultsPerSearch: 3,
+      maxRounds: 3,
       status: "completed" as const,
       error: null,
       createdAt: "2026-08-01T12:00:00.000Z",

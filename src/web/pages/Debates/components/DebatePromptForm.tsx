@@ -40,7 +40,7 @@ export function DebatePromptForm({
   const ideaCountIsValid =
     Number.isInteger(numberOfIdeas) &&
     numberOfIdeas >= 6 &&
-    numberOfIdeas <= 100
+    numberOfIdeas <= 20
 
   function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -83,10 +83,10 @@ export function DebatePromptForm({
             <TextField
               disabled={isStarting}
               error={!ideaCountIsValid}
-              helperText="Generate between 6 and 100 ideas. The selector admits an even set of at least 6."
+              helperText="Generate between 6 and 20 ideas. The selector admits an even set of 6 to 12."
               label="Ideas to generate"
               onChange={(event) => setNumberOfIdeas(Number(event.target.value))}
-              slotProps={{ htmlInput: { min: 6, max: 100, step: 1 } }}
+              slotProps={{ htmlInput: { min: 6, max: 20, step: 1 } }}
               type="number"
               value={numberOfIdeas}
             />

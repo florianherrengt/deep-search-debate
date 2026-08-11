@@ -15,18 +15,25 @@ const deepSearchResultsSchema = z.object({
 export type DeepSearchResults = z.infer<typeof deepSearchResultsSchema>
 
 const deepSearchJobEventSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("query-stream"), streamId: z.string().min(1) }),
+  z.object({
+    type: z.literal("query-stream"),
+    round: z.number().int().nonnegative(),
+    streamId: z.string().min(1),
+  }),
   z.object({
     type: z.literal("search-results"),
+    round: z.number().int().nonnegative(),
     searches: z.array(deepSearchResultsSchema),
   }),
   z.object({
     type: z.literal("selection-stream"),
+    round: z.number().int().nonnegative(),
     query: z.string(),
     streamId: z.string().min(1),
   }),
   z.object({
     type: z.literal("selected-search-results"),
+    round: z.number().int().nonnegative(),
     query: z.string(),
     selectedLinks: z.array(z.url()),
   }),
@@ -43,8 +50,25 @@ const deepSearchJobEventSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("query-summary-stream"),
+    round: z.number().int().nonnegative(),
     query: z.string(),
     streamId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("round-review-stream"),
+    round: z.number().int().nonnegative(),
+    streamId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("round-review"),
+    round: z.number().int().nonnegative(),
+    decision: z.enum(["continue", "stop"]),
+    reason: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("round-review-error"),
+    round: z.number().int().nonnegative(),
+    message: z.string().min(1),
   }),
   z.object({
     type: z.literal("final-answer-stream"),
@@ -60,6 +84,7 @@ type CreateDeepSearchJobInput = {
   researchRequest: string
   maxSearches?: number
   maxResultsPerSearch?: number
+  maxRounds?: number
 }
 
 const deepSearchJobSchema = z.object({
@@ -69,6 +94,7 @@ const deepSearchJobSchema = z.object({
   researchRequest: z.string(),
   maxSearches: z.number().int().positive(),
   maxResultsPerSearch: z.number().int().positive(),
+  maxRounds: z.number().int().positive(),
   status: z.enum(["running", "completed", "failed", "interrupted"]),
   error: z.string().nullable(),
   createdAt: z.iso.datetime().transform((value) => new Date(value)),
@@ -95,11 +121,7 @@ export async function createDeepSearchJob(
   const url = "/api/deep-search-jobs"
   const response = await postJson(
     url,
-    {
-      researchRequest: input.researchRequest,
-      maxSearches: input.maxSearches ?? 3,
-      maxResultsPerSearch: input.maxResultsPerSearch ?? 3,
-    },
+    input,
     createDeepSearchJobResponseSchema,
     signal,
   )

@@ -2,13 +2,17 @@ import { and, asc, eq } from "drizzle-orm"
 
 import { db } from "../../db/index.ts"
 import { debateJobs, ideas as ideaRecords } from "../../db/schema/index.ts"
-import { collectStreamText } from "../../helpers/collectStreamText.ts"
 import { getErrorMessage } from "../../helpers/getErrorMessage.ts"
 import {
   generateObjectStream,
   generateTextStream,
 } from "../../llms/generateText.ts"
 import { PromptName } from "../../llms/prompts.ts"
+import {
+  awaitGenerationOutput,
+  awaitGenerationText,
+  type GenerationHandle,
+} from "../../llms/streams.ts"
 import {
   buildJudgePrompt,
   buildOpeningPrompt,
@@ -23,6 +27,7 @@ import {
   completeDebateMatch,
   createAgentMessage,
   createDebateRound,
+  replaceFailedAgentMessageGeneration,
   type DebateRoundStage,
 } from "./persistence.ts"
 import {
@@ -56,6 +61,32 @@ type CreatedMatch = {
   debateMatchId: string
   firstIdeaId: string
   secondIdeaId: string
+}
+
+// `other` collapses unknown provider finish reasons, so this remains a
+// debate-local one-shot heuristic rather than a general retry policy.
+const MAX_OTHER_FINISH_ATTEMPTS = 2
+
+async function retryOtherFinish<Result, Generation extends GenerationHandle>(
+  start: () => Promise<Generation>,
+  read: (generation: Generation) => Promise<Result>,
+): Promise<Result> {
+  for (let attempt = 1; ; attempt += 1) {
+    const generation = await start()
+    try {
+      return await read(generation)
+    } catch (error) {
+      const outcome = await generation.completion.catch(() => undefined)
+      if (
+        attempt >= MAX_OTHER_FINISH_ATTEMPTS ||
+        outcome?.status !== "failed" ||
+        outcome.failureKind !== "finish-reason" ||
+        outcome.finishReason !== "other"
+      ) {
+        throw error
+      }
+    }
+  }
 }
 
 async function settleAll<Result>(
@@ -120,21 +151,52 @@ async function runAgentMessage(input: {
   prompt: string
   job: LiveDebateJob
 }): Promise<string> {
-  const generation = await generateTextStream({
-    userId: input.userId,
-    owner: { debateJobId: input.debateJobId },
-    prompt: input.prompt,
-    promptName: input.promptName,
-    maxRetries: 0,
-  })
-  createAgentMessage({
-    debateMatchId: input.match.debateMatchId,
-    position: input.position,
-    speakerSlot: input.speakerSlot,
-    llmGenerationId: generation.id,
-  })
-  input.job.publish({ type: "updated" })
-  const text = await collectStreamText(generation)
+  let linkedGenerationId: string | undefined
+  const text = await retryOtherFinish(
+    async () => {
+      const failedGenerationId = linkedGenerationId
+      const generation = await generateTextStream({
+        userId: input.userId,
+        owner: { debateJobId: input.debateJobId },
+        prompt: input.prompt,
+        promptName: input.promptName,
+        reasoning: "disabled",
+        maxOutputTokens: 2_048,
+        onRegistered: (generationId, transaction) => {
+          if (failedGenerationId === undefined) {
+            createAgentMessage(
+              {
+                debateMatchId: input.match.debateMatchId,
+                position: input.position,
+                speakerSlot: input.speakerSlot,
+                llmGenerationId: generationId,
+              },
+              transaction,
+            )
+          } else {
+            replaceFailedAgentMessageGeneration(
+              {
+                debateMatchId: input.match.debateMatchId,
+                position: input.position,
+                failedGenerationId,
+                retryGenerationId: generationId,
+              },
+              transaction,
+            )
+          }
+        },
+      })
+      linkedGenerationId = generation.id
+      try {
+        input.job.publish({ type: "updated" })
+      } catch (error) {
+        await generation.completion.catch(() => undefined)
+        throw error
+      }
+      return generation
+    },
+    awaitGenerationText,
+  )
   if (!text.trim()) {
     throw new Error("Debate advocate returned an empty message")
   }
@@ -231,44 +293,42 @@ async function runMatch(input: {
     }),
   ])
 
-  const judge = await generateObjectStream({
-    userId: input.userId,
-    owner: { debateJobId: input.debateJobId },
-    prompt: buildJudgePrompt(
-      input.context,
-      first,
-      second,
-      firstResearch,
-      secondResearch,
-      [
-        firstOpening,
-        secondOpening,
-        firstRebuttal,
-        secondRebuttal,
-      ],
-    ),
-    promptName: PromptName.DebateJudge,
-    schema: judgeVerdictSchema,
-    maxRetries: 0,
-    onCompleted: ({ id, output }, transaction) => {
-      completeDebateMatch(
-        {
-          debateMatchId: input.match.debateMatchId,
-          winnerIdeaId:
-            output.winnerSlot === 0 ? first.ideaId : second.ideaId,
-          judgeGenerationId: id,
+  const verdict = await retryOtherFinish(
+    () =>
+      generateObjectStream({
+        userId: input.userId,
+        owner: { debateJobId: input.debateJobId },
+        prompt: buildJudgePrompt(
+          input.context,
+          first,
+          second,
+          firstResearch,
+          secondResearch,
+          [
+            firstOpening,
+            secondOpening,
+            firstRebuttal,
+            secondRebuttal,
+          ],
+        ),
+        promptName: PromptName.DebateJudge,
+        schema: judgeVerdictSchema,
+        maxOutputTokens: 1_024,
+        onCompleted: ({ id, output }, transaction) => {
+          completeDebateMatch(
+            {
+              debateMatchId: input.match.debateMatchId,
+              winnerIdeaId:
+                output.winnerSlot === 0 ? first.ideaId : second.ideaId,
+              judgeGenerationId: id,
+            },
+            transaction,
+          )
         },
-        transaction,
-      )
-    },
-  })
-  const [verdictResult, streamResult] = await Promise.allSettled([
-    judge.output,
-    collectStreamText(judge),
-  ])
-  if (verdictResult.status === "rejected") throw verdictResult.reason
-  if (streamResult.status === "rejected") throw streamResult.reason
-  const verdict = verdictResult.value
+      }),
+    (generation) =>
+      awaitGenerationOutput(generation, generation.output),
+  )
   const winnerIdeaId =
     verdict.winnerSlot === 0 ? first.ideaId : second.ideaId
 
@@ -408,7 +468,7 @@ async function executeTournament(input: RunDebateJobInput): Promise<void> {
   input.job.publish({ type: "updated" })
 }
 
-/** Runs one all-or-nothing automatic tournament without retrying model calls. */
+/** Runs one all-or-nothing tournament with one bounded retry for `other`. */
 export async function runDebateJob(input: RunDebateJobInput): Promise<void> {
   try {
     await executeTournament(input)

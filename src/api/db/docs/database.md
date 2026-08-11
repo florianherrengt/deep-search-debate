@@ -52,21 +52,26 @@ ignores this one documented peer-resolution shim.
   permitting the aggregate cascade. Generations created directly through
   `POST /api/streams` are deliberately standalone and are deleted with their
   user rather than an unrelated job.
-- Query, page, and result lifecycle checks couple each active or terminal stage
-  to its valid timestamps, errors, generation links, and selected-page links.
-  SQLite triggers require a selected page to share both the result URL and the
-  query's deep-search job. The query-generation, generated-query, query, and
-  persisted-page ownership links used by that check are immutable after
-  insertion so later updates cannot invalidate an existing selected result.
+- Query and page lifecycle checks couple each active or terminal stage to its
+  valid timestamps, errors, and generation links. SQLite triggers require a
+  selected page to share both the result URL and the query's deep-search job.
+  Round, query, and persisted-page identity fields used by that check are
+  immutable after insertion so later updates cannot invalidate a selected
+  result. Results do not duplicate selection status: a page link is the durable
+  selected fact and the query lifecycle distinguishes pending from rejected.
+  A completed query may omit both generation links only when the provider
+  returned no usable result rows; the transactional empty-result command checks
+  that condition and avoids fabricating selection or summary generations.
 - API validation requires user prompts, research requests, generated queries,
   and persisted search facts to contain non-whitespace content. Idea content is
   immutable after insertion; its nullable critique and refinement links can
   each transition exactly once from absent to present, its nullable selected
-  flag can transition exactly once from pending to true or false, its refined
-  title/description commit as a pair, and its selected-idea search link attaches
-  once. Ownership triggers require refinement generations to belong to the same
-  idea job and selected-idea searches to use that job's reserved
-  `deepSearchCount + idea.position`. Terminal jobs reject collection additions,
+  flag can transition exactly once from pending to true or false, and its
+  refined title/description commit as a pair. A composite foreign key requires
+  refinement generations to belong to the same idea job. Selected-idea
+  research is derived from the child search at the reserved parent position
+  `deepSearchCount + idea.position`, so no mutable reverse link is stored.
+  Terminal jobs reject collection additions,
   and deleting the owning job still cascades through the ideas and searches.
 - Child-key indexes support aggregate cascades and `NO ACTION` checks without
   scanning unrelated generations, queries, pages, results, or debate matches.
@@ -80,35 +85,33 @@ ignores this one documented peer-resolution shim.
   ```
 - The API workspace's `predev` and `prestart` lifecycle scripts apply pending
   migrations before either development or production startup.
-- Keep applied migrations immutable and add forward migrations for schema
-  changes. `baselineMigration.test.ts` verifies both a fresh database and an
-  upgrade from the original baseline through the same Drizzle migrator used by
-  the application.
+- Keep the baseline immutable after it is shared and add forward migrations for
+  later schema changes. `baselineMigration.test.ts` verifies a fresh database
+  through the same Drizzle migrator used by the application. There is no
+  compatibility path for databases created before this baseline.
 
 ### Known application-enforced integrity boundaries
 
 - `ideas.critique_generation_id` is null during the valid interval between idea
   persistence and that idea's critique call starting. A trigger permits only the
   one-time null-to-generation transition. Its foreign key and unique index
-  prevent nonexistent or reused generations, while application orchestration
-  enforces same-job ownership and requires every link before job completion,
-  without duplicating `user_id` on every idea row.
+  prevent nonexistent or reused generations, while a composite foreign key
+  enforces same-job ownership without duplicating `user_id` on every idea row.
+  Application orchestration requires every link before job completion.
 - `ideas.selected` is null from insertion until comparative selection commits.
   The selector's terminal transaction updates the complete idea batch to true
   or false. Application validation enforces an unordered, unique, same-job,
-  even selected set containing 6 through 100 ideas; the idea immutability
+  even selected set containing 6 through 12 ideas; the idea immutability
   trigger permits only the one-time null-to-boolean transition.
-- Selected ideas use four nullable columns rather than an extra lifecycle table:
-  `refinement_generation_id`, `refined_title`, `refined_description`, and
-  `deep_search_job_id`. A lifecycle check requires these fields to remain empty
-  for rejected ideas, allows the generation link while refinement is running,
-  and requires both refined fields before a search can attach. Triggers enforce
-  same-job refinement ownership and the selected idea's exact child-search
-  position.
-- `idea_jobs.selection_generation_id` has a normal generation foreign key and
-  unique index. Insert/update triggers additionally require that generation to
-  carry the same user and idea-job owner, preserving the composite ownership
-  invariant without rebuilding the referenced `idea_jobs` table in migration.
+- Selected ideas use three nullable columns rather than an extra lifecycle
+  table: `refinement_generation_id`, `refined_title`, and
+  `refined_description`. A lifecycle check requires these fields to remain
+  empty for rejected ideas, allows the generation link while refinement is
+  running, and requires both refined fields together. A composite foreign key
+  enforces same-job refinement ownership. The selected idea's child search is
+  derived from its parent and reserved position instead of being linked twice.
+- `idea_jobs.selection_generation_id` has a unique composite foreign key that
+  requires the generation to carry the same user and idea-job owner.
 - Aggregate parent columns such as `idea_jobs.debate_job_id`,
   `deep_search_jobs.idea_job_id`, and the debate round/match parent links are not
   immutable in SQLite. Application writers treat them as insert-only. Direct SQL
@@ -127,10 +130,14 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
 
 ## Durable job models
 
-- `llm_generations` stores terminal text, reasoning, status, errors, and the
-  owning job for every replayable workflow model invocation. Live deltas remain
-  in memory and are never written individually. The short preflight title call
-  is not replayed; only its validated title is stored on the new job.
+- `llm_generations` stores terminal text, reasoning, status, errors, requested
+  model ID, prompt/stage name, standardized finish reason, available input,
+  output, and reasoning token counts, and the owning job for every replayable
+  workflow model invocation. Provider-dependent operational metadata may be
+  null. Duration is derived from `completed_at - started_at` rather than
+  duplicated in another column. Live deltas remain in memory and are never
+  written individually. The short preflight title call is not replayed; only
+  its validated title is stored on the new job.
 - `deep_search_jobs` owns an LLM-generated title, readable slug, and deep-search
   request and may belong to an `idea_jobs` parent. Child searches store their
   planning-generation position. Its normalized query, result, web-page, and
@@ -146,8 +153,8 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
   until the comparative selector atomically marks every idea selected or
   rejected. Each critique's text and reasoning remain in its `llm_generations`
   row; they are not copied into `ideas` or a second critique table. A selected
-  row then stores its one-time refinement generation, improved title and
-  description, and direct child-search link. The job's idea- and
+  row then stores its one-time refinement generation and improved title and
+  description. The job's idea- and
   selection-generation links separately retain raw structured output and
   selector reasoning for inspection and debugging.
 - `debate_jobs` owns its generated idea pipeline as well as
@@ -160,7 +167,8 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
 - An idea job does not copy child research output or sources. Its child
   `deep_search_jobs` keep their own durable state. Initial child final answers
   feed the shared briefing; each selected idea's later child final answer is
-  resolved through `ideas.deep_search_job_id` for debate context and UI replay.
+  resolved by `(idea_job_id, idea_job_position = deepSearchCount +
+  idea.position)` for debate context and UI replay.
 
 On startup, `recoverInterruptedWork()` marks orphaned running LLM generations, deep-search work, idea jobs, and debate jobs as interrupted or failed. A debate whose final verdict already committed is instead recovered as completed, closing the small crash window before the parent job's terminal update. External provider work is not resumable after process termination; completed debate rounds, results, and transcript generations remain replayable.
 

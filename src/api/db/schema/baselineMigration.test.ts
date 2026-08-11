@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs"
+import { readdirSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import Database from "better-sqlite3"
 import { drizzle } from "drizzle-orm/better-sqlite3"
@@ -8,54 +8,32 @@ import { describe, expect, it } from "vitest"
 const migrationsFolder = fileURLToPath(
   new URL("../../drizzle", import.meta.url),
 )
-const baselineMigrationPath = fileURLToPath(
-  new URL("../../drizzle/0000_complete_masked_marvel.sql", import.meta.url),
-)
-const baselineMigrationTimestamp = 1786024188543
 
-function applyOriginalBaseline(sqlite: Database.Database): void {
-  for (const statement of readFileSync(baselineMigrationPath, "utf8").split(
-    "--> statement-breakpoint",
-  )) {
-    if (statement.trim()) sqlite.exec(statement)
-  }
-  sqlite.exec(`
-    CREATE TABLE __drizzle_migrations (
-      id SERIAL PRIMARY KEY,
-      hash text NOT NULL,
-      created_at numeric
-    )
-  `)
-  sqlite
-    .prepare(
-      "INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)",
-    )
-    .run("original-baseline", baselineMigrationTimestamp)
-}
-
-describe("migration chain", () => {
-  it("creates the complete schema through the real migrator", () => {
+describe("fresh database migration", () => {
+  it("creates the complete current schema from one baseline", () => {
     expect(
       readdirSync(migrationsFolder).filter((name) => name.endsWith(".sql")),
-    ).toHaveLength(7)
+    ).toEqual(["0000_fresh-baseline.sql"])
 
     const sqlite = new Database(":memory:")
     sqlite.pragma("foreign_keys = ON")
     migrate(drizzle(sqlite), { migrationsFolder })
 
-    expect(
+    const tableNames = new Set(
       sqlite
-        .prepare("PRAGMA table_info(debate_jobs)")
-        .all()
-        .some((column) => (column as { name: string }).name === "is_public"),
-    ).toBe(true)
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .pluck()
+        .all(),
+    )
+    expect(tableNames.has("deep_search_rounds")).toBe(true)
+    expect(tableNames.has("deep_search_queries")).toBe(true)
 
     expect(
       sqlite
         .prepare("SELECT count(*) FROM __drizzle_migrations")
         .pluck()
         .get(),
-    ).toBe(7)
+    ).toBe(1)
     expect(sqlite.pragma("foreign_key_check")).toEqual([])
     expect(sqlite.pragma("integrity_check", { simple: true })).toBe("ok")
 
@@ -67,238 +45,17 @@ describe("migration chain", () => {
       expect.arrayContaining([
         "deep_search_results_web_page_owner_insert",
         "deep_search_results_web_page_owner_update",
-        "deep_search_query_generation_owner_immutable",
-        "deep_search_generated_query_owner_immutable",
-        "deep_search_query_owner_immutable",
-        "deep_search_web_page_owner_immutable",
+        "deep_search_results_web_page_url_insert",
+        "deep_search_results_web_page_url_update",
+        "deep_search_round_structure_immutable",
+        "deep_search_query_structure_immutable",
+        "deep_search_web_page_identity_immutable",
         "llm_generation_owner_immutable",
         "idea_terminal_insert_guard",
         "idea_update_immutable",
         "idea_direct_delete_guard",
-        "idea_refinement_generation_owner_insert",
-        "idea_refinement_generation_owner_update",
-        "idea_deep_search_owner_insert",
-        "idea_deep_search_owner_update",
-        "idea_job_selection_owner_insert",
-        "idea_job_selection_owner_update",
       ]),
     )
-    sqlite.close()
-  })
-
-  it("upgrades a database that already applied the original baseline", () => {
-    const sqlite = new Database(":memory:")
-    sqlite.pragma("foreign_keys = ON")
-    applyOriginalBaseline(sqlite)
-    sqlite
-      .prepare("INSERT INTO user (id, name, email) VALUES (?, ?, ?)")
-      .run("migration-user", "Migration User", "migration@example.com")
-    sqlite
-      .prepare(
-        `INSERT INTO debate_jobs (
-          debate_job_id, user_id, random_seed
-        ) VALUES (?, ?, ?)`,
-      )
-      .run("existing-debate", "migration-user", 42)
-    sqlite
-      .prepare(
-        `INSERT INTO deep_search_jobs (
-          deep_search_job_id, user_id, research_request,
-          max_searches, max_results_per_search
-        ) VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run("existing-search", "migration-user", "Existing search", 3, 3)
-    sqlite
-      .prepare(
-        `INSERT INTO idea_jobs (
-          idea_job_id, user_id, debate_job_id, prompt,
-          number_of_ideas, deep_search_count
-        ) VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        "existing-ideas",
-        "migration-user",
-        "existing-debate",
-        "Existing ideas",
-        12,
-        2,
-      )
-    sqlite
-      .prepare(
-        `INSERT INTO ideas (
-          idea_id, idea_job_id, position, title, description
-        ) VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run("debate-idea-1", "existing-ideas", 0, "First idea", "First")
-    sqlite
-      .prepare(
-        `INSERT INTO ideas (
-          idea_id, idea_job_id, position, title, description
-        ) VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run("debate-idea-2", "existing-ideas", 1, "Second idea", "Second")
-    sqlite
-      .prepare(
-        `INSERT INTO debate_rounds (
-          debate_round_id, debate_job_id, stage, stage_round_number
-        ) VALUES (?, ?, ?, ?)`,
-      )
-      .run("existing-round", "existing-debate", "swiss", 1)
-    sqlite
-      .prepare(
-        `INSERT INTO debate_matches (
-          debate_match_id, debate_round_id, position,
-          first_idea_id, second_idea_id
-        ) VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run(
-        "existing-match",
-        "existing-round",
-        0,
-        "debate-idea-1",
-        "debate-idea-2",
-      )
-    sqlite
-      .prepare(
-        `INSERT INTO idea_jobs (
-          idea_job_id, user_id, prompt, number_of_ideas, deep_search_count
-        ) VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run("completed-ideas", "migration-user", "Completed ideas", 1, 1)
-    for (const generationId of ["planning", "summary", "ideas"]) {
-      sqlite
-        .prepare(
-          `INSERT INTO llm_generations (
-            llm_generation_id, user_id, idea_job_id, status,
-            text, reasoning, completed_at
-          ) VALUES (?, ?, ?, 'completed', ?, 'Reasoning', 1)`,
-        )
-        .run(
-          `completed-${generationId}`,
-          "migration-user",
-          "completed-ideas",
-          `${generationId} output`,
-        )
-    }
-    sqlite
-      .prepare(
-        `INSERT INTO ideas (
-          idea_id, idea_job_id, position, title, description
-        ) VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run(
-        "legacy-idea",
-        "completed-ideas",
-        0,
-        "Legacy idea",
-        "Generated before critiques existed",
-      )
-    sqlite
-      .prepare(
-        `UPDATE idea_jobs SET
-          stage = 'ideas',
-          research_prompt_generation_id = 'completed-planning',
-          research_summary_generation_id = 'completed-summary',
-          idea_generation_id = 'completed-ideas',
-          status = 'completed',
-          completed_at = 1
-        WHERE idea_job_id = 'completed-ideas'`,
-      )
-      .run()
-
-    migrate(drizzle(sqlite), { migrationsFolder })
-
-    expect(
-      sqlite
-        .prepare("PRAGMA table_info(debate_jobs)")
-        .all()
-        .some((column) => (column as { name: string }).name === "is_public"),
-    ).toBe(true)
-    expect(
-      sqlite
-        .prepare(
-          `SELECT is_public FROM debate_jobs WHERE debate_job_id = ?`,
-        )
-        .get("existing-debate"),
-    ).toEqual({ is_public: 0 })
-    expect(() =>
-      sqlite
-        .prepare(
-          `UPDATE debate_jobs SET is_public = 2 WHERE debate_job_id = ?`,
-        )
-        .run("existing-debate"),
-    ).toThrow(/debate_jobs_visibility_check/)
-
-    expect(
-      sqlite
-        .prepare(
-          "SELECT title, slug FROM deep_search_jobs WHERE deep_search_job_id = ?",
-        )
-        .get("existing-search"),
-    ).toEqual({ title: "Untitled", slug: "untitled" })
-    expect(
-      sqlite
-        .prepare("SELECT title, slug FROM idea_jobs WHERE idea_job_id = ?")
-        .get("existing-ideas"),
-    ).toMatchObject({ title: "Untitled" })
-    const migratedIdeaSlugs = sqlite
-      .prepare("SELECT slug FROM idea_jobs ORDER BY idea_job_id")
-      .pluck()
-      .all()
-    expect(new Set(migratedIdeaSlugs).size).toBe(migratedIdeaSlugs.length)
-    expect(
-      sqlite
-        .prepare("SELECT stage FROM idea_jobs WHERE idea_job_id = ?")
-        .get("completed-ideas"),
-    ).toEqual({ stage: "ideas" })
-    expect(
-      sqlite
-        .prepare(
-          `SELECT critique_generation_id, refinement_generation_id,
-            refined_title, refined_description, deep_search_job_id
-          FROM ideas WHERE idea_id = ?`,
-        )
-        .get("legacy-idea"),
-    ).toEqual({
-      critique_generation_id: null,
-      refinement_generation_id: null,
-      refined_title: null,
-      refined_description: null,
-      deep_search_job_id: null,
-    })
-    expect(
-      sqlite
-        .prepare(
-          "SELECT selection_generation_id FROM idea_jobs WHERE idea_job_id = ?",
-        )
-        .get("completed-ideas"),
-    ).toEqual({ selection_generation_id: null })
-    expect(
-      sqlite
-        .prepare(
-          "SELECT selected FROM ideas WHERE idea_id = ?",
-        )
-        .get("legacy-idea"),
-    ).toEqual({ selected: null })
-    expect(
-      sqlite
-        .prepare(
-          `SELECT first_idea_id, second_idea_id
-          FROM debate_matches WHERE debate_match_id = ?`,
-        )
-        .get("existing-match"),
-    ).toEqual({
-      first_idea_id: "debate-idea-1",
-      second_idea_id: "debate-idea-2",
-    })
-    expect(
-      sqlite
-        .prepare("SELECT count(*) FROM __drizzle_migrations")
-        .pluck()
-        .get(),
-    ).toBe(7)
-    expect(sqlite.pragma("foreign_key_check")).toEqual([])
-    expect(sqlite.pragma("integrity_check", { simple: true })).toBe("ok")
     sqlite.close()
   })
 })

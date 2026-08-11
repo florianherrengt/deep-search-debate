@@ -66,6 +66,7 @@ function createApp(viewerUserId: string | null = ownerId): Hono<AppEnv> {
   streamReads(app)
   deepSearchJobReads(app, {
     start: deepSearchStart,
+    requireParentQualityAcceptance: vi.fn(),
     getLiveJob: () => undefined,
   })
   ideaJobReads(app, { start: ideaStart, getLiveJob: () => undefined })
@@ -73,6 +74,7 @@ function createApp(viewerUserId: string | null = ownerId): Hono<AppEnv> {
   streams(app)
   deepSearchJobs(app, {
     start: deepSearchStart,
+    requireParentQualityAcceptance: vi.fn(),
     getLiveJob: () => undefined,
   })
   ideaJobs(app, { start: ideaStart, getLiveJob: () => undefined })
@@ -328,6 +330,10 @@ describe("user-owned routes", () => {
       prompt: "Debate ideas",
       isPublic: false,
       numberOfIdeas: 12,
+      deepSearchCount: 2,
+      maxSearches: 3,
+      maxResultsPerSearch: 3,
+      maxRounds: 3,
     })
   })
 })

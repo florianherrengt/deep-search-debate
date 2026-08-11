@@ -2,14 +2,16 @@ import { zValidator } from "@hono/zod-validator"
 import type { Hono } from "hono"
 import { stream } from "hono/streaming"
 import z from "zod"
+import { config } from "../config.ts"
 import { generateTextStream } from "../llms/generateText.ts"
 import { PromptName } from "../llms/prompts.ts"
 import { subscribeToTextStream } from "../llms/streams.ts"
 import type { AppEnv } from "../types/auth.ts"
 import { llmGenerationReadScope } from "./readAccess.ts"
+import { reserveStandaloneGenerationCapacity } from "./researchCapacity.ts"
 
 const createTextStreamInputSchema = z.object({
-  prompt: z.string(),
+  prompt: z.string().trim().min(1).max(config.deepSearch.maxRequestChars),
   promptName: z.enum(PromptName).default(PromptName.Default),
 })
 
@@ -44,14 +46,23 @@ export function streams(app: Hono<AppEnv>) {
     zValidator("json", createTextStreamInputSchema),
     async (c) => {
       const input = c.req.valid("json")
-      const textStream = await generateTextStream({
-        ...input,
-        userId: c.get("userId"),
-        owner: { standalone: true },
-      })
+      const releaseCapacity = reserveStandaloneGenerationCapacity(
+        c.get("userId"),
+      )
+      let textStream
+      try {
+        textStream = await generateTextStream({
+          ...input,
+          userId: c.get("userId"),
+          owner: { standalone: true },
+          reasoning: "enabled",
+        })
+      } finally {
+        releaseCapacity()
+      }
 
       c.header("Location", `/api/streams/${textStream.id}`)
-      return c.json(textStream, 201)
+      return c.json({ id: textStream.id }, 201)
     },
   )
 }

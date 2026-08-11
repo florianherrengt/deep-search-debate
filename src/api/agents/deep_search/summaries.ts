@@ -1,9 +1,11 @@
-import { collectStreamText } from "../../helpers/index.ts"
 import { getErrorMessage } from "../../helpers/getErrorMessage.ts"
 import { generateTextStream } from "../../llms/generateText.ts"
 import { PromptName } from "../../llms/prompts.ts"
+import {
+  type GenerationOutcome,
+  type TextGenerationPersistenceCallbacks,
+} from "../../llms/streams.ts"
 import { webExtract } from "../../web_search/webExtract.ts"
-import type { DeepSearchEvent } from "./schemas.ts"
 
 const maxPageContentChars = 100_000
 const pageContentOmission =
@@ -23,22 +25,26 @@ function fitPageContent(content: string): string {
   ].join("")
 }
 
-type SummarizePageInput = {
+type SummarizePageInput = TextGenerationPersistenceCallbacks & {
   userId: string
   deepSearchJobId: string
   researchRequest: string
   url: string
   content: string
-  maxRetries?: number
+}
+
+export type PageSummaryGeneration = {
+  streamId: string
+  completion: Promise<GenerationOutcome>
 }
 
 /**
- * Registers a research-focused page-summary stream and returns its ID without
- * waiting for generation to finish.
+ * Registers a research-focused page summary and exposes its stream, durable
+ * completion, and summary text separately.
  */
 export async function summarizePage(
   params: SummarizePageInput,
-): Promise<string> {
+): Promise<PageSummaryGeneration> {
   const content = fitPageContent(params.content)
   const prompt = [
     `user_query: ${params.researchRequest}`,
@@ -49,89 +55,93 @@ export async function summarizePage(
     "</page_content>",
   ].join("\n")
 
-  const { id } = await generateTextStream({
+  const generation = await generateTextStream({
     userId: params.userId,
     owner: { deepSearchJobId: params.deepSearchJobId },
     prompt,
     promptName: PromptName.SummarizeWebPage,
-    maxRetries: params.maxRetries,
+    // This stage transforms supplied evidence. Hidden reasoning competes with
+    // the summary for the same provider output budget and can consume it all.
+    reasoning: "disabled",
+    maxOutputTokens: 2_048,
+    ...(params.onRegistered ? { onRegistered: params.onRegistered } : {}),
+    ...(params.onCompleted ? { onCompleted: params.onCompleted } : {}),
+    ...(params.onFailed ? { onFailed: params.onFailed } : {}),
   })
-  return id
+  return {
+    streamId: generation.id,
+    completion: generation.completion,
+  }
 }
 
-type StartPageSummaryInput = {
+type StartPageSummaryInput = TextGenerationPersistenceCallbacks & {
   userId: string
   deepSearchJobId: string
   researchRequest: string
   url: string
-  onEvent: (event: DeepSearchEvent) => void
-  maxRetries?: number
 }
 
-/** Extracts validated page content and reports extraction failures in place. */
-async function extractPageContent(
+export type PageSummaryStart =
+  | {
+      status: "failed"
+      stage: "extraction" | "summary"
+      message: string
+    }
+  | {
+      status: "started"
+      streamId: string
+      summary: Promise<string | undefined>
+      completion: Promise<GenerationOutcome>
+    }
+
+/**
+ * Extracts one selected page and either returns a typed local failure or a
+ * summary-generation handle. Event publication belongs to the coordinator.
+ */
+export async function startPageSummary(
   params: StartPageSummaryInput,
-): Promise<string | undefined> {
+): Promise<PageSummaryStart> {
+  let content: string
   try {
     const page = await webExtract({ url: params.url })
     if (!page.content.trim()) {
       throw new Error("Page extraction returned no content")
     }
-    return page.content
+    content = page.content
   } catch (error) {
-    params.onEvent({
-      type: "page-summary-error",
-      url: params.url,
+    return {
+      status: "failed",
       stage: "extraction",
       message: getErrorMessage(error, "Page summary failed"),
-    })
-    return undefined
+    }
   }
-}
 
-async function createPageSummaryStream(
-  params: StartPageSummaryInput,
-  content: string,
-): Promise<string | undefined> {
+  let generation: PageSummaryGeneration
   try {
-    const streamId = await summarizePage({
+    generation = await summarizePage({
       userId: params.userId,
       deepSearchJobId: params.deepSearchJobId,
       researchRequest: params.researchRequest,
       url: params.url,
       content,
-      maxRetries: params.maxRetries,
+      ...(params.onRegistered ? { onRegistered: params.onRegistered } : {}),
+      ...(params.onCompleted ? { onCompleted: params.onCompleted } : {}),
+      ...(params.onFailed ? { onFailed: params.onFailed } : {}),
     })
-    params.onEvent({ type: "page-summary-stream", url: params.url, streamId })
-    return streamId
   } catch (error) {
-    params.onEvent({
-      type: "page-summary-error",
-      url: params.url,
+    return {
+      status: "failed",
       stage: "summary",
       message: getErrorMessage(error, "Page summary failed"),
-    })
-    return undefined
+    }
   }
-}
 
-/**
- * Extracts one selected page, exposes its summary stream, and returns the completed
- * summary text. Failures return no text so callers can fall back to search snippets.
- */
-export async function startPageSummary(
-  params: StartPageSummaryInput,
-): Promise<string | undefined> {
-  const content = await extractPageContent(params)
-  if (content === undefined) return
-
-  const streamId = await createPageSummaryStream(params, content)
-  if (streamId === undefined) return
-
-  try {
-    const summary = (await collectStreamText({ id: streamId })).trim()
-    return summary || undefined
-  } catch {
-    return undefined
+  return {
+    status: "started",
+    streamId: generation.streamId,
+    summary: generation.completion.then((outcome) =>
+      outcome.status === "failed" ? undefined : outcome.text.trim() || undefined,
+    ),
+    completion: generation.completion,
   }
 }

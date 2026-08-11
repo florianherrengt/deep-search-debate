@@ -8,9 +8,8 @@ import {
 } from "./debateJobs.ts"
 import { deepSearchJobs } from "./deepSearchJobs.ts"
 import {
-  deepSearchGeneratedQueries,
   deepSearchQueries,
-  deepSearchQueryGenerations,
+  deepSearchRounds,
 } from "./deepSearchQueries.ts"
 import {
   deepSearchResults,
@@ -51,7 +50,7 @@ export const deepSearchJobsRelations = relations(
       fields: [deepSearchJobs.userId],
       references: [user.id],
     }),
-    queryGeneration: one(deepSearchQueryGenerations),
+    rounds: many(deepSearchRounds),
     finalAnswerGeneration: one(llmGenerations, {
       fields: [deepSearchJobs.finalAnswerGenerationId],
       references: [llmGenerations.llmGenerationId],
@@ -64,44 +63,36 @@ export const deepSearchJobsRelations = relations(
       fields: [deepSearchJobs.ideaJobId],
       references: [ideaJobs.ideaJobId],
     }),
-    refinedIdea: one(ideas),
   }),
 )
 
-export const deepSearchQueryGenerationsRelations = relations(
-  deepSearchQueryGenerations,
+export const deepSearchRoundsRelations = relations(
+  deepSearchRounds,
   ({ many, one }) => ({
     job: one(deepSearchJobs, {
-      fields: [deepSearchQueryGenerations.deepSearchJobId],
+      fields: [deepSearchRounds.deepSearchJobId],
       references: [deepSearchJobs.deepSearchJobId],
     }),
     llmGeneration: one(llmGenerations, {
-      fields: [deepSearchQueryGenerations.llmGenerationId],
+      fields: [deepSearchRounds.llmGenerationId],
       references: [llmGenerations.llmGenerationId],
+      relationName: "deepSearchRoundQueryGeneration",
     }),
-    generatedQueries: many(deepSearchGeneratedQueries),
-  }),
-)
-
-export const deepSearchGeneratedQueriesRelations = relations(
-  deepSearchGeneratedQueries,
-  ({ one }) => ({
-    queryGeneration: one(deepSearchQueryGenerations, {
-      fields: [deepSearchGeneratedQueries.deepSearchQueryGenerationId],
-      references: [
-        deepSearchQueryGenerations.deepSearchQueryGenerationId,
-      ],
+    reviewGeneration: one(llmGenerations, {
+      fields: [deepSearchRounds.reviewGenerationId],
+      references: [llmGenerations.llmGenerationId],
+      relationName: "deepSearchRoundReviewGeneration",
     }),
-    execution: one(deepSearchQueries),
+    queries: many(deepSearchQueries),
   }),
 )
 
 export const deepSearchQueriesRelations = relations(
   deepSearchQueries,
   ({ many, one }) => ({
-    generatedQuery: one(deepSearchGeneratedQueries, {
-      fields: [deepSearchQueries.deepSearchGeneratedQueryId],
-      references: [deepSearchGeneratedQueries.deepSearchGeneratedQueryId],
+    round: one(deepSearchRounds, {
+      fields: [deepSearchQueries.deepSearchRoundId],
+      references: [deepSearchRounds.deepSearchRoundId],
     }),
     selectionGeneration: one(llmGenerations, {
       fields: [deepSearchQueries.selectionGenerationId],
@@ -224,10 +215,6 @@ export const ideasRelations = relations(ideas, ({ many, one }) => ({
     fields: [ideas.refinementGenerationId],
     references: [llmGenerations.llmGenerationId],
     relationName: "ideaRefinementGeneration",
-  }),
-  deepSearchJob: one(deepSearchJobs, {
-    fields: [ideas.deepSearchJobId],
-    references: [deepSearchJobs.deepSearchJobId],
   }),
   matchesAsFirst: many(debateMatches, {
     relationName: "debateMatchFirstIdea",

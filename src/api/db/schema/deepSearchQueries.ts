@@ -15,80 +15,85 @@ import {
   deepSearchQueryStatuses,
 } from "./statuses.ts"
 
-/** The model invocation that produced one job's prioritized query list. */
-export const deepSearchQueryGenerations = sqliteTable(
-  "deep_search_query_generations",
+export const deepSearchRoundReviewDecisions = ["continue", "stop"] as const
+
+/** One ordered search round, its query-plan generation, and continuation review. */
+export const deepSearchRounds = sqliteTable(
+  "deep_search_rounds",
   {
-    deepSearchQueryGenerationId: text(
-      "deep_search_query_generation_id",
-    ).primaryKey(),
+    deepSearchRoundId: text("deep_search_round_id").primaryKey(),
     deepSearchJobId: text("deep_search_job_id")
       .notNull()
-      .unique()
       .references(() => deepSearchJobs.deepSearchJobId, {
         onDelete: "cascade",
       }),
+    position: integer("position").notNull().default(0),
     llmGenerationId: text("llm_generation_id")
       .notNull()
       .unique()
       .references(() => llmGenerations.llmGenerationId, {
         onDelete: "no action",
       }),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .notNull()
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
-  },
-)
-
-/** One ordered query parsed from the query-generation model output. */
-export const deepSearchGeneratedQueries = sqliteTable(
-  "deep_search_generated_queries",
-  {
-    deepSearchGeneratedQueryId: text(
-      "deep_search_generated_query_id",
-    ).primaryKey(),
-    deepSearchQueryGenerationId: text("deep_search_query_generation_id")
-      .notNull()
-      .references(
-        () => deepSearchQueryGenerations.deepSearchQueryGenerationId,
-        { onDelete: "cascade" },
-      ),
-    position: integer("position").notNull(),
-    query: text("query").notNull(),
+    reviewGenerationId: text("review_generation_id")
+      .unique()
+      .references(() => llmGenerations.llmGenerationId, {
+        onDelete: "no action",
+      }),
+    reviewDecision: text("review_decision", {
+      enum: deepSearchRoundReviewDecisions,
+    }),
+    reviewReason: text("review_reason"),
+    reviewError: text("review_error"),
+    reviewCompletedAt: integer("review_completed_at", {
+      mode: "timestamp_ms",
+    }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
   },
   (table) => [
-    uniqueIndex("deep_search_generated_queries_generation_position_idx").on(
-      table.deepSearchQueryGenerationId,
+    uniqueIndex("deep_search_rounds_job_position_idx").on(
+      table.deepSearchJobId,
       table.position,
     ),
     check(
-      "deep_search_generated_queries_position_check",
+      "deep_search_rounds_position_check",
       sql`${table.position} >= 0`,
     ),
     check(
-      "deep_search_generated_queries_content_check",
-      sql`length(trim(${table.query})) > 0`,
+      "deep_search_rounds_review_decision_check",
+      sql`${table.reviewDecision} is null or ${table.reviewDecision} in ('continue', 'stop')`,
+    ),
+    check(
+      "deep_search_rounds_review_lifecycle_check",
+      sql`(
+        (${table.reviewGenerationId} is null and ${table.reviewDecision} is null and ${table.reviewReason} is null and ${table.reviewError} is null and ${table.reviewCompletedAt} is null)
+        or
+        (${table.reviewGenerationId} is not null and ${table.reviewDecision} is null and ${table.reviewReason} is null and ${table.reviewError} is null and ${table.reviewCompletedAt} is null)
+        or
+        (${table.reviewGenerationId} is not null and ${table.reviewDecision} is not null and ${table.reviewReason} is not null and ${table.reviewError} is null and ${table.reviewCompletedAt} is not null)
+        or
+        (${table.reviewDecision} is null and ${table.reviewReason} is null and ${table.reviewError} is not null and ${table.reviewCompletedAt} is not null)
+      )`,
     ),
   ],
 )
 
-/** One generated query selected for actual web-search execution. */
+/** One ordered planned query and its complete execution lifecycle. */
 export const deepSearchQueries = sqliteTable(
   "deep_search_queries",
   {
     deepSearchQueryId: text("deep_search_query_id").primaryKey(),
-    deepSearchGeneratedQueryId: text("deep_search_generated_query_id")
+    deepSearchRoundId: text("deep_search_round_id")
       .notNull()
-      .unique()
-      .references(() => deepSearchGeneratedQueries.deepSearchGeneratedQueryId, {
+      .references(() => deepSearchRounds.deepSearchRoundId, {
         onDelete: "cascade",
       }),
+    position: integer("position").notNull(),
+    query: text("query").notNull(),
     status: text("status", { enum: deepSearchQueryStatuses })
       .notNull()
-      .default("pending"),
+      .default("searching"),
     selectionGenerationId: text("selection_generation_id").references(
       () => llmGenerations.llmGenerationId,
       { onDelete: "no action" },
@@ -107,6 +112,10 @@ export const deepSearchQueries = sqliteTable(
     completedAt: integer("completed_at", { mode: "timestamp_ms" }),
   },
   (table) => [
+    uniqueIndex("deep_search_queries_round_position_idx").on(
+      table.deepSearchRoundId,
+      table.position,
+    ),
     index("deep_search_queries_selection_generation_id_idx").on(
       table.selectionGenerationId,
     ),
@@ -115,7 +124,12 @@ export const deepSearchQueries = sqliteTable(
     ),
     check(
       "deep_search_queries_status_check",
-      sql`${table.status} in ('pending', 'searching', 'selecting', 'summarizing', 'completed', 'failed')`,
+      sql`${table.status} in ('searching', 'selecting', 'summarizing', 'completed', 'failed')`,
+    ),
+    check("deep_search_queries_position_check", sql`${table.position} >= 0`),
+    check(
+      "deep_search_queries_content_check",
+      sql`length(trim(${table.query})) > 0`,
     ),
     check(
       "deep_search_queries_error_stage_check",
@@ -132,13 +146,17 @@ export const deepSearchQueries = sqliteTable(
     check(
       "deep_search_queries_lifecycle_check",
       sql`(
-        (${table.status} in ('pending', 'searching') and ${table.selectionGenerationId} is null and ${table.summaryGenerationId} is null and ${table.completedAt} is null and ${table.errorStage} is null and ${table.errorMessage} is null)
+        (${table.status} = 'searching' and ${table.selectionGenerationId} is null and ${table.summaryGenerationId} is null and ${table.completedAt} is null and ${table.errorStage} is null and ${table.errorMessage} is null)
         or
         (${table.status} = 'selecting' and ${table.summaryGenerationId} is null and ${table.completedAt} is null and ${table.errorStage} is null and ${table.errorMessage} is null)
         or
         (${table.status} = 'summarizing' and ${table.selectionGenerationId} is not null and ${table.completedAt} is null and ${table.errorStage} is null and ${table.errorMessage} is null)
         or
-        (${table.status} = 'completed' and ${table.selectionGenerationId} is not null and ${table.summaryGenerationId} is not null and ${table.completedAt} is not null and ${table.errorStage} is null and ${table.errorMessage} is null)
+        (${table.status} = 'completed' and ${table.completedAt} is not null and ${table.errorStage} is null and ${table.errorMessage} is null and (
+          (${table.selectionGenerationId} is not null and ${table.summaryGenerationId} is not null)
+          or
+          (${table.selectionGenerationId} is null and ${table.summaryGenerationId} is null)
+        ))
         or
         (${table.status} = 'failed' and ${table.completedAt} is not null and ${table.errorStage} is not null and ${table.errorMessage} is not null and (
           (${table.errorStage} = 'search' and ${table.selectionGenerationId} is null and ${table.summaryGenerationId} is null)

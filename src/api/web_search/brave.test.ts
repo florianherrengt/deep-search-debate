@@ -30,11 +30,12 @@ describe("brave", () => {
         ),
     })
 
-    await expect(brave({ query: "test" })).resolves.toEqual([
+    const signal = AbortSignal.timeout(30_000)
+    await expect(brave({ query: "test", signal })).resolves.toEqual([
       {
         title: "Test title",
         shortText: "Test snippet",
-        link: "https://example.com",
+        link: "https://example.com/",
       },
     ])
 
@@ -42,6 +43,7 @@ describe("brave", () => {
     expect(new URL(url).hostname).toBe("api.search.brave.com")
     expect(new URL(url).searchParams.get("q")).toBe("test")
     expect(init.headers).toMatchObject({ "x-subscription-token": "test-key" })
+    expect(init.signal).toBe(signal)
   })
 
   it("throws when Brave returns an error", async () => {

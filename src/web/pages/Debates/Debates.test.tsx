@@ -136,13 +136,13 @@ describe("Debates", () => {
     })
   })
 
-  it("describes the tournament without fixed idea, match, or round counts", () => {
+  it("describes the tournament without fixed match or round counts", () => {
     renderDebates()
 
     expect(document.body).toHaveTextContent("multiple researched ideas")
     expect(document.body).toHaveTextContent("multiple rounds")
     expect(document.body).not.toHaveTextContent(
-      /twelve|\b12\b|\b33\b|five rounds|four ideas|semifinals?/i,
+      /\b33\b|five rounds|four ideas|semifinals?/i,
     )
   })
 
@@ -231,6 +231,20 @@ describe("Debates", () => {
       ),
     )
     expect(screen.getByRole("button", { name: "Copied" })).toBeVisible()
+  })
+
+  it("keeps a running public debate public until its streams finish", async () => {
+    mocks.getDebateJob.mockResolvedValue(tournament({ isPublic: true }))
+
+    renderDebates("/debates/debate-id")
+
+    const visibility = await screen.findByLabelText("Public debate")
+    expect(visibility).toBeDisabled()
+    expect(
+      screen.getByText("A live public debate can be made private after it finishes."),
+    ).toBeVisible()
+    fireEvent.click(visibility)
+    expect(mocks.updateDebateJob).not.toHaveBeenCalled()
   })
 
   it("does not show visibility controls to a public viewer", async () => {

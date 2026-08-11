@@ -19,8 +19,16 @@ export const llmGenerationStatuses = [
   "interrupted",
 ] as const
 
+export const llmFinishReasons = [
+  "stop",
+  "length",
+  "content-filter",
+  "tool-calls",
+  "error",
+  "other",
+] as const
+
 export const deepSearchQueryStatuses = [
-  "pending",
   "searching",
   "selecting",
   "summarizing",
@@ -32,12 +40,6 @@ export const deepSearchQueryErrorStages = [
   "search",
   "selection",
   "summary",
-] as const
-
-export const deepSearchResultSelectionStatuses = [
-  "pending",
-  "selected",
-  "rejected",
 ] as const
 
 export const deepSearchWebPageStatuses = [

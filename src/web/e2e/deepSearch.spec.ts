@@ -58,8 +58,6 @@ test.describe("Deep search", () => {
     expect(created.status()).toBe(202)
     expect(created.request().postDataJSON()).toEqual({
       researchRequest,
-      maxSearches: 3,
-      maxResultsPerSearch: 3,
     })
 
     const { deepSearchJobId, slug } = (await created.json()) as {
@@ -265,7 +263,7 @@ test.describe("Deep search", () => {
       {
         events: queryEvents,
         section: page
-          .getByRole("heading", { name: "Generated search queries" })
+          .getByRole("heading", { name: "Round 1 search queries" })
           .locator(".."),
       },
       {
@@ -362,16 +360,10 @@ test.describe("Deep search", () => {
       .filter((event) => event.type === "reasoning")
       .map((event) => event.text)
       .join("")
-    expect(pageReasoning).not.toBe("")
+    expect(pageReasoning).toBe("")
     await expect(
-      summarizedResult.getByText(pageReasoning, { exact: true }),
-    ).toBeHidden()
-    await summarizedResult
-      .getByRole("button", { name: "Show reasoning" })
-      .click()
-    await expect(
-      summarizedResult.getByText(pageReasoning, { exact: true }),
-    ).toBeVisible()
+      summarizedResult.getByRole("button", { name: "Show reasoning" }),
+    ).toHaveCount(0)
     await expect(
       summarizedResult.locator('[data-summary-status="completed"]'),
     ).toBeVisible()

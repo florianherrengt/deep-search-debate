@@ -1,145 +1,122 @@
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm"
 import { db } from "../../db/index.ts"
 import {
-  deepSearchGeneratedQueries,
-  deepSearchJobs as deepSearchJobsTable,
+  deepSearchJobs,
   deepSearchQueries,
-  deepSearchQueryGenerations,
+  deepSearchRounds,
   deepSearchWebPages,
   llmGenerations,
 } from "../../db/schema/index.ts"
+import type { TextStreamPersistenceTransaction } from "../../llms/streams.ts"
 
-function findLlmGeneration(llmGenerationId: string | null) {
-  if (!llmGenerationId) return
-  return db
+/**
+ * Completes a job inside the final generation's terminal transaction.
+ * Every generated query must have reached its own authoritative completion
+ * boundary before the final answer can make the aggregate terminal.
+ */
+export function completeDeepSearchJob(
+  transaction: TextStreamPersistenceTransaction,
+  input: { jobId: string; generationId: string },
+): void {
+  const job = transaction
     .select({
+      status: deepSearchJobs.status,
+      finalAnswerGenerationId: deepSearchJobs.finalAnswerGenerationId,
+    })
+    .from(deepSearchJobs)
+    .where(eq(deepSearchJobs.deepSearchJobId, input.jobId))
+    .get()
+  if (!job) throw new Error("Deep-search job was not found")
+  if (job.status !== "running") {
+    throw new Error("Deep-search job is already terminal")
+  }
+  if (job.finalAnswerGenerationId !== input.generationId) {
+    throw new Error("Final answer generation was not registered")
+  }
+
+  const incompleteQuery = transaction
+    .select({
+      queryId: deepSearchQueries.deepSearchQueryId,
+      status: deepSearchQueries.status,
+    })
+    .from(deepSearchQueries)
+    .innerJoin(
+      deepSearchRounds,
+      eq(deepSearchQueries.deepSearchRoundId, deepSearchRounds.deepSearchRoundId),
+    )
+    .where(eq(deepSearchRounds.deepSearchJobId, input.jobId))
+    .all()
+    .find(({ status }) => status !== "completed")
+  if (incompleteQuery) {
+    throw new Error(
+      "Every search query must complete before the deep-search job",
+    )
+  }
+
+  const finalGeneration = transaction
+    .select({
+      deepSearchJobId: llmGenerations.deepSearchJobId,
       status: llmGenerations.status,
+      text: llmGenerations.text,
       error: llmGenerations.error,
     })
     .from(llmGenerations)
-    .where(eq(llmGenerations.llmGenerationId, llmGenerationId))
+    .where(eq(llmGenerations.llmGenerationId, input.generationId))
     .get()
-}
-
-export function completeDeepSearchJob(deepSearchJobId: string): void {
-    const completedAt = new Date()
-    const queries = db
-      .select()
-      .from(deepSearchQueries)
-      .innerJoin(
-        deepSearchGeneratedQueries,
-        eq(
-          deepSearchQueries.deepSearchGeneratedQueryId,
-          deepSearchGeneratedQueries.deepSearchGeneratedQueryId,
-        ),
-      )
-      .innerJoin(
-        deepSearchQueryGenerations,
-        eq(
-          deepSearchGeneratedQueries.deepSearchQueryGenerationId,
-          deepSearchQueryGenerations.deepSearchQueryGenerationId,
-        ),
-      )
-      .where(eq(deepSearchQueryGenerations.deepSearchJobId, deepSearchJobId))
-      .all()
-
-    for (const row of queries) {
-      const query = row.deep_search_queries
-      const generation = findLlmGeneration(query.summaryGenerationId)
-      const failed = generation?.status !== "completed"
-      db.update(deepSearchQueries)
-        .set({
-          status: failed ? "failed" : "completed",
-          errorStage: failed ? "summary" : null,
-          errorMessage: failed
-            ? (generation?.error ?? "Query summary did not complete")
-            : null,
-          completedAt,
-        })
-        .where(eq(deepSearchQueries.deepSearchQueryId, query.deepSearchQueryId))
-        .run()
-    }
-
-    const pages = db
-      .select()
-      .from(deepSearchWebPages)
-      .where(eq(deepSearchWebPages.deepSearchJobId, deepSearchJobId))
-      .all()
-    for (const page of pages) {
-      if (page.status === "failed") continue
-      const generation = findLlmGeneration(page.summaryGenerationId)
-      const failed = generation?.status !== "completed"
-      db.update(deepSearchWebPages)
-        .set({
-          status: failed ? "failed" : "completed",
-          errorStage: failed
-            ? page.summaryGenerationId
-              ? "summary"
-              : "extraction"
-            : null,
-          errorMessage: failed
-            ? (generation?.error ?? "Page summary did not complete")
-            : null,
-          completedAt,
-        })
-        .where(
-          eq(deepSearchWebPages.deepSearchWebPageId, page.deepSearchWebPageId),
-        )
-        .run()
-    }
-
-    const job = db
-      .select({
-        finalAnswerGenerationId:
-          deepSearchJobsTable.finalAnswerGenerationId,
-      })
-      .from(deepSearchJobsTable)
-      .where(eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId))
-      .get()
-    const finalAnswerGeneration = findLlmGeneration(
-      job?.finalAnswerGenerationId ?? null,
+  if (finalGeneration?.deepSearchJobId !== input.jobId) {
+    throw new Error("Final answer generation must belong to the deep-search job")
+  }
+  if (finalGeneration.status !== "completed" || finalGeneration.text === null) {
+    throw new Error(
+      finalGeneration.error ?? "Final answer generation did not complete",
     )
-    if (!job?.finalAnswerGenerationId) {
-      throw new Error("Final answer generation was not registered")
-    }
-    if (finalAnswerGeneration?.status !== "completed") {
-      throw new Error(
-        finalAnswerGeneration?.error ?? "Final answer did not complete",
-      )
-    }
+  }
 
-    db.update(deepSearchJobsTable)
-      .set({ status: "completed", completedAt })
-      .where(eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId))
-      .run()
+  const result = transaction
+    .update(deepSearchJobs)
+    .set({ status: "completed", completedAt: new Date() })
+    .where(
+      and(
+        eq(deepSearchJobs.deepSearchJobId, input.jobId),
+        eq(deepSearchJobs.status, "running"),
+        eq(deepSearchJobs.finalAnswerGenerationId, input.generationId),
+      ),
+    )
+    .run()
+  if (result.changes !== 1) {
+    throw new Error("Deep-search job could not be completed")
+  }
 }
 
-export function failDeepSearchJob(
-  deepSearchJobId: string,
-  message: string,
-): void {
-    const completedAt = new Date()
-    const queries = db
-      .select()
+/** Fails all still-active work and its owning job in one transaction. */
+export function failDeepSearchJob(jobId: string, message: string): void {
+  const completedAt = new Date()
+  db.transaction((transaction) => {
+    transaction
+      .update(deepSearchRounds)
+      .set({ reviewError: message, reviewCompletedAt: completedAt })
+      .where(
+        and(
+          eq(deepSearchRounds.deepSearchJobId, jobId),
+          isNotNull(deepSearchRounds.reviewGenerationId),
+          isNull(deepSearchRounds.reviewCompletedAt),
+        ),
+      )
+      .run()
+
+    const queries = transaction
+      .select({
+        queryId: deepSearchQueries.deepSearchQueryId,
+        status: deepSearchQueries.status,
+      })
       .from(deepSearchQueries)
       .innerJoin(
-        deepSearchGeneratedQueries,
-        eq(
-          deepSearchQueries.deepSearchGeneratedQueryId,
-          deepSearchGeneratedQueries.deepSearchGeneratedQueryId,
-        ),
+        deepSearchRounds,
+        eq(deepSearchQueries.deepSearchRoundId, deepSearchRounds.deepSearchRoundId),
       )
-      .innerJoin(
-        deepSearchQueryGenerations,
-        eq(
-          deepSearchGeneratedQueries.deepSearchQueryGenerationId,
-          deepSearchQueryGenerations.deepSearchQueryGenerationId,
-        ),
-      )
-      .where(eq(deepSearchQueryGenerations.deepSearchJobId, deepSearchJobId))
+      .where(eq(deepSearchRounds.deepSearchJobId, jobId))
       .all()
-    for (const row of queries) {
-      const query = row.deep_search_queries
+    for (const query of queries) {
       if (query.status === "completed" || query.status === "failed") continue
       const errorStage =
         query.status === "selecting"
@@ -147,48 +124,61 @@ export function failDeepSearchJob(
           : query.status === "summarizing"
             ? "summary"
             : "search"
-      db.update(deepSearchQueries)
+      transaction
+        .update(deepSearchQueries)
         .set({
           status: "failed",
           errorStage,
           errorMessage: message,
           completedAt,
         })
-        .where(eq(deepSearchQueries.deepSearchQueryId, query.deepSearchQueryId))
+        .where(eq(deepSearchQueries.deepSearchQueryId, query.queryId))
         .run()
     }
 
-    const pages = db
-      .select()
-      .from(deepSearchWebPages)
+    transaction
+      .update(deepSearchWebPages)
+      .set({
+        status: "failed",
+        errorStage: "extraction",
+        errorMessage: message,
+        completedAt,
+      })
       .where(
         and(
-          eq(deepSearchWebPages.deepSearchJobId, deepSearchJobId),
-          inArray(deepSearchWebPages.status, [
-            "pending",
-            "extracting",
-            "summarizing",
-          ]),
+          eq(deepSearchWebPages.deepSearchJobId, jobId),
+          inArray(deepSearchWebPages.status, ["pending", "extracting"]),
         ),
       )
-      .all()
-    for (const page of pages) {
-      db.update(deepSearchWebPages)
-        .set({
-          status: "failed",
-          errorStage:
-            page.status === "summarizing" ? "summary" : "extraction",
-          errorMessage: message,
-          completedAt,
-        })
-        .where(
-          eq(deepSearchWebPages.deepSearchWebPageId, page.deepSearchWebPageId),
-        )
-        .run()
-    }
-
-    db.update(deepSearchJobsTable)
-      .set({ status: "failed", error: message, completedAt })
-      .where(eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId))
       .run()
+    transaction
+      .update(deepSearchWebPages)
+      .set({
+        status: "failed",
+        errorStage: "summary",
+        errorMessage: message,
+        completedAt,
+      })
+      .where(
+        and(
+          eq(deepSearchWebPages.deepSearchJobId, jobId),
+          eq(deepSearchWebPages.status, "summarizing"),
+        ),
+      )
+      .run()
+
+    const result = transaction
+      .update(deepSearchJobs)
+      .set({ status: "failed", error: message, completedAt })
+      .where(
+        and(
+          eq(deepSearchJobs.deepSearchJobId, jobId),
+          eq(deepSearchJobs.status, "running"),
+        ),
+      )
+      .run()
+    if (result.changes !== 1) {
+      throw new Error("Running deep-search job was not found")
+    }
+  })
 }

@@ -17,6 +17,7 @@ vi.mock("../llms/streams.ts", () => ({
 import { streamReads, streams } from "./streams.ts"
 import type { AppEnv } from "../types/auth.ts"
 import { db } from "../db/index.ts"
+import { config } from "../config.ts"
 import { llmGenerations } from "../db/schema/index.ts"
 
 function createApp(): Hono<AppEnv> {
@@ -40,7 +41,14 @@ describe("stream routes", () => {
   const streamId = "11111111-1111-4111-8111-111111111111"
 
   it("creates a stream and returns its ID", async () => {
-    mocks.generateTextStream.mockResolvedValue({ id: "stream-id" })
+    mocks.generateTextStream.mockResolvedValue({
+      id: "stream-id",
+      completion: Promise.resolve({
+        status: "completed",
+        text: "Answer",
+        reasoning: "",
+      }),
+    })
 
     const response = await createApp().request("/streams", {
       method: "POST",
@@ -56,7 +64,50 @@ describe("stream routes", () => {
       owner: { standalone: true },
       prompt: "Hello",
       promptName: "default",
+      reasoning: "enabled",
     })
+  })
+
+  it("rejects empty and oversized standalone prompts", async () => {
+    for (const prompt of [
+      "   ",
+      "x".repeat(config.deepSearch.maxRequestChars + 1),
+    ]) {
+      const response = await createApp().request("/streams", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt }),
+      })
+      expect(response.status).toBe(400)
+    }
+    expect(mocks.generateTextStream).not.toHaveBeenCalled()
+  })
+
+  it("rejects standalone generation above the per-user active limit", async () => {
+    db.insert(llmGenerations)
+      .values(
+        Array.from(
+          {
+            length:
+              config.llmExecution.maxActiveStandaloneGenerationsPerUser,
+          },
+          (_, position) => ({
+            userId: "test-user-id",
+            llmGenerationId: crypto.randomUUID(),
+            promptName: `standalone-${position}`,
+          }),
+        ),
+      )
+      .run()
+
+    const response = await createApp().request("/streams", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: "One too many" }),
+    })
+
+    expect(response.status).toBe(429)
+    expect(mocks.generateTextStream).not.toHaveBeenCalled()
   })
 
   it("replays and follows a text stream as NDJSON", async () => {
