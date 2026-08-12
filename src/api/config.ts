@@ -24,6 +24,22 @@ const optionalSecretSchema = z.preprocess(
   nonWhitespaceSecretSchema.optional(),
 )
 
+const exampleDebateIdsSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === "") return []
+    if (typeof value !== "string") return value
+    return [
+      ...new Set(
+        value
+          .split(",")
+          .map((debateJobId) => debateJobId.trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    ]
+  },
+  z.array(z.uuid()).max(50),
+)
+
 const secretSchemas = {
   BRAVE_SEARCH_API_KEY: nonWhitespaceSecretSchema,
   SCRAPINGANT_API_KEY: nonWhitespaceSecretSchema,
@@ -285,6 +301,7 @@ const nonSecretEnvironmentShape = {
   BETTER_AUTH_URL: z.url().optional(),
   AUTH_DEBUG_USER_ENABLED: z.stringbool().default(false),
   AUTH_DEBUG_USER_EMAIL: z.email().default("debug@local.invalid"),
+  EXAMPLE_DEBATE_IDS: exampleDebateIdsSchema,
 } as const
 
 const rawEnvironmentSchema = z.object({
@@ -634,6 +651,7 @@ export const config = {
     maxSelectedPagesPerJob:
       environment.DEBATE_MAX_SELECTED_PAGES_PER_JOB,
   },
+  examples: { debateIds: environment.EXAMPLE_DEBATE_IDS },
   llm: resolveLlmConfig(),
   llmExecution: {
     totalTimeoutMs: environment.LLM_GENERATION_TIMEOUT_MS,

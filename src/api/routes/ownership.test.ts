@@ -213,7 +213,7 @@ describe("user-owned routes", () => {
     },
   )
 
-  it("applies read scopes to collections without exposing owner IDs", async () => {
+  it("keeps public aggregates out of another user's personal collections", async () => {
     db.update(debateJobsTable)
       .set({ isPublic: true })
       .where(eq(debateJobsTable.debateJobId, foreignDebateJobId))
@@ -224,14 +224,8 @@ describe("user-owned routes", () => {
     const ideaHistory = await app.request("/idea-jobs")
     const searchHistory = await app.request("/deep-search-jobs")
 
-    expect(await debateHistory.json()).toMatchObject({
-      debateJobs: [{ debateJobId: foreignDebateJobId }],
-    })
-    const ideas: unknown = await ideaHistory.json()
-    expect(ideas).toMatchObject({
-      ideaJobs: [{ ideaJobId: foreignIdeaJobId }],
-    })
-    expect(JSON.stringify(ideas)).not.toContain("userId")
+    expect(await debateHistory.json()).toEqual({ debateJobs: [] })
+    expect(await ideaHistory.json()).toEqual({ ideaJobs: [] })
     expect(await searchHistory.json()).toEqual({ deepSearchJobs: [] })
   })
 

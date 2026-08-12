@@ -143,7 +143,11 @@ query parameter defaults to 100 and is capped at 200. Owner IDs are omitted.
 
 Returns the durable title, slug, prompt, internal ID, requested counts, current
 stage, status, error, generation links, and timestamps as `{ "ideaJob": ... }`.
-Unknown slugs return 404.
+Detail responses add `isPublic`, which reports inherited public-debate
+visibility, and `isIndexable`, which is true only when that debate is both
+public and completed. Standalone and private owner-readable jobs report both
+fields as false. These projections are detail-only and do not change the
+history response. Unknown slugs return 404.
 
 ### `GET /api/idea-jobs/:ideaJobId/events`
 

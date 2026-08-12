@@ -37,6 +37,13 @@ available for tests and alternate deployments.
 and social-preview images because authentication and the production web app are
 served from the same origin.
 
+`EXAMPLE_DEBATE_IDS` optionally contains an ordered, comma-separated list of up
+to 50 debate job UUIDs. The public examples endpoint and sitemap include only
+configured debates that still exist, are public, and have completed. Invalid
+UUIDs fail startup; duplicates are removed while preserving their first
+position. Missing, private, and unfinished debates are omitted at request time,
+so revoking a debate's visibility also removes it from public discovery.
+
 Deep-search work is bounded in application configuration. Defaults allow at
 most 5 searches, 5 explored results per search, 15 selected URLs per round,
 2 rounds, 200 selected pages across one complete root workflow, and 10,000
@@ -107,10 +114,11 @@ password-reset HTTP endpoints are blocked; password auth exists only behind the
 trusted local debug sign-in endpoint. Provider-debug routes are registered only
 when debug auth is enabled and accept only the configured debug user's session.
 
-Application mutations and history routes after `/api/auth/*` require an opaque
-database-backed Better Auth session. The middleware stores the authenticated
-`user.id` in the Hono context. Debate, nested idea/deep-search, and owned-stream
-detail reads also accept anonymous requests when the debate is public. Private,
+Application mutations and owner-only history routes after `/api/auth/*` require
+an opaque database-backed Better Auth session. The middleware stores the
+authenticated `user.id` in the Hono context. The curated `/api/examples` read is
+public. Debate, nested idea/deep-search, and owned-stream detail reads also
+accept anonymous requests when the debate is public. Private,
 revoked, foreign, and unknown UUIDs return 404 rather than disclosing resource
 existence, and public responses omit creator identity. Reusable Drizzle read
 scopes put ownership and inherited public access into the query retrieving each
@@ -212,6 +220,19 @@ The root `Dockerfile` builds the Vite client and runs the API TypeScript directl
 on Node.js 26. In production, the Hono process serves the built client and its SPA
 fallback in addition to `/api`. `/api/health` is public so container and Coolify
 health checks do not depend on a browser session.
+
+The production fallback resolves application routes before returning the built
+SPA shell. It uses the optional Better Auth session plus the same durable
+ownership, inherited visibility, and root-debate completion facts as API reads.
+Known private resources return the shell only to their owner and carry
+`noindex`; anonymous and foreign requests receive a hard 404. Public completed
+debates and their idea/deep-search descendants receive route-specific title,
+description, canonical, Open Graph, Twitter, and JSON-LD metadata in the initial
+HTML. Unknown routes return a hard 404. Dynamic HTML is not cached because a
+public debate can later be revoked. `robots.txt` and `sitemap.xml` are generated
+at the application origin; the sitemap contains the home and examples pages plus
+completed public resources whose root debate is selected by
+`EXAMPLE_DEBATE_IDS`, with path segments URL-encoded before XML escaping.
 
 The container stores SQLite at `/app/data/data.db`. Production must mount
 persistent storage at `/app/data`; without it, deployments replace the database.

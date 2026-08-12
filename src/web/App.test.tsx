@@ -124,6 +124,9 @@ describe("App", () => {
       within(landingNavigation).getByRole("link", { name: "How it works" }),
     ).toHaveAttribute("href", "/#how-it-works")
     expect(
+      within(landingNavigation).getByRole("link", { name: "Examples" }),
+    ).toHaveAttribute("href", "/examples")
+    expect(
       screen.getByRole("link", { name: "Terms & Conditions" }),
     ).toHaveAttribute("href", "/terms")
     expect(
@@ -230,6 +233,31 @@ describe("App", () => {
     expect(
       screen.queryByRole("heading", { name: "Sign in to continue" }),
     ).not.toBeInTheDocument()
+    expect(authMocks.useSession).not.toHaveBeenCalled()
+  })
+
+  it("keeps the examples page public without loading a session", async () => {
+    window.history.replaceState({}, "", "/examples")
+    authMocks.useSession.mockReturnValue({
+      data: null,
+      error: null,
+      isPending: false,
+      isRefetching: false,
+      refetch: authMocks.refetch,
+    })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(Response.json({ debates: [] })),
+    )
+
+    renderApp()
+
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Debate examples" }),
+    ).toBeVisible()
+    expect(
+      await screen.findByText("No examples are currently published."),
+    ).toBeVisible()
     expect(authMocks.useSession).not.toHaveBeenCalled()
   })
 

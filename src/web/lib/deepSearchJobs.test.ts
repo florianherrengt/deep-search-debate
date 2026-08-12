@@ -207,7 +207,11 @@ describe("deep search jobs client", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(Response.json({ deepSearchJobs: [job] }))
-      .mockResolvedValueOnce(Response.json({ deepSearchJob: job }))
+      .mockResolvedValueOnce(
+        Response.json({
+          deepSearchJob: { ...job, isIndexable: true, isPublic: true },
+        }),
+      )
     vi.stubGlobal("fetch", fetchMock)
 
     const parsedListJob = {
@@ -227,6 +231,8 @@ describe("deep search jobs client", () => {
       error: null,
       createdAt: new Date(job.createdAt),
       completedAt: new Date(job.completedAt),
+      isIndexable: true,
+      isPublic: true,
     }
     await expect(getDeepSearchJobs("manual")).resolves.toEqual([parsedListJob])
     await expect(getDeepSearchJob("research-this")).resolves.toEqual(

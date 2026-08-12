@@ -247,6 +247,46 @@ describe("Debates", () => {
     expect(mocks.updateDebateJob).not.toHaveBeenCalled()
   })
 
+  it("keeps private details out of search metadata", async () => {
+    renderDebates("/debates/debate-id")
+
+    await screen.findByText("Better Café Ideas")
+    await waitFor(() =>
+      expect(
+        document.head.querySelector('meta[name="robots"]'),
+      ).toHaveAttribute("content", "noindex, nofollow"),
+    )
+    expect(document.head.querySelector('link[rel="canonical"]')).toBeNull()
+    expect(
+      document.head.querySelector('script[data-seo-json-ld="true"]'),
+    ).toBeNull()
+  })
+
+  it("publishes completed public details as article metadata", async () => {
+    mocks.getDebateJob.mockResolvedValue(
+      tournament({ isPublic: true, stage: "final", status: "completed" }),
+    )
+
+    renderDebates("/debates/better-cafe-ideas")
+
+    await screen.findByText("Better Café Ideas")
+    await waitFor(() =>
+      expect(document.title).toBe("Better Café Ideas — RethinkLoop"),
+    )
+    expect(document.head.querySelector('meta[name="robots"]')).toHaveAttribute(
+      "content",
+      "index, follow",
+    )
+    expect(document.head.querySelector('meta[property="og:type"]')).toHaveAttribute(
+      "content",
+      "article",
+    )
+    expect(document.head.querySelector('link[rel="canonical"]')).toHaveAttribute(
+      "href",
+      "https://rethinkloop.com/debates/better-cafe-ideas",
+    )
+  })
+
   it("does not show visibility controls to a public viewer", async () => {
     mocks.getDebateJob.mockResolvedValue(
       tournament({ isOwner: false, isPublic: true }),

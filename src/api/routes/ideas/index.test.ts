@@ -18,6 +18,7 @@ import {
   debateJobs,
   deepSearchJobs,
   ideaJobs as ideaJobsTable,
+  user as userTable,
 } from "../../db/schema/index.ts"
 import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
 import { ideaJobReads, ideaJobs, type IdeaJobEvent } from "./index.ts"
@@ -94,6 +95,42 @@ describe("idea job routes", () => {
     expect(response.status).toBe(400)
     expect(mocks.generatePromptTitle).not.toHaveBeenCalled()
     expect(mocks.runIdeaJob).not.toHaveBeenCalled()
+  })
+
+  it("does not mix another user's public debate ideas into personal history", async () => {
+    const debateJobId = crypto.randomUUID()
+    db.insert(userTable)
+      .values({
+        email: "other-user@example.com",
+        emailVerified: true,
+        id: "other-user-id",
+        name: "Other User",
+      })
+      .onConflictDoNothing()
+      .run()
+    db.insert(debateJobs)
+      .values({
+        debateJobId,
+        isPublic: true,
+        randomSeed: 1,
+        userId: "other-user-id",
+      })
+      .run()
+    db.insert(ideaJobsTable)
+      .values({
+        debateJobId,
+        deepSearchCount: 2,
+        ideaJobId: crypto.randomUUID(),
+        numberOfIdeas: 12,
+        prompt: "Foreign public ideas",
+        slug: "foreign-public-ideas",
+        userId: "other-user-id",
+      })
+      .run()
+
+    await expect(
+      (await createApp().request("/idea-jobs")).json(),
+    ).resolves.toEqual({ ideaJobs: [] })
   })
 
   it("returns 429 when the user already has the active root-job limit", async () => {

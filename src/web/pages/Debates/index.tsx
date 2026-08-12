@@ -15,6 +15,7 @@ import {
   type UpdateDebateJobInput,
 } from "../../lib/debateJobs.ts"
 import { getRequestErrorMessage } from "../../lib/requestErrors.ts"
+import { truncateDescription, useSeo } from "../../lib/seo.ts"
 import { DebatePromptForm } from "./components/DebatePromptForm.tsx"
 import { DebateVisibilityControls } from "./components/DebateVisibilityControls.tsx"
 import { DebateView } from "./components/DebateView.tsx"
@@ -41,6 +42,13 @@ function DebateStart() {
       })
       void navigate(`/debates/${slug}`)
     },
+  })
+
+  useSeo({
+    title: "Debates — RethinkLoop",
+    description:
+      "Start a debate: AI agents defend and challenge researched ideas over multiple rounds until one winner remains.",
+    noindex: true,
   })
 
   return (
@@ -88,6 +96,7 @@ function DebateDetail({ slug }: { slug: string }) {
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null)
   const queryClient = useQueryClient()
   const job = useDebateJob(slug)
+  const pageKey = `/debates/${encodeURIComponent(slug)}`
   const debateJobId = job.data?.debateJobId
   const visibility = useMutation({
     mutationFn: (update: UpdateDebateJobInput) => {
@@ -105,6 +114,38 @@ function DebateDetail({ slug }: { slug: string }) {
       })
     },
   })
+
+  useSeo(
+    job.data !== undefined
+      ? {
+          title: `${job.data.title} — RethinkLoop`,
+          description: truncateDescription(job.data.prompt),
+          path: job.data.isPublic ? pageKey : undefined,
+          pageKey,
+          noindex:
+            !job.data.isPublic || job.data.status !== "completed",
+          openGraphType: "article" as const,
+          jsonLd:
+            job.data.isPublic && job.data.status === "completed"
+              ? {
+                  "@context": "https://schema.org",
+                  "@type": "Article",
+                  headline: job.data.title,
+                  description: truncateDescription(job.data.prompt),
+                  inLanguage: "en",
+                  isAccessibleForFree: true,
+                }
+              : undefined,
+        }
+      : {
+          title: job.isPending
+            ? "Loading debate — RethinkLoop"
+            : "Debate not found — RethinkLoop",
+          pageKey,
+          noindex: true,
+          enabled: !job.isPending,
+        },
+  )
 
   if (job.isPending) return <CircularProgress />
   if (job.error) {

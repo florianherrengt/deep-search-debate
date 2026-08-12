@@ -123,14 +123,19 @@ const createDeepSearchJobResponseSchema = z.object({
 const deepSearchJobsResponseSchema = z.object({
   deepSearchJobs: z.array(deepSearchJobListItemSchema),
 })
+const deepSearchJobDetailSchema = deepSearchJobSchema.extend({
+  isIndexable: z.boolean(),
+  isPublic: z.boolean(),
+})
 const deepSearchJobResponseSchema = z.object({
-  deepSearchJob: deepSearchJobSchema,
+  deepSearchJob: deepSearchJobDetailSchema,
 })
 
 export type DeepSearchJob = z.infer<typeof deepSearchJobSchema>
 export type DeepSearchJobOrigin = z.infer<typeof deepSearchJobOriginSchema>
 export type DeepSearchJobListItem = z.infer<typeof deepSearchJobListItemSchema>
 export type DeepSearchJobSource = "manual" | "automated"
+export type DeepSearchJobDetail = z.infer<typeof deepSearchJobDetailSchema>
 
 export async function createDeepSearchJob(
   input: CreateDeepSearchJobInput,
@@ -160,7 +165,7 @@ export async function getDeepSearchJobs(
 export async function getDeepSearchJob(
   slug: string,
   signal?: AbortSignal,
-): Promise<DeepSearchJob> {
+): Promise<DeepSearchJobDetail> {
   const response = await getJson(
     `/api/deep-search-jobs/${encodeURIComponent(slug)}`,
     deepSearchJobResponseSchema,

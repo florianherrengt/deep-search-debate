@@ -94,6 +94,8 @@ const services: DeepSearchServices = {
       createdAt,
       deepSearchJobId: slug,
       error: null,
+      isIndexable: false,
+      isPublic: false,
       maxResultsPerSearch: 3,
       maxRounds: 3,
       maxSearches: 3,

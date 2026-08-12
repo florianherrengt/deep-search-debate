@@ -11,6 +11,7 @@ import type { Hono } from "hono"
 import { stream } from "hono/streaming"
 import { db } from "../../db/index.ts"
 import {
+  debateJobs as debateJobsTable,
   deepSearchJobs as deepSearchJobsTable,
   ideaJobs as ideaJobsTable,
 } from "../../db/schema/index.ts"
@@ -80,8 +81,20 @@ export function deepSearchJobReads(
     (c) => {
       const { slug } = c.req.valid("param")
       const deepSearchJob = db
-        .select(publicDeepSearchJobColumns)
+        .select({
+          ...publicDeepSearchJobColumns,
+          debateStatus: debateJobsTable.status,
+          isPublic: debateJobsTable.isPublic,
+        })
         .from(deepSearchJobsTable)
+        .leftJoin(
+          ideaJobsTable,
+          eq(ideaJobsTable.ideaJobId, deepSearchJobsTable.ideaJobId),
+        )
+        .leftJoin(
+          debateJobsTable,
+          eq(debateJobsTable.debateJobId, ideaJobsTable.debateJobId),
+        )
         .where(
           and(
             eq(deepSearchJobsTable.slug, slug),
@@ -92,7 +105,19 @@ export function deepSearchJobReads(
       if (!deepSearchJob) {
         return c.json({ error: "Deep search job not found" }, 404)
       }
-      return c.json({ deepSearchJob })
+      const {
+        debateStatus,
+        isPublic: inheritedIsPublic,
+        ...publicDeepSearchJob
+      } = deepSearchJob
+      const isPublic = inheritedIsPublic ?? false
+      return c.json({
+        deepSearchJob: {
+          ...publicDeepSearchJob,
+          isIndexable: isPublic && debateStatus === "completed",
+          isPublic,
+        },
+      })
     },
   )
 }
@@ -120,7 +145,7 @@ function listDeepSearchJobs(
     )
     .where(
       and(
-        deepSearchJobReadScope(userId),
+        eq(deepSearchJobsTable.userId, userId),
         source === "automated"
           ? isNotNull(deepSearchJobsTable.ideaJobId)
           : isNull(deepSearchJobsTable.ideaJobId),

@@ -88,12 +88,19 @@ GITHUB_CLIENT_SECRET=
 AUTH_DEBUG_USER_ENABLED=false
 AUTH_DEBUG_USER_EMAIL=debug@local.invalid
 AUTH_DEBUG_USER_PASSWORD=
+EXAMPLE_DEBATE_IDS=
 ```
 
 Do not put real credentials in `.env.example`; set them only in the ignored
 `src/api/.env` or the deployment platform. The selected LLM provider's key is
 required; the unselected provider's key may be absent or blank. A missing,
 blank, or whitespace-only required secret fails startup.
+
+`EXAMPLE_DEBATE_IDS` is an optional, ordered, comma-separated list of up to 50
+debate job UUIDs. `/examples` shows only configured debates that still exist,
+are public, and have completed; missing, private, or unfinished IDs are omitted.
+The same selection controls which public debate aggregates are promoted in the
+sitemap. An empty value leaves the examples page empty.
 
 `NODE_ENV` selects the application defaults. Development and test use
 `BETTER_AUTH_URL=http://localhost:5173` and `DATABASE_URL=data.db`; production

@@ -13,6 +13,7 @@ import { useState, type ReactNode } from "react"
 import { Link as RouterLink } from "react-router-dom"
 
 import { authClient, getAuthConfig, type AuthSession } from "../../lib/authClient.ts"
+import { useSeo } from "../../lib/seo.ts"
 
 interface AuthGateProps {
   anonymous?: ReactNode
@@ -24,7 +25,7 @@ interface AuthGateProps {
   }) => ReactNode
 }
 
-function centeredPage(content: ReactNode) {
+function centeredPage(content: ReactNode, includeSignInSeo = false) {
   return (
     <Box
       component="main"
@@ -36,6 +37,7 @@ function centeredPage(content: ReactNode) {
         p: 2,
       }}
     >
+      {includeSignInSeo ? <SignInSeo /> : null}
       {content}
     </Box>
   )
@@ -43,6 +45,12 @@ function centeredPage(content: ReactNode) {
 
 function sessionErrorMessage(error: Error): string {
   return error.message || "The session could not be loaded."
+}
+
+/** Marks the sign-in flow non-indexable; it is not public content. */
+function SignInSeo() {
+  useSeo({ title: "Sign in — RethinkLoop", noindex: true })
+  return null
 }
 
 export function AuthGate({ anonymous, children }: AuthGateProps) {
@@ -64,6 +72,7 @@ export function AuthGate({ anonymous, children }: AuthGateProps) {
         <CircularProgress aria-label="Loading session" />
         <Typography color="text.secondary">Loading your session…</Typography>
       </Stack>,
+      anonymous === undefined,
     )
   }
 
@@ -85,6 +94,7 @@ export function AuthGate({ anonymous, children }: AuthGateProps) {
           </Button>
         </Stack>
       </Paper>,
+      anonymous === undefined,
     )
   }
 
@@ -188,6 +198,7 @@ export function AuthGate({ anonymous, children }: AuthGateProps) {
           </Typography>
         </Stack>
       </Paper>,
+      true,
     )
   }
 

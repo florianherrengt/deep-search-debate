@@ -8,6 +8,7 @@ import Typography from "@mui/material/Typography"
 import { useEffect, useRef, type ReactNode } from "react"
 import { Link as RouterLink } from "react-router-dom"
 import { supportEmail } from "../lib/support.ts"
+import { useSeo } from "../lib/seo.ts"
 
 const lastUpdated = "12 August 2026"
 
@@ -60,6 +61,12 @@ function LegalDocument({
   title: string
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
+
+  useSeo({
+    title: `${title} — RethinkLoop`,
+    description: `${title} for RethinkLoop, a research and decision workspace for questions that need more than one model response.`,
+    noindex: true,
+  })
 
   useEffect(() => {
     window.scrollTo({ behavior: "auto", left: 0, top: 0 })

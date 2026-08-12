@@ -25,7 +25,13 @@ import { config } from "./config.ts"
 import { loadOptionalSession } from "./middleware/loadOptionalSession.ts"
 import { creditRoutes } from "./routes/credits.ts"
 import { OutOfCreditsError } from "./credits.ts"
-import { registerPublicDebatePage } from "./publicDebatePage.ts"
+import {
+  notFoundHtml,
+  renderSeoDocument,
+  resolveSeoPage,
+  seoPages,
+} from "./routes/seo.ts"
+import { exampleDebateReads } from "./routes/examples/index.ts"
 
 recoverInterruptedWork()
 
@@ -61,6 +67,7 @@ const app = new Hono<AppEnv>()
 app.onError(handleRequestError)
 const api = app.basePath("/api")
 
+seoPages(app)
 ping(api)
 health(api)
 authRoutes(api)
@@ -73,6 +80,7 @@ streamReads(api)
 deepSearchJobReads(api, deepSearchManager)
 ideaJobReads(api, ideaJobManager)
 debateJobReads(api, debateJobManager)
+exampleDebateReads(api)
 api.use("*", requireSession)
 creditRoutes(api)
 if (config.auth.debugUser.enabled) debug(api)
@@ -83,17 +91,41 @@ debateJobs(api, debateJobManager)
 
 if (config.environment === "production") {
   const webRoot = fileURLToPath(new URL("../web/dist", import.meta.url))
-  const indexHtml = readFileSync(`${webRoot}/index.html`, "utf8")
-  const serveWebIndex = serveStatic({ path: "index.html", root: webRoot })
-
-  registerPublicDebatePage(app, {
-    indexHtml,
-    publicBaseUrl: config.web.publicBaseUrl,
-  })
+  const webIndex = readFileSync(`${webRoot}/index.html`, "utf8")
   app.get("*", serveStatic({ root: webRoot }))
+  app.get("*", loadOptionalSession)
   app.get("*", (c, next) => {
-    if (c.req.path === "/api" || c.req.path.startsWith("/api/")) return next()
-    return serveWebIndex(c, next)
+    if (c.req.path === "/api" || c.req.path.startsWith("/api/")) {
+      return next()
+    }
+    const requestPath = new URL(c.req.url).pathname
+    const pageKey =
+      requestPath === "/" ? requestPath : requestPath.replace(/\/+$/, "")
+    const page = resolveSeoPage(c.req.path, c.get("viewerUserId"))
+    if (page.kind === "not-found") {
+      return Promise.resolve(
+        c.html(notFoundHtml, 404, {
+          "Cache-Control": "private, no-store",
+          "X-Robots-Tag": "noindex, nofollow",
+        }),
+      )
+    }
+    return Promise.resolve(
+      c.html(
+        renderSeoDocument(
+          webIndex,
+          page.metadata,
+          pageKey,
+        ),
+        200,
+        {
+          "Cache-Control": "private, no-store",
+          ...(page.metadata.noindex
+            ? { "X-Robots-Tag": "noindex, nofollow" }
+            : {}),
+        },
+      ),
+    )
   })
 }
 

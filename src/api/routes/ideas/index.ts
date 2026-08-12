@@ -3,7 +3,10 @@ import { and, desc, eq, getTableColumns } from "drizzle-orm"
 import type { Hono } from "hono"
 import { stream } from "hono/streaming"
 import { db } from "../../db/index.ts"
-import { ideaJobs as ideaJobsTable } from "../../db/schema/index.ts"
+import {
+  debateJobs as debateJobsTable,
+  ideaJobs as ideaJobsTable,
+} from "../../db/schema/index.ts"
 import type { IdeaJobManager } from "./manager.ts"
 import { reconstructIdeaJobEvents } from "./replay.ts"
 import {
@@ -59,8 +62,16 @@ export function ideaJobReads(app: Hono<AppEnv>, manager: IdeaJobManager) {
     (c) => {
       const { slug } = c.req.valid("param")
       const job = db
-        .select(publicIdeaJobColumns)
+        .select({
+          ...publicIdeaJobColumns,
+          debateStatus: debateJobsTable.status,
+          isPublic: debateJobsTable.isPublic,
+        })
         .from(ideaJobsTable)
+        .leftJoin(
+          debateJobsTable,
+          eq(debateJobsTable.debateJobId, ideaJobsTable.debateJobId),
+        )
         .where(
           and(
             eq(ideaJobsTable.slug, slug),
@@ -69,7 +80,15 @@ export function ideaJobReads(app: Hono<AppEnv>, manager: IdeaJobManager) {
         )
         .get()
       if (!job) return c.json({ error: "Idea job not found" }, 404)
-      return c.json({ ideaJob: job })
+      const { debateStatus, isPublic: inheritedIsPublic, ...ideaJob } = job
+      const isPublic = inheritedIsPublic ?? false
+      return c.json({
+        ideaJob: {
+          ...ideaJob,
+          isIndexable: isPublic && debateStatus === "completed",
+          isPublic,
+        },
+      })
     },
   )
 }
@@ -102,7 +121,7 @@ export function ideaJobs(app: Hono<AppEnv>, manager: IdeaJobManager) {
       const jobs = db
         .select(publicIdeaJobColumns)
         .from(ideaJobsTable)
-        .where(ideaJobReadScope(c.get("userId")))
+        .where(eq(ideaJobsTable.userId, c.get("userId")))
         .orderBy(
           desc(ideaJobsTable.createdAt),
           desc(ideaJobsTable.ideaJobId),

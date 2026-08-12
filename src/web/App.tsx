@@ -27,6 +27,7 @@ import { DeepSearch } from "./pages/DeepSearch/index.tsx"
 import { Ideas } from "./pages/Ideas/index.tsx"
 import { Debates } from "./pages/Debates/index.tsx"
 import { AdminCredits } from "./pages/AdminCredits/index.ts"
+import { Examples } from "./pages/Examples/index.tsx"
 import { NotFound } from "./components/NotFound.tsx"
 import { AuthGate } from "./components/auth/AuthGate.tsx"
 import type { AuthSession } from "./lib/authClient.ts"
@@ -285,6 +286,14 @@ export function App() {
           element={
             <PublicLayout>
               <Home />
+            </PublicLayout>
+          }
+        />
+        <Route
+          path="/examples"
+          element={
+            <PublicLayout maxWidth="md">
+              <Examples />
             </PublicLayout>
           }
         />

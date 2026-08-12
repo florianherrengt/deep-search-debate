@@ -101,12 +101,17 @@ const createIdeaJobResponseSchema = z.object({
   slug: z.string().min(1),
 })
 const ideaJobsResponseSchema = z.object({ ideaJobs: z.array(ideaJobSchema) })
-const ideaJobResponseSchema = z.object({ ideaJob: ideaJobSchema })
+const ideaJobDetailSchema = ideaJobSchema.extend({
+  isIndexable: z.boolean(),
+  isPublic: z.boolean(),
+})
+const ideaJobResponseSchema = z.object({ ideaJob: ideaJobDetailSchema })
 
 export type Idea = z.infer<typeof ideaSchema>
 export type IdeaStage = z.infer<typeof ideaEventStageSchema>
 export type IdeaJobEvent = z.infer<typeof ideaJobEventSchema>
 export type IdeaJob = z.infer<typeof ideaJobSchema>
+export type IdeaJobDetail = z.infer<typeof ideaJobDetailSchema>
 
 export async function createIdeaJob(
   input: {
@@ -145,7 +150,7 @@ export async function getIdeaJobs(signal?: AbortSignal): Promise<IdeaJob[]> {
 export async function getIdeaJob(
   slug: string,
   signal?: AbortSignal,
-): Promise<IdeaJob> {
+): Promise<IdeaJobDetail> {
   const response = await getJson(
     `/api/idea-jobs/${encodeURIComponent(slug)}`,
     ideaJobResponseSchema,

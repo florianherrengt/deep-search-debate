@@ -68,6 +68,8 @@ describe("Ideas", () => {
       prompt: "Ideas for independent cafés",
       numberOfIdeas: 12,
       deepSearchCount: 2,
+      isIndexable: false,
+      isPublic: false,
       stage: "planning",
       status: "running",
       error: null,
@@ -550,6 +552,22 @@ describe("Ideas", () => {
   })
 
   it("stops loading an invalid idea after every expected idea arrives", async () => {
+    document.head
+      .querySelectorAll(
+        'meta[name="robots"], link[rel="canonical"], script[data-seo-json-ld="true"]',
+      )
+      .forEach((element) => element.remove())
+    document.title = "Previous public idea — RethinkLoop"
+    document.documentElement.dataset.seoPage = "/ideas/previous/public-idea"
+    const canonical = document.createElement("link")
+    canonical.rel = "canonical"
+    canonical.href = "https://rethinkloop.com/ideas/previous/public-idea"
+    document.head.appendChild(canonical)
+    const robots = document.createElement("meta")
+    robots.name = "robots"
+    robots.content = "index, follow"
+    document.head.appendChild(robots)
+
     mocks.getIdeaJob.mockResolvedValue({
       ideaJobId: "idea-job-id",
       title: "Independent Café Ideas",
@@ -557,6 +575,8 @@ describe("Ideas", () => {
       prompt: "Ideas for independent cafés",
       numberOfIdeas: 1,
       deepSearchCount: 2,
+      isIndexable: false,
+      isPublic: false,
       stage: "ideas",
       status: "running",
       error: null,
@@ -588,6 +608,67 @@ describe("Ideas", () => {
     expect(
       screen.queryByRole("heading", { name: "Loading idea…" }),
     ).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(document.title).toBe("Idea not found — RethinkLoop"),
+    )
+    expect(document.head.querySelector('meta[name="robots"]')).toHaveAttribute(
+      "content",
+      "noindex, nofollow",
+    )
+    expect(document.head.querySelector('link[rel="canonical"]')).toBeNull()
+  })
+
+  it("uses the individual refined idea as public article metadata", async () => {
+    mocks.getIdeaJob.mockResolvedValue({
+      ideaJobId: "idea-job-id",
+      title: "Independent Café Ideas",
+      slug: "independent-cafe-ideas",
+      prompt: "Ideas for independent cafés",
+      numberOfIdeas: 1,
+      deepSearchCount: 2,
+      isIndexable: true,
+      isPublic: true,
+      stage: "ideas",
+      status: "completed",
+      error: null,
+      createdAt: new Date(),
+      completedAt: new Date(),
+    })
+    mocks.subscribeToIdeaJob.mockImplementation(async function* () {
+      await Promise.resolve()
+      yield {
+        type: "idea" as const,
+        ideaId: "prep-forecast-id",
+        title: "Prep Forecast",
+        description: "Recommend fixed prep quantities.",
+      }
+      yield {
+        type: "refined-idea" as const,
+        ideaId: "prep-forecast-id",
+        title: "Confidence-Aware Prep Forecast",
+        description: "Recommend prep ranges with staff overrides.",
+      }
+      yield { type: "done" as const }
+    })
+
+    renderIdeas("/ideas/independent-cafe-ideas/prep-forecast-id")
+
+    await screen.findByRole("heading", {
+      name: "Confidence-Aware Prep Forecast",
+    })
+    await waitFor(() =>
+      expect(document.title).toBe(
+        "Confidence-Aware Prep Forecast — RethinkLoop",
+      ),
+    )
+    expect(document.head.querySelector('meta[name="robots"]')).toHaveAttribute(
+      "content",
+      "index, follow",
+    )
+    expect(document.head.querySelector('link[rel="canonical"]')).toHaveAttribute(
+      "href",
+      "https://rethinkloop.com/ideas/independent-cafe-ideas/prep-forecast-id",
+    )
   })
 
   it("shows a terminal selection failure on the idea detail page", () => {

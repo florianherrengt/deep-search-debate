@@ -154,7 +154,7 @@ export function debateJobs(app: Hono<AppEnv>, manager: DebateJobManager): void {
           ideaJobsTable,
           eq(debateJobsTable.debateJobId, ideaJobsTable.debateJobId),
         )
-        .where(debateJobReadScope(c.get("userId")))
+        .where(eq(debateJobsTable.userId, c.get("userId")))
         .orderBy(
           desc(debateJobsTable.createdAt),
           desc(debateJobsTable.debateJobId),

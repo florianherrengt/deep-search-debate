@@ -1,10 +1,9 @@
-import {
-  AutoAwesomeRounded,
-  LightbulbOutlined,
-  SearchRounded,
-} from "@mui/icons-material"
+import AutoAwesomeRounded from "@mui/icons-material/AutoAwesomeRounded"
+import LightbulbOutlined from "@mui/icons-material/LightbulbOutlined"
+import SearchRounded from "@mui/icons-material/SearchRounded"
 import { Box, Button, Paper, Stack, Typography } from "@mui/material"
 import { Link } from "react-router-dom"
+import { useSeo } from "../lib/seo.ts"
 
 const steps = [
   {
@@ -28,6 +27,13 @@ const steps = [
 ]
 
 export function About() {
+  useSeo({
+    title: "About — RethinkLoop",
+    description:
+      "RethinkLoop is a research and decision workspace: deep search, generated options, and AI agent debates over multiple rounds.",
+    noindex: true,
+  })
+
   return (
     <Stack spacing={{ xs: 4, sm: 5 }}>
       <Stack spacing={1.5} sx={{ maxWidth: "72ch" }}>

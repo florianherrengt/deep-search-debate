@@ -9,6 +9,7 @@ import { JobHistory } from "../../components/JobHistory.tsx"
 import { JobStatusBadge } from "../../components/JobStatusBadge.tsx"
 import { PromptForm } from "../../components/PromptForm.tsx"
 import { RequestError } from "../../components/RequestError.tsx"
+import { truncateDescription, useSeo } from "../../lib/seo.ts"
 import {
   createDeepSearchJob,
   getDeepSearchJob,
@@ -83,6 +84,12 @@ function DeepSearchHistory({ services }: { services: DeepSearchServices }) {
   })
 
   const automated = source === automatedSource
+  useSeo({
+    title: "Deep Search — RethinkLoop",
+    description:
+      "Run a deep research session: collect source results, explore the strongest candidates, and read a final answer.",
+    noindex: true,
+  })
   return (
     <Stack spacing={3}>
       <DeepSearchHeader />
@@ -152,6 +159,38 @@ function DeepSearchDetail({
     queryKey: deepSearchJobDetailQueryKey(slug),
     queryFn: ({ signal }) => services.getJob(slug, signal),
   })
+  const pageKey = `/deep-search/${encodeURIComponent(slug)}`
+
+  useSeo(
+    job.data !== undefined
+      ? {
+          title: `${job.data.title} — RethinkLoop`,
+          description: truncateDescription(job.data.researchRequest),
+          path: job.data.isPublic ? pageKey : undefined,
+          pageKey,
+          noindex: !job.data.isIndexable,
+          openGraphType: "article" as const,
+          jsonLd:
+            job.data.isIndexable
+              ? {
+                  "@context": "https://schema.org",
+                  "@type": "Article",
+                  description: truncateDescription(job.data.researchRequest),
+                  headline: job.data.title,
+                  inLanguage: "en",
+                  isAccessibleForFree: true,
+                }
+              : undefined,
+        }
+      : {
+          title: job.isPending
+            ? "Loading deep search — RethinkLoop"
+            : "Deep search not found — RethinkLoop",
+          pageKey,
+          noindex: true,
+          enabled: !job.isPending,
+        },
+  )
 
   if (job.isPending) return <CircularProgress />
   if (job.error) {

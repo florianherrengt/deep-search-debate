@@ -92,7 +92,11 @@ debate-owned searches. Manual items carry `"origin": null`.
 ### `GET /api/deep-search-jobs/:slug`
 
 Returns durable title, slug, request, internal ID, limits, status, error, and
-timestamps as `{ "deepSearchJob": ... }`.
+timestamps as `{ "deepSearchJob": ... }`. The detail projection also includes
+`isPublic` for inherited public-debate visibility and `isIndexable`, which is
+true only when the owning debate is both public and completed. Standalone and
+private owner-readable jobs report both fields as false. These fields are not
+part of the standalone history response.
 
 ### `GET /api/deep-search-jobs/:deepSearchJobId/events`
 

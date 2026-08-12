@@ -60,6 +60,8 @@ function deepSearchJob() {
     maxSearches: 3,
     maxResultsPerSearch: 3,
     maxRounds: 3,
+    isIndexable: false,
+    isPublic: false,
     status: "completed" as const,
     error: null,
     createdAt: new Date(),
@@ -630,6 +632,32 @@ describe("DeepSearch", () => {
     expect(screen.getByRole("link", { name: "Go home" })).toHaveAttribute(
       "href",
       "/",
+    )
+  })
+
+  it("only indexes a completed deep search inherited from a public debate", async () => {
+    mocks.getDeepSearchJob.mockResolvedValue({
+      ...deepSearchJob(),
+      isIndexable: true,
+      isPublic: true,
+    })
+
+    renderDeepSearch("/deep-search/research-this")
+
+    await screen.findByText("Research This")
+    await waitFor(() =>
+      expect(document.head.querySelector('meta[name="robots"]')).toHaveAttribute(
+        "content",
+        "index, follow",
+      ),
+    )
+    expect(document.head.querySelector('meta[property="og:type"]')).toHaveAttribute(
+      "content",
+      "article",
+    )
+    expect(document.head.querySelector('link[rel="canonical"]')).toHaveAttribute(
+      "href",
+      "https://rethinkloop.com/deep-search/research-this",
     )
   })
 })

@@ -3,7 +3,11 @@ import { eq } from "drizzle-orm"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { db } from "../../db/index.ts"
-import { debateJobs as debateJobsTable, ideaJobs } from "../../db/schema/index.ts"
+import {
+  debateJobs as debateJobsTable,
+  ideaJobs,
+  user as userTable,
+} from "../../db/schema/index.ts"
 import { debateJobs } from "./index.ts"
 import type { DebateJobManager } from "./manager.ts"
 import { DEBATE_TOURNAMENT_FORMAT } from "./tournament.ts"
@@ -122,6 +126,42 @@ describe("debate job routes", () => {
         },
       ],
     })
+  })
+
+  it("does not mix another user's public debates into personal history", async () => {
+    const debateJobId = crypto.randomUUID()
+    db.insert(userTable)
+      .values({
+        email: "other-user@example.com",
+        emailVerified: true,
+        id: "other-user-id",
+        name: "Other User",
+      })
+      .onConflictDoNothing()
+      .run()
+    db.insert(debateJobsTable)
+      .values({
+        debateJobId,
+        isPublic: true,
+        randomSeed: 1,
+        userId: "other-user-id",
+      })
+      .run()
+    db.insert(ideaJobs)
+      .values({
+        debateJobId,
+        deepSearchCount: 2,
+        ideaJobId: crypto.randomUUID(),
+        numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
+        prompt: "A public debate owned by somebody else",
+        slug: "foreign-public-debate",
+        userId: "other-user-id",
+      })
+      .run()
+
+    await expect(
+      (await createApp().request("/debate-jobs")).json(),
+    ).resolves.toEqual({ debateJobs: [] })
   })
 
   it("validates the history limit", async () => {

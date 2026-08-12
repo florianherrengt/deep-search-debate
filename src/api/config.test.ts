@@ -44,6 +44,42 @@ describe("config", () => {
     expect(config.api.port).toBe(4321)
   })
 
+  it("parses ordered example debate IDs and removes duplicates", async () => {
+    const firstId = "11111111-1111-4111-8111-111111111111"
+    const secondId = "22222222-2222-4222-8222-222222222222"
+    vi.stubEnv(
+      "EXAMPLE_DEBATE_IDS",
+      ` ${secondId},${firstId},${secondId} `,
+    )
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.examples.debateIds).toEqual([secondId, firstId])
+  })
+
+  it("normalizes example debate IDs before removing duplicates", async () => {
+    const debateId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    vi.stubEnv(
+      "EXAMPLE_DEBATE_IDS",
+      `${debateId.toUpperCase()},${debateId}`,
+    )
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.examples.debateIds).toEqual([debateId])
+  })
+
+  it("rejects an invalid example debate ID", async () => {
+    vi.stubEnv("EXAMPLE_DEBATE_IDS", "not-a-uuid")
+    vi.resetModules()
+
+    await expect(import("./config.ts")).rejects.toThrow(
+      "EXAMPLE_DEBATE_IDS",
+    )
+  })
+
   it("uses typed deep-search concurrency limits", async () => {
     vi.stubEnv("DEEP_SEARCH_MAX_CONCURRENT_JOBS", "3")
     vi.stubEnv("DEEP_SEARCH_MAX_CONCURRENT_PAGE_TASKS", "5")

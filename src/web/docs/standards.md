@@ -242,6 +242,26 @@ Use the narrowest owner that preserves the required behavior.
 
 ## 8. Accessibility and responsive behavior
 
+### Search and share metadata
+
+- The production server MUST put route-specific title, description, robots,
+  canonical, Open Graph, Twitter, and structured-data tags in the initial HTML;
+  a post-render React effect is not a substitute for crawler-visible HTML.
+- The client MUST mirror that metadata during SPA navigation through the shared
+  SEO helper. It MUST preserve server metadata while route data is still
+  loading rather than temporarily replacing a valid page with not-found tags.
+- Canonical URLs MUST use the configured production origin and URL-encoded path
+  segments. Private pages MUST omit canonical URLs and structured data.
+- Only completed resources inherited from a public debate MAY be indexable.
+  Private, standalone, running, failed, interrupted, authenticated workspace,
+  sign-in, placeholder, and not-found pages MUST be `noindex`.
+- A detail response's validated `isPublic` and `isIndexable` projections are the
+  browser authority for inherited visibility and root-debate completion. The
+  browser MUST NOT guess those facts from child-job status.
+- Every resource URL MUST have one metadata owner. An individual idea uses its
+  own durable or refined title, description, canonical URL, and structured data
+  rather than inheriting the parent idea-run canonical.
+
 - All interactive controls MUST be keyboard operable and use the correct
   semantic element.
 - Inputs MUST have visible labels. Icon-only controls MUST have accessible names.

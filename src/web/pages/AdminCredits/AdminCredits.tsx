@@ -21,8 +21,17 @@ import {
   getAdminUsers,
   grantUserCredits,
 } from "../../lib/credits.ts"
+import { useSeo } from "../../lib/seo.ts"
 
 export function AdminCredits() {
+  useSeo({
+    description:
+      "Admin Credits in RethinkLoop. Sign in to access your workspace.",
+    noindex: true,
+    pageKey: "/admin/credits",
+    title: "Admin Credits — RethinkLoop",
+  })
+
   const queryClient = useQueryClient()
   const users = useQuery({
     queryKey: adminUsersQueryKey,

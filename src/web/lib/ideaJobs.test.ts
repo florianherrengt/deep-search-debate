@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { getIdeaJobs } from "./ideaJobs.ts"
+import { getIdeaJob, getIdeaJobs } from "./ideaJobs.ts"
 
 describe("idea jobs client", () => {
   afterEach(() => vi.unstubAllGlobals())
@@ -30,6 +30,34 @@ describe("idea jobs client", () => {
         completedAt: new Date(job.completedAt),
       },
     ])
+  })
+
+  it("parses inherited public visibility on a detail response", async () => {
+    const job = {
+      ideaJobId: "idea-id",
+      title: "Generate Ideas",
+      slug: "generate-ideas",
+      prompt: "Generate ideas",
+      stage: "ideas",
+      numberOfIdeas: 12,
+      deepSearchCount: 2,
+      status: "completed",
+      error: null,
+      isIndexable: true,
+      isPublic: true,
+      createdAt: "2026-08-04T12:00:00.000Z",
+      completedAt: "2026-08-04T12:30:00.000Z",
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(Response.json({ ideaJob: job })),
+    )
+
+    await expect(getIdeaJob("generate-ideas")).resolves.toEqual({
+      ...job,
+      createdAt: new Date(job.createdAt),
+      completedAt: new Date(job.completedAt),
+    })
   })
 
   it("rejects malformed durable job timestamps", async () => {

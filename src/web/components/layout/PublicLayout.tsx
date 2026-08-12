@@ -34,6 +34,14 @@ function PublicHeader() {
             How it works
           </Button>
           <Button
+            color="inherit"
+            component={RouterLink}
+            size="small"
+            to="/examples"
+          >
+            Examples
+          </Button>
+          <Button
             component={RouterLink}
             size="small"
             to="/debates"

@@ -66,12 +66,14 @@ Before the first deployment:
 | `BETTER_AUTH_SECRET` | Better Auth signing secret, at least 32 characters |
 | `GITHUB_CLIENT_ID` | Production GitHub OAuth app client ID |
 | `GITHUB_CLIENT_SECRET` | Production GitHub OAuth app client secret |
+| `EXAMPLE_DEBATE_IDS` | Optional ordered, comma-separated public debate UUIDs shown on `/examples` |
 
 Set `is_runtime=true`, `is_buildtime=false`, and `is_preview=false`. The
 configuration script sets the container and health-check settings. It validates
 the common variables and the selected LLM provider's credential without
 printing secret values. Missing or blank required values fail application
-startup.
+startup. Leave `EXAMPLE_DEBATE_IDS` unset or blank until examples are selected;
+changing it requires an application restart so the typed runtime config reloads.
 
 Configure the production GitHub OAuth callback as:
 
