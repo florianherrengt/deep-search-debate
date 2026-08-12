@@ -1,19 +1,24 @@
-import { CssBaseline } from "@mui/material"
-import { ThemeProvider } from "@mui/material/styles"
 import type { Preview } from "@storybook/react"
+import type { ComponentProps } from "react"
 import { MemoryRouter } from "react-router-dom"
-import { appTheme } from "../theme.ts"
+import { PreviewProviders } from "./PreviewProviders.tsx"
+
+type RouterParameters = {
+  router?: {
+    initialEntries?: ComponentProps<typeof MemoryRouter>["initialEntries"]
+  }
+}
 
 const preview: Preview = {
   decorators: [
-    (Story) => (
-      <MemoryRouter>
-        <ThemeProvider theme={appTheme}>
-          <CssBaseline />
+    (Story, context) => {
+      const { router } = context.parameters as RouterParameters
+      return (
+        <PreviewProviders initialEntries={router?.initialEntries}>
           <Story />
-        </ThemeProvider>
-      </MemoryRouter>
-    ),
+        </PreviewProviders>
+      )
+    },
   ],
 }
 

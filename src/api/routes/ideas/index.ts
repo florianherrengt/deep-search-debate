@@ -20,7 +20,6 @@ export type { IdeaJobEvent } from "./schemas.ts"
 
 const { userId: _ideaJobOwnerId, ...publicIdeaJobColumns } =
   getTableColumns(ideaJobsTable)
-void _ideaJobOwnerId
 
 async function writeEvents(
   output: { writeln(value: string): Promise<unknown> },

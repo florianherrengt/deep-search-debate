@@ -11,6 +11,7 @@ type JobHistoryEntry = {
   createdAt: Date
   id: string
   label: string
+  origin?: ReactNode
   prompt: string
   status: ReactNode
   to: string
@@ -60,6 +61,7 @@ export function JobHistory({
                 key={item.id}
                 date={formatCreatedAt(item.createdAt)}
                 label={item.label}
+                origin={item.origin}
                 prompt={item.prompt}
                 status={item.status}
                 to={item.to}

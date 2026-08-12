@@ -68,13 +68,22 @@ spend duplicate preflight calls for one slot. A newly admitted root runs before
 children still waiting from an earlier eager batch; active work is not
 pre-empted.
 
-### `GET /api/deep-search-jobs`
+### `GET /api/deep-search-jobs?source=manual|automated`
 
-Returns newest-first standalone job history as `{ "deepSearchJobs": [...] }`.
-The read scope is applied before the standalone filter; because standalone jobs
-have no public-debate ancestor, this collection contains the viewer's own jobs.
-The optional `limit` query parameter defaults to 100 and is capped at 200. Owner
-IDs are omitted.
+Returns newest-first job history as `{ "deepSearchJobs": [...] }`. The `source`
+query parameter splits the history into searches started manually by the user
+(`manual`) and searches started by the system (`automated`) as child searches of
+the idea pipeline. The read scope is applied before the source filter; because
+manual jobs have no public-debate ancestor, that collection contains the
+viewer's own jobs, while the automated collection also includes children of
+public debates. The optional `limit` query parameter defaults to 100 and is
+capped at 200. Owner IDs are omitted.
+
+Automated items carry an `origin` object: `{ "kind": "idea", ... }` when the
+owning idea job is standalone, or `{ "kind": "debate", ... }` when that idea job
+belongs to a debate. A debate has no title of its own, so both kinds report the
+owning idea job's title and slug, which address the debate route for
+debate-owned searches. Manual items carry `"origin": null`.
 
 ### `GET /api/deep-search-jobs/:slug`
 

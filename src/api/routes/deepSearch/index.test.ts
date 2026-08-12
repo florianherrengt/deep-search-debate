@@ -21,10 +21,12 @@ vi.mock("../../llms/generateText.ts", () => ({
 
 import { db } from "../../db/index.ts"
 import {
+  debateJobs,
   deepSearchJobs as deepSearchJobsTable,
   deepSearchQueries,
   deepSearchRounds,
   deepSearchWebPages,
+  ideaJobs,
   llmGenerations,
 } from "../../db/schema/index.ts"
 import {
@@ -489,11 +491,83 @@ async function readEvents(response: Response): Promise<DeepSearchJobEvent[]> {
     .map((line) => JSON.parse(line) as DeepSearchJobEvent)
 }
 
+function insertHistoryFixtures(): void {
+  db.insert(deepSearchJobsTable)
+    .values({
+      deepSearchJobId: "manual-job-id",
+      userId: "test-user-id",
+      title: "Manual Job",
+      slug: "manual-job",
+      researchRequest: "Manual research",
+      maxSearches: 1,
+      maxResultsPerSearch: 1,
+    })
+    .run()
+  db.insert(debateJobs)
+    .values({
+      debateJobId: "debate-job-id",
+      userId: "test-user-id",
+      randomSeed: 1,
+    })
+    .run()
+  db.insert(ideaJobs)
+    .values([
+      {
+        ideaJobId: "standalone-idea-job-id",
+        userId: "test-user-id",
+        prompt: "Standalone ideas",
+        numberOfIdeas: 1,
+        deepSearchCount: 1,
+        title: "Standalone Idea Title",
+        slug: "standalone-idea-slug",
+      },
+      {
+        ideaJobId: "debate-idea-job-id",
+        userId: "test-user-id",
+        debateJobId: "debate-job-id",
+        prompt: "Debate ideas",
+        numberOfIdeas: 1,
+        deepSearchCount: 1,
+        title: "Debate Idea Title",
+        slug: "debate-idea-slug",
+      },
+    ])
+    .run()
+  db.insert(deepSearchJobsTable)
+    .values([
+      {
+        deepSearchJobId: "debate-child-id",
+        userId: "test-user-id",
+        ideaJobId: "debate-idea-job-id",
+        ideaJobPosition: 0,
+        title: "Debate Child",
+        slug: "debate-child",
+        researchRequest: "Debate research",
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+      },
+      {
+        deepSearchJobId: "standalone-child-id",
+        userId: "test-user-id",
+        ideaJobId: "standalone-idea-job-id",
+        ideaJobPosition: 0,
+        title: "Standalone Child",
+        slug: "standalone-child",
+        researchRequest: "Standalone research",
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+      },
+    ])
+    .run()
+}
+
 describe("deep search job routes", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     db.delete(deepSearchJobsTable).run()
     db.delete(llmGenerations).run()
+    db.delete(ideaJobs).run()
+    db.delete(debateJobs).run()
   })
 
   it("returns a durable job ID and retains all published events", async () => {
@@ -545,6 +619,40 @@ describe("deep search job routes", () => {
           deepSearchJobId,
           finalAnswerGenerationId: "final-answer-stream-id",
           status: "completed",
+        },
+      ],
+    })
+  })
+
+  it("splits history between manual and automated jobs with their origin", async () => {
+    insertHistoryFixtures()
+    const app = createApp()
+
+    const manual = await app.request("/deep-search-jobs")
+    await expect(manual.json()).resolves.toMatchObject({
+      deepSearchJobs: [
+        { deepSearchJobId: "manual-job-id", title: "Manual Job", origin: null },
+      ],
+    })
+
+    const automated = await app.request("/deep-search-jobs?source=automated")
+    await expect(automated.json()).resolves.toMatchObject({
+      deepSearchJobs: [
+        {
+          deepSearchJobId: "standalone-child-id",
+          origin: {
+            kind: "idea",
+            title: "Standalone Idea Title",
+            slug: "standalone-idea-slug",
+          },
+        },
+        {
+          deepSearchJobId: "debate-child-id",
+          origin: {
+            kind: "debate",
+            title: "Debate Idea Title",
+            slug: "debate-idea-slug",
+          },
         },
       ],
     })

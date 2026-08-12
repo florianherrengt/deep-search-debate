@@ -1,9 +1,19 @@
 import { zValidator } from "@hono/zod-validator"
-import { and, desc, eq, getTableColumns, isNull } from "drizzle-orm"
+import {
+  and,
+  desc,
+  eq,
+  getTableColumns,
+  isNotNull,
+  isNull,
+} from "drizzle-orm"
 import type { Hono } from "hono"
 import { stream } from "hono/streaming"
 import { db } from "../../db/index.ts"
-import { deepSearchJobs as deepSearchJobsTable } from "../../db/schema/index.ts"
+import {
+  deepSearchJobs as deepSearchJobsTable,
+  ideaJobs as ideaJobsTable,
+} from "../../db/schema/index.ts"
 import {
   createDeepSearchJobManager,
   type DeepSearchJobManager,
@@ -15,6 +25,7 @@ import {
   deepSearchJobParamsSchema,
   listDeepSearchJobsInputSchema,
   type DeepSearchJobEvent,
+  type DeepSearchJobSource,
 } from "./schemas.ts"
 import type { AppEnv } from "../../types/auth.ts"
 import { deepSearchJobReadScope } from "../readAccess.ts"
@@ -23,7 +34,6 @@ export type { DeepSearchJobEvent } from "./schemas.ts"
 
 const { userId: _deepSearchJobOwnerId, ...publicDeepSearchJobColumns } =
   getTableColumns(deepSearchJobsTable)
-void _deepSearchJobOwnerId
 
 type EventOutput = {
   writeln(value: string): Promise<unknown>
@@ -87,6 +97,66 @@ export function deepSearchJobReads(
   )
 }
 
+/** Newest-first jobs with their origin: null for manual searches, the
+ * owning idea or debate for automated child searches. */
+function listDeepSearchJobs(
+  userId: string,
+  source: DeepSearchJobSource,
+  limit: number,
+): Array<Record<string, unknown>> {
+  const rows = db
+    .select({
+      job: publicDeepSearchJobColumns,
+      idea: {
+        title: ideaJobsTable.title,
+        slug: ideaJobsTable.slug,
+        debateJobId: ideaJobsTable.debateJobId,
+      },
+    })
+    .from(deepSearchJobsTable)
+    .leftJoin(
+      ideaJobsTable,
+      eq(deepSearchJobsTable.ideaJobId, ideaJobsTable.ideaJobId),
+    )
+    .where(
+      and(
+        deepSearchJobReadScope(userId),
+        source === "automated"
+          ? isNotNull(deepSearchJobsTable.ideaJobId)
+          : isNull(deepSearchJobsTable.ideaJobId),
+      ),
+    )
+    .orderBy(
+      desc(deepSearchJobsTable.createdAt),
+      desc(deepSearchJobsTable.deepSearchJobId),
+    )
+    .limit(limit)
+    .all()
+  return rows.map(({ job, idea }) => ({
+    ...job,
+    origin: deepSearchJobOrigin(idea),
+  }))
+}
+
+function deepSearchJobOrigin(
+  idea: {
+    title: string | null
+    slug: string | null
+    debateJobId: string | null
+  } | null,
+): { kind: "idea" | "debate"; title: string; slug: string } | null {
+  if (!idea?.title || !idea.slug) {
+    return null
+  }
+  // Debates carry no title of their own: the owning idea job's title and
+  // slug address the debate route, so a debate-owned search points there.
+  return {
+    kind: idea.debateJobId ? "debate" : "idea",
+    title: idea.title,
+    slug: idea.slug,
+  }
+}
+
 /** Registers authenticated standalone search creation and readable history. */
 export function deepSearchJobs(
   app: Hono<AppEnv>,
@@ -113,21 +183,11 @@ export function deepSearchJobs(
     zValidator("query", listDeepSearchJobsInputSchema),
     (c) => {
       const input = c.req.valid("query")
-      const deepSearchJobs = db
-        .select(publicDeepSearchJobColumns)
-        .from(deepSearchJobsTable)
-        .where(
-          and(
-            deepSearchJobReadScope(c.get("userId")),
-            isNull(deepSearchJobsTable.ideaJobId),
-          ),
-        )
-        .orderBy(
-          desc(deepSearchJobsTable.createdAt),
-          desc(deepSearchJobsTable.deepSearchJobId),
-        )
-        .limit(input.limit)
-        .all()
+      const deepSearchJobs = listDeepSearchJobs(
+        c.get("userId"),
+        input.source,
+        input.limit,
+      )
       return c.json({ deepSearchJobs })
     },
   )

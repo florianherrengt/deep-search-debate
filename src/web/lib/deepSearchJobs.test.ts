@@ -202,6 +202,7 @@ describe("deep search jobs client", () => {
       error: null,
       createdAt: "2026-08-01T12:00:00.000Z",
       completedAt: "2026-08-01T12:01:00.000Z",
+      origin: null,
     }
     const fetchMock = vi
       .fn()
@@ -209,19 +210,73 @@ describe("deep search jobs client", () => {
       .mockResolvedValueOnce(Response.json({ deepSearchJob: job }))
     vi.stubGlobal("fetch", fetchMock)
 
-    const parsedJob = {
+    const parsedListJob = {
       ...job,
       createdAt: new Date(job.createdAt),
       completedAt: new Date(job.completedAt),
     }
-    await expect(getDeepSearchJobs()).resolves.toEqual([parsedJob])
-    await expect(getDeepSearchJob("research-this")).resolves.toEqual(parsedJob)
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/deep-search-jobs", {
-      signal: undefined,
-    })
+    const parsedDetailJob = {
+      deepSearchJobId: "job-id",
+      title: "Research This",
+      slug: "research-this",
+      researchRequest: "Research this",
+      maxSearches: 3,
+      maxResultsPerSearch: 3,
+      maxRounds: 3,
+      status: "completed",
+      error: null,
+      createdAt: new Date(job.createdAt),
+      completedAt: new Date(job.completedAt),
+    }
+    await expect(getDeepSearchJobs("manual")).resolves.toEqual([parsedListJob])
+    await expect(getDeepSearchJob("research-this")).resolves.toEqual(
+      parsedDetailJob,
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/deep-search-jobs?source=manual",
+      { signal: undefined },
+    )
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       "/api/deep-search-jobs/research-this",
+      { signal: undefined },
+    )
+  })
+
+  it("parses the originating debate on automated job list items", async () => {
+    const automatedJob = {
+      deepSearchJobId: "automated-job-id",
+      title: "Automated Search",
+      slug: "automated-search",
+      researchRequest: "Research for a debate",
+      maxSearches: 3,
+      maxResultsPerSearch: 3,
+      maxRounds: 3,
+      status: "completed" as const,
+      error: null,
+      createdAt: "2026-08-01T12:00:00.000Z",
+      completedAt: "2026-08-01T12:01:00.000Z",
+      origin: {
+        kind: "debate" as const,
+        title: "Debate Title",
+        slug: "debate-title",
+      },
+    }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ deepSearchJobs: [automatedJob] }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(getDeepSearchJobs("automated")).resolves.toEqual([
+      {
+        ...automatedJob,
+        createdAt: new Date(automatedJob.createdAt),
+        completedAt: new Date(automatedJob.completedAt),
+      },
+    ])
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/deep-search-jobs?source=automated",
       { signal: undefined },
     )
   })
@@ -240,7 +295,7 @@ describe("deep search jobs client", () => {
       .mockResolvedValueOnce(invalidEvent)
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(getDeepSearchJobs()).rejects.toThrow()
+    await expect(getDeepSearchJobs("manual")).rejects.toThrow()
     await expect(
       drain(subscribeToDeepSearchJob("job-id")),
     ).rejects.toThrow()
@@ -259,16 +314,46 @@ describe("deep search jobs client", () => {
               researchRequest: "Research this",
               maxSearches: 3,
               maxResultsPerSearch: 3,
+              maxRounds: 3,
               status: "running",
               error: null,
               createdAt: "not-a-date",
               completedAt: null,
+              origin: null,
             },
           ],
         }),
       ),
     )
 
-    await expect(getDeepSearchJobs()).rejects.toThrow()
+    await expect(getDeepSearchJobs("manual")).rejects.toThrow()
+  })
+
+  it("rejects list items with an unknown origin kind", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          deepSearchJobs: [
+            {
+              deepSearchJobId: "job-id",
+              title: "Research This",
+              slug: "research-this",
+              researchRequest: "Research this",
+              maxSearches: 3,
+              maxResultsPerSearch: 3,
+              maxRounds: 3,
+              status: "completed",
+              error: null,
+              createdAt: "2026-08-01T12:00:00.000Z",
+              completedAt: "2026-08-01T12:01:00.000Z",
+              origin: { kind: "unknown", title: "X", slug: "x" },
+            },
+          ],
+        }),
+      ),
+    )
+
+    await expect(getDeepSearchJobs("automated")).rejects.toThrow()
   })
 })

@@ -453,6 +453,7 @@ describe("DeepSearch", () => {
     mocks.getDeepSearchJobs.mockResolvedValue([
       {
         ...deepSearchJob(),
+        origin: null,
         researchRequest: "Previously researched topic",
       },
     ])
@@ -463,6 +464,103 @@ describe("DeepSearch", () => {
       await screen.findByRole("link", { name: /Research This/ }),
     ).toHaveAttribute("href", "/deep-search/research-this")
     expect(screen.getByText("Complete")).toBeVisible()
+  })
+
+  it("does not reuse a source-list cache entry for a job with the same slug", async () => {
+    mocks.getDeepSearchJobs.mockResolvedValue([
+      {
+        ...deepSearchJob(),
+        origin: null,
+        slug: "manual",
+      },
+    ])
+    mocks.getDeepSearchJob.mockImplementation(() => new Promise(() => {}))
+
+    renderDeepSearch()
+
+    fireEvent.click(
+      await screen.findByRole("link", { name: /Research This/ }),
+    )
+
+    expect(await screen.findByRole("progressbar")).toBeVisible()
+    expect(mocks.getDeepSearchJob).toHaveBeenCalledWith(
+      "manual",
+      expect.any(AbortSignal),
+    )
+  })
+
+  it("switches between My Searches and Automated with origin links", async () => {
+    mocks.getDeepSearchJobs.mockImplementation((source: string) => {
+      if (source === "automated") {
+        return Promise.resolve([
+          {
+            ...deepSearchJob(),
+            deepSearchJobId: "automated-job-id",
+            title: "Automated Search",
+            slug: "automated-search",
+            researchRequest: "Research for a debate",
+            origin: {
+              kind: "debate" as const,
+              title: "Debate Title",
+              slug: "debate-title",
+            },
+          },
+          {
+            ...deepSearchJob(),
+            deepSearchJobId: "idea-child-id",
+            slug: "idea-child-search",
+            title: "Idea Child Search",
+            researchRequest: "Research for an idea",
+            origin: {
+              kind: "idea" as const,
+              title: "Idea Title",
+              slug: "idea-title",
+            },
+          },
+        ])
+      }
+      return Promise.resolve([
+        { ...deepSearchJob(), researchRequest: "Manual research" },
+      ])
+    })
+
+    renderDeepSearch()
+
+    expect(mocks.getDeepSearchJobs).toHaveBeenCalledWith(
+      "manual",
+      expect.any(AbortSignal),
+    )
+    expect(
+      await screen.findByRole("link", { name: /Research This/ }),
+    ).toHaveAttribute("href", "/deep-search/research-this")
+    expect(screen.getByText("Manual research")).toBeVisible()
+
+    fireEvent.click(screen.getByRole("tab", { name: "Automated" }))
+
+    expect(screen.getByRole("tab", { name: "Automated" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    )
+    const debateOriginLink = await screen.findByRole("link", {
+      name: "From debate: Debate Title",
+    })
+    expect(debateOriginLink).toHaveAttribute("href", "/debates/debate-title")
+    expect(
+      screen.getByRole("link", { name: "From idea: Idea Title" }),
+    ).toHaveAttribute("href", "/ideas/idea-title")
+    const automatedJobLink = screen.getByRole("link", {
+      name: /Automated Search/,
+    })
+    expect(automatedJobLink).toHaveAttribute(
+      "href",
+      "/deep-search/automated-search",
+    )
+    expect(automatedJobLink).not.toContainElement(debateOriginLink)
+    expect(mocks.getDeepSearchJobs).toHaveBeenCalledWith(
+      "automated",
+      expect.any(AbortSignal),
+    )
+    expect(screen.queryByText("Manual research")).not.toBeInTheDocument()
   })
 
   it("reconnects and replays when a job stream ends before done", async () => {

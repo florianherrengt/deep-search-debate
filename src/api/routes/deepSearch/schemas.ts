@@ -21,4 +21,8 @@ export const createDeepSearchJobInputSchema = deepSearchExecutionInputSchema
 
 export const listDeepSearchJobsInputSchema = z.object({
   limit: z.coerce.number().int().positive().max(200).default(100),
+  source: z.enum(["manual", "automated"]).default("manual"),
 })
+export type DeepSearchJobSource = z.infer<
+  typeof listDeepSearchJobsInputSchema
+>["source"]

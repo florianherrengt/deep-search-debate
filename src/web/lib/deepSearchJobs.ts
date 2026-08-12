@@ -106,26 +106,38 @@ const deepSearchJobSchema = z.object({
   completedAt: z.iso.datetime().transform((value) => new Date(value)).nullable(),
 })
 
+const deepSearchJobOriginSchema = z.object({
+  kind: z.enum(["idea", "debate"]),
+  title: z.string().min(1),
+  slug: z.string().min(1),
+})
+
+const deepSearchJobListItemSchema = deepSearchJobSchema.extend({
+  origin: deepSearchJobOriginSchema.nullable(),
+})
+
 const createDeepSearchJobResponseSchema = z.object({
   deepSearchJobId: z.string().min(1),
   slug: z.string().min(1),
 })
 const deepSearchJobsResponseSchema = z.object({
-  deepSearchJobs: z.array(deepSearchJobSchema),
+  deepSearchJobs: z.array(deepSearchJobListItemSchema),
 })
 const deepSearchJobResponseSchema = z.object({
   deepSearchJob: deepSearchJobSchema,
 })
 
 export type DeepSearchJob = z.infer<typeof deepSearchJobSchema>
+export type DeepSearchJobOrigin = z.infer<typeof deepSearchJobOriginSchema>
+export type DeepSearchJobListItem = z.infer<typeof deepSearchJobListItemSchema>
+export type DeepSearchJobSource = "manual" | "automated"
 
 export async function createDeepSearchJob(
   input: CreateDeepSearchJobInput,
   signal?: AbortSignal,
 ): Promise<z.infer<typeof createDeepSearchJobResponseSchema>> {
-  const url = "/api/deep-search-jobs"
   const response = await postJson(
-    url,
+    "/api/deep-search-jobs",
     input,
     createDeepSearchJobResponseSchema,
     signal,
@@ -134,10 +146,11 @@ export async function createDeepSearchJob(
 }
 
 export async function getDeepSearchJobs(
+  source: DeepSearchJobSource,
   signal?: AbortSignal,
-): Promise<DeepSearchJob[]> {
+): Promise<DeepSearchJobListItem[]> {
   const response = await getJson(
-    "/api/deep-search-jobs",
+    `/api/deep-search-jobs?source=${source}`,
     deepSearchJobsResponseSchema,
     signal,
   )

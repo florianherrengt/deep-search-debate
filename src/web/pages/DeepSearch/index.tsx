@@ -1,7 +1,10 @@
 import CircularProgress from "@mui/material/CircularProgress"
 import Stack from "@mui/material/Stack"
+import Tab from "@mui/material/Tab"
+import Tabs from "@mui/material/Tabs"
+import Typography from "@mui/material/Typography"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useNavigate, useParams } from "react-router-dom"
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { JobHistory } from "../../components/JobHistory.tsx"
 import { JobStatusBadge } from "../../components/JobStatusBadge.tsx"
 import { PromptForm } from "../../components/PromptForm.tsx"
@@ -11,6 +14,8 @@ import {
   getDeepSearchJob,
   getDeepSearchJobs,
   type DeepSearchJob,
+  type DeepSearchJobOrigin,
+  type DeepSearchJobSource,
 } from "../../lib/deepSearchJobs.ts"
 import { DeepSearchHeader } from "./components/DeepSearchHeader.tsx"
 import { DeepSearchView } from "./components/DeepSearchView.tsx"
@@ -18,22 +23,66 @@ import { useDeepSearchJob } from "../../lib/useDeepSearchJob.ts"
 
 const deepSearchJobsQueryKey = ["deep-search-jobs"] as const
 
-function DeepSearchHistory() {
+export type DeepSearchServices = {
+  createJob: typeof createDeepSearchJob
+  getJob: typeof getDeepSearchJob
+  getJobs: typeof getDeepSearchJobs
+}
+
+const defaultDeepSearchServices: DeepSearchServices = {
+  createJob: createDeepSearchJob,
+  getJob: getDeepSearchJob,
+  getJobs: getDeepSearchJobs,
+}
+
+function deepSearchJobListQueryKey(source: DeepSearchJobSource) {
+  return [...deepSearchJobsQueryKey, "list", source] as const
+}
+
+function deepSearchJobDetailQueryKey(slug: string) {
+  return [...deepSearchJobsQueryKey, "detail", slug] as const
+}
+
+const automatedSource: DeepSearchJobSource = "automated"
+const manualSource: DeepSearchJobSource = "manual"
+
+function DeepSearchOrigin({ origin }: { origin: DeepSearchJobOrigin }) {
+  const fromDebate = origin.kind === "debate"
+  return (
+    <Link to={fromDebate ? `/debates/${origin.slug}` : `/ideas/${origin.slug}`}>
+      <Typography
+        color="text.secondary"
+        component="span"
+        sx={{ overflowWrap: "anywhere", textDecoration: "underline" }}
+        variant="caption"
+      >
+        {fromDebate ? "From debate: " : "From idea: "}
+        {origin.title}
+      </Typography>
+    </Link>
+  )
+}
+
+function DeepSearchHistory({ services }: { services: DeepSearchServices }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const source: DeepSearchJobSource =
+    searchParams.get("source") === "automated" ? automatedSource : manualSource
   const history = useQuery({
-    queryKey: deepSearchJobsQueryKey,
-    queryFn: ({ signal }) => getDeepSearchJobs(signal),
+    queryKey: deepSearchJobListQueryKey(source),
+    queryFn: ({ signal }) => services.getJobs(source, signal),
   })
   const creation = useMutation({
     mutationFn: (request: string) =>
-      createDeepSearchJob({ researchRequest: request }),
+      services.createJob({ researchRequest: request }),
     onSuccess: ({ slug }) => {
       void queryClient.invalidateQueries({ queryKey: deepSearchJobsQueryKey })
       void navigate(`/deep-search/${slug}`)
     },
   })
 
+  const automated = source === automatedSource
   return (
     <Stack spacing={3}>
       <DeepSearchHeader />
@@ -45,16 +94,32 @@ function DeepSearchHistory() {
       />
       {creation.error && <RequestError error={creation.error} />}
 
+      <Tabs
+        aria-label="Deep search sources"
+        onChange={(_event, value: DeepSearchJobSource) => {
+          setSearchParams(
+            value === automatedSource ? { source: automatedSource } : {},
+          )
+        }}
+        value={source}
+      >
+        <Tab label="My Searches" value={manualSource} />
+        <Tab label="Automated" value={automatedSource} />
+      </Tabs>
+
       <JobHistory
-        emptyMessage="No deep searches yet."
+        emptyMessage={
+          automated ? "No automated searches yet." : "No deep searches yet."
+        }
         error={history.error}
-        heading="Previous searches"
-        headingId="search-history"
+        heading={automated ? "Automated searches" : "Previous searches"}
+        headingId={automated ? "automated-search-history" : "search-history"}
         isPending={history.isPending}
         items={history.data?.map((job) => ({
           createdAt: job.createdAt,
           id: job.deepSearchJobId,
           label: job.title,
+          origin: job.origin ? <DeepSearchOrigin origin={job.origin} /> : undefined,
           prompt: job.researchRequest,
           status: <JobStatusBadge status={job.status} />,
           to: `/deep-search/${job.slug}`,
@@ -76,10 +141,16 @@ function DeepSearchJobContent({ job }: { job: DeepSearchJob }) {
   )
 }
 
-function DeepSearchDetail({ slug }: { slug: string }) {
+function DeepSearchDetail({
+  services,
+  slug,
+}: {
+  services: DeepSearchServices
+  slug: string
+}) {
   const job = useQuery({
-    queryKey: [...deepSearchJobsQueryKey, slug],
-    queryFn: ({ signal }) => getDeepSearchJob(slug, signal),
+    queryKey: deepSearchJobDetailQueryKey(slug),
+    queryFn: ({ signal }) => services.getJob(slug, signal),
   })
 
   if (job.isPending) return <CircularProgress />
@@ -97,10 +168,14 @@ function DeepSearchDetail({ slug }: { slug: string }) {
   return <DeepSearchJobContent job={job.data} />
 }
 
-export function DeepSearch() {
+export function DeepSearch({
+  services = defaultDeepSearchServices,
+}: {
+  services?: DeepSearchServices
+}) {
   const { slug } = useParams<{ slug: string }>()
   if (slug) {
-    return <DeepSearchDetail slug={slug} />
+    return <DeepSearchDetail services={services} slug={slug} />
   }
-  return <DeepSearchHistory />
+  return <DeepSearchHistory services={services} />
 }
