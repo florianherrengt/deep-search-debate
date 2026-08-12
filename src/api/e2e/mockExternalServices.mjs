@@ -381,7 +381,7 @@ function assertThinkingMode(body, system) {
     system.includes("Combine the supplied research texts") ||
     system.includes("You summarize an extracted web page") ||
     system.includes("You summarize the results returned for one web search") ||
-    system.includes("You are the final-answer agent for a deep research run") ||
+    system.includes("You write the current candidate answer for a deep research run") ||
     /debate|opening argument|rebuttal/i.test(system)
   // These bounded prose stages deliberately bypass Flash thinking because it
   // can consume the entire output budget without emitting the required text.
@@ -474,7 +474,7 @@ function deepSeekOutput(body) {
           : "The search found insulation, heating-control, and landlord-permission constraints for London renters.",
     }
   }
-  if (system.includes("You are the final-answer agent for a deep research run")) {
+  if (system.includes("You write the current candidate answer for a deep research run")) {
     const angle = researchAngle(user)
     const text = angle.startsWith("idea-")
       ? `Research specific to Improved Renter Energy Idea ${angle.slice(5)} validates its practical workflow, risks, and measurable pilot criteria.`

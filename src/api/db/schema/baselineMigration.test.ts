@@ -34,6 +34,15 @@ describe("fresh database migration", () => {
         .pluck()
         .get(),
     ).toBe(1)
+    expect(
+      sqlite
+        .prepare("PRAGMA table_info('deep_search_rounds')")
+        .all()
+        .some(
+          (column) =>
+            (column as { name?: unknown }).name === "answer_generation_id",
+        ),
+    ).toBe(true)
     expect(sqlite.pragma("foreign_key_check")).toEqual([])
     expect(sqlite.pragma("integrity_check", { simple: true })).toBe("ok")
 
@@ -43,10 +52,10 @@ describe("fresh database migration", () => {
       .all()
     expect(triggerNames).toEqual(
       expect.arrayContaining([
-        "deep_search_results_web_page_owner_insert",
-        "deep_search_results_web_page_owner_update",
-        "deep_search_results_web_page_url_insert",
-        "deep_search_results_web_page_url_update",
+        "deep_search_results_selected_web_page_owner_insert",
+        "deep_search_results_selected_web_page_owner_update",
+        "deep_search_results_selected_web_page_url_insert",
+        "deep_search_results_selected_web_page_url_update",
         "deep_search_round_structure_immutable",
         "deep_search_query_structure_immutable",
         "deep_search_web_page_identity_immutable",

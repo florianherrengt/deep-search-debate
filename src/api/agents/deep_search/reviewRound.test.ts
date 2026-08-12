@@ -37,6 +37,7 @@ describe("deep-search round review", () => {
       userId: "test-user-id",
       deepSearchJobId: "deep-search-job-id",
       researchRequest: "Research this",
+      candidateAnswer: "The current answer covers the market but not its risks.",
       completedRound: 1,
       maxRounds: 3,
       searchSummaries: [
@@ -71,6 +72,10 @@ describe("deep-search round review", () => {
     expect(call.maxOutputTokens).toBe(1_024)
     expect(call.prompt).toContain("completed_rounds: 2")
     expect(call.prompt).toContain("maximum_rounds: 3")
+    expect(call.prompt).toContain("<candidate_answer>")
+    expect(call.prompt).toContain(
+      "The current answer covers the market but not its risks.",
+    )
     expect(call.prompt).toContain('search_summary round="1"')
     expect(call.prompt).toContain("First findings")
     expect(call.prompt).toContain('search_summary round="2"')
@@ -103,6 +108,7 @@ describe("deep-search round review", () => {
       userId: "test-user-id",
       deepSearchJobId: "deep-search-job-id",
       researchRequest: "Research this",
+      candidateAnswer: "Current answer",
       completedRound: 1,
       maxRounds: 3,
       searchSummaries: [

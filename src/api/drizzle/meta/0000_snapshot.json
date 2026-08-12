@@ -440,6 +440,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "answer_generation_id": {
+          "name": "answer_generation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "review_generation_id": {
           "name": "review_generation_id",
           "type": "text",
@@ -492,6 +499,13 @@
           ],
           "isUnique": true
         },
+        "deep_search_rounds_answer_generation_id_unique": {
+          "name": "deep_search_rounds_answer_generation_id_unique",
+          "columns": [
+            "answer_generation_id"
+          ],
+          "isUnique": true
+        },
         "deep_search_rounds_review_generation_id_unique": {
           "name": "deep_search_rounds_review_generation_id_unique",
           "columns": [
@@ -528,6 +542,19 @@
           "tableTo": "llm_generations",
           "columnsFrom": [
             "llm_generation_id"
+          ],
+          "columnsTo": [
+            "llm_generation_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "deep_search_rounds_answer_generation_id_llm_generations_llm_generation_id_fk": {
+          "name": "deep_search_rounds_answer_generation_id_llm_generations_llm_generation_id_fk",
+          "tableFrom": "deep_search_rounds",
+          "tableTo": "llm_generations",
+          "columnsFrom": [
+            "answer_generation_id"
           ],
           "columnsTo": [
             "llm_generation_id"
@@ -611,8 +638,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "deep_search_web_page_id": {
-          "name": "deep_search_web_page_id",
+        "selected_web_page_id": {
+          "name": "selected_web_page_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -636,10 +663,10 @@
           ],
           "isUnique": true
         },
-        "deep_search_results_web_page_id_idx": {
-          "name": "deep_search_results_web_page_id_idx",
+        "deep_search_results_selected_web_page_id_idx": {
+          "name": "deep_search_results_selected_web_page_id_idx",
           "columns": [
-            "deep_search_web_page_id"
+            "selected_web_page_id"
           ],
           "isUnique": false
         }
@@ -658,12 +685,12 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "deep_search_results_deep_search_web_page_id_deep_search_web_pages_deep_search_web_page_id_fk": {
-          "name": "deep_search_results_deep_search_web_page_id_deep_search_web_pages_deep_search_web_page_id_fk",
+        "deep_search_results_selected_web_page_id_deep_search_web_pages_deep_search_web_page_id_fk": {
+          "name": "deep_search_results_selected_web_page_id_deep_search_web_pages_deep_search_web_page_id_fk",
           "tableFrom": "deep_search_results",
           "tableTo": "deep_search_web_pages",
           "columnsFrom": [
-            "deep_search_web_page_id"
+            "selected_web_page_id"
           ],
           "columnsTo": [
             "deep_search_web_page_id"

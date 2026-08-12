@@ -78,6 +78,11 @@ export const deepSearchRoundsRelations = relations(
       references: [llmGenerations.llmGenerationId],
       relationName: "deepSearchRoundQueryGeneration",
     }),
+    answerGeneration: one(llmGenerations, {
+      fields: [deepSearchRounds.answerGenerationId],
+      references: [llmGenerations.llmGenerationId],
+      relationName: "deepSearchRoundAnswerGeneration",
+    }),
     reviewGeneration: one(llmGenerations, {
       fields: [deepSearchRounds.reviewGenerationId],
       references: [llmGenerations.llmGenerationId],
@@ -156,7 +161,7 @@ export const deepSearchResultsRelations = relations(
       references: [deepSearchQueries.deepSearchQueryId],
     }),
     webPage: one(deepSearchWebPages, {
-      fields: [deepSearchResults.deepSearchWebPageId],
+      fields: [deepSearchResults.selectedWebPageId],
       references: [deepSearchWebPages.deepSearchWebPageId],
     }),
   }),

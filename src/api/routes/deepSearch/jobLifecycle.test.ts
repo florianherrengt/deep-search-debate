@@ -4,17 +4,20 @@ import { db } from "../../db/index.ts"
 import {
   deepSearchJobs,
   deepSearchQueries,
+  deepSearchRounds,
   deepSearchWebPages,
   llmGenerations,
 } from "../../db/schema/index.ts"
 import {
   completeDeepSearchJob,
   failDeepSearchJob,
+  promoteRoundAnswer,
 } from "./jobLifecycle.ts"
 import {
   attachFinalAnswerGeneration,
   createSearchRound,
   attachQuerySummaryGeneration,
+  attachRoundAnswerGeneration,
   attachSelectionGeneration,
   completeQuerySummaryGeneration,
   savePlannedQueries,
@@ -227,6 +230,56 @@ describe("deep-search job lifecycle", () => {
         .where(eq(deepSearchJobs.deepSearchJobId, jobId))
         .get(),
     ).toEqual({ status: "running" })
+  })
+
+  it("promotes a completed round answer without copying its output", () => {
+    const jobId = crypto.randomUUID()
+    const queryGenerationId = crypto.randomUUID()
+    const answerGenerationId = crypto.randomUUID()
+    insertJob(jobId)
+    insertGeneration(jobId, queryGenerationId)
+    insertGeneration(jobId, answerGenerationId)
+    completeGeneration(queryGenerationId, '["stable query"]')
+    completeGeneration(answerGenerationId, "Candidate answer")
+    const round = createSearchRound({
+      jobId,
+      position: 0,
+      generationId: queryGenerationId,
+    })
+    db.transaction((transaction) => {
+      attachRoundAnswerGeneration(transaction, {
+        jobId,
+        roundId: round.roundId,
+        generationId: answerGenerationId,
+      })
+    })
+
+    promoteRoundAnswer({
+      jobId,
+      roundId: round.roundId,
+      generationId: answerGenerationId,
+    })
+
+    expect(
+      db
+        .select({
+          status: deepSearchJobs.status,
+          finalAnswerGenerationId: deepSearchJobs.finalAnswerGenerationId,
+        })
+        .from(deepSearchJobs)
+        .where(eq(deepSearchJobs.deepSearchJobId, jobId))
+        .get(),
+    ).toEqual({
+      status: "completed",
+      finalAnswerGenerationId: answerGenerationId,
+    })
+    expect(
+      db
+        .select({ answerGenerationId: deepSearchRounds.answerGenerationId })
+        .from(deepSearchRounds)
+        .where(eq(deepSearchRounds.deepSearchRoundId, round.roundId))
+        .get(),
+    ).toEqual({ answerGenerationId })
   })
 
   it("fails all active work with one error and completion timestamp", () => {

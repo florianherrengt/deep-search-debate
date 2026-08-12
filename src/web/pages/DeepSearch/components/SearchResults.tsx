@@ -8,11 +8,12 @@ type SearchResultsProps = {
 
 export function SearchResults({ searches }: SearchResultsProps) {
   if (searches.length === 0) return null
+  const sectionId = `research-results-${searches[0]?.round ?? 0}`
 
   return (
-    <Stack component="section" spacing={2} aria-labelledby="research-results">
+    <Stack component="section" spacing={2} aria-labelledby={sectionId}>
       <Stack spacing={0.5}>
-        <Typography id="research-results" component="h2" variant="h5">
+        <Typography id={sectionId} component="h4" variant="h5">
           Research results
         </Typography>
         <Typography color="text.secondary">

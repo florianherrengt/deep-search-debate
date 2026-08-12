@@ -156,12 +156,12 @@ table deep_search_results {
   title text [not null]
   short_text text [not null]
   url text [not null]
-  deep_search_web_page_id text
+  selected_web_page_id text
   created_at integer [not null, default: `(cast(unixepoch('subsecond') * 1000 as integer))`]
 
   indexes {
     (deep_search_query_id, position) [name: 'deep_search_results_query_position_idx', unique]
-    deep_search_web_page_id [name: 'deep_search_results_web_page_id_idx']
+    selected_web_page_id [name: 'deep_search_results_selected_web_page_id_idx']
 
 
   }
@@ -172,6 +172,7 @@ table deep_search_rounds {
   deep_search_job_id text [not null]
   position integer [not null, default: 0]
   llm_generation_id text [not null, unique]
+  answer_generation_id text [unique]
   review_generation_id text [unique]
   review_decision text
   review_reason text
@@ -375,11 +376,13 @@ ref deep_search_queries_summary_generation_id_llm_generations_llm_generation_id_
 
 ref deep_search_results_deep_search_query_id_deep_search_queries_deep_search_query_id_fk: deep_search_results.deep_search_query_id > deep_search_queries.deep_search_query_id [delete: cascade, update: no action]
 
-ref deep_search_results_deep_search_web_page_id_deep_search_web_pages_deep_search_web_page_id_fk: deep_search_results.deep_search_web_page_id > deep_search_web_pages.deep_search_web_page_id [delete: no action, update: no action]
+ref deep_search_results_selected_web_page_id_deep_search_web_pages_deep_search_web_page_id_fk: deep_search_results.selected_web_page_id > deep_search_web_pages.deep_search_web_page_id [delete: no action, update: no action]
 
 ref deep_search_rounds_deep_search_job_id_deep_search_jobs_deep_search_job_id_fk: deep_search_rounds.deep_search_job_id > deep_search_jobs.deep_search_job_id [delete: cascade, update: no action]
 
 ref deep_search_rounds_llm_generation_id_llm_generations_llm_generation_id_fk: deep_search_rounds.llm_generation_id > llm_generations.llm_generation_id [delete: no action, update: no action]
+
+ref deep_search_rounds_answer_generation_id_llm_generations_llm_generation_id_fk: deep_search_rounds.answer_generation_id > llm_generations.llm_generation_id [delete: no action, update: no action]
 
 ref deep_search_rounds_review_generation_id_llm_generations_llm_generation_id_fk: deep_search_rounds.review_generation_id > llm_generations.llm_generation_id [delete: no action, update: no action]
 

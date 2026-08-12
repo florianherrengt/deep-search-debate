@@ -27,7 +27,12 @@ type DeepSearchQueryGenerationState = {
   streamId: string
 }
 
-type DeepSearchRoundReviewState = {
+type DeepSearchRoundAnswerState = {
+  round: number
+  streamId: string
+}
+
+export type DeepSearchRoundReviewState = {
   round: number
   streamId?: string
   status: "running" | "continue" | "stop" | "error"
@@ -37,6 +42,7 @@ type DeepSearchRoundReviewState = {
 export type DeepSearchRunState = {
   status: "idle" | "running" | "completed" | "failed"
   queryGenerations: DeepSearchQueryGenerationState[]
+  roundAnswers: DeepSearchRoundAnswerState[]
   roundReviews: DeepSearchRoundReviewState[]
   finalAnswerStreamId: string | null
   searches: DeepSearchSearchState[]
@@ -46,6 +52,7 @@ export type DeepSearchRunState = {
 export const initialDeepSearchState: DeepSearchRunState = {
   status: "idle",
   queryGenerations: [],
+  roundAnswers: [],
   roundReviews: [],
   finalAnswerStreamId: null,
   searches: [],
@@ -172,6 +179,16 @@ export const deepSearchReducer = produce<
       if (search) search.querySummaryStreamId = action.streamId
       break
     }
+    case "round-answer-stream":
+      state.roundAnswers = state.roundAnswers.filter(
+        ({ round }) => round !== action.round,
+      )
+      state.roundAnswers.push({
+        round: action.round,
+        streamId: action.streamId,
+      })
+      state.roundAnswers.sort((first, second) => first.round - second.round)
+      break
     case "round-review-stream": {
       const review = findReview(state, action.round)
       if (review) {

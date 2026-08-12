@@ -14,6 +14,7 @@ import {
   attachPageSummaryGeneration,
   createSearchRound,
   attachQuerySummaryGeneration,
+  attachRoundAnswerGeneration,
   attachRoundReviewGeneration,
   attachSelectionGeneration,
   completeEmptySearchQuery,
@@ -281,7 +282,7 @@ describe("deep-search store", () => {
         )
         .get(),
     ).toMatchObject({
-      deepSearchWebPageId: page.pageId,
+      selectedWebPageId: page.pageId,
     })
     expect(
       db
@@ -579,7 +580,7 @@ describe("deep-search store", () => {
     expect(
       db.select().from(deepSearchResults).all().map((result) => ({
         id: result.deepSearchResultId,
-        selected: result.deepSearchWebPageId !== null,
+        selected: result.selectedWebPageId !== null,
       })),
     ).toEqual([
       { id: query.results[0].resultId, selected: true },
@@ -774,6 +775,49 @@ describe("deep-search store", () => {
       reviewReason: "A source gap remains.",
     })
     expect(storedRound?.reviewCompletedAt).toBeInstanceOf(Date)
+  })
+
+  it("attaches one candidate answer generation to a stable round", () => {
+    const deepSearchJobId = crypto.randomUUID()
+    const queryGenerationId = crypto.randomUUID()
+    const answerGenerationId = crypto.randomUUID()
+    const replacementGenerationId = crypto.randomUUID()
+    insertJob(deepSearchJobId)
+    insertGenerations(deepSearchJobId, [
+      queryGenerationId,
+      answerGenerationId,
+      replacementGenerationId,
+    ])
+    const round = createSearchRound({
+      jobId: deepSearchJobId,
+      position: 0,
+      generationId: queryGenerationId,
+    })
+
+    db.transaction((transaction) => {
+      attachRoundAnswerGeneration(transaction, {
+        jobId: deepSearchJobId,
+        roundId: round.roundId,
+        generationId: answerGenerationId,
+      })
+    })
+
+    expect(
+      db
+        .select({ answerGenerationId: deepSearchRounds.answerGenerationId })
+        .from(deepSearchRounds)
+        .where(eq(deepSearchRounds.deepSearchRoundId, round.roundId))
+        .get(),
+    ).toEqual({ answerGenerationId })
+    expect(() =>
+      db.transaction((transaction) => {
+        attachRoundAnswerGeneration(transaction, {
+          jobId: deepSearchJobId,
+          roundId: round.roundId,
+          generationId: replacementGenerationId,
+        })
+      }),
+    ).toThrow("Deep-search round answer is already registered")
   })
 
   it("does not replace an already attached round review generation", () => {

@@ -25,6 +25,7 @@ type StartRoundReviewInput = {
   userId: string
   deepSearchJobId: string
   researchRequest: string
+  candidateAnswer: string
   completedRound: number
   maxRounds: number
   searchSummaries: SearchSummary[]
@@ -56,6 +57,9 @@ export async function startRoundReview(
       "<user_request>",
       input.researchRequest,
       "</user_request>",
+      "<candidate_answer>",
+      input.candidateAnswer,
+      "</candidate_answer>",
       `completed_rounds: ${input.completedRound + 1}`,
       `maximum_rounds: ${input.maxRounds}`,
       "<search_summaries>",

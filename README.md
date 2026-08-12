@@ -4,7 +4,7 @@ An npm workspaces monorepo with a Hono API and a Vite/React web client.
 
 ## Requirements
 
-- Node.js 26 or newer
+- Node.js 26 or newer (`nvm use` selects the repository version from `.nvmrc`)
 - A running SearXNG instance for local development
 - A GitHub OAuth app
 
@@ -109,7 +109,14 @@ All workflows additionally share a process-wide LLM queue configured by
 `LLM_MAX_CONCURRENT_GENERATIONS`; a permit covers SDK retries and remains held
 until durable terminal persistence settles.
 
-Install dependencies with `npm install`.
+Select the repository's Node version before installing dependencies. This is
+required because `better-sqlite3` contains a Node-version-specific native
+binary:
+
+```sh
+nvm use
+npm install
+```
 
 Start the local SearXNG dependency with:
 

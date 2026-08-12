@@ -8,7 +8,7 @@ normalized typed tables at stage boundaries. There is no JSON snapshot or
 database event log.
 
 For a conceptual walkthrough of query generation, result selection, page
-extraction, layered summarization, and final synthesis, see
+extraction, layered summarization, candidate review, and answer promotion, see
 [How deep search works](deep-search-pipeline.md).
 
 Closing a browser tab does not stop a job. While it is running, reopening its URL in the same API process replays the exact retained live feed. Jobs with a durable terminal state evict that in-memory log and reconstruct reducer-compatible state from normalized rows and persisted LLM output. A closed log is retained when terminal persistence fails.
@@ -93,35 +93,40 @@ Each non-empty completed search round emits:
 3. `page-summary-stream` or `page-summary-error` per unique selected URL. Page
    work is job-wide and a URL is never extracted twice across rounds.
 4. `query-summary-stream` per executed query, keyed by `round` and query.
-5. Unless the hard round limit has been reached, `round-review-stream` followed
+5. `round-answer-stream`, keyed by `round`, for the candidate synthesized from
+   every query summary accumulated so far.
+6. Unless the hard round limit has been reached, `round-review-stream` followed
    by either `round-review` (`continue` or `stop`) or `round-review-error`.
 
-`continue` starts the next numbered round. `stop`, review failure, an empty new
-query list, or the hard round limit ends exploration. The terminal sequence is:
+`continue` starts the next numbered round using the previous candidate and
+review reason as additional planning context. `stop`, review failure, or the
+hard round limit promotes the current candidate. The terminal sequence is:
 
-1. `final-answer-stream` after every accumulated query summary completes.
+1. `final-answer-stream` referencing the same stream ID as the promoted
+   `round-answer-stream`.
 2. Optional job-level `error`, then `done`.
 
-The final-answer agent receives the original research request and a bounded
+Each candidate-answer call receives the original research request and a bounded
 in-memory projection of every completed query-level summary from every round.
 Full summaries remain durable; when their combined prompt representation would
 exceed the configured character budget, each keeps an equal serialized slot
 with middle omission markers. The same projection feeds next-round planning and
 round review, and executed queries are not serialized a second time outside
-their labeled summaries. The final generation's terminal
-transaction verifies every planned query has a completed row, verifies the
-final generation's persisted text, and marks the job
-completed. Page-summary failures stay attached to their web-page row and fall
-back to search snippets; a query-summary, final-answer, or wider pipeline
-failure marks the job failed.
+their labeled summaries. Promotion verifies every planned query has a completed
+row, verifies the candidate generation's persisted text, attaches it as the
+job's final answer, and marks the job completed in one transaction.
+Page-summary failures stay attached to their web-page row and fall back to
+search snippets; a query-summary, candidate-answer, or wider pipeline failure
+marks the job failed.
 
 Internally, model-backed stages return their stream ID, durable completion, and
 typed result separately. Deep-search orchestration awaits those handles rather
 than subscribing to `/api/streams`; the public stream remains solely a live and
-replayable presentation interface. Page, query, and final job completion commit
-inside the same transaction as the corresponding generation outcome. The
-runner therefore does not scan linked generations or reread the final answer;
-it returns the text whose completion transaction already committed.
+replayable presentation interface. Page and query completion commit inside the
+same transaction as the corresponding generation outcome. A candidate answer
+becomes durable before review; a later transaction promotes that already
+completed generation and marks the job completed. The runner returns the same
+candidate text without a second model call or copied output.
 
 `routes/deepSearch/pipeline.ts` is the single workflow coordinator: it owns the
 bounded round loop, stage ordering, fallback decisions, URL deduplication, and
@@ -153,15 +158,15 @@ The failure policy is:
 | Result selection | Query and job fail; extraction does not start | Parent fails |
 | Page extraction | Page fails at `extraction`; the query uses its search snippet | Parent accepts the completed child |
 | Page-summary registration or generation | Page fails at `summary`; the query uses its search snippet and the standalone job may complete | Parent rejects the child through its stricter model-generation quality gate |
-| Query summary | Query and job fail; final-answer generation does not start | Parent fails |
-| Round review | Exploration stops and final synthesis uses the evidence already collected | Parent accepts the completed child |
-| Final answer | Job fails | Parent fails |
+| Query summary | Query and job fail; candidate-answer generation does not start | Parent fails |
+| Candidate answer | Job fails | Parent fails |
+| Round review | Exploration stops and the current candidate is promoted | Parent accepts the completed child |
 | Terminal database persistence | The live feed emits `error` then `done` and remains retained; restart recovery later interrupts any still-running durable row | Parent fails |
 
-An empty validated query list is not a failure. In the first round it skips all
-retrieval work and asks the final-answer agent to answer from an empty summary
-list. In a later round it ends exploration and synthesizes the evidence from
-earlier rounds. Empty rounds publish and replay their `query-stream`, but do not
+An empty validated query list is not a failure. It skips retrieval work for
+that round and asks the candidate-answer agent to answer from the accumulated
+summary list, which may be empty in round one. Empty rounds publish and replay
+their `query-stream`, but do not
 fabricate an empty `search-results` event because no web-search batch completed.
 
 Search-provider rows without a non-empty title, snippet, or public extractable
@@ -206,14 +211,15 @@ command commits. Job lifecycle writes remain in `jobLifecycle.ts`.
   optional parent-scoped position for idea-pipeline searches.
 - The same row owns the generated title and slug used for history and browser
   navigation. They have no update route.
-- `deep_search_rounds` stores one ordered round, links its query-plan
-  generation, and stores its optional review generation and terminal
-  continuation decision.
+- `deep_search_rounds` stores one ordered round, links its query-plan and
+  candidate-answer generations, and stores its optional review generation and
+  terminal continuation decision.
 - `deep_search_queries` stores each ordered planned query before web search and
   carries that same stable ID through search, selection, and synthesis.
-- `deep_search_results` stores ordered web-search results. A non-null page link
-  is the selected-result fact; rejected and pending presentation state is
-  rebuilt from that link and the owning query lifecycle. Selection-generation
+- `deep_search_results` stores ordered web-search results. A non-null
+  `selected_web_page_id` is the selected-result fact and links to the job-wide
+  deduplicated page; rejected and pending presentation state is rebuilt from
+  that link and the owning query lifecycle. Selection-generation
   attachment and result-link commit are one-shot compare-and-swap transitions,
   so a retry cannot rewrite replay history or orphan an earlier selected page.
 - `deep_search_web_pages` deduplicates selected URLs within a job and links page-summary generation.
@@ -236,8 +242,8 @@ completed queries to have selection and summary generations, completed pages to
 have a summary generation, and selected results to have a page. Active and
 terminal timestamp/error fields cannot be mixed. Page-summary and query-summary
 generation registration, success, and failure update both sides of each
-relationship transactionally. Final-generation completion and successful job
-completion are one transaction. Fatal cleanup marks every nonterminal query and
+relationship transactionally. Candidate promotion and successful job
+completion are one transaction after that generation completes. Fatal cleanup marks every nonterminal query and
 page plus the job failed using one root error and one completion timestamp in a
 separate transaction.
 

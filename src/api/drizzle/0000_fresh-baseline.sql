@@ -94,6 +94,7 @@ CREATE TABLE `deep_search_rounds` (
 	`deep_search_job_id` text NOT NULL,
 	`position` integer DEFAULT 0 NOT NULL,
 	`llm_generation_id` text NOT NULL,
+	`answer_generation_id` text,
 	`review_generation_id` text,
 	`review_decision` text,
 	`review_reason` text,
@@ -102,6 +103,7 @@ CREATE TABLE `deep_search_rounds` (
 	`created_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
 	FOREIGN KEY (`deep_search_job_id`) REFERENCES `deep_search_jobs`(`deep_search_job_id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`llm_generation_id`) REFERENCES `llm_generations`(`llm_generation_id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`answer_generation_id`) REFERENCES `llm_generations`(`llm_generation_id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`review_generation_id`) REFERENCES `llm_generations`(`llm_generation_id`) ON UPDATE no action ON DELETE no action,
 	CONSTRAINT "deep_search_rounds_position_check" CHECK("deep_search_rounds"."position" >= 0),
 	CONSTRAINT "deep_search_rounds_review_decision_check" CHECK("deep_search_rounds"."review_decision" is null or "deep_search_rounds"."review_decision" in ('continue', 'stop')),
@@ -117,6 +119,7 @@ CREATE TABLE `deep_search_rounds` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `deep_search_rounds_llm_generation_id_unique` ON `deep_search_rounds` (`llm_generation_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `deep_search_rounds_answer_generation_id_unique` ON `deep_search_rounds` (`answer_generation_id`);--> statement-breakpoint
 CREATE UNIQUE INDEX `deep_search_rounds_review_generation_id_unique` ON `deep_search_rounds` (`review_generation_id`);--> statement-breakpoint
 CREATE UNIQUE INDEX `deep_search_rounds_job_position_idx` ON `deep_search_rounds` (`deep_search_job_id`,`position`);--> statement-breakpoint
 CREATE TABLE `deep_search_results` (
@@ -126,16 +129,16 @@ CREATE TABLE `deep_search_results` (
 	`title` text NOT NULL,
 	`short_text` text NOT NULL,
 	`url` text NOT NULL,
-	`deep_search_web_page_id` text,
+	`selected_web_page_id` text,
 	`created_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
 	FOREIGN KEY (`deep_search_query_id`) REFERENCES `deep_search_queries`(`deep_search_query_id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`deep_search_web_page_id`) REFERENCES `deep_search_web_pages`(`deep_search_web_page_id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`selected_web_page_id`) REFERENCES `deep_search_web_pages`(`deep_search_web_page_id`) ON UPDATE no action ON DELETE no action,
 	CONSTRAINT "deep_search_results_position_check" CHECK("deep_search_results"."position" >= 0),
 	CONSTRAINT "deep_search_results_content_check" CHECK(length(trim("deep_search_results"."title")) > 0 and length(trim("deep_search_results"."short_text")) > 0 and length(trim("deep_search_results"."url")) > 0)
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `deep_search_results_query_position_idx` ON `deep_search_results` (`deep_search_query_id`,`position`);--> statement-breakpoint
-CREATE INDEX `deep_search_results_web_page_id_idx` ON `deep_search_results` (`deep_search_web_page_id`);--> statement-breakpoint
+CREATE INDEX `deep_search_results_selected_web_page_id_idx` ON `deep_search_results` (`selected_web_page_id`);--> statement-breakpoint
 CREATE TABLE `deep_search_web_pages` (
 	`deep_search_web_page_id` text PRIMARY KEY NOT NULL,
 	`deep_search_job_id` text NOT NULL,
@@ -428,9 +431,9 @@ CREATE TABLE `verification` (
 --> statement-breakpoint
 CREATE INDEX `verification_identifier_idx` ON `verification` (`identifier`);
 --> statement-breakpoint
-CREATE TRIGGER `deep_search_results_web_page_owner_insert`
+CREATE TRIGGER `deep_search_results_selected_web_page_owner_insert`
 BEFORE INSERT ON `deep_search_results`
-WHEN NEW.`deep_search_web_page_id` IS NOT NULL
+WHEN NEW.`selected_web_page_id` IS NOT NULL
 AND NOT EXISTS (
 	SELECT 1
 	FROM `deep_search_web_pages`
@@ -438,16 +441,16 @@ AND NOT EXISTS (
 		ON `deep_search_queries`.`deep_search_query_id` = NEW.`deep_search_query_id`
 	INNER JOIN `deep_search_rounds`
 		ON `deep_search_rounds`.`deep_search_round_id` = `deep_search_queries`.`deep_search_round_id`
-	WHERE `deep_search_web_pages`.`deep_search_web_page_id` = NEW.`deep_search_web_page_id`
+	WHERE `deep_search_web_pages`.`deep_search_web_page_id` = NEW.`selected_web_page_id`
 		AND `deep_search_web_pages`.`deep_search_job_id` = `deep_search_rounds`.`deep_search_job_id`
 )
 BEGIN
 	SELECT RAISE(ABORT, 'selected result page must belong to the query deep-search job');
 END;
 --> statement-breakpoint
-CREATE TRIGGER `deep_search_results_web_page_owner_update`
-BEFORE UPDATE OF `deep_search_query_id`, `deep_search_web_page_id` ON `deep_search_results`
-WHEN NEW.`deep_search_web_page_id` IS NOT NULL
+CREATE TRIGGER `deep_search_results_selected_web_page_owner_update`
+BEFORE UPDATE OF `deep_search_query_id`, `selected_web_page_id` ON `deep_search_results`
+WHEN NEW.`selected_web_page_id` IS NOT NULL
 AND NOT EXISTS (
 	SELECT 1
 	FROM `deep_search_web_pages`
@@ -455,33 +458,33 @@ AND NOT EXISTS (
 		ON `deep_search_queries`.`deep_search_query_id` = NEW.`deep_search_query_id`
 	INNER JOIN `deep_search_rounds`
 		ON `deep_search_rounds`.`deep_search_round_id` = `deep_search_queries`.`deep_search_round_id`
-	WHERE `deep_search_web_pages`.`deep_search_web_page_id` = NEW.`deep_search_web_page_id`
+	WHERE `deep_search_web_pages`.`deep_search_web_page_id` = NEW.`selected_web_page_id`
 		AND `deep_search_web_pages`.`deep_search_job_id` = `deep_search_rounds`.`deep_search_job_id`
 )
 BEGIN
 	SELECT RAISE(ABORT, 'selected result page must belong to the query deep-search job');
 END;
 --> statement-breakpoint
-CREATE TRIGGER `deep_search_results_web_page_url_insert`
+CREATE TRIGGER `deep_search_results_selected_web_page_url_insert`
 BEFORE INSERT ON `deep_search_results`
-WHEN NEW.`deep_search_web_page_id` IS NOT NULL
+WHEN NEW.`selected_web_page_id` IS NOT NULL
 AND NOT EXISTS (
 	SELECT 1
 	FROM `deep_search_web_pages`
-	WHERE `deep_search_web_pages`.`deep_search_web_page_id` = NEW.`deep_search_web_page_id`
+	WHERE `deep_search_web_pages`.`deep_search_web_page_id` = NEW.`selected_web_page_id`
 		AND `deep_search_web_pages`.`url` = NEW.`url`
 )
 BEGIN
 	SELECT RAISE(ABORT, 'selected result page must match the result URL');
 END;
 --> statement-breakpoint
-CREATE TRIGGER `deep_search_results_web_page_url_update`
-BEFORE UPDATE OF `deep_search_web_page_id`, `url` ON `deep_search_results`
-WHEN NEW.`deep_search_web_page_id` IS NOT NULL
+CREATE TRIGGER `deep_search_results_selected_web_page_url_update`
+BEFORE UPDATE OF `selected_web_page_id`, `url` ON `deep_search_results`
+WHEN NEW.`selected_web_page_id` IS NOT NULL
 AND NOT EXISTS (
 	SELECT 1
 	FROM `deep_search_web_pages`
-	WHERE `deep_search_web_pages`.`deep_search_web_page_id` = NEW.`deep_search_web_page_id`
+	WHERE `deep_search_web_pages`.`deep_search_web_page_id` = NEW.`selected_web_page_id`
 		AND `deep_search_web_pages`.`url` = NEW.`url`
 )
 BEGIN

@@ -79,6 +79,11 @@ describe("deep search jobs client", () => {
             streamId: "query-summary-stream-id",
           },
           {
+            type: "round-answer-stream",
+            round: 0,
+            streamId: "final-answer-stream-id",
+          },
+          {
             type: "round-review-stream",
             round: 0,
             streamId: "review-stream-id",
@@ -132,6 +137,11 @@ describe("deep search jobs client", () => {
         round: 0,
         query: "test query",
         streamId: "query-summary-stream-id",
+      },
+      {
+        type: "round-answer-stream",
+        round: 0,
+        streamId: "final-answer-stream-id",
       },
       {
         type: "round-review-stream",

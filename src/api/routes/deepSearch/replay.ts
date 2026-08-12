@@ -114,7 +114,7 @@ export function reconstructDeepSearchJobEvents(
                     query: query.query,
                     selectedLinks: results
                       .filter(
-                        (result) => result.deepSearchWebPageId !== null,
+                        (result) => result.selectedWebPageId !== null,
                       )
                       .map((result) => result.url),
                   },
@@ -206,6 +206,15 @@ export function reconstructDeepSearchJobEvents(
           ]
         : [],
     )
+    const answerEvents: DeepSearchJobEvent[] = round.answerGenerationId
+      ? [
+          {
+            type: "round-answer-stream",
+            round: round.position,
+            streamId: round.answerGenerationId,
+          },
+        ]
+      : []
     const reviewStreamEvents: DeepSearchJobEvent[] = round.reviewGenerationId
       ? [
           {
@@ -234,7 +243,12 @@ export function reconstructDeepSearchJobEvents(
               },
             ]
           : []
-    return [...summaryEvents, ...reviewStreamEvents, ...reviewOutcomeEvents]
+    return [
+      ...summaryEvents,
+      ...answerEvents,
+      ...reviewStreamEvents,
+      ...reviewOutcomeEvents,
+    ]
   })
 
   const finalAnswerEvents: DeepSearchJobEvent[] = job.finalAnswerGenerationId

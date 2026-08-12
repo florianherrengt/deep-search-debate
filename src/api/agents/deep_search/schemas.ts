@@ -34,6 +34,7 @@ export type DeepSearchEvent =
       query: string
       streamId: string
     }
+  | { type: "round-answer-stream"; round: number; streamId: string }
   | { type: "round-review-stream"; round: number; streamId: string }
   | {
       type: "round-review"

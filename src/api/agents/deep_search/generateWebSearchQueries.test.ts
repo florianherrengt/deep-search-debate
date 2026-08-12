@@ -104,6 +104,9 @@ describe("generateWebSearchQueries", () => {
       previousSearchSummaries: [
         { query: "first query", content: "Existing findings" },
       ],
+      previousCandidateAnswer: "The current answer does not cover regulation.",
+      previousReviewReason:
+        "The next round should find an authoritative regulatory source.",
     })
 
     await expect(generation.queries).resolves.toEqual(["new evidence query"])
@@ -117,6 +120,14 @@ describe("generateWebSearchQueries", () => {
     expect(call.prompt).toContain("<search_summary>")
     expect(call.prompt).toContain("first query")
     expect(call.prompt).toContain("Existing findings")
+    expect(call.prompt).toContain("<previous_candidate_answer>")
+    expect(call.prompt).toContain(
+      "The current answer does not cover regulation.",
+    )
+    expect(call.prompt).toContain("<previous_review_reason>")
+    expect(call.prompt).toContain(
+      "The next round should find an authoritative regulatory source.",
+    )
     expect(call.prompt).toContain("Generate exactly 3 new search queries")
   })
 

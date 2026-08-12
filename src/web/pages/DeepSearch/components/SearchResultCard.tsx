@@ -39,7 +39,7 @@ export function SearchResultCard({ result }: SearchResultCardProps) {
         spacing={1}
         sx={{ justifyContent: "space-between", alignItems: { sm: "flex-start" } }}
       >
-        <Typography component="h5" variant="subtitle1">
+        <Typography component="div" variant="subtitle1">
           <Link href={result.link} target="_blank" rel="noreferrer">
             {result.title}
           </Link>

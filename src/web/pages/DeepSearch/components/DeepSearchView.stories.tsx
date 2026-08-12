@@ -3,9 +3,14 @@ import type { Meta, StoryObj } from "@storybook/react"
 import { TextStreamProvider } from "../../../components/streaming/useTextStream.ts"
 import {
   completedRun,
+  moreResearchRequestedRun,
+  refinedAnswerRun,
   researchRequest,
+  reviewFailureRun,
+  reviewingEvidenceRun,
   streamingPageSummariesRun,
   subscribeToStoryStream,
+  sufficientEvidenceRun,
 } from "./DeepSearchView.fixture.ts"
 import { DeepSearchView } from "./DeepSearchView.tsx"
 
@@ -41,5 +46,40 @@ export const WithStreamingPageSummaries: Story = {
   args: {
     ...WithSearchResults.args,
     run: streamingPageSummariesRun,
+  },
+}
+
+export const WhileReviewingEvidence: Story = {
+  args: {
+    ...WithSearchResults.args,
+    run: reviewingEvidenceRun,
+  },
+}
+
+export const WithMoreResearchRequested: Story = {
+  args: {
+    ...WithSearchResults.args,
+    run: moreResearchRequestedRun,
+  },
+}
+
+export const AfterAnotherResearchRound: Story = {
+  args: {
+    ...WithSearchResults.args,
+    run: refinedAnswerRun,
+  },
+}
+
+export const WithSufficientEvidence: Story = {
+  args: {
+    ...WithSearchResults.args,
+    run: sufficientEvidenceRun,
+  },
+}
+
+export const WithReviewFailureFallback: Story = {
+  args: {
+    ...WithSearchResults.args,
+    run: reviewFailureRun,
   },
 }

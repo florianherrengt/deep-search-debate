@@ -1,5 +1,4 @@
 import type { Response } from "@playwright/test"
-import z from "zod"
 
 import { expect, test } from "./fixtures.ts"
 import type { DeepSearchJobEvent } from "../lib/deepSearchJobs.ts"
@@ -11,10 +10,6 @@ function parseEvents<Event>(body: string): Event[] {
     .filter((line) => line.trim())
     .map((line) => JSON.parse(line) as Event)
 }
-
-const structuredStringArraySchema = z.object({
-  elements: z.array(z.string()),
-})
 
 // External HTTP responses are deterministic; the API, persistence, streaming,
 // extraction pipeline, and browser behavior remain real.
@@ -239,6 +234,13 @@ test.describe("Deep search", () => {
       (event) => event.type === "final-answer-stream",
     )
     expect(finalAnswerStream).toBeDefined()
+    const roundAnswerStream = liveEvents.find(
+      (event) => event.type === "round-answer-stream",
+    )
+    expect(roundAnswerStream).toMatchObject({
+      round: 0,
+      streamId: finalAnswerStream?.streamId,
+    })
     const finalAnswerPath =
       `/api/streams/${finalAnswerStream?.streamId ?? ""}`
     await expect
@@ -258,6 +260,13 @@ test.describe("Deep search", () => {
       .map((event) => event.text)
       .join("")
     expect(streamedFinalAnswer.trim()).not.toBe("")
+
+    const roundAccordion = page
+      .getByRole("button", { name: /Round 1/ })
+      .first()
+    await expect(roundAccordion).toHaveAttribute("aria-expanded", "false")
+    await roundAccordion.click()
+    await expect(roundAccordion).toHaveAttribute("aria-expanded", "true")
 
     const reasoningSections = [
       {
@@ -305,6 +314,12 @@ test.describe("Deep search", () => {
     await expect(
       page.getByRole("heading", { name: "Final answer" }),
     ).toBeVisible()
+    await expect(
+      page.getByRole("heading", { name: "Round 1 candidate answer" }),
+    ).toBeVisible()
+    await expect(page.getByTestId("round-answer-0")).toHaveText(
+      streamedFinalAnswer,
+    )
     await expect(page.getByTestId("final-answer")).toHaveText(
       streamedFinalAnswer,
     )
@@ -327,12 +342,14 @@ test.describe("Deep search", () => {
     await expect(
       page.locator('[data-query-summary-status="completed"]').first(),
     ).toBeVisible()
-    const renderedSelection = structuredStringArraySchema
-      .parse(JSON.parse(streamedSelection) as unknown)
-      .elements.join("")
+    const selectedSourceTitles = (summarizedSearch?.results ?? [])
+      .filter((result) => selectedResults?.selectedLinks.includes(result.link))
+      .map(({ title }) => title)
     await expect(
-      page.getByTestId(`selection-${selectionStreamEvent?.query ?? ""}`),
-    ).toHaveText(renderedSelection)
+      page
+        .getByTestId(`selection-${selectionStreamEvent?.query ?? ""}`)
+        .getByRole("listitem"),
+    ).toHaveText(selectedSourceTitles)
 
     const sourceResultsAccordion = page
       .getByRole("button", {
@@ -436,8 +453,11 @@ test.describe("Deep search", () => {
 
     await page.reload()
     await expect(
-      page.getByRole("heading", { name: "Research results" }),
+      page.getByRole("heading", { name: "Research rounds" }),
     ).toBeVisible()
+    await expect(
+      page.getByRole("button", { name: /Round 1/ }).first(),
+    ).toHaveAttribute("aria-expanded", "false")
     await page.goto("/deep-search")
     await expect(page.getByRole("heading", { name: "Previous searches" })).toBeVisible()
     const historyLink = page.locator(

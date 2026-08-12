@@ -57,11 +57,12 @@ the public event stream.
 
 Text generations may register transactional lifecycle hooks. Registration
 hooks link a newly inserted generation to its owning stage before provider
-construction or consumption starts. Completion and failure hooks run in the same transaction as
-the generation's terminal update, so a deep-search query or page cannot claim a
-different outcome from its LLM generation. The deep-search final-answer hook
-also verifies its required query rows and commits successful job completion in
-that terminal transaction. A hook or terminal-write failure rejects
+construction or consumption starts. Completion and failure hooks run in the
+same transaction as the generation's terminal update, so a deep-search query or
+page cannot claim a different outcome from its LLM generation. Deep-search
+candidate answers are linked to their round at registration; after completion,
+a separate promotion transaction verifies the required query rows, links that
+same generation as the final answer, and completes the job. A hook or terminal-write failure rejects
 `completion`; it is not converted into an ordinary provider failure.
 
 After that terminal update succeeds, the in-memory delta log is evicted and late readers reconstruct the output from SQLite. If terminal persistence fails, the closed live log is retained because it is the only available copy of the terminal error and `done` events.

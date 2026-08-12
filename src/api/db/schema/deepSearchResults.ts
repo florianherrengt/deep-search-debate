@@ -101,7 +101,7 @@ export const deepSearchResults = sqliteTable(
     shortText: text("short_text").notNull(),
     url: text("url").notNull(),
     /** Non-null exactly when the selector chose this result for exploration. */
-    deepSearchWebPageId: text("deep_search_web_page_id").references(
+    selectedWebPageId: text("selected_web_page_id").references(
       () => deepSearchWebPages.deepSearchWebPageId,
       // Block partial page deletion while allowing a root-job cascade to
       // remove both the result and page before the statement is checked.
@@ -116,8 +116,8 @@ export const deepSearchResults = sqliteTable(
       table.deepSearchQueryId,
       table.position,
     ),
-    index("deep_search_results_web_page_id_idx").on(
-      table.deepSearchWebPageId,
+    index("deep_search_results_selected_web_page_id_idx").on(
+      table.selectedWebPageId,
     ),
     check("deep_search_results_position_check", sql`${table.position} >= 0`),
     check(

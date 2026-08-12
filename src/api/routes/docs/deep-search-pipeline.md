@@ -2,8 +2,10 @@
 
 Deep search turns one research request into a final answer through a sequence of
 search and LLM stages. It does not send raw search results or raw web pages
-directly to the final-answer model. Instead, it progressively reduces the
-evidence into page summaries, then query summaries, and finally one answer.
+directly to the answer model. Instead, it progressively reduces the evidence
+into page summaries and query summaries, then writes and reviews one candidate
+answer per round. The accepted or last permitted candidate becomes the final
+answer without being generated again.
 
 This document explains that data flow. For the HTTP API, event contract,
 persistence model, and complete failure matrix, see
@@ -23,17 +25,64 @@ flowchart TD
   pageSummary --> evidence["One content value per search result"]
   snippet --> evidence
   evidence --> querySummary["Synthesize all results for one query"]
-  querySummary --> review{"More material research needed?"}
+  querySummary --> candidate["Write candidate answer from all query summaries"]
+  candidate --> review{"Does this answer need more material research?"}
   review -- "continue and below maxRounds" --> queries
-  review -- "stop, failure, or hard limit" --> finalAnswer["Synthesize all query summaries"]
+  review -- "stop or failure" --> finalAnswer["Promote this candidate unchanged"]
+  candidate -- "hard round limit" --> finalAnswer
 ```
 
-The important boundary is the final step: the final-answer model sees the
-original research request and the completed query summaries. It does not see
-the raw pages, result-selection output, or search-result snippets directly.
+The important boundary is candidate generation: the answer model sees the
+original research request and every completed query summary so far. It does not
+see raw pages, result-selection output, or search-result snippets directly.
+The reviewer then sees that candidate plus the same accumulated evidence.
 Every cumulative-summary prompt keeps one entry per query under a shared
 character ceiling; only the in-memory prompt projection is shortened, never the
 durable summary rows.
+
+## Implementation code map
+
+```text
+HTTP routes
+`- routes/deepSearch/index.ts
+   `- manager.ts                 admission, title/slug, durable creation, queue, live log
+      `- run.ts                  terminal success/failure and final public events
+         `- pipeline.ts          rounds, stage order, deduplication, fallbacks
+            |- agents/deep_search/*   prompts, provider calls, extraction, validation
+            |- store.ts               transactional round/query/result/page writes
+            `- jobLifecycle.ts        transactional job completion and fatal cleanup
+
+Durable replay
+`- routes/deepSearch/replay.ts   normalized SQLite rows -> reducer-compatible events
+
+Browser presentation
+`- web/lib/deepSearchJobs.ts     HTTP schemas and NDJSON subscription
+   `- web/lib/useDeepSearchJob.ts    reconnect and replay lifecycle
+      `- web/lib/deepSearchState.ts  event reducer
+         `- web/pages/DeepSearch/*   history, detail route, and rendered progress
+```
+
+- [index.ts](../deepSearch/index.ts) owns the authenticated creation/history
+  routes and the scoped detail/event reads.
+- [manager.ts](../deepSearch/manager.ts) admits work, creates the durable job
+  before execution, retains its live event log, and schedules the runner.
+- [run.ts](../deepSearch/run.ts) surrounds the coordinator with fatal failure
+  persistence and the single terminal `done` event.
+- [pipeline.ts](../deepSearch/pipeline.ts) is the only research-loop
+  coordinator. It decides what stage runs next and publishes progress only
+  after the owning database write commits.
+- Modules under [agents/deep_search](../../agents/deep_search/) format prompts,
+  call models or extraction providers, validate outputs, and return handles or
+  typed outcomes. They do not control the workflow or publish job events.
+- [store.ts](../deepSearch/store.ts) and
+  [jobLifecycle.ts](../deepSearch/jobLifecycle.ts) own normalized transactional
+  mutations; [replay.ts](../deepSearch/replay.ts) converts those durable facts
+  back into presentation events.
+- In the browser, [deepSearchJobs.ts](../../../web/lib/deepSearchJobs.ts)
+  validates HTTP and NDJSON data, [useDeepSearchJob.ts](../../../web/lib/useDeepSearchJob.ts)
+  owns reconnection, [deepSearchState.ts](../../../web/lib/deepSearchState.ts)
+  reduces the replayed feed, and [pages/DeepSearch](../../../web/pages/DeepSearch/)
+  renders it.
 
 ## 1. Start a durable job
 
@@ -71,19 +120,21 @@ In the first round, the query-generation model receives:
 - the original research request; and
 - the exact requested number of searches.
 
-In later rounds it also receives every previously executed query and every
-completed query summary. It is instructed to return a structured array of new,
-prioritized queries that address remaining gaps. Queries should cover distinct,
-useful angles rather than repeat the same search with minor wording changes.
+In later rounds it also receives every previously executed query, every
+completed query summary, the previous candidate answer, and the critic's reason
+for continuing. It is instructed to return a structured array of new,
+prioritized queries that address the stated deficiency without repeating prior
+work. Queries should cover distinct, useful angles rather than repeat the same
+search with minor wording changes.
 Relevant angles can include subquestions, alternative terminology, primary
 sources, counterarguments, and recent developments.
 
 The API validates every array element as a non-empty string, removes
 case-insensitive exact duplicates within and across rounds while preserving
 order, and applies the requested per-round limit. Therefore, the number of
-executed searches can be lower than `maxSearches`. An empty first-round list
-leads to final-answer generation with no query summaries. An empty later-round
-list ends exploration and keeps the earlier summaries.
+executed searches can be lower than `maxSearches`. An empty list performs no
+retrieval in that round, but still produces a candidate from the accumulated
+summaries and remains bounded by review plus `maxRounds`.
 
 Prompt: [generate-websearch-queries.md](../../llms/prompts/generate-websearch-queries.md)
 
@@ -179,8 +230,8 @@ The prompt asks for a concise, self-contained summary focused on the research
 request. It must preserve useful evidence, dates, qualifications, limitations,
 and disagreements without adding outside facts.
 
-Hidden reasoning is disabled for page summaries, query summaries, and final
-synthesis. DeepSeek counts reasoning and visible text against the same output
+Hidden reasoning is disabled for page summaries, query summaries, and
+candidate-answer synthesis. DeepSeek counts reasoning and visible text against the same output
 budget; these evidence-transformation stages reserve that budget for their
 required durable text. Structured selection and round review retain their
 separate reasoning policy.
@@ -217,7 +268,7 @@ It synthesizes the results collectively, preserves source URLs and conflicts,
 and must not add facts from outside the supplied material.
 
 All query-summary streams start concurrently. The pipeline waits for every
-query summary in the round before it reviews whether more research is needed.
+query summary in the round before it writes the candidate answer.
 Their serialized result context shares the same aggregate character ceiling as
 the other cumulative prompts, retaining a bounded entry for every result.
 
@@ -227,9 +278,10 @@ Implementation: [querySummaries.ts](../../agents/deep_search/querySummaries.ts)
 
 ## 8. Decide whether to search again
 
-After a round's query summaries complete, a structured review generation
-receives the original request, every accumulated query summary, the number of
-completed rounds, and the hard limit. It returns:
+After a round's query summaries complete, the pipeline first writes a candidate
+answer from all accumulated summaries. A structured review generation then
+receives the original request, that candidate, every accumulated query summary,
+the number of completed rounds, and the hard limit. It returns:
 
 ```ts
 {
@@ -238,24 +290,25 @@ completed rounds, and the hard limit. It returns:
 }
 ```
 
-The prompt requires a specific, searchable, material evidence gap before
-choosing `continue`; asking for more volume is insufficient. Search summaries
-are explicitly treated as untrusted data so page content cannot instruct the
-review model. A `continue` decision starts the next round with prior queries and
-summaries as context. The final allowed round skips review because no decision
-can exceed `maxRounds`.
+The prompt requires a specific, searchable, material deficiency in the answer
+before choosing `continue`; asking for more volume is insufficient. Its reason
+must explain why the candidate is inadequate and what concrete evidence the
+next round should seek. Summaries and candidate text are explicitly treated as
+untrusted data. A `continue` decision starts the next round with prior queries,
+summaries, the candidate, and this reason as context. The final allowed round
+skips review because no decision can exceed `maxRounds`.
 
 Review is optional control logic. If registration, generation, parsing, or
-persistence fails, exploration stops and final synthesis uses the evidence
-already collected. The wider job does not fail.
+persistence fails, exploration stops and the current candidate is promoted.
+The wider job does not fail.
 
 Prompt: [review-deep-search-round.md](../../llms/prompts/review-deep-search-round.md)
 
 Implementation: [reviewRound.ts](../../agents/deep_search/reviewRound.ts)
 
-## 9. Produce the final answer
+## 9. Produce and promote the answer
 
-The final-answer model receives:
+Every round's candidate-answer model receives:
 
 - the original research request; and
 - every completed query summary from every round, labeled with its search
@@ -265,7 +318,12 @@ It is instructed to synthesize across searches rather than repeat each summary
 in sequence. It should preserve facts, links, limitations, uncertainty, and
 conflicting evidence. It cannot inspect a raw page at this stage, so information
 omitted by both the page and query summaries cannot be recovered in the final
-answer.
+answer. The candidate stream is attached to its round before generation starts.
+
+When review returns `stop`, review fails, or the round hard limit is reached,
+the job atomically points `finalAnswerGenerationId` at that round's completed
+candidate generation and becomes terminal. No answer text is copied and no
+second final-answer model call runs.
 
 Prompt: [answer-research-request.md](../../llms/prompts/answer-research-request.md)
 
@@ -289,10 +347,12 @@ The pipeline deliberately mixes sequential and concurrent work:
    ScrapingAnt client further serializes only the provider requests through its
    own single-request queue.
 5. Query summaries start concurrently after every page task has settled.
-6. The round review starts only after the round's query summaries complete.
-7. A `continue` decision repeats steps 1–6 with globally deduplicated queries
-   and URLs.
-8. Final synthesis starts only after exploration stops or reaches `maxRounds`.
+6. Candidate-answer generation starts only after the round's query summaries
+   complete.
+7. The round review starts only after the candidate answer completes.
+8. A `continue` decision repeats steps 1–7 with globally deduplicated queries
+   and URLs plus the candidate and review reason as planning context.
+9. A stopped, failed-review, or final-round candidate is promoted unchanged.
 
 This ordering preserves query priority in the UI and database while overlapping
 the slow page work where possible.
@@ -310,9 +370,9 @@ because its snippet remains available.
 | Result selection | Query and job fail; page extraction does not start |
 | Page extraction | Page fails; query synthesis uses its snippet |
 | Page summary | Page fails; query synthesis uses its snippet |
-| Query summary | Job fails; final synthesis does not start |
-| Round review | Exploration stops; final synthesis uses current evidence |
-| Final answer | Job fails |
+| Query summary | Job fails; candidate generation does not start |
+| Candidate answer | Job fails |
+| Round review | Exploration stops; the current candidate is promoted |
 
 See [Deep-search jobs](deep-search-jobs.md) for persistence details and the
 stricter behavior when a deep search belongs to an idea job.
@@ -321,7 +381,8 @@ stricter behavior when a deep search belongs to an idea job.
 
 Each LLM call has its own stream ID. The deep-search event feed announces those
 IDs through `query-stream`, `selection-stream`, `page-summary-stream`,
-`query-summary-stream`, `round-review-stream`, and `final-answer-stream` events.
+`query-summary-stream`, `round-answer-stream`, `round-review-stream`, and
+`final-answer-stream` events.
 Round-scoped events carry a zero-based `round`, and review outcomes use the
 typed `round-review` or `round-review-error` events. The client then reads the
 corresponding LLM streams to display reasoning and text while generation is
@@ -339,10 +400,11 @@ lifecycle hooks. Their generation link commits before consumption starts, and
 their terminal page or query status commits with the generation's terminal
 outcome. Provider page-summary failures therefore enable snippet fallback
 without a later repair scan, while query-summary failures become durable before
-the pipeline raises the fatal error. The final-answer stream uses the same
-boundary: its completion hook verifies every required query and atomically
-commits the final generation and completed job. The runner returns that durable
-text directly. Fatal pipeline cleanup atomically fails all still-active query
+the pipeline raises the fatal error. Each candidate-answer generation is linked
+to its round before its stream is published. After that generation completes,
+promotion verifies every required query and the candidate output, then
+atomically links it as the final answer and completes the job. The runner
+returns that durable text directly. Fatal pipeline cleanup atomically fails all still-active query
 and page rows with the owning job before publishing the terminal error.
 
 Live deltas stay in memory. Completed text, reasoning, status, and errors are

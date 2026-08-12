@@ -55,6 +55,11 @@ const deepSearchJobEventSchema = z.discriminatedUnion("type", [
     streamId: z.string().min(1),
   }),
   z.object({
+    type: z.literal("round-answer-stream"),
+    round: z.number().int().nonnegative(),
+    streamId: z.string().min(1),
+  }),
+  z.object({
     type: z.literal("round-review-stream"),
     round: z.number().int().nonnegative(),
     streamId: z.string().min(1),

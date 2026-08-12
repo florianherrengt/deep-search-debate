@@ -10,9 +10,9 @@ import {
   Typography,
 } from "@mui/material"
 import type { DeepSearchSearchState } from "../../../lib/deepSearchState.ts"
-import { GenerationOutput } from "../../../components/streaming/GenerationOutput.tsx"
 import { QuerySummary } from "./QuerySummary.tsx"
 import { SearchResultCard } from "./SearchResultCard.tsx"
+import { SourceSelection } from "./SourceSelection.tsx"
 
 type SearchResultsGroupProps = {
   search: DeepSearchSearchState
@@ -57,18 +57,15 @@ export function SearchResultsGroup({
           </Stack>
         </Stack>
 
-        <Typography component="h3" variant="h5" sx={{ overflowWrap: "anywhere" }}>
+        <Typography component="h5" variant="h5" sx={{ overflowWrap: "anywhere" }}>
           {search.query}
         </Typography>
 
         {search.selectionStreamId && (
-          <GenerationOutput
-            format="structured-list"
-            headingComponent="h4"
+          <SourceSelection
+            query={search.query}
+            results={search.results}
             streamId={search.selectionStreamId}
-            title="Source selection"
-            waitingText="Selecting sources…"
-            testId={`selection-${search.query}`}
           />
         )}
 
@@ -80,13 +77,18 @@ export function SearchResultsGroup({
 
       <Divider />
 
-      <Accordion disableGutters elevation={0} square>
+      <Accordion
+        disableGutters
+        elevation={0}
+        slots={{ heading: "h6" }}
+        square
+      >
         <AccordionSummary
           expandIcon={<ExpandMore />}
           aria-label={`Show source results for ${search.query}`}
         >
           <Stack spacing={0.25}>
-            <Typography component="h4" variant="subtitle1">
+            <Typography component="span" variant="subtitle1">
               Source results
             </Typography>
             <Typography variant="caption" color="text.secondary">

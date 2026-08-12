@@ -4,7 +4,11 @@ SQLite accessed through `better-sqlite3` and `drizzle-orm`.
 
 ## Native module
 
-`better-sqlite3` is a native module — rebuild it if you change Node version (e.g. after a `brew upgrade node`), or the API will fail to load it.
+`better-sqlite3` is a native module. Use the repository's Node version with
+`nvm use` before installing or running the API. If Node reports that the module
+was compiled for a different `NODE_MODULE_VERSION`, first verify `node --version`
+against `.nvmrc`; do not rebuild the module for an unsupported runtime. Reinstall
+or rebuild dependencies only after selecting the supported Node version.
 
 Better Auth 1.6 requires `better-sqlite3` 12.x. The dependency is declared in
 both the API workspace and the root development dependencies because npm
@@ -57,8 +61,9 @@ ignores this one documented peer-resolution shim.
   selected page to share both the result URL and the query's deep-search job.
   Round, query, and persisted-page identity fields used by that check are
   immutable after insertion so later updates cannot invalidate a selected
-  result. Results do not duplicate selection status: a page link is the durable
-  selected fact and the query lifecycle distinguishes pending from rejected.
+  result. Results do not duplicate selection status: `selected_web_page_id` is
+  the durable selected fact and the query lifecycle distinguishes pending from
+  rejected.
   A completed query may omit both generation links only when the provider
   returned no usable result rows; the transactional empty-result command checks
   that condition and avoids fabricating selection or summary generations.
@@ -141,7 +146,10 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
 - `deep_search_jobs` owns an LLM-generated title, readable slug, and deep-search
   request and may belong to an `idea_jobs` parent. Child searches store their
   planning-generation position. Its normalized query, result, web-page, and
-  generation rows preserve research progress without a JSON snapshot.
+  generation rows preserve research progress without a JSON snapshot. Each
+  search round links its candidate-answer generation; completion promotes the
+  accepted or final permitted candidate through the job's final-answer link
+  without copying its text.
 - `idea_jobs` owns the LLM-generated title and slug used by both idea and debate
   URLs, the user prompt, requested idea/search counts, current stage,
   lifecycle, planning, briefing, idea-generation, and selection-generation

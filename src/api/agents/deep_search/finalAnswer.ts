@@ -8,6 +8,7 @@ import {
 import { formatSearchSummaryContext } from "./searchSummaryContext.ts"
 
 type SearchSummary = {
+  round?: number
   query: string
   content: string
 }
@@ -25,7 +26,7 @@ export type FinalAnswerGeneration = {
   completion: Promise<GenerationOutcome>
 }
 
-/** Starts final synthesis for a completed set of search summaries. */
+/** Starts a candidate answer that may be promoted as the job's final answer. */
 export async function answerResearchRequest(
   params: AnswerResearchRequestInput,
 ): Promise<FinalAnswerGeneration> {

@@ -34,6 +34,11 @@ export const deepSearchRounds = sqliteTable(
       .references(() => llmGenerations.llmGenerationId, {
         onDelete: "no action",
       }),
+    answerGenerationId: text("answer_generation_id")
+      .unique()
+      .references(() => llmGenerations.llmGenerationId, {
+        onDelete: "no action",
+      }),
     reviewGenerationId: text("review_generation_id")
       .unique()
       .references(() => llmGenerations.llmGenerationId, {

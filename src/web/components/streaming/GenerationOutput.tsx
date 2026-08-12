@@ -1,4 +1,5 @@
 import { Paper, Stack, Typography } from "@mui/material"
+import type { ReactNode } from "react"
 import { TextStreamOutput } from "./TextStreamOutput.tsx"
 import type { StreamTextFormat } from "./FormattedStreamText.tsx"
 import { useTextStream } from "./useTextStream.ts"
@@ -8,10 +9,11 @@ type GenerationOutputProps = {
   title: string
   waitingText: string
   testId: string
-  headingComponent: "h2" | "h3" | "h4"
+  headingComponent: "h2" | "h3" | "h4" | "h5" | "h6"
   announcementLabel?: string
   format?: StreamTextFormat
   showText?: boolean
+  children?: ReactNode
 }
 
 /** Displays one retained model-generation stream. */
@@ -24,6 +26,7 @@ export function GenerationOutput({
   announcementLabel,
   format,
   showText,
+  children,
 }: GenerationOutputProps) {
   const stream = useTextStream(streamId)
 
@@ -41,6 +44,7 @@ export function GenerationOutput({
           waitingText={waitingText}
           textTestId={testId}
         />
+        {children}
       </Stack>
     </Paper>
   )

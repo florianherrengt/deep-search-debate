@@ -349,13 +349,13 @@ export function saveSelectedResults(input: {
 
     for (const result of results) {
       const isSelected = selectedIds.has(result.deepSearchResultId)
-      const deepSearchWebPageId = isSelected
+      const selectedWebPageId = isSelected
         ? persistWebPage(result.url)
         : null
       const update = transaction
         .update(deepSearchResults)
         .set({
-          deepSearchWebPageId,
+          selectedWebPageId,
         })
         .where(
           eq(deepSearchResults.deepSearchResultId, result.deepSearchResultId),
@@ -644,6 +644,44 @@ export function attachRoundReviewGeneration(
     .where(
       eq(deepSearchRounds.deepSearchRoundId, input.roundId),
     )
+    .run()
+  if (result.changes !== 1) throw new Error("Deep-search round was not persisted")
+}
+
+export function attachRoundAnswerGeneration(
+  transaction: TextStreamPersistenceTransaction,
+  input: {
+    jobId: string
+    roundId: string
+    generationId: string
+  },
+): void {
+  assertGenerationOwnedByJob(
+    transaction,
+    input.jobId,
+    input.generationId,
+  )
+  assertRoundOwnedByJob(
+    transaction,
+    input.jobId,
+    input.roundId,
+  )
+  const storedRound = transaction
+    .select({ answerGenerationId: deepSearchRounds.answerGenerationId })
+    .from(deepSearchRounds)
+    .where(eq(deepSearchRounds.deepSearchRoundId, input.roundId))
+    .get()
+  if (!storedRound) throw new Error("Deep-search round was not persisted")
+  if (
+    storedRound.answerGenerationId !== null &&
+    storedRound.answerGenerationId !== input.generationId
+  ) {
+    throw new Error("Deep-search round answer is already registered")
+  }
+  const result = transaction
+    .update(deepSearchRounds)
+    .set({ answerGenerationId: input.generationId })
+    .where(eq(deepSearchRounds.deepSearchRoundId, input.roundId))
     .run()
   if (result.changes !== 1) throw new Error("Deep-search round was not persisted")
 }

@@ -144,6 +144,11 @@ describe("DeepSearch", () => {
         streamId: "query-summary-stream-id",
       }
       yield {
+        type: "round-answer-stream" as const,
+        round: 0,
+        streamId: "final-answer-stream-id",
+      }
+      yield {
         type: "final-answer-stream" as const,
         streamId: "final-answer-stream-id",
       }
@@ -205,7 +210,15 @@ describe("DeepSearch", () => {
     })
     fireEvent.click(screen.getByRole("button", { name: "Start deep search" }))
 
-    expect(await screen.findByText("Useful result")).toBeInTheDocument()
+    const round = await screen.findByRole("button", { name: /Round 1/ })
+    await waitFor(() => expect(round).toHaveAttribute("aria-expanded", "false"))
+    fireEvent.click(round)
+    expect(round).toHaveAttribute("aria-expanded", "true")
+
+    const sourceSelectionList = await screen.findByTestId(
+      "selection-test query",
+    )
+    expect(within(sourceSelectionList).getByText("Useful result")).toBeVisible()
     expect(screen.getByText("A useful description")).toBeInTheDocument()
     expect(
       screen.getByRole("heading", { name: "Research results" }),
@@ -215,6 +228,15 @@ describe("DeepSearch", () => {
     expect(screen.getByText("1 explored in depth")).toBeVisible()
     expect(screen.queryByLabelText("Research request")).not.toBeInTheDocument()
     expect(screen.queryByText("Job: job-id")).not.toBeInTheDocument()
+
+    const sourceSelection = screen
+      .getByText("Source selection")
+      .closest(".MuiPaper-root")
+    if (!(sourceSelection instanceof HTMLElement)) {
+      throw new Error("Source selection was not rendered")
+    }
+    expect(within(sourceSelection).getByText("Useful result")).toBeVisible()
+    expect(within(sourceSelection).queryByText("result-0")).not.toBeInTheDocument()
 
     const reasoningSections = [
       {
@@ -261,9 +283,16 @@ describe("DeepSearch", () => {
     fireEvent.click(sourceResults)
     expect(sourceResults).toHaveAttribute("aria-expanded", "true")
     expect(screen.queryByText("Finding relevant facts")).not.toBeInTheDocument()
-    const sourceReasoningToggle = await screen.findByRole("button", {
-      name: "Show reasoning",
-    })
+    const selectedSource = screen
+      .getByRole("link", { name: "Useful result" })
+      .closest('[data-selected="true"]')
+    if (!(selectedSource instanceof HTMLElement)) {
+      throw new Error("Selected source was not rendered")
+    }
+    const sourceReasoningToggle = await within(selectedSource).findByRole(
+      "button",
+      { name: "Show reasoning" },
+    )
     fireEvent.click(sourceReasoningToggle)
     expect(screen.getByText("Finding relevant facts")).toBeVisible()
     expect(await screen.findByText("A relevant page summary")).toBeVisible()
@@ -475,9 +504,14 @@ describe("DeepSearch", () => {
 
     renderDeepSearch("/deep-search/research-this")
 
+    const round = await screen.findByRole("button", { name: /Round 1/ })
+    expect(round).toHaveAttribute("aria-expanded", "false")
+    expect(within(round).getByText("Review unavailable")).toBeVisible()
+
+    fireEvent.click(round)
     expect(
-      await screen.findByText(
-        "Review failed; continuing with the current evidence. Review unavailable",
+      screen.getByText(
+        "Review failed; using the current answer. Review unavailable",
       ),
     ).toBeVisible()
   })

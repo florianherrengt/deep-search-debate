@@ -758,7 +758,7 @@ describe("aggregate integrity constraints", () => {
     expect(() =>
       db
         .update(deepSearchResults)
-        .set({ deepSearchWebPageId })
+        .set({ selectedWebPageId: deepSearchWebPageId })
         .where(
           sql`${deepSearchResults.deepSearchResultId} = ${deepSearchResultId}`,
         )
@@ -789,7 +789,7 @@ describe("aggregate integrity constraints", () => {
           title: "Cross-owned result",
           shortText: "Evidence",
           url: "https://example.com/cross-owned",
-          deepSearchWebPageId,
+          selectedWebPageId: deepSearchWebPageId,
         })
         .run(),
     ).toThrow(/selected result page must belong to the query deep-search job/)
@@ -808,7 +808,7 @@ describe("aggregate integrity constraints", () => {
     expect(() =>
       db
         .update(deepSearchResults)
-        .set({ deepSearchWebPageId })
+        .set({ selectedWebPageId: deepSearchWebPageId })
         .where(
           sql`${deepSearchResults.deepSearchResultId} = ${deepSearchResultId}`,
         )
@@ -838,7 +838,7 @@ describe("aggregate integrity constraints", () => {
         title: "Immutable result",
         shortText: "Evidence",
         url: "https://example.com/immutable",
-        deepSearchWebPageId,
+        selectedWebPageId: deepSearchWebPageId,
       })
       .run()
 
@@ -910,7 +910,7 @@ describe("aggregate integrity constraints", () => {
           title: "Mismatched URL",
           shortText: "Evidence",
           url: "https://example.com/result",
-          deepSearchWebPageId,
+          selectedWebPageId: deepSearchWebPageId,
         })
         .run(),
     ).toThrow(/selected result page must match the result URL/)
@@ -924,7 +924,7 @@ describe("aggregate integrity constraints", () => {
         title: "Matching URL",
         shortText: "Evidence",
         url: "https://example.com/page",
-        deepSearchWebPageId,
+        selectedWebPageId: deepSearchWebPageId,
       })
       .run()
     expect(() =>
@@ -955,7 +955,7 @@ describe("aggregate integrity constraints", () => {
       "llm_generations_deep_search_job_id_idx",
       "deep_search_queries_selection_generation_id_idx",
       "deep_search_queries_summary_generation_id_idx",
-      "deep_search_results_web_page_id_idx",
+      "deep_search_results_selected_web_page_id_idx",
       "deep_search_web_pages_summary_generation_id_idx",
       "debate_matches_first_idea_id_idx",
       "debate_matches_second_idea_id_idx",

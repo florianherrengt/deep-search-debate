@@ -2,7 +2,10 @@ import PQueue from "p-queue"
 import { answerResearchRequest } from "../../agents/deep_search/finalAnswer.ts"
 import { generateWebSearchQueries } from "../../agents/deep_search/queries.ts"
 import { summarizeSearchQuery } from "../../agents/deep_search/querySummaries.ts"
-import { startRoundReview } from "../../agents/deep_search/reviewRound.ts"
+import {
+  startRoundReview,
+  type RoundReview,
+} from "../../agents/deep_search/reviewRound.ts"
 import type {
   DeepSearchEvent,
   DeepSearchSearch,
@@ -12,17 +15,17 @@ import { startPageSummary } from "../../agents/deep_search/summaries.ts"
 import { getErrorMessage } from "../../helpers/getErrorMessage.ts"
 import { webSearch } from "../../web_search/index.ts"
 import { config } from "../../config.ts"
-import { completeDeepSearchJob } from "./jobLifecycle.ts"
+import { promoteRoundAnswer } from "./jobLifecycle.ts"
 import type {
   ExecutedQuery,
   SearchRound,
   SelectedPage,
 } from "./records.ts"
 import {
-  attachFinalAnswerGeneration,
   attachPageSummaryGeneration,
   createSearchRound,
   attachQuerySummaryGeneration,
+  attachRoundAnswerGeneration,
   attachRoundReviewGeneration,
   attachSelectionGeneration,
   completePageSummaryGeneration,
@@ -54,6 +57,12 @@ const pageSummaryQueue = new PQueue({
 
 const EMPTY_SEARCH_SUMMARY =
   "The web search returned no usable results for this query."
+
+type SearchSummary = {
+  round: number
+  query: string
+  content: string
+}
 
 function toPublicSearch(search: ExecutedQuery): DeepSearchSearch {
   return {
@@ -162,6 +171,72 @@ function persistRoundReviewFailure(
   })
 }
 
+async function reviewSearchRound(
+  params: DeepSearchPipelineInput,
+  round: SearchRound,
+  maxRounds: number,
+  searchSummaries: readonly SearchSummary[],
+  candidateAnswer: string,
+): Promise<RoundReview | undefined> {
+  const startedReview = await startRoundReview({
+    userId: params.userId,
+    deepSearchJobId: params.deepSearchJobId,
+    researchRequest: params.researchRequest,
+    candidateAnswer,
+    completedRound: round.position,
+    maxRounds,
+    searchSummaries: [...searchSummaries],
+    onCompleted: (completed, transaction) => {
+      saveRoundReviewCompletion(transaction, {
+        jobId: params.deepSearchJobId,
+        roundId: round.roundId,
+        generationId: completed.id,
+        review: completed.output,
+      })
+    },
+    onRegistered: (streamId, transaction) => {
+      attachRoundReviewGeneration(transaction, {
+        jobId: params.deepSearchJobId,
+        roundId: round.roundId,
+        generationId: streamId,
+      })
+    },
+  }).catch((error: unknown) => {
+    persistRoundReviewFailure(params, round, error)
+    return undefined
+  })
+  if (!startedReview) return undefined
+
+  try {
+    params.publish({
+      type: "round-review-stream",
+      round: round.position,
+      streamId: startedReview.streamId,
+    })
+  } catch (error) {
+    await startedReview.review.catch(() => undefined)
+    throw error
+  }
+
+  return startedReview.review.catch((error: unknown) => {
+    persistRoundReviewFailure(params, round, error)
+    return undefined
+  })
+}
+
+function promoteCandidateAnswer(
+  params: DeepSearchPipelineInput,
+  round: SearchRound,
+  generationId: string,
+): void {
+  promoteRoundAnswer({
+    jobId: params.deepSearchJobId,
+    roundId: round.roundId,
+    generationId,
+  })
+  params.publish({ type: "final-answer-stream", streamId: generationId })
+}
+
 /** Coordinates the complete deep-search workflow and persists each stage before publishing it. */
 export async function runDeepSearchPipeline(
   params: DeepSearchPipelineInput,
@@ -171,7 +246,9 @@ export async function runDeepSearchPipeline(
   const maxRounds = params.maxRounds ?? 3
   const pageSummaryTasks = new Map<string, Promise<string | undefined>>()
   const previousQueries: string[] = []
-  const searchSummaries: { round: number; query: string; content: string }[] = []
+  const searchSummaries: SearchSummary[] = []
+  let previousCandidateAnswer: string | undefined
+  let previousReviewReason: string | undefined
 
   for (let round = 0; round < maxRounds; round += 1) {
     const queryGeneration = await generateWebSearchQueries({
@@ -182,6 +259,8 @@ export async function runDeepSearchPipeline(
       round,
       previousQueries: [...previousQueries],
       previousSearchSummaries: [...searchSummaries],
+      previousCandidateAnswer,
+      previousReviewReason,
     })
     let persistedRound: SearchRound
     try {
@@ -217,12 +296,13 @@ export async function runDeepSearchPipeline(
       roundId: persistedRound.roundId,
       searches: searchedQueries,
     })
-    if (executedQueries.length === 0) break
-    params.publish({
-      type: "search-results",
-      round,
-      searches: executedQueries.map(toPublicSearch),
-    })
+    if (executedQueries.length > 0) {
+      params.publish({
+        type: "search-results",
+        round,
+        searches: executedQueries.map(toPublicSearch),
+      })
+    }
     previousQueries.push(...executedQueries.map(({ query }) => query))
 
     const pagesToSummarize = new Map<string, SelectedPage>()
@@ -377,89 +457,56 @@ export async function runDeepSearchPipeline(
     )
     searchSummaries.push(...roundSummaries)
 
-    if (round + 1 >= maxRounds) break
-
-    let review: Awaited<ReturnType<typeof startRoundReview>>
-    try {
-      review = await startRoundReview({
-        userId: params.userId,
-        deepSearchJobId: params.deepSearchJobId,
-        researchRequest: params.researchRequest,
-        completedRound: round,
-        maxRounds,
-        searchSummaries,
-        onCompleted: (completed, transaction) => {
-          saveRoundReviewCompletion(transaction, {
-            jobId: params.deepSearchJobId,
-            roundId: persistedRound.roundId,
-            generationId: completed.id,
-            review: completed.output,
-          })
-        },
-        onRegistered: (streamId, transaction) => {
-          attachRoundReviewGeneration(transaction, {
-            jobId: params.deepSearchJobId,
-            roundId: persistedRound.roundId,
-            generationId: streamId,
-          })
-        },
-      })
-    } catch (error) {
-      persistRoundReviewFailure(params, persistedRound, error)
-      break
-    }
-
+    const candidate = await answerResearchRequest({
+      userId: params.userId,
+      deepSearchJobId: params.deepSearchJobId,
+      researchRequest: params.researchRequest,
+      searchSummaries: [...searchSummaries],
+      onRegistered: (generationId, transaction) => {
+        attachRoundAnswerGeneration(transaction, {
+          jobId: params.deepSearchJobId,
+          roundId: persistedRound.roundId,
+          generationId,
+        })
+      },
+    })
     try {
       params.publish({
-        type: "round-review-stream",
+        type: "round-answer-stream",
         round,
-        streamId: review.streamId,
+        streamId: candidate.streamId,
       })
     } catch (error) {
-      await review.review.catch(() => undefined)
+      await candidate.answer.catch(() => undefined)
       throw error
     }
+    const candidateAnswer = await candidate.answer
 
-    let decision
-    try {
-      decision = await review.review
-    } catch (error) {
-      persistRoundReviewFailure(params, persistedRound, error)
-      break
+    if (round + 1 >= maxRounds) {
+      promoteCandidateAnswer(params, persistedRound, candidate.streamId)
+      return candidateAnswer
     }
+
+    const decision = await reviewSearchRound(
+      params,
+      persistedRound,
+      maxRounds,
+      searchSummaries,
+      candidateAnswer,
+    )
+    if (!decision) {
+      promoteCandidateAnswer(params, persistedRound, candidate.streamId)
+      return candidateAnswer
+    }
+
     params.publish({ type: "round-review", round, ...decision })
-    if (decision.decision === "stop") break
+    if (decision.decision === "stop") {
+      promoteCandidateAnswer(params, persistedRound, candidate.streamId)
+      return candidateAnswer
+    }
+    previousCandidateAnswer = candidateAnswer
+    previousReviewReason = decision.reason
   }
 
-  const finalAnswer = await answerResearchRequest({
-    userId: params.userId,
-    deepSearchJobId: params.deepSearchJobId,
-    researchRequest: params.researchRequest,
-    searchSummaries: searchSummaries.map(({ query, content }) => ({
-      query,
-      content,
-    })),
-    onRegistered: (generationId, transaction) => {
-      attachFinalAnswerGeneration(transaction, {
-        jobId: params.deepSearchJobId,
-        generationId,
-      })
-    },
-    onCompleted: (completed, transaction) => {
-      completeDeepSearchJob(transaction, {
-        jobId: params.deepSearchJobId,
-        generationId: completed.id,
-      })
-    },
-  })
-  try {
-    params.publish({
-      type: "final-answer-stream",
-      streamId: finalAnswer.streamId,
-    })
-  } catch (error) {
-    await finalAnswer.answer.catch(() => undefined)
-    throw error
-  }
-  return finalAnswer.answer
+  throw new Error("Deep-search pipeline exhausted without a candidate answer")
 }

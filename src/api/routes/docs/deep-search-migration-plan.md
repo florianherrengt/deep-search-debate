@@ -42,6 +42,10 @@ a workflow engine, event store, broker, or compatibility layer.
     a one-shot compare-and-swap transition.
 13. Remove the redundant idea-to-search reverse link. Selected-idea research is
     derived from the child position already owned by the idea job.
+14. Move answer generation inside the bounded round loop. Persist one candidate
+    generation per round, review that answer, feed the review reason into the
+    next query plan, and promote the accepted or final permitted candidate
+    without a duplicate synthesis call.
 
 ## Current ownership model
 

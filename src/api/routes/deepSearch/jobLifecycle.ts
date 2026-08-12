@@ -88,6 +88,50 @@ export function completeDeepSearchJob(
   }
 }
 
+/** Atomically promotes one completed round answer and completes its job. */
+export function promoteRoundAnswer(input: {
+  jobId: string
+  roundId: string
+  generationId: string
+}): void {
+  db.transaction((transaction) => {
+    const round = transaction
+      .select({
+        deepSearchJobId: deepSearchRounds.deepSearchJobId,
+        answerGenerationId: deepSearchRounds.answerGenerationId,
+      })
+      .from(deepSearchRounds)
+      .where(eq(deepSearchRounds.deepSearchRoundId, input.roundId))
+      .get()
+    if (round?.deepSearchJobId !== input.jobId) {
+      throw new Error("Deep-search round must belong to the deep-search job")
+    }
+    if (round.answerGenerationId !== input.generationId) {
+      throw new Error("Round answer generation was not registered")
+    }
+
+    const registered = transaction
+      .update(deepSearchJobs)
+      .set({ finalAnswerGenerationId: input.generationId })
+      .where(
+        and(
+          eq(deepSearchJobs.deepSearchJobId, input.jobId),
+          eq(deepSearchJobs.status, "running"),
+          isNull(deepSearchJobs.finalAnswerGenerationId),
+        ),
+      )
+      .run()
+    if (registered.changes !== 1) {
+      throw new Error("Deep-search final answer could not be promoted")
+    }
+
+    completeDeepSearchJob(transaction, {
+      jobId: input.jobId,
+      generationId: input.generationId,
+    })
+  })
+}
+
 /** Fails all still-active work and its owning job in one transaction. */
 export function failDeepSearchJob(jobId: string, message: string): void {
   const completedAt = new Date()

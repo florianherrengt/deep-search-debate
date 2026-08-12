@@ -2,19 +2,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   answerResearchRequest: vi.fn(),
-  attachFinalAnswerGeneration: vi.fn(),
   attachPageSummaryGeneration: vi.fn(),
   createSearchRound: vi.fn(),
   attachQuerySummaryGeneration: vi.fn(),
+  attachRoundAnswerGeneration: vi.fn(),
   attachRoundReviewGeneration: vi.fn(),
   attachSelectionGeneration: vi.fn(),
-  completeDeepSearchJob: vi.fn(),
   completePageSummaryGeneration: vi.fn(),
   completeEmptySearchQuery: vi.fn(),
   completeQuerySummaryGeneration: vi.fn(),
   failPageSummaryGeneration: vi.fn(),
   failQuerySummaryGeneration: vi.fn(),
   generateWebSearchQueries: vi.fn(),
+  promoteRoundAnswer: vi.fn(),
   savePageFailure: vi.fn(),
   savePlannedQueries: vi.fn(),
   saveRoundReviewCompletion: vi.fn(),
@@ -57,10 +57,10 @@ vi.mock("../../web_search/index.ts", () => ({
 }))
 
 vi.mock("./store.ts", () => ({
-  attachFinalAnswerGeneration: mocks.attachFinalAnswerGeneration,
   attachPageSummaryGeneration: mocks.attachPageSummaryGeneration,
   createSearchRound: mocks.createSearchRound,
   attachQuerySummaryGeneration: mocks.attachQuerySummaryGeneration,
+  attachRoundAnswerGeneration: mocks.attachRoundAnswerGeneration,
   attachRoundReviewGeneration: mocks.attachRoundReviewGeneration,
   attachSelectionGeneration: mocks.attachSelectionGeneration,
   completePageSummaryGeneration: mocks.completePageSummaryGeneration,
@@ -77,7 +77,7 @@ vi.mock("./store.ts", () => ({
 }))
 
 vi.mock("./jobLifecycle.ts", () => ({
-  completeDeepSearchJob: mocks.completeDeepSearchJob,
+  promoteRoundAnswer: mocks.promoteRoundAnswer,
 }))
 
 import type {
@@ -298,7 +298,8 @@ describe("deepSearch", () => {
     )
     mocks.answerResearchRequest.mockImplementation(
       (input: TextGenerationPersistenceCallbacks) => {
-        const streamId = "final-answer-stream-id"
+        const round = mocks.answerResearchRequest.mock.calls.length - 1
+        const streamId = `round-answer-stream-${round}`
         input.onRegistered?.(streamId, transaction)
         const completion = completedOutcome("Completed answer")
         return Promise.resolve({
@@ -359,6 +360,11 @@ describe("deepSearch", () => {
         streamId: "query-summary-stream-id",
       },
       {
+        type: "round-answer-stream",
+        round: 0,
+        streamId: "round-answer-stream-0",
+      },
+      {
         type: "round-review-stream",
         round: 0,
         streamId: "round-review-stream-id",
@@ -371,7 +377,7 @@ describe("deepSearch", () => {
       },
       {
         type: "final-answer-stream",
-        streamId: "final-answer-stream-id",
+        streamId: "round-answer-stream-0",
       },
     ])
 
@@ -396,13 +402,16 @@ describe("deepSearch", () => {
     expect(mocks.attachQuerySummaryGeneration.mock.invocationCallOrder[0]).toBeLessThan(
       getPublishOrder(publish, "query-summary-stream"),
     )
+    expect(mocks.attachRoundAnswerGeneration.mock.invocationCallOrder[0]).toBeLessThan(
+      getPublishOrder(publish, "round-answer-stream"),
+    )
     expect(mocks.attachRoundReviewGeneration.mock.invocationCallOrder[0]).toBeLessThan(
       getPublishOrder(publish, "round-review-stream"),
     )
     expect(mocks.saveRoundReviewCompletion.mock.invocationCallOrder[0]).toBeLessThan(
       getPublishOrder(publish, "round-review"),
     )
-    expect(mocks.attachFinalAnswerGeneration.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(mocks.promoteRoundAnswer.mock.invocationCallOrder[0]).toBeLessThan(
       getPublishOrder(publish, "final-answer-stream"),
     )
     expect(mocks.completePageSummaryGeneration).toHaveBeenCalledWith(
@@ -421,9 +430,10 @@ describe("deepSearch", () => {
         generationId: "query-summary-stream-id",
       },
     )
-    expect(mocks.completeDeepSearchJob).toHaveBeenCalledWith(transaction, {
+    expect(mocks.promoteRoundAnswer).toHaveBeenCalledWith({
       jobId: "deep-search-job-id",
-      generationId: "final-answer-stream-id",
+      roundId: "round-0",
+      generationId: "round-answer-stream-0",
     })
   })
 
@@ -533,6 +543,7 @@ describe("deepSearch", () => {
       expect.objectContaining({
         searchSummaries: [
           {
+            round: 0,
             query: "test query",
             content: "The web search returned no usable results for this query.",
           },
@@ -658,8 +669,8 @@ describe("deepSearch", () => {
       deepSearchJobId: "deep-search-job-id",
       researchRequest: "Research this",
       searchSummaries: [
-        { query: "first query", content: "Completed query summary" },
-        { query: "second query", content: "Completed query summary" },
+        { round: 0, query: "first query", content: "Completed query summary" },
+        { round: 0, query: "second query", content: "Completed query summary" },
       ],
     }))
   })
@@ -697,19 +708,33 @@ describe("deepSearch", () => {
             content: "Completed query summary",
           },
         ],
+        previousCandidateAnswer: "Completed answer",
+        previousReviewReason: "A material evidence gap remains.",
       }),
     )
     expect(mocks.startRoundReview).toHaveBeenCalledTimes(1)
+    expect(mocks.startRoundReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        candidateAnswer: "Completed answer",
+        searchSummaries: [
+          { round: 0, query: "first query", content: "Completed query summary" },
+        ],
+      }),
+    )
     expect(mocks.startPageSummary).toHaveBeenCalledTimes(1)
-    expect(mocks.answerResearchRequest).toHaveBeenCalledWith(expect.objectContaining({
-      userId: "test-user-id",
-      deepSearchJobId: "deep-search-job-id",
-      researchRequest: "Research this",
-      searchSummaries: [
-        { query: "first query", content: "Completed query summary" },
-        { query: "second query", content: "Completed query summary" },
-      ],
-    }))
+    expect(mocks.answerResearchRequest).toHaveBeenCalledTimes(2)
+    expect(mocks.answerResearchRequest).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        userId: "test-user-id",
+        deepSearchJobId: "deep-search-job-id",
+        researchRequest: "Research this",
+        searchSummaries: [
+          { round: 0, query: "first query", content: "Completed query summary" },
+          { round: 1, query: "second query", content: "Completed query summary" },
+        ],
+      }),
+    )
   })
 
   it("persists review failure and falls back to the current evidence", async () => {
@@ -742,6 +767,11 @@ describe("deepSearch", () => {
     )
     expect(mocks.generateWebSearchQueries).toHaveBeenCalledTimes(1)
     expect(mocks.answerResearchRequest).toHaveBeenCalledTimes(1)
+    expect(mocks.promoteRoundAnswer).toHaveBeenCalledWith({
+      jobId: "deep-search-job-id",
+      roundId: "round-0",
+      generationId: "round-answer-stream-0",
+    })
   })
 
   it("waits for page summary text before starting the query summary", async () => {
@@ -977,7 +1007,7 @@ describe("deepSearch", () => {
       deepSearchJobId: "deep-search-job-id",
       researchRequest: "Research this",
       searchSummaries: [
-        { query: "test query", content: "Top-level findings" },
+        { round: 0, query: "test query", content: "Top-level findings" },
       ],
     }))
   })

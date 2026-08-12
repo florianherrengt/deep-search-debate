@@ -42,6 +42,11 @@ describe("deep-search state", () => {
         streamId: "summary-0",
       },
       {
+        type: "round-answer-stream" as const,
+        round: 0,
+        streamId: "answer-0",
+      },
+      {
         type: "round-review-stream" as const,
         round: 0,
         streamId: "review-0",
@@ -69,6 +74,11 @@ describe("deep-search state", () => {
         selectedLinks: [result.link],
       },
       {
+        type: "round-answer-stream" as const,
+        round: 1,
+        streamId: "answer-1",
+      },
+      {
         type: "round-review" as const,
         round: 1,
         decision: "stop" as const,
@@ -83,6 +93,10 @@ describe("deep-search state", () => {
     expect(state.queryGenerations).toEqual([
       { round: 0, streamId: "query-0" },
       { round: 1, streamId: "query-1" },
+    ])
+    expect(state.roundAnswers).toEqual([
+      { round: 0, streamId: "answer-0" },
+      { round: 1, streamId: "answer-1" },
     ])
     expect(state.searches).toMatchObject([
       {

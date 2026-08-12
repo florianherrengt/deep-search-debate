@@ -14,7 +14,13 @@ type GenerateWebSearchQueriesInput = {
   maxSearches: number
   round?: number
   previousQueries?: string[]
-  previousSearchSummaries?: { query: string; content: string }[]
+  previousSearchSummaries?: {
+    round?: number
+    query: string
+    content: string
+  }[]
+  previousCandidateAnswer?: string
+  previousReviewReason?: string
 }
 
 export type QueryGeneration = {
@@ -46,6 +52,20 @@ export async function generateWebSearchQueries(
             "<previous_search_summaries>",
             previousResearch,
             "</previous_search_summaries>",
+          ]
+        : []),
+      ...(params.previousCandidateAnswer
+        ? [
+            "<previous_candidate_answer>",
+            params.previousCandidateAnswer,
+            "</previous_candidate_answer>",
+          ]
+        : []),
+      ...(params.previousReviewReason
+        ? [
+            "<previous_review_reason>",
+            params.previousReviewReason,
+            "</previous_review_reason>",
           ]
         : []),
       `Generate exactly ${params.maxSearches} ${round === 0 ? "" : "new "}search queries.`,

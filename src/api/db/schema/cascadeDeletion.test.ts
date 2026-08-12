@@ -230,7 +230,7 @@ describe("aggregate deletion", () => {
         title: "Research result",
         shortText: "Useful evidence",
         url: "https://example.com/research",
-        deepSearchWebPageId,
+        selectedWebPageId: deepSearchWebPageId,
       })
       .run()
 
