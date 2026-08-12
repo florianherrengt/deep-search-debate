@@ -100,6 +100,15 @@ its child deep searches, and every job-owned model stream. Private, revoked,
 foreign, and unknown UUIDs return 404. Read responses never expose the owner's
 user ID or identity.
 
+### Public page metadata
+
+In production, `GET /debates/:slug` serves the React application shell with
+crawler-readable metadata. Public debates replace the generic document title,
+description, canonical URL, Open Graph fields, and Twitter card fields with the
+debate's generated title and prompt. The card reuses the branded PNG social
+image. Private, revoked, unknown, and malformed slugs receive only the generic
+site metadata, so the HTML response cannot disclose their title or prompt.
+
 ### `POST /api/debate-jobs`
 
 Starts idea generation and the automatic tournament. It returns `202 Accepted`:

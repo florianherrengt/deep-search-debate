@@ -33,6 +33,9 @@ cannot be deployed over plaintext transport.
 uses `BETTER_AUTH_URL=https://rethinkloop.com` and
 `DATABASE_URL=/app/data/data.db`. Explicit environment overrides remain
 available for tests and alternate deployments.
+`BETTER_AUTH_URL` is also the public web origin used for canonical debate URLs
+and social-preview images because authentication and the production web app are
+served from the same origin.
 
 Deep-search work is bounded in application configuration. Defaults allow at
 most 5 searches, 5 explored results per search, 15 selected URLs per round,

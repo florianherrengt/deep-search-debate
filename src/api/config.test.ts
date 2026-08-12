@@ -166,6 +166,7 @@ describe("config", () => {
     const { config } = await import("./config.ts")
 
     expect(config.auth.baseUrl).toBe("http://localhost:5173")
+    expect(config.web.publicBaseUrl).toBe("http://localhost:5173")
     expect(config.db.url).toBe("data.db")
   })
 
@@ -185,6 +186,7 @@ describe("config", () => {
     const { config } = await import("./config.ts")
 
     expect(config.auth.baseUrl).toBe("https://rethinkloop.com")
+    expect(config.web.publicBaseUrl).toBe("https://rethinkloop.com")
     expect(config.db.url).toBe("/app/data/data.db")
   })
 

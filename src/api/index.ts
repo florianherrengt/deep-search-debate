@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono"
 import { HTTPException } from "hono/http-exception"
 import { serveStatic } from "@hono/node-server/serve-static"
+import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { ping } from "./routes/ping.ts"
 import { health } from "./routes/health.ts"
@@ -24,6 +25,7 @@ import { config } from "./config.ts"
 import { loadOptionalSession } from "./middleware/loadOptionalSession.ts"
 import { creditRoutes } from "./routes/credits.ts"
 import { OutOfCreditsError } from "./credits.ts"
+import { registerPublicDebatePage } from "./publicDebatePage.ts"
 
 recoverInterruptedWork()
 
@@ -81,8 +83,13 @@ debateJobs(api, debateJobManager)
 
 if (config.environment === "production") {
   const webRoot = fileURLToPath(new URL("../web/dist", import.meta.url))
+  const indexHtml = readFileSync(`${webRoot}/index.html`, "utf8")
   const serveWebIndex = serveStatic({ path: "index.html", root: webRoot })
 
+  registerPublicDebatePage(app, {
+    indexHtml,
+    publicBaseUrl: config.web.publicBaseUrl,
+  })
   app.get("*", serveStatic({ root: webRoot }))
   app.get("*", (c, next) => {
     if (c.req.path === "/api" || c.req.path.startsWith("/api/")) return next()

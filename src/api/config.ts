@@ -547,6 +547,7 @@ function resolveLlmConfig(): LlmConfig {
 export const config = {
   environment: environment.NODE_ENV,
   api: { hostname: environment.API_HOST, port: environment.PORT },
+  web: { publicBaseUrl: environment.BETTER_AUTH_URL },
   db: { url: environment.DATABASE_URL },
   auth: {
     baseUrl: environment.BETTER_AUTH_URL,
