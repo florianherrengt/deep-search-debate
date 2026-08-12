@@ -18,6 +18,7 @@ import {
 import { ideaJobs } from "./ideaJobs.ts"
 import { ideas } from "./ideas.ts"
 import { llmGenerations } from "./llmGenerations.ts"
+import { researchJobAdmissions } from "./researchJobAdmissions.ts"
 import { account, session, user } from "./auth.ts"
 
 export const userRelations = relations(user, ({ many }) => ({
@@ -27,7 +28,18 @@ export const userRelations = relations(user, ({ many }) => ({
   ideaJobs: many(ideaJobs),
   debateJobs: many(debateJobs),
   llmGenerations: many(llmGenerations),
+  researchJobAdmissions: many(researchJobAdmissions),
 }))
+
+export const researchJobAdmissionsRelations = relations(
+  researchJobAdmissions,
+  ({ one }) => ({
+    user: one(user, {
+      fields: [researchJobAdmissions.userId],
+      references: [user.id],
+    }),
+  }),
+)
 
 export const sessionRelations = relations(session, ({ one }) => ({
   user: one(user, {

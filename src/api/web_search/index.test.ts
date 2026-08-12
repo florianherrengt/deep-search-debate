@@ -7,7 +7,13 @@ vi.mock("./brave.ts", () => ({
   brave: vi.fn(),
 }))
 vi.mock("../config.ts", () => ({
-  config: { webSearch: { provider: "brave", timeoutMs: 30_000 } },
+  config: {
+    webSearch: {
+      provider: "brave",
+      timeoutMs: 30_000,
+      creditsPerRequest: 1,
+    },
+  },
 }))
 
 import { brave } from "./brave.ts"
@@ -22,9 +28,9 @@ describe("webSearch", () => {
     ]
     vi.mocked(brave).mockResolvedValueOnce(mockResults)
 
-    const results = await webSearch({ query: "hello" })
+    const results = await webSearch({ userId: "test-user-id", query: "hello" })
 
-    expect(results).toEqual(mockResults)
+    expect(results).toEqual({ results: mockResults, creditsUsed: 1 })
     expect(brave).toHaveBeenCalledOnce()
     const providerInput = vi.mocked(brave).mock.calls[0]?.[0]
     expect(providerInput?.query).toBe("hello")

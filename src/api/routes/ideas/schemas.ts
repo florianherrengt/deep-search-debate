@@ -23,9 +23,9 @@ export type IdeaEventStage =
   | "refinement"
   | "idea-research"
 
-const MIN_SELECTED_IDEAS = 6
-const MAX_SELECTED_IDEAS = 12
-const MAX_IDEAS = 20
+export const MIN_SELECTED_IDEAS = 6
+export const MAX_SELECTED_IDEAS = 12
+const DEFAULT_IDEAS = 8
 
 export const ideaSelectionSchema = z.object({
   selectedIdeaIds: z
@@ -86,14 +86,14 @@ export const createIdeaJobInputSchema = deepSearchControlsSchema
       .number()
       .int()
       .min(MIN_SELECTED_IDEAS)
-      .max(MAX_IDEAS)
-      .default(12),
+      .max(config.deepSearch.maxIdeaCount)
+      .default(Math.min(DEFAULT_IDEAS, config.deepSearch.maxIdeaCount)),
     deepSearchCount: z
       .number()
       .int()
       .positive()
       .max(config.deepSearch.maxInitialIdeaSearches)
-      .default(2),
+      .default(Math.min(2, config.deepSearch.maxInitialIdeaSearches)),
   })
   .refine(
     (input) =>

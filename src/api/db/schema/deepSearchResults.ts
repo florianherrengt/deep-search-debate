@@ -27,6 +27,7 @@ export const deepSearchWebPages = sqliteTable(
         onDelete: "cascade",
       }),
     url: text("url").notNull(),
+    creditsUsed: integer("credits_used"),
     status: text("status", { enum: deepSearchWebPageStatuses })
       .notNull()
       .default("pending"),

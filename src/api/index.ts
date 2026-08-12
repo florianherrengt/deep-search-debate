@@ -22,6 +22,8 @@ import type { AppEnv } from "./types/auth.ts"
 import { requireTrustedOrigin } from "./middleware/requireTrustedOrigin.ts"
 import { config } from "./config.ts"
 import { loadOptionalSession } from "./middleware/loadOptionalSession.ts"
+import { creditRoutes } from "./routes/credits.ts"
+import { OutOfCreditsError } from "./credits.ts"
 
 recoverInterruptedWork()
 
@@ -32,6 +34,15 @@ export function handleRequestError(
   if (error instanceof HTTPException) {
     const response = error.getResponse()
     return context.newResponse(response.body, response)
+  }
+  if (error instanceof OutOfCreditsError) {
+    return context.json(
+      {
+        error: "Insufficient credits",
+        remainingCredits: error.remainingCredits,
+      },
+      402,
+    )
   }
 
   // Provider errors can retain full prompts, response bodies, and every retry
@@ -61,6 +72,7 @@ deepSearchJobReads(api, deepSearchManager)
 ideaJobReads(api, ideaJobManager)
 debateJobReads(api, debateJobManager)
 api.use("*", requireSession)
+creditRoutes(api)
 if (config.auth.debugUser.enabled) debug(api)
 streams(api)
 deepSearchJobs(api, deepSearchManager)

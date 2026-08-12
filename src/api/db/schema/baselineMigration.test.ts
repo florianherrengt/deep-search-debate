@@ -10,7 +10,7 @@ const migrationsFolder = fileURLToPath(
 )
 
 describe("fresh database migration", () => {
-  it("creates the complete current schema from one baseline", () => {
+  it("creates the complete current schema from the fresh baseline", () => {
     expect(
       readdirSync(migrationsFolder).filter((name) => name.endsWith(".sql")),
     ).toEqual(["0000_fresh-baseline.sql"])
@@ -27,6 +27,7 @@ describe("fresh database migration", () => {
     )
     expect(tableNames.has("deep_search_rounds")).toBe(true)
     expect(tableNames.has("deep_search_queries")).toBe(true)
+    expect(tableNames.has("research_job_admissions")).toBe(true)
 
     expect(
       sqlite
@@ -67,4 +68,5 @@ describe("fresh database migration", () => {
     )
     sqlite.close()
   })
+
 })

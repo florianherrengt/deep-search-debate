@@ -86,6 +86,36 @@ const nonSecretEnvironmentShape = {
     .min(1)
     .max(20)
     .default(2),
+  RESEARCH_JOB_CREATION_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .min(60_000)
+    .max(604_800_000)
+    .default(86_400_000),
+  RESEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .default(5),
+  DEEP_SEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .default(4),
+  IDEA_JOB_MAX_ROOT_JOB_CREATIONS_PER_WINDOW: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .default(2),
+  DEBATE_MAX_ROOT_JOB_CREATIONS_PER_WINDOW: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .default(1),
   SEARXNG_URL: z.url().optional(),
   SEARXNG_CATEGORIES: z
     .string()
@@ -116,6 +146,12 @@ const nonSecretEnvironmentShape = {
     .min(10_000)
     .max(10_000_000)
     .default(2_000_000),
+  WEB_SEARCH_CREDITS_COST: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(100_000)
+    .default(1),
   SCRAPINGANT_REQUEST_TIMEOUT_MS: z.coerce
     .number()
     .int()
@@ -139,25 +175,25 @@ const nonSecretEnvironmentShape = {
     .int()
     .min(3)
     .max(25)
-    .default(10),
+    .default(5),
   DEEP_SEARCH_MAX_RESULTS_PER_SEARCH: z.coerce
     .number()
     .int()
     .min(3)
     .max(20)
-    .default(10),
+    .default(5),
   DEEP_SEARCH_MAX_SELECTED_URLS_PER_ROUND: z.coerce
     .number()
     .int()
     .min(9)
     .max(100)
-    .default(30),
+    .default(15),
   DEEP_SEARCH_MAX_ROUNDS: z.coerce
     .number()
     .int()
     .min(1)
     .max(10)
-    .default(3),
+    .default(2),
   DEEP_SEARCH_MAX_REQUEST_CHARS: z.coerce
     .number()
     .int()
@@ -191,15 +227,58 @@ const nonSecretEnvironmentShape = {
   RESEARCH_MAX_SELECTED_PAGES_PER_ROOT_JOB: z.coerce
     .number()
     .int()
-    .min(100)
+    .min(50)
     .max(2_000)
-    .default(400),
+    .default(200),
+  IDEA_JOB_MAX_IDEA_COUNT: z.coerce
+    .number()
+    .int()
+    .min(6)
+    .max(20)
+    .default(12),
   IDEA_JOB_MAX_DEEP_SEARCH_COUNT: z.coerce
     .number()
     .int()
-    .min(2)
+    .min(1)
     .max(20)
-    .default(10),
+    .default(2),
+  DEBATE_MAX_IDEA_COUNT: z.coerce
+    .number()
+    .int()
+    .min(6)
+    .max(12)
+    .refine((value) => value % 2 === 0, "Debate idea limit must be even")
+    .default(8),
+  DEBATE_MAX_INITIAL_DEEP_SEARCH_COUNT: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(5)
+    .default(1),
+  DEBATE_MAX_SEARCHES_PER_CHILD: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(10)
+    .default(3),
+  DEBATE_MAX_RESULTS_PER_SEARCH: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(10)
+    .default(3),
+  DEBATE_MAX_RESEARCH_ROUNDS_PER_CHILD: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(3)
+    .default(1),
+  DEBATE_MAX_SELECTED_PAGES_PER_JOB: z.coerce
+    .number()
+    .int()
+    .min(20)
+    .max(500)
+    .default(81),
   DATABASE_URL: z.string().min(1).optional(),
   API_HOST: z.string().trim().min(1).default("127.0.0.1"),
   PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
@@ -255,6 +334,63 @@ const environmentSchema = z.object({
       code: "custom",
       message: "LLM_CHUNK_TIMEOUT_MS cannot exceed LLM_GENERATION_TIMEOUT_MS",
       path: ["LLM_CHUNK_TIMEOUT_MS"],
+    })
+  }
+  const rootCreationLimit =
+    environment.RESEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW
+  for (const key of [
+    "DEEP_SEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW",
+    "IDEA_JOB_MAX_ROOT_JOB_CREATIONS_PER_WINDOW",
+    "DEBATE_MAX_ROOT_JOB_CREATIONS_PER_WINDOW",
+  ] as const) {
+    if (environment[key] > rootCreationLimit) {
+      context.addIssue({
+        code: "custom",
+        message: `${key} cannot exceed RESEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW`,
+        path: [key],
+      })
+    }
+  }
+  if (environment.DEBATE_MAX_IDEA_COUNT > environment.IDEA_JOB_MAX_IDEA_COUNT) {
+    context.addIssue({
+      code: "custom",
+      message: "DEBATE_MAX_IDEA_COUNT cannot exceed IDEA_JOB_MAX_IDEA_COUNT",
+      path: ["DEBATE_MAX_IDEA_COUNT"],
+    })
+  }
+  if (
+    environment.DEBATE_MAX_INITIAL_DEEP_SEARCH_COUNT >
+    environment.IDEA_JOB_MAX_DEEP_SEARCH_COUNT
+  ) {
+    context.addIssue({
+      code: "custom",
+      message:
+        "DEBATE_MAX_INITIAL_DEEP_SEARCH_COUNT cannot exceed IDEA_JOB_MAX_DEEP_SEARCH_COUNT",
+      path: ["DEBATE_MAX_INITIAL_DEEP_SEARCH_COUNT"],
+    })
+  }
+  for (const [debateKey, deepSearchKey] of [
+    ["DEBATE_MAX_SEARCHES_PER_CHILD", "DEEP_SEARCH_MAX_SEARCHES"],
+    ["DEBATE_MAX_RESULTS_PER_SEARCH", "DEEP_SEARCH_MAX_RESULTS_PER_SEARCH"],
+    ["DEBATE_MAX_RESEARCH_ROUNDS_PER_CHILD", "DEEP_SEARCH_MAX_ROUNDS"],
+  ] as const) {
+    if (environment[debateKey] > environment[deepSearchKey]) {
+      context.addIssue({
+        code: "custom",
+        message: `${debateKey} cannot exceed ${deepSearchKey}`,
+        path: [debateKey],
+      })
+    }
+  }
+  if (
+    environment.DEBATE_MAX_SELECTED_PAGES_PER_JOB >
+    environment.RESEARCH_MAX_SELECTED_PAGES_PER_ROOT_JOB
+  ) {
+    context.addIssue({
+      code: "custom",
+      message:
+        "DEBATE_MAX_SELECTED_PAGES_PER_JOB cannot exceed RESEARCH_MAX_SELECTED_PAGES_PER_ROOT_JOB",
+      path: ["DEBATE_MAX_SELECTED_PAGES_PER_JOB"],
     })
   }
   if (
@@ -426,6 +562,18 @@ export const config = {
       password: environment.AUTH_DEBUG_USER_PASSWORD,
     },
   },
+  abuseProtection: {
+    researchJobCreationWindowMs:
+      environment.RESEARCH_JOB_CREATION_WINDOW_MS,
+    maxRootJobCreationsPerWindow:
+      environment.RESEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW,
+    maxDeepSearchCreationsPerWindow:
+      environment.DEEP_SEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW,
+    maxIdeaJobCreationsPerWindow:
+      environment.IDEA_JOB_MAX_ROOT_JOB_CREATIONS_PER_WINDOW,
+    maxDebateCreationsPerWindow:
+      environment.DEBATE_MAX_ROOT_JOB_CREATIONS_PER_WINDOW,
+  },
   webSearch: {
     provider:
       environment.NODE_ENV === "production"
@@ -446,6 +594,7 @@ export const config = {
     },
     timeoutMs: environment.WEB_SEARCH_TIMEOUT_MS,
     maxResponseBytes: environment.WEB_SEARCH_MAX_RESPONSE_BYTES,
+    creditsPerRequest: environment.WEB_SEARCH_CREDITS_COST,
   },
   extraction: {
     scrapingant: {
@@ -471,6 +620,18 @@ export const config = {
     maxSelectedPagesPerRootJob:
       environment.RESEARCH_MAX_SELECTED_PAGES_PER_ROOT_JOB,
     maxInitialIdeaSearches: environment.IDEA_JOB_MAX_DEEP_SEARCH_COUNT,
+    maxIdeaCount: environment.IDEA_JOB_MAX_IDEA_COUNT,
+  },
+  debate: {
+    maxIdeaCount: environment.DEBATE_MAX_IDEA_COUNT,
+    maxInitialDeepSearches:
+      environment.DEBATE_MAX_INITIAL_DEEP_SEARCH_COUNT,
+    maxSearchesPerChild: environment.DEBATE_MAX_SEARCHES_PER_CHILD,
+    maxResultsPerSearch: environment.DEBATE_MAX_RESULTS_PER_SEARCH,
+    maxResearchRoundsPerChild:
+      environment.DEBATE_MAX_RESEARCH_ROUNDS_PER_CHILD,
+    maxSelectedPagesPerJob:
+      environment.DEBATE_MAX_SELECTED_PAGES_PER_JOB,
   },
   llm: resolveLlmConfig(),
   llmExecution: {

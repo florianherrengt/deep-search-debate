@@ -3,6 +3,7 @@ import type { MiddlewareHandler } from "hono"
 import { auth } from "../auth.ts"
 import { config } from "../config.ts"
 import type { AppEnv } from "../types/auth.ts"
+import { getCreditAccount } from "../credits.ts"
 
 /** Loads a session when present without rejecting anonymous read requests. */
 export const loadOptionalSession: MiddlewareHandler<AppEnv> = async (
@@ -11,6 +12,10 @@ export const loadOptionalSession: MiddlewareHandler<AppEnv> = async (
 ) => {
   const session = await auth.api.getSession({ headers: c.req.raw.headers })
   c.set("viewerUserId", session?.user.id ?? null)
+  c.set(
+    "isAdmin",
+    session === null ? false : getCreditAccount(session.user.id).isAdmin,
+  )
   c.set(
     "isDebugUser",
     session !== null &&

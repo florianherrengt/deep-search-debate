@@ -18,6 +18,12 @@ const authMocks = vi.hoisted(() => ({
   useSession: vi.fn(),
 }))
 
+const creditMocks = vi.hoisted(() => ({
+  getAdminUsers: vi.fn(),
+  getCreditAccount: vi.fn(),
+  grantUserCredits: vi.fn(),
+}))
+
 vi.mock("./lib/authClient.ts", () => ({
   authClient: {
     signIn: { social: authMocks.signInSocial },
@@ -25,6 +31,14 @@ vi.mock("./lib/authClient.ts", () => ({
     useSession: authMocks.useSession,
   },
   getAuthConfig: authMocks.getAuthConfig,
+}))
+
+vi.mock("./lib/credits.ts", () => ({
+  adminUsersQueryKey: ["admin", "users"],
+  creditAccountQueryKey: ["credit-account"],
+  getAdminUsers: creditMocks.getAdminUsers,
+  getCreditAccount: creditMocks.getCreditAccount,
+  grantUserCredits: creditMocks.grantUserCredits,
 }))
 
 const authenticatedSession = {
@@ -65,6 +79,11 @@ describe("App", () => {
     scrollToMock.mockClear()
     vi.stubGlobal("scrollTo", scrollToMock)
     authMocks.getAuthConfig.mockResolvedValue({ debugUserEnabled: true })
+    creditMocks.getCreditAccount.mockResolvedValue({
+      credits: 1_000,
+      isAdmin: true,
+    })
+    creditMocks.getAdminUsers.mockResolvedValue({ users: [] })
     authMocks.refetch.mockResolvedValue(undefined)
     authMocks.signInSocial.mockResolvedValue({ data: null, error: null })
     authMocks.signOut.mockResolvedValue({ data: null, error: null })
@@ -144,6 +163,19 @@ describe("App", () => {
     expect(screen.getByRole("link", { name: "Go home" })).toHaveAttribute(
       "href",
       "/",
+    )
+  })
+
+  it("shows the current balance and admin navigation", async () => {
+    window.history.replaceState({}, "", "/deep-search")
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => undefined)))
+
+    renderApp()
+
+    expect(await screen.findByText("1,000 credits")).toBeVisible()
+    expect(screen.getByRole("link", { name: "Admin" })).toHaveAttribute(
+      "href",
+      "/admin/credits",
     )
   })
 

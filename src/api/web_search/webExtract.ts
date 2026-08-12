@@ -38,6 +38,21 @@ export type WebExtractResult = {
   url: string
   content: string
   retrievalMethod: PageRetrievalMethod
+  scrapingAntCredits: number
+}
+
+class WebExtractionError extends Error {
+  override readonly name = "WebExtractionError"
+  readonly scrapingAntCredits: number
+
+  constructor(
+    message: string,
+    scrapingAntCredits: number,
+    options?: { cause?: unknown },
+  ) {
+    super(message, options)
+    this.scrapingAntCredits = scrapingAntCredits
+  }
 }
 
 type WebExtractorDeps = {
@@ -161,6 +176,7 @@ export function createWebExtractor(deps: WebExtractorDeps) {
     signal?: AbortSignal
   }): Promise<WebExtractResult> {
     const parsedUrl = validateUrl(params.url)
+    let scrapingAntCredits = 0
 
     for (const { mode, method } of retrievalStages) {
       const startedAt = now()
@@ -171,6 +187,7 @@ export function createWebExtractor(deps: WebExtractorDeps) {
           mode,
           signal: params.signal,
         })
+        scrapingAntCredits += page.credits ?? 0
         const { content, html } = await extractContent({
           body: page.body,
           contentType: page.contentType,
@@ -197,10 +214,16 @@ export function createWebExtractor(deps: WebExtractorDeps) {
         }
 
         log({ ...diagnostic, outcome: "success" })
-        return { url: params.url, content, retrievalMethod: method }
+        return {
+          url: params.url,
+          content,
+          retrievalMethod: method,
+          scrapingAntCredits,
+        }
       } catch (error) {
         const providerError =
           error instanceof ScrapingAntRequestError ? error : undefined
+        scrapingAntCredits += providerError?.credits ?? 0
         log({
           event: "page-retrieval-attempt",
           url: params.url,
@@ -212,11 +235,20 @@ export function createWebExtractor(deps: WebExtractorDeps) {
           providerStatusCode: providerError?.providerStatusCode,
           failure: errorMessage(error),
         })
-        if (params.signal?.aborted) throw error
+        if (params.signal?.aborted) {
+          throw new WebExtractionError(
+            errorMessage(error),
+            scrapingAntCredits,
+            { cause: error },
+          )
+        }
       }
     }
 
-    throw new Error(`No retrieval method returned usable content for ${params.url}`)
+    throw new WebExtractionError(
+      `No retrieval method returned usable content for ${params.url}`,
+      scrapingAntCredits,
+    )
   }
 }
 

@@ -91,6 +91,26 @@ describe("authentication", () => {
     })
   })
 
+  it("rejects anonymous requests to every provider-backed creation route", async () => {
+    for (const path of [
+      "/api/streams",
+      "/api/deep-search-jobs",
+      "/api/idea-jobs",
+      "/api/debate-jobs",
+    ]) {
+      const response = await app.request(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      })
+
+      expect(response.status).toBe(401)
+      await expect(response.json()).resolves.toEqual({
+        error: "Unauthorized",
+      })
+    }
+  })
+
   it("rejects untrusted debug sign-in requests", async () => {
     const response = await app.request("/api/auth/debug-sign-in", {
       method: "POST",

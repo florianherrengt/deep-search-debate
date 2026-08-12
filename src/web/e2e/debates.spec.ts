@@ -23,7 +23,7 @@ function parseEvents(body: string): DebateJobEvent[] {
 // real. The API preload rejects every outbound host it does not explicitly
 // mock, so successful completion also proves that no live provider was called.
 test.describe("Debate tournament", () => {
-  test("runs all 33 matches, streams progress, and survives reload", async ({
+  test("runs all 23 matches, streams progress, and survives reload", async ({
     browser,
     page,
     request,
@@ -91,7 +91,7 @@ test.describe("Debate tournament", () => {
     expect(created.request().postDataJSON()).toEqual({
       prompt,
       isPublic: true,
-      numberOfIdeas: 12,
+      numberOfIdeas: 8,
     })
     const { debateJobId, slug } = (await created.json()) as {
       debateJobId: string
@@ -111,7 +111,7 @@ test.describe("Debate tournament", () => {
     expect(live.status()).toBe(200)
     expect(live.headers()["content-type"]).toContain("application/x-ndjson")
     await expect(page.getByText("Running automatically")).toBeVisible()
-    await expect(page.getByText(/\d+\/33 matches/)).toBeVisible()
+    await expect(page.getByText(/\d+\/23 matches/)).toBeVisible()
     await expect(page.getByText("Streaming", { exact: true })).toBeVisible({
       timeout: 30_000,
     })
@@ -197,7 +197,7 @@ test.describe("Debate tournament", () => {
     await expect(page.getByText("Debate complete")).toBeVisible({
       timeout: 60_000,
     })
-    await expect(page.getByText("33/33 matches", { exact: true })).toBeVisible()
+    await expect(page.getByText("23/23 matches", { exact: true })).toBeVisible()
     await expect(page.getByText("Winning idea", { exact: true })).toBeVisible()
     await expect(
       page.getByRole("heading", {
@@ -231,14 +231,14 @@ test.describe("Debate tournament", () => {
       prompt,
       stage: "final",
       status: "completed",
-      expectedMatchCount: 33,
+      expectedMatchCount: 23,
       error: null,
     })
     expect(debateJob.ideaJobId).toMatch(uuidPattern)
     await expect(
       page.getByRole("link", { name: "View the underlying idea generation" }),
     ).toHaveAttribute("href", `/ideas/${debateJob.slug}`)
-    expect(debateJob.standings).toHaveLength(12)
+    expect(debateJob.standings).toHaveLength(8)
     expect(debateJob.rounds.filter((round) => round.stage === "swiss")).toHaveLength(
       5,
     )
@@ -250,7 +250,7 @@ test.describe("Debate tournament", () => {
     )
 
     const matches = debateJob.rounds.flatMap((round) => round.matches)
-    expect(matches).toHaveLength(33)
+    expect(matches).toHaveLength(23)
     for (const match of matches) {
       expect(match.status).toBe("completed")
       expect([match.firstIdea.ideaId, match.secondIdea.ideaId]).toContain(
@@ -391,7 +391,7 @@ test.describe("Debate tournament", () => {
       stage: "swiss",
       stageRoundNumber: 1,
     })
-    expect(debateJob.rounds[0]?.matches).toHaveLength(6)
+    expect(debateJob.rounds[0]?.matches).toHaveLength(4)
 
     const completedMatches = debateJob.rounds[0]?.matches.filter(
       (match) => match.status === "completed",
@@ -399,7 +399,7 @@ test.describe("Debate tournament", () => {
     const incompleteMatches = debateJob.rounds[0]?.matches.filter(
       (match) => match.status !== "completed",
     )
-    expect(completedMatches).toHaveLength(5)
+    expect(completedMatches).toHaveLength(3)
     expect(completedMatches?.every((match) => match.messages.length === 5)).toBe(
       true,
     )

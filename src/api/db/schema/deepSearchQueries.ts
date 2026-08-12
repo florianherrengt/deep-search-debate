@@ -96,6 +96,7 @@ export const deepSearchQueries = sqliteTable(
       }),
     position: integer("position").notNull(),
     query: text("query").notNull(),
+    creditsUsed: integer("credits_used"),
     status: text("status", { enum: deepSearchQueryStatuses })
       .notNull()
       .default("searching"),

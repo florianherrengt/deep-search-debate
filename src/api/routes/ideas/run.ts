@@ -26,6 +26,8 @@ import { deepSearchResearchRequestSchema } from "../deepSearch/resourceLimits.ts
 import {
   ideaSchema,
   ideaSelectionSchema,
+  MAX_SELECTED_IDEAS,
+  MIN_SELECTED_IDEAS,
   type Idea,
   type IdeaEventStage,
   type IdeaJobStage,
@@ -114,6 +116,48 @@ type CritiquedIdea = PersistedIdea & { critique: string }
 type RefinedIdea = CritiquedIdea & {
   refinedTitle: string
   refinedDescription: string
+}
+
+const ideaSelectionProposalSchema = z.object({
+  // The provider proposes IDs, but the server owns the tournament invariant.
+  // Allow a bounded amount of duplicate or invented output so it can be
+  // normalized without paying for a retry.
+  selectedIdeaIds: z
+    .array(z.string().max(64))
+    .max(MAX_SELECTED_IDEAS * 2),
+})
+
+function normalizeIdeaSelection(
+  proposal: z.infer<typeof ideaSelectionProposalSchema>,
+  ideas: CritiquedIdea[],
+): z.infer<typeof ideaSelectionSchema> {
+  const orderedIdeaIds = ideas.map(({ ideaId }) => ideaId)
+  const knownIdeaIds = new Set(orderedIdeaIds)
+  const selectedIdeaIds: string[] = []
+  const selected = new Set<string>()
+
+  for (const ideaId of proposal.selectedIdeaIds) {
+    if (knownIdeaIds.has(ideaId) && !selected.has(ideaId)) {
+      selected.add(ideaId)
+      selectedIdeaIds.push(ideaId)
+    }
+  }
+
+  for (const ideaId of orderedIdeaIds) {
+    if (selectedIdeaIds.length >= MIN_SELECTED_IDEAS) break
+    if (!selected.has(ideaId)) {
+      selected.add(ideaId)
+      selectedIdeaIds.push(ideaId)
+    }
+  }
+
+  if (selectedIdeaIds.length % 2 !== 0) {
+    const nextIdeaId = orderedIdeaIds.find((ideaId) => !selected.has(ideaId))
+    if (nextIdeaId === undefined) selectedIdeaIds.pop()
+    else selectedIdeaIds.push(nextIdeaId)
+  }
+
+  return ideaSelectionSchema.parse({ selectedIdeaIds })
 }
 
 function buildRefinementPrompt(
@@ -534,24 +578,12 @@ async function selectIdeas(
   researchSummary: string,
   ideas: CritiquedIdea[],
 ): Promise<CritiquedIdea[]> {
-  const knownIdeaIds = new Set(ideas.map(({ ideaId }) => ideaId))
-  const selectionSchema = ideaSelectionSchema.superRefine(
-    ({ selectedIdeaIds }, context) => {
-      if (selectedIdeaIds.some((ideaId) => !knownIdeaIds.has(ideaId))) {
-        context.addIssue({
-          code: "custom",
-          message: "Every selected idea ID must belong to this idea job",
-          path: ["selectedIdeaIds"],
-        })
-      }
-    },
-  )
   const generation = await generateObjectStream({
     userId: input.userId,
     owner: { ideaJobId: input.ideaJobId },
     prompt: buildSelectionPrompt(input.prompt, researchSummary, ideas),
     promptName: PromptName.SelectIdeas,
-    schema: selectionSchema,
+    schema: ideaSelectionProposalSchema,
     // Selection is a small structured transform over an already-complete
     // briefing. Hidden reasoning can consume the entire output budget before
     // DeepSeek emits the required JSON.
@@ -566,7 +598,8 @@ async function selectIdeas(
       )
     },
     onCompleted: ({ output }, transaction) => {
-      const selectedIdeaIds = new Set(output.selectedIdeaIds)
+      const selection = normalizeIdeaSelection(output, ideas)
+      const selectedIdeaIds = new Set(selection.selectedIdeaIds)
       for (const { ideaId } of ideas) {
         const result = transaction
           .update(ideaRecords)
@@ -591,10 +624,11 @@ async function selectIdeas(
     })
   })
 
-  const selection = await awaitGenerationOutput(
+  const proposal = await awaitGenerationOutput(
     generation,
     generation.output,
   )
+  const selection = normalizeIdeaSelection(proposal, ideas)
   input.job.publish({ type: "selected-ideas", ...selection })
   const selectedIdeaIds = new Set(selection.selectedIdeaIds)
   return ideas.filter(({ ideaId }) => selectedIdeaIds.has(ideaId))

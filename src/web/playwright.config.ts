@@ -3,8 +3,8 @@ import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 
-const API = "http://localhost:3100"
-const WEB = "http://localhost:5174"
+const API = process.env.PLAYWRIGHT_API_ORIGIN ?? "http://localhost:3100"
+const WEB = process.env.PLAYWRIGHT_WEB_ORIGIN ?? "http://localhost:5174"
 const e2eDatabase = join(
   tmpdir(),
   `rethinkloop-e2e-${process.pid}.db`,
@@ -37,11 +37,15 @@ export default defineConfig({
       timeout: 30_000,
       env: {
         API_HOST: "127.0.0.1",
-        PORT: "3100",
+        PORT: new URL(API).port,
         DATABASE_URL: e2eDatabase,
         DEEPSEEK_API_KEY: "e2e-deepseek-key",
         LLM_PROVIDER: "deepseek",
         LLM_MODEL_NAME: "deepseek-v4-flash",
+        RESEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW: "100",
+        DEEP_SEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW: "100",
+        IDEA_JOB_MAX_ROOT_JOB_CREATIONS_PER_WINDOW: "100",
+        DEBATE_MAX_ROOT_JOB_CREATIONS_PER_WINDOW: "100",
         SEARXNG_URL: "https://e2e-search.test",
         SCRAPINGANT_API_KEY: "e2e-scrapingant-key",
         NODE_ENV: "test",
@@ -60,7 +64,7 @@ export default defineConfig({
       url: WEB,
       reuseExistingServer: false,
       timeout: 30_000,
-      env: { VITE_PORT: "5174", VITE_API_TARGET: API },
+      env: { VITE_PORT: new URL(WEB).port, VITE_API_TARGET: API },
     },
   ],
   projects: [

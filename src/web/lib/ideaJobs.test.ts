@@ -11,7 +11,7 @@ describe("idea jobs client", () => {
       slug: "generate-ideas",
       prompt: "Generate ideas",
       stage: "ideas",
-      numberOfIdeas: 12,
+      numberOfIdeas: 8,
       deepSearchCount: 2,
       status: "completed",
       error: null,

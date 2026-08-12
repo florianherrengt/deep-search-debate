@@ -3,6 +3,11 @@ import type { Hono } from "hono"
 import z from "zod"
 import { webExtract } from "../web_search/webExtract.ts"
 import { webSearch } from "../web_search/index.ts"
+import {
+  calculateScrapingAntCredits,
+  chargeUserCredits,
+  requirePositiveCreditBalance,
+} from "../credits.ts"
 import type { AppEnv } from "../types/auth.ts"
 
 const debugSearchQuerySchema = z.object({
@@ -26,7 +31,15 @@ export function debug(app: Hono<AppEnv>) {
     zValidator("query", debugSearchQuerySchema),
     async (c) => {
       try {
-        const results = await webSearch(c.req.valid("query"))
+        const search = await webSearch({
+          userId: c.get("userId"),
+          ...c.req.valid("query"),
+        })
+        const results = Array.isArray(search) ? search : search.results
+        chargeUserCredits(
+          c.get("userId"),
+          Array.isArray(search) ? 0 : search.creditsUsed,
+        )
         return c.json({ results })
       } catch (error) {
         console.error("Debug search failed", error)
@@ -41,7 +54,12 @@ export function debug(app: Hono<AppEnv>) {
     async (c) => {
       const { url } = c.req.valid("query")
       try {
+        requirePositiveCreditBalance(c.get("userId"))
         const result = await webExtract({ url })
+        chargeUserCredits(
+          c.get("userId"),
+          calculateScrapingAntCredits(result.scrapingAntCredits ?? 0),
+        )
         return c.json({
           url: result.url,
           content: result.content,
@@ -49,6 +67,17 @@ export function debug(app: Hono<AppEnv>) {
           retrievalMethod: result.retrievalMethod,
         })
       } catch (error) {
+        if (
+          error instanceof Error &&
+          error.name === "WebExtractionError" &&
+          "scrapingAntCredits" in error &&
+          typeof error.scrapingAntCredits === "number"
+        ) {
+          chargeUserCredits(
+            c.get("userId"),
+            calculateScrapingAntCredits(error.scrapingAntCredits),
+          )
+        }
         console.error("Debug extraction failed", error)
         return c.json({ error: "Extraction failed" }, 500)
       }

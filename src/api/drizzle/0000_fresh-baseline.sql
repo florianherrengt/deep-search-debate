@@ -44,6 +44,7 @@ CREATE TABLE `deep_search_queries` (
 	`deep_search_round_id` text NOT NULL,
 	`position` integer NOT NULL,
 	`query` text NOT NULL,
+	`credits_used` integer,
 	`status` text DEFAULT 'searching' NOT NULL,
 	`selection_generation_id` text,
 	`summary_generation_id` text,
@@ -143,6 +144,7 @@ CREATE TABLE `deep_search_web_pages` (
 	`deep_search_web_page_id` text PRIMARY KEY NOT NULL,
 	`deep_search_job_id` text NOT NULL,
 	`url` text NOT NULL,
+	`credits_used` integer,
 	`status` text DEFAULT 'pending' NOT NULL,
 	`summary_generation_id` text,
 	`error_stage` text,
@@ -314,10 +316,10 @@ CREATE TABLE `ideas` (
 	CONSTRAINT "ideas_position_check" CHECK("ideas"."position" >= 0),
 	CONSTRAINT "ideas_content_check" CHECK(length(trim("ideas"."title")) > 0 and length(trim("ideas"."description")) > 0),
 	CONSTRAINT "ideas_refinement_lifecycle_check" CHECK((
-		("ideas"."refinement_generation_id" is null and "ideas"."refined_title" is null and "ideas"."refined_description" is null)
+        ("ideas"."refinement_generation_id" is null and "ideas"."refined_title" is null and "ideas"."refined_description" is null)
         or
         ("ideas"."selected" = 1 and "ideas"."refinement_generation_id" is not null and (
-		  ("ideas"."refined_title" is null and "ideas"."refined_description" is null)
+          ("ideas"."refined_title" is null and "ideas"."refined_description" is null)
           or
           ("ideas"."refined_title" is not null and length(trim("ideas"."refined_title")) > 0 and "ideas"."refined_description" is not null and length(trim("ideas"."refined_description")) > 0)
         ))
@@ -343,6 +345,7 @@ CREATE TABLE `llm_generations` (
 	`input_tokens` integer,
 	`output_tokens` integer,
 	`reasoning_tokens` integer,
+	`credits_used` integer,
 	`started_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
 	`completed_at` integer,
 	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,
@@ -376,6 +379,17 @@ CREATE UNIQUE INDEX `llm_generations_id_user_deep_search_job_idx` ON `llm_genera
 CREATE INDEX `llm_generations_debate_job_id_idx` ON `llm_generations` (`debate_job_id`);--> statement-breakpoint
 CREATE INDEX `llm_generations_idea_job_id_idx` ON `llm_generations` (`idea_job_id`);--> statement-breakpoint
 CREATE INDEX `llm_generations_deep_search_job_id_idx` ON `llm_generations` (`deep_search_job_id`);--> statement-breakpoint
+CREATE TABLE `research_job_admissions` (
+	`research_job_admission_id` text PRIMARY KEY NOT NULL,
+	`user_id` text NOT NULL,
+	`kind` text NOT NULL,
+	`created_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
+	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "research_job_admissions_kind_check" CHECK("research_job_admissions"."kind" in ('deep-search', 'idea', 'debate'))
+);
+--> statement-breakpoint
+CREATE INDEX `research_job_admissions_user_created_at_idx` ON `research_job_admissions` (`user_id`,`created_at`,`research_job_admission_id`);--> statement-breakpoint
+CREATE INDEX `research_job_admissions_user_kind_created_at_idx` ON `research_job_admissions` (`user_id`,`kind`,`created_at`,`research_job_admission_id`);--> statement-breakpoint
 CREATE TABLE `account` (
 	`id` text PRIMARY KEY NOT NULL,
 	`account_id` text NOT NULL,
@@ -413,6 +427,8 @@ CREATE TABLE `user` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
 	`email` text NOT NULL,
+	`credits` integer DEFAULT 0 NOT NULL,
+	`is_admin` integer DEFAULT false NOT NULL,
 	`email_verified` integer DEFAULT false NOT NULL,
 	`image` text,
 	`created_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,

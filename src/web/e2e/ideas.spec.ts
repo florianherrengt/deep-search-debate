@@ -64,7 +64,7 @@ test.describe("Ideas", () => {
     expect(created.status()).toBe(202)
     expect(created.request().postDataJSON()).toEqual({
       prompt,
-      numberOfIdeas: 12,
+      numberOfIdeas: 8,
       deepSearchCount: 2,
       maxSearches: 3,
       maxResultsPerSearch: 3,
@@ -144,13 +144,13 @@ test.describe("Ideas", () => {
     expect(new Set(research.map((item) => item.researchRequest)).size).toBe(2)
     expect(summary).toBeDefined()
     expect(ideaGeneration).toBeDefined()
-    expect(critiqueGenerations).toHaveLength(12)
-    expect(ideas).toHaveLength(12)
+    expect(critiqueGenerations).toHaveLength(8)
+    expect(ideas).toHaveLength(8)
     expect(selection).toBeDefined()
-    expect(selected?.selectedIdeaIds).toHaveLength(12)
-    expect(refinementGenerations).toHaveLength(12)
-    expect(refinedIdeas).toHaveLength(12)
-    expect(ideaResearch).toHaveLength(12)
+    expect(selected?.selectedIdeaIds).toHaveLength(8)
+    expect(refinementGenerations).toHaveLength(8)
+    expect(refinedIdeas).toHaveLength(8)
+    expect(ideaResearch).toHaveLength(8)
     expect(new Set(ideaResearch.map(({ ideaId }) => ideaId))).toEqual(
       new Set(selected?.selectedIdeaIds),
     )
@@ -433,7 +433,7 @@ test.describe("Ideas", () => {
       ideaJob: {
         ideaJobId,
         prompt,
-        numberOfIdeas: 12,
+        numberOfIdeas: 8,
         deepSearchCount: 2,
         stage: "ideas",
         status: "completed",

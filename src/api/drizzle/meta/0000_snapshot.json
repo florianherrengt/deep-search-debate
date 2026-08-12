@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d290c1fa-008c-4bcb-862f-6156d6150207",
+  "id": "86b6e56d-c865-41ec-9f1f-8e03b999786f",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "deep_search_jobs": {
@@ -260,6 +260,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "credits_used": {
+          "name": "credits_used",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "status": {
@@ -734,6 +741,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "credits_used": {
+          "name": "credits_used",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "status": {
@@ -1921,6 +1935,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "credits_used": {
+          "name": "credits_used",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "started_at": {
           "name": "started_at",
           "type": "integer",
@@ -2073,6 +2094,84 @@
         "llm_generations_terminal_fields_check": {
           "name": "llm_generations_terminal_fields_check",
           "value": "(\n        (\"llm_generations\".\"status\" = 'running' and \"llm_generations\".\"text\" is null and \"llm_generations\".\"reasoning\" is null and \"llm_generations\".\"completed_at\" is null and \"llm_generations\".\"error\" is null)\n        or\n        (\"llm_generations\".\"status\" = 'completed' and \"llm_generations\".\"text\" is not null and length(trim(\"llm_generations\".\"text\", char(9) || char(10) || char(11) || char(12) || char(13) || char(32))) > 0 and \"llm_generations\".\"reasoning\" is not null and \"llm_generations\".\"completed_at\" is not null and \"llm_generations\".\"error\" is null)\n        or\n        (\"llm_generations\".\"status\" in ('failed', 'interrupted') and \"llm_generations\".\"completed_at\" is not null and \"llm_generations\".\"error\" is not null)\n      )"
+        }
+      }
+    },
+    "research_job_admissions": {
+      "name": "research_job_admissions",
+      "columns": {
+        "research_job_admission_id": {
+          "name": "research_job_admission_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {
+        "research_job_admissions_user_created_at_idx": {
+          "name": "research_job_admissions_user_created_at_idx",
+          "columns": [
+            "user_id",
+            "created_at",
+            "research_job_admission_id"
+          ],
+          "isUnique": false
+        },
+        "research_job_admissions_user_kind_created_at_idx": {
+          "name": "research_job_admissions_user_kind_created_at_idx",
+          "columns": [
+            "user_id",
+            "kind",
+            "created_at",
+            "research_job_admission_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "research_job_admissions_user_id_user_id_fk": {
+          "name": "research_job_admissions_user_id_user_id_fk",
+          "tableFrom": "research_job_admissions",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "research_job_admissions_kind_check": {
+          "name": "research_job_admissions_kind_check",
+          "value": "\"research_job_admissions\".\"kind\" in ('deep-search', 'idea', 'debate')"
         }
       }
     },
@@ -2327,6 +2426,22 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "credits": {
+          "name": "credits",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "is_admin": {
+          "name": "is_admin",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         },
         "email_verified": {
           "name": "email_verified",

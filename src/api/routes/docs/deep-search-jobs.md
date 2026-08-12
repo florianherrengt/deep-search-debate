@@ -32,7 +32,7 @@ Starts a job and returns `202 Accepted`:
   "researchRequest": "What changed in the market?",
   "maxSearches": 3,
   "maxResultsPerSearch": 3,
-  "maxRounds": 3
+  "maxRounds": 2
 }
 ```
 
@@ -45,15 +45,16 @@ slug is already used by any search, creation appends `-2`, `-3`, and so on and
 adds the same number to the displayed title because slugs are globally unique.
 
 The request defaults to three searches, three explored results per search, and
-three search rounds. Configured server ceilings default to 10 searches, 10
-explored results per search, 3 rounds, 30 selected URLs per round, and 10,000
+two search rounds. Configured server ceilings default to 5 searches, 5
+explored results per search, 2 rounds, 15 selected URLs per round, and 10,000
 characters for `researchRequest`. The
 product of the two search breadth limits cannot exceed the per-round
 selected-URL ceiling. The same validation runs again in the job manager so
 idea-generated and other internal child searches cannot bypass it. A job can
 never execute more than `maxRounds`, even when the review model repeatedly asks
 for more research. The complete root request also has a configured worst-case
-selected-page budget (400 by default).
+selected-page budget (200 by default). A standalone search can therefore select
+at most 30 pages under the default server configuration.
 
 Standalone creation returns `429` when the user already has the configured
 number of active root research workflows (two by default, counting standalone
@@ -64,7 +65,10 @@ consume additional root slots. All root and child deep-search pipelines pass
 through one process-wide queue with concurrency two by default; creation still
 returns immediately after durable job insertion while queued work waits. Root
 capacity is reserved before title generation, so concurrent requests cannot
-spend duplicate preflight calls for one slot. A newly admitted root runs before
+spend duplicate preflight calls for one slot. The durable 24-hour creation quota
+also permits at most four standalone searches and five total root workflows per
+user by default. Admission is charged before title generation, including when
+that preflight later fails; quota rejections return `Retry-After`. A newly admitted root runs before
 children still waiting from an earlier eager batch; active work is not
 pre-empted.
 
@@ -224,14 +228,17 @@ command commits. Job lifecycle writes remain in `jobLifecycle.ts`.
   candidate-answer generations, and stores its optional review generation and
   terminal continuation decision.
 - `deep_search_queries` stores each ordered planned query before web search and
-  carries that same stable ID through search, selection, and synthesis.
+  carries that same stable ID through search, selection, and synthesis. Its
+  `credits_used` is set only after the search provider returns successfully.
 - `deep_search_results` stores ordered web-search results. A non-null
   `selected_web_page_id` is the selected-result fact and links to the job-wide
   deduplicated page; rejected and pending presentation state is rebuilt from
   that link and the owning query lifecycle. Selection-generation
   attachment and result-link commit are one-shot compare-and-swap transitions,
   so a retry cannot rewrite replay history or orphan an earlier selected page.
-- `deep_search_web_pages` deduplicates selected URLs within a job and links page-summary generation.
+- `deep_search_web_pages` deduplicates selected URLs within a job, links its
+  page-summary generation, and records the product-credit cost of every reported
+  ScrapingAnt attempt for that URL, including unsuccessful attempts.
 - `llm_generations` stores one terminal text/reasoning pair per invocation.
 
 Every workflow generation points back to the deep-search job that created it.

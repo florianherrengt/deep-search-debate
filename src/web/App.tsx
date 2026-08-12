@@ -11,10 +11,12 @@ import AppBar from "@mui/material/AppBar"
 import Avatar from "@mui/material/Avatar"
 import Box from "@mui/material/Box"
 import Button from "@mui/material/Button"
+import Chip from "@mui/material/Chip"
 import Container from "@mui/material/Container"
 import Stack from "@mui/material/Stack"
 import Toolbar from "@mui/material/Toolbar"
 import Typography from "@mui/material/Typography"
+import { useQuery } from "@tanstack/react-query"
 import { BrandLink } from "./components/layout/BrandLink.tsx"
 import { PublicLayout } from "./components/layout/PublicLayout.tsx"
 import { Home } from "./pages/Home/Home.tsx"
@@ -23,11 +25,16 @@ import { About } from "./pages/About.tsx"
 import { DeepSearch } from "./pages/DeepSearch/index.tsx"
 import { Ideas } from "./pages/Ideas/index.tsx"
 import { Debates } from "./pages/Debates/index.tsx"
+import { AdminCredits } from "./pages/AdminCredits/index.ts"
 import { NotFound } from "./components/NotFound.tsx"
 import { AuthGate } from "./components/auth/AuthGate.tsx"
 import type { AuthSession } from "./lib/authClient.ts"
 import type { ReactNode } from "react"
 import type { ContainerProps } from "@mui/material/Container"
+import {
+  creditAccountQueryKey,
+  getCreditAccount,
+} from "./lib/credits.ts"
 
 const navigationItems = [
   { label: "Home", to: "/" },
@@ -51,6 +58,14 @@ interface AppNavigationProps {
 
 function AppNavigation({ session, signingOut, signOut }: AppNavigationProps) {
   const location = useLocation()
+  const creditAccount = useQuery({
+    queryKey: creditAccountQueryKey,
+    queryFn: ({ signal }) => getCreditAccount(signal),
+    refetchInterval: 5_000,
+  })
+  const visibleNavigationItems = creditAccount.data?.isAdmin
+    ? [...navigationItems, { label: "Admin", to: "/admin/credits" }]
+    : navigationItems
 
   return (
     <AppBar position="static">
@@ -82,6 +97,16 @@ function AppNavigation({ session, signingOut, signOut }: AppNavigationProps) {
           >
             {session.user.name}
           </Typography>
+          <Chip
+            color={
+              creditAccount.data !== undefined && creditAccount.data.credits <= 0
+                ? "error"
+                : "default"
+            }
+            label={`${creditAccount.data?.credits.toLocaleString() ?? "—"} credits`}
+            size="small"
+            variant="outlined"
+          />
           <Button
             color="inherit"
             disabled={signingOut}
@@ -106,7 +131,7 @@ function AppNavigation({ session, signingOut, signOut }: AppNavigationProps) {
             "&::-webkit-scrollbar": { display: "none" },
           }}
         >
-          {navigationItems.map((item) => {
+          {visibleNavigationItems.map((item) => {
             const current = isCurrentRoute(location.pathname, item.to)
             return (
               <Button
@@ -182,6 +207,7 @@ function RoutedContent() {
         <Route path="/debates" element={<Debates />} />
         <Route path="/debates/:slug" element={<Debates />} />
         <Route path="/about" element={<About />} />
+        <Route path="/admin/credits" element={<AdminCredits />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </Container>

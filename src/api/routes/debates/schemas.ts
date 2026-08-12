@@ -1,12 +1,57 @@
 import z from "zod"
 
+import { config } from "../../config.ts"
 import type { ReplayableEventLog } from "../../helpers/replayableEventLog.ts"
 import { debateJobStages, jobStatuses } from "../../db/schema/index.ts"
 import { createIdeaJobInputSchema } from "../ideas/schemas.ts"
+import { maximumSelectedPagesForChildren } from "../deepSearch/resourceLimits.ts"
 
-export const createDebateJobInputSchema = createIdeaJobInputSchema.safeExtend({
-  isPublic: z.boolean().default(false),
-})
+const debatePageBudgetMessage =
+  `A debate cannot select more than ` +
+  `${config.debate.maxSelectedPagesPerJob} research pages`
+
+export const createDebateJobInputSchema = createIdeaJobInputSchema
+  .safeExtend({
+    numberOfIdeas: z
+      .number()
+      .int()
+      .min(6)
+      .max(config.debate.maxIdeaCount)
+      .default(Math.min(8, config.debate.maxIdeaCount)),
+    deepSearchCount: z
+      .number()
+      .int()
+      .positive()
+      .max(config.debate.maxInitialDeepSearches)
+      .default(Math.min(1, config.debate.maxInitialDeepSearches)),
+    maxSearches: z
+      .number()
+      .int()
+      .positive()
+      .max(config.debate.maxSearchesPerChild)
+      .default(Math.min(2, config.debate.maxSearchesPerChild)),
+    maxResultsPerSearch: z
+      .number()
+      .int()
+      .positive()
+      .max(config.debate.maxResultsPerSearch)
+      .default(Math.min(2, config.debate.maxResultsPerSearch)),
+    maxRounds: z
+      .number()
+      .int()
+      .positive()
+      .max(config.debate.maxResearchRoundsPerChild)
+      .default(Math.min(1, config.debate.maxResearchRoundsPerChild)),
+    isPublic: z.boolean().default(false),
+  })
+  .refine(
+    (input) =>
+      maximumSelectedPagesForChildren(
+        input,
+        input.deepSearchCount + input.numberOfIdeas,
+      ) <= config.debate.maxSelectedPagesPerJob,
+    { message: debatePageBudgetMessage, path: ["maxRounds"] },
+  )
 
 export type CreateDebateJobRequest = z.input<
   typeof createDebateJobInputSchema

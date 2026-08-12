@@ -35,14 +35,17 @@ uses `BETTER_AUTH_URL=https://rethinkloop.com` and
 available for tests and alternate deployments.
 
 Deep-search work is bounded in application configuration. Defaults allow at
-most 10 searches, 10 explored results per search, 30 selected URLs per round,
-3 rounds, 400 selected pages across one complete root workflow, and 10,000
+most 5 searches, 5 explored results per search, 15 selected URLs per round,
+2 rounds, 200 selected pages across one complete root workflow, and 10,000
 characters per research request. Accumulated query, result, idea, critique, and
 debate context is rebuilt in memory under a 100,000-character ceiling while
 retaining a bounded entry for every item. Internally synthesized refined-idea
 requests allocate that same external request budget across the original prompt
-and generated fields before a child can start. Idea jobs may request at most 10 initial child
-searches. At most two root research workflows per user may be active, two
+and generated fields before a child can start. Idea jobs generate at most 12
+candidates and may request at most 2 initial child searches by default. Debate
+jobs generate at most 8 candidates, start one initial briefing search, allow one
+research round per child, and select at most 81 pages across the complete
+debate-owned research tree. At most two root research workflows per user may be active, two
 deep-search pipelines execute per process, and four selected page
 extraction-plus-summary tasks execute per process. Four LLM generations execute
 per process across all workflows by default. Root capacity is reserved
@@ -57,8 +60,20 @@ validated by `config.ts` through `DEEP_SEARCH_MAX_SEARCHES`,
 `DEEP_SEARCH_MAX_CONCURRENT_PAGE_TASKS`,
 `LLM_MAX_CONCURRENT_GENERATIONS`,
 `RESEARCH_MAX_ACTIVE_ROOT_JOBS_PER_USER`,
-`RESEARCH_MAX_SELECTED_PAGES_PER_ROOT_JOB`, and
-`IDEA_JOB_MAX_DEEP_SEARCH_COUNT`.
+`RESEARCH_MAX_SELECTED_PAGES_PER_ROOT_JOB`, `IDEA_JOB_MAX_IDEA_COUNT`,
+`IDEA_JOB_MAX_DEEP_SEARCH_COUNT`, and the `DEBATE_MAX_*` workload settings.
+
+Root creation also uses a durable rolling-window quota before title generation
+or any other provider work. The default 24-hour window permits five total root
+attempts per user: at most four standalone deep searches, two standalone idea
+runs, and one debate. A charged admission remains after a later preflight
+failure, preventing cheap validation failures from becoming a provider-cost
+bypass. A rate rejection returns `429` with `Retry-After`. Configure the window
+and ceilings with `RESEARCH_JOB_CREATION_WINDOW_MS`,
+`RESEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW`,
+`DEEP_SEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW`,
+`IDEA_JOB_MAX_ROOT_JOB_CREATIONS_PER_WINDOW`, and
+`DEBATE_MAX_ROOT_JOB_CREATIONS_PER_WINDOW`.
 
 Every LLM stream has total, first-content, and inter-content deadlines. The
 defaults are 300, 120, and 60 seconds and are configured with
@@ -72,8 +87,10 @@ change retry cost or latency. The short title generation retains its narrower
 per-call limit. Evidence-transformation and prose-only stages—including
 page/query/final research synthesis, idea briefing, critique, and debate
 advocacy—disable hidden reasoning so it cannot consume that budget without
-producing the required durable text. Web searches have a 30-second deadline configured by
-`WEB_SEARCH_TIMEOUT_MS`. Direct `POST /api/streams` calls reuse the research
+producing the required durable text. Web searches have a 30-second deadline
+configured by `WEB_SEARCH_TIMEOUT_MS` and charge the fixed product-credit amount
+configured by `WEB_SEARCH_CREDITS_COST` (default 1) after a successful provider
+response. Direct `POST /api/streams` calls reuse the research
 request length limit and permit two active standalone generations per user by
 default, configurable through
 `LLM_MAX_ACTIVE_STANDALONE_GENERATIONS_PER_USER`. The process-wide provider
@@ -95,7 +112,8 @@ revoked, foreign, and unknown UUIDs return 404 rather than disclosing resource
 existence, and public responses omit creator identity. Reusable Drizzle read
 scopes put ownership and inherited public access into the query retrieving each
 protected root row; routes do not load a resource and then recursively query its
-parents to authorize it.
+parents to authorize it. Anonymous viewers cannot start provider-backed streams,
+searches, idea runs, or debates.
 Unsafe application requests carrying a foreign browser `Origin` (or an explicit
 cross-site fetch marker) are rejected before session or provider work, adding a
 CSRF boundary around job creation. Non-browser API clients may omit `Origin`.
@@ -158,6 +176,24 @@ key are real runtime dependencies, not mocked outside tests:
   Retrieval emits one flat structured console record per attempt with its
   latency, outcome, provider status on failures, and ScrapingAnt credit cost when
   the provider reports it.
+
+## Credit accounting
+
+Users start with zero credits. One product credit represents $0.001. Every paid
+provider call checks that the initiating user's signed balance is positive
+before it starts; there is no reservation, so concurrent calls may all pass and
+overspend. After a successful call, the resource row and user debit commit
+together and the balance may become negative. Failed LLM and search calls are
+not charged. ScrapingAnt is the exception: every reported `ant-credits-cost` is
+accumulated across both retrieval modes and charged even when neither mode
+returns usable content. Its $19 / 100,000 provider-credit plan is converted with
+`ceil(providerCredits * 19 / 100)`.
+
+DeepSeek Flash V4 generation cost uses the AI SDK's cache-hit, cache-miss, and
+output token counts with the model-specific pricing function. The resulting
+micro-USD cost is rounded up to product credits. A model change requires a new
+pricing function; operational token prices are deliberately not environment
+configuration.
 
 ## Network binding
 
