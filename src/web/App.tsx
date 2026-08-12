@@ -18,9 +18,10 @@ import Toolbar from "@mui/material/Toolbar"
 import Typography from "@mui/material/Typography"
 import { useQuery } from "@tanstack/react-query"
 import { BrandLink } from "./components/layout/BrandLink.tsx"
+import { AppFooter } from "./components/layout/AppFooter.tsx"
 import { PublicLayout } from "./components/layout/PublicLayout.tsx"
 import { Home } from "./pages/Home/Home.tsx"
-import { LegalPage } from "./pages/Legal.tsx"
+import { PrivacyPolicy, TermsAndConditions } from "./pages/Legal.tsx"
 import { About } from "./pages/About.tsx"
 import { DeepSearch } from "./pages/DeepSearch/index.tsx"
 import { Ideas } from "./pages/Ideas/index.tsx"
@@ -232,6 +233,7 @@ function AuthenticatedShell({
         <Alert severity="error">{authError}</Alert>
       )}
       {children}
+      <AppFooter />
     </Box>
   )
 }
@@ -290,7 +292,7 @@ export function App() {
           path="/terms"
           element={
             <PublicLayout maxWidth="md">
-              <LegalPage title="Terms & Conditions" />
+              <TermsAndConditions />
             </PublicLayout>
           }
         />
@@ -298,7 +300,7 @@ export function App() {
           path="/privacy"
           element={
             <PublicLayout maxWidth="md">
-              <LegalPage title="Privacy Policy" />
+              <PrivacyPolicy />
             </PublicLayout>
           }
         />

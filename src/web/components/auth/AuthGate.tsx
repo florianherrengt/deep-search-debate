@@ -4,11 +4,13 @@ import Alert from "@mui/material/Alert"
 import Box from "@mui/material/Box"
 import Button from "@mui/material/Button"
 import CircularProgress from "@mui/material/CircularProgress"
+import Link from "@mui/material/Link"
 import Paper from "@mui/material/Paper"
 import Stack from "@mui/material/Stack"
 import Typography from "@mui/material/Typography"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState, type ReactNode } from "react"
+import { Link as RouterLink } from "react-router-dom"
 
 import { authClient, getAuthConfig, type AuthSession } from "../../lib/authClient.ts"
 
@@ -172,6 +174,18 @@ export function AuthGate({ anonymous, children }: AuthGateProps) {
               </Button>
             ) : null}
           </Stack>
+
+          <Typography color="text.secondary" variant="caption">
+            By continuing, you agree to the{" "}
+            <Link component={RouterLink} to="/terms">
+              Terms &amp; Conditions
+            </Link>{" "}
+            and acknowledge the{" "}
+            <Link component={RouterLink} to="/privacy">
+              Privacy Policy
+            </Link>
+            .
+          </Typography>
         </Stack>
       </Paper>,
     )

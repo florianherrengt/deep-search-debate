@@ -129,6 +129,10 @@ describe("App", () => {
     expect(
       screen.getByRole("link", { name: "Privacy Policy" }),
     ).toHaveAttribute("href", "/privacy")
+    expect(
+      screen.getByRole("link", { name: "Contact support" }),
+    ).toHaveAttribute("href", "mailto:support@rethinkloop.com")
+    expect(screen.getByText("AI output can be wrong")).toBeVisible()
     expect(screen.queryByText("Debug User")).not.toBeInTheDocument()
   })
 
@@ -200,6 +204,12 @@ describe("App", () => {
     expect(
       await screen.findByRole("button", { name: "Continue as debug user" }),
     ).toBeVisible()
+    expect(
+      screen.getByRole("link", { name: "Terms & Conditions" }),
+    ).toHaveAttribute("href", "/terms")
+    expect(
+      screen.getByRole("link", { name: "Privacy Policy" }),
+    ).toHaveAttribute("href", "/privacy")
     expect(screen.queryByRole("link", { name: "Deep Search" })).toBeNull()
   })
 
@@ -282,12 +292,13 @@ describe("App", () => {
       screen.getByRole("navigation", { name: "Primary navigation" }),
     ).toBeVisible()
     expect(screen.getByText("Debug User")).toBeVisible()
+    expect(screen.getByText("AI output can be wrong")).toBeVisible()
     expect(
       screen.queryByRole("heading", { name: "Page not found" }),
     ).not.toBeInTheDocument()
   })
 
-  it("keeps the placeholder legal pages public", () => {
+  it("keeps the privacy policy public and explains cookie use", () => {
     window.history.replaceState({}, "", "/privacy")
     authMocks.useSession.mockReturnValue({
       data: null,
@@ -302,8 +313,33 @@ describe("App", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: "Privacy Policy" }),
     ).toBeVisible()
-    expect(screen.getByText("Policy coming soon")).toBeVisible()
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Cookies and analytics" }),
+    ).toBeVisible()
+    expect(
+      screen.getByText(/do not currently use non-essential cookies/i),
+    ).toBeVisible()
+    expect(
+      screen.getAllByRole("link", { name: "support@rethinkloop.com" })[0],
+    ).toHaveAttribute("href", "mailto:support@rethinkloop.com")
     expect(authMocks.useSession).not.toHaveBeenCalled()
+  })
+
+  it("makes the AI limitation explicit in the terms", () => {
+    window.history.replaceState({}, "", "/terms")
+
+    renderApp()
+
+    const main = screen.getByRole("main")
+    expect(
+      within(main).getByRole("heading", {
+        level: 2,
+        name: "AI output can be wrong",
+      }),
+    ).toBeVisible()
+    expect(
+      within(main).getByText(/may be inaccurate, incomplete, biased/i),
+    ).toBeVisible()
   })
 
   it("starts GitHub sign-in with the current route as its callback", async () => {
