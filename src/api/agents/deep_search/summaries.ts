@@ -1,11 +1,17 @@
 import { getErrorMessage } from "../../helpers/getErrorMessage.ts"
+import {
+  calculateScrapingAntCredits,
+  requirePositiveCreditBalance,
+} from "../../credits.ts"
 import { generateTextStream } from "../../llms/generateText.ts"
 import { PromptName } from "../../llms/prompts.ts"
 import {
   type GenerationOutcome,
   type TextGenerationPersistenceCallbacks,
 } from "../../llms/streams.ts"
-import { webExtract } from "../../web_search/webExtract.ts"
+import {
+  webExtract,
+} from "../../web_search/webExtract.ts"
 
 const maxPageContentChars = 100_000
 const pageContentOmission =
@@ -79,6 +85,7 @@ type StartPageSummaryInput = TextGenerationPersistenceCallbacks & {
   deepSearchJobId: string
   researchRequest: string
   url: string
+  onExtractionSettled?: (creditsUsed: number) => void
 }
 
 export type PageSummaryStart =
@@ -102,19 +109,36 @@ export async function startPageSummary(
   params: StartPageSummaryInput,
 ): Promise<PageSummaryStart> {
   let content: string
+  let extractionCreditsUsed = 0
   try {
+    requirePositiveCreditBalance(params.userId)
     const page = await webExtract({ url: params.url })
+    extractionCreditsUsed = calculateScrapingAntCredits(
+      page.scrapingAntCredits ?? 0,
+    )
     if (!page.content.trim()) {
       throw new Error("Page extraction returned no content")
     }
     content = page.content
   } catch (error) {
+    if (
+      error instanceof Error &&
+      error.name === "WebExtractionError" &&
+      "scrapingAntCredits" in error &&
+      typeof error.scrapingAntCredits === "number"
+    ) {
+      extractionCreditsUsed = calculateScrapingAntCredits(
+        error.scrapingAntCredits,
+      )
+    }
+    params.onExtractionSettled?.(extractionCreditsUsed)
     return {
       status: "failed",
       stage: "extraction",
       message: getErrorMessage(error, "Page summary failed"),
     }
   }
+  params.onExtractionSettled?.(extractionCreditsUsed)
 
   let generation: PageSummaryGeneration
   try {

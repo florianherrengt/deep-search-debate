@@ -12,7 +12,8 @@ export const test = base.extend<AuthenticatedFixtures>({
     async ({ request }, provide) => {
       const response = await request.post("/api/auth/debug-sign-in", {
         headers: {
-          Origin: "http://localhost:5174",
+          Origin:
+            process.env.PLAYWRIGHT_WEB_ORIGIN ?? "http://localhost:5174",
           "X-Debug-Auth": "1",
         },
       })

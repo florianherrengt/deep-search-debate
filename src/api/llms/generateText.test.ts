@@ -32,6 +32,14 @@ vi.mock("./prompts.ts", () => ({
 }))
 
 vi.mock("./streams.ts", () => ({
+  awaitGenerationOutput: async (
+    generation: { completion: Promise<{ status: string; error?: string }> },
+    output: Promise<unknown>,
+  ) => {
+    const outcome = await generation.completion
+    if (outcome.status === "failed") throw new Error(outcome.error)
+    return output
+  },
   getUnsuccessfulFinishReasonMessage: (
     finishReason: string | undefined,
   ) =>
@@ -71,7 +79,16 @@ function completedGenerationHandle() {
 }
 
 function mockPreparedGeneration(
-  generation = completedGenerationHandle(),
+  generation: {
+    id: string
+    completion: Promise<{
+      status: "completed" | "failed"
+      text: string
+      reasoning: string
+      error?: string
+      failureKind?: string
+    }>
+  } = completedGenerationHandle(),
 ) {
   const prepared = {
     id: generation.id,
@@ -102,19 +119,20 @@ describe("generateTextStream", () => {
       reasoning: "enabled",
     })
 
-    expect(mocks.prepareTextGeneration).toHaveBeenCalledWith(
-      "test-user-id",
-      { standalone: true },
-      {
-        onRegistered: undefined,
-        onCompleted: undefined,
-        onFailed: undefined,
-        metadata: {
-          modelId: "configured-model",
-          promptName: "default",
-        },
-      },
-    )
+    expect(mocks.prepareTextGeneration).toHaveBeenCalledOnce()
+    const registration = z
+      .object({
+        onRegistered: z.undefined(),
+        onCompleted: z.undefined(),
+        onFailed: z.undefined(),
+        metadata: z.object({
+          modelId: z.literal("configured-model"),
+          promptName: z.literal("default"),
+          calculateCredits: z.function(),
+        }),
+      })
+      .parse(mocks.prepareTextGeneration.mock.calls[0]?.[2] as unknown)
+    expect(registration.metadata.calculateCredits).toBeTypeOf("function")
     expect(prepared.start).toHaveBeenCalledWith(stream, {
       finishReason,
       usage,
@@ -261,42 +279,69 @@ describe("generateTextStream", () => {
   })
 
   it("generates a structured title with the configured model", async () => {
+    const stream = { id: "raw-stream" }
+    const output = Promise.resolve({ title: "London Renter Energy Options" })
+    const finishReason = Promise.resolve("stop" as const)
+    const usage = Promise.resolve({ inputTokens: 12, outputTokens: 4 })
     mocks.loadPrompt.mockResolvedValue("Title system prompt")
-    mocks.generateText.mockResolvedValue({
-      output: { title: "London Renter Energy Options" },
-      finishReason: "stop",
+    mocks.streamText.mockReturnValue({
+      stream,
+      output,
+      finishReason,
+      usage,
     })
+    const prepared = mockPreparedGeneration()
 
-    await expect(generatePromptTitle("How can renters save energy?")).resolves.toBe(
+    await expect(generatePromptTitle("test-user-id", "How can renters save energy?")).resolves.toBe(
       "London Renter Energy Options",
     )
-    expect(mocks.generateText).toHaveBeenCalledWith(
-      expect.objectContaining({
-        timeout: config.llmExecution.totalTimeoutMs,
-        maxRetries: config.llmExecution.maxRetries,
-        providerOptions: {
-          test: { reasoning: "disabled" },
-        },
-      }),
+    const titleOptions = z
+      .object({
+        timeout: z.object({ totalMs: z.number() }),
+        maxRetries: z.number(),
+        providerOptions: z.object({
+          test: z.object({ reasoning: z.literal("disabled") }),
+        }),
+      })
+      .loose()
+      .parse(mocks.streamText.mock.calls[0]?.[0] as unknown)
+    expect(titleOptions.timeout.totalMs).toBe(
+      config.llmExecution.totalTimeoutMs,
     )
-    expect(mocks.model).toHaveBeenCalledWith()
+    expect(titleOptions.maxRetries).toBe(config.llmExecution.maxRetries)
+    expect(mocks.model).toHaveBeenCalledWith(undefined)
     expect(mocks.callOptions).toHaveBeenCalledWith("disabled")
     expect(mocks.outputObject).toHaveBeenCalledOnce()
+    expect(prepared.start).toHaveBeenCalledWith(stream, {
+      finishReason,
+      usage,
+    })
     const titleCall = z
       .object({ system: z.string() })
-      .parse(mocks.generateText.mock.calls[0]?.[0] as unknown)
+      .parse(mocks.streamText.mock.calls[0]?.[0] as unknown)
     expect(titleCall.system).toContain("Title system prompt")
     expect(titleCall.system).toContain('"title"')
   })
 
   it("rejects a title that did not finish normally", async () => {
     mocks.loadPrompt.mockResolvedValue("Title system prompt")
-    mocks.generateText.mockResolvedValue({
-      output: { title: "Truncated title" },
-      finishReason: "length",
+    mocks.streamText.mockReturnValue({
+      stream: { id: "raw-stream" },
+      output: Promise.resolve({ title: "Truncated title" }),
+      finishReason: Promise.resolve("length"),
+    })
+    mockPreparedGeneration({
+      id: "stream-id",
+      completion: Promise.resolve({
+        status: "failed" as const,
+        text: "partial",
+        reasoning: "",
+        error: 'Text generation ended with finish reason "length"',
+        failureKind: "finish-reason" as const,
+      }),
     })
 
-    await expect(generatePromptTitle("Research this topic")).rejects.toThrow(
+    await expect(generatePromptTitle("test-user-id", "Research this topic")).rejects.toThrow(
       'Text generation ended with finish reason "length"',
     )
   })
@@ -351,17 +396,18 @@ describe("generateTextStream", () => {
     expect(arrayCall.system).toContain('"elements"')
     expect(result.id).toBe("stream-id")
     expect(result.completion).toBe(generation.completion)
-    expect(mocks.prepareTextGeneration).toHaveBeenCalledWith(
-      "test-user-id",
-      { standalone: true },
-      {
-        metadata: {
-          modelId: "configured-model",
-          promptName: "generate-websearch-queries",
-        },
-        onRegistered: undefined,
-      },
-    )
+    expect(mocks.prepareTextGeneration).toHaveBeenCalledOnce()
+    const registration = z
+      .object({
+        metadata: z.object({
+          modelId: z.literal("configured-model"),
+          promptName: z.literal("generate-websearch-queries"),
+          calculateCredits: z.function(),
+        }),
+        onRegistered: z.undefined(),
+      })
+      .parse(mocks.prepareTextGeneration.mock.calls[0]?.[2] as unknown)
+    expect(registration.metadata.calculateCredits).toBeTypeOf("function")
     expect(prepared.start).toHaveBeenCalledWith(stream, {
       finishReason,
       usage,

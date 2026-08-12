@@ -34,8 +34,9 @@ async function signInDebugUser(request: Request): Promise<Response> {
     .where(eq(user.email, config.auth.debugUser.email))
     .get()
 
-  if (existingUser === undefined) {
-    return auth.api.signUpEmail({
+  const response =
+    existingUser === undefined
+      ? await auth.api.signUpEmail({
       asResponse: true,
       body: {
         email: config.auth.debugUser.email,
@@ -43,17 +44,23 @@ async function signInDebugUser(request: Request): Promise<Response> {
         password,
       },
       headers: request.headers,
-    })
-  }
+        })
+      : await auth.api.signInEmail({
+          asResponse: true,
+          body: {
+            email: config.auth.debugUser.email,
+            password,
+          },
+          headers: request.headers,
+        })
 
-  return auth.api.signInEmail({
-    asResponse: true,
-    body: {
-      email: config.auth.debugUser.email,
-      password,
-    },
-    headers: request.headers,
-  })
+  if (response.ok) {
+    db.update(user)
+      .set({ isAdmin: true })
+      .where(eq(user.email, config.auth.debugUser.email))
+      .run()
+  }
+  return response
 }
 
 export function authRoutes(app: Hono<AppEnv>) {

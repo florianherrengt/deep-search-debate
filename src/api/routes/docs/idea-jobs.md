@@ -94,23 +94,23 @@ Starts a run and returns `202 Accepted`:
 ```json
 {
   "prompt": "Generate practical products that help London renters reduce energy use",
-  "numberOfIdeas": 12,
+  "numberOfIdeas": 8,
   "deepSearchCount": 2,
   "maxSearches": 3,
   "maxResultsPerSearch": 3,
-  "maxRounds": 3
+  "maxRounds": 2
 }
 ```
 
-Only `prompt` is required. `numberOfIdeas` is an integer from 6 through 20 and
-defaults to 12. The remaining numeric fields are positive integers with the
-defaults shown above. The configured defaults cap `deepSearchCount` at 10,
-`maxSearches` and `maxResultsPerSearch` at 10 each, `maxRounds` at 3, selected
-URLs per child-search round at 30, and `prompt` at 10,000 characters. The same
+Only `prompt` is required. `numberOfIdeas` is an integer from 6 through 12 and
+defaults to 8. The remaining numeric fields are positive integers with the
+defaults shown above. The configured defaults cap `deepSearchCount` at 2,
+`maxSearches` and `maxResultsPerSearch` at 5 each, `maxRounds` at 2, selected
+URLs per child-search round at 15, and `prompt` at 10,000 characters. The same
 deep-search limits apply to both initial briefing searches and refined-idea
 searches; the manager validates generated child requests again before starting
 provider work. The root request also accounts for all initial searches plus up
-to 12 selected-idea searches against a 400-page aggregate worst-case selected
+to 12 selected-idea searches against a 200-page aggregate worst-case selected
 page budget by default. Invalid limit combinations fail before title generation
 or job creation.
 
@@ -119,7 +119,10 @@ limit (two by default). A running idea or debate pipeline consumes one root
 slot; its child searches do not consume more slots and instead share the
 process-wide deep-search execution queue. The slot is reserved before the
 asynchronous title preflight so racing requests cannot both consume provider
-work for one remaining slot.
+work for one remaining slot. The rolling 24-hour quota permits at most two
+standalone idea runs and five total root workflows per user by default. A
+charged admission remains after a later title-preflight failure; rate rejections
+include `Retry-After`.
 
 The response is:
 

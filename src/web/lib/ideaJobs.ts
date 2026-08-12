@@ -122,7 +122,7 @@ export async function createIdeaJob(
     "/api/idea-jobs",
     {
       prompt: input.prompt,
-      numberOfIdeas: input.numberOfIdeas ?? 12,
+      numberOfIdeas: input.numberOfIdeas ?? 8,
       deepSearchCount: input.deepSearchCount ?? 2,
       maxSearches: input.maxSearches ?? 3,
       maxResultsPerSearch: input.maxResultsPerSearch ?? 3,

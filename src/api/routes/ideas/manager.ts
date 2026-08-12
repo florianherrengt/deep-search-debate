@@ -98,14 +98,18 @@ export function createIdeaJobManager(
     async start(userId, input, options) {
       const validatedInput = createIdeaJobInputSchema.parse(input)
       const normalizedInput = { ...input, ...validatedInput }
-      const releaseCapacity = reserveRootResearchCapacity(userId)
+      const releaseCapacity = reserveRootResearchCapacity(
+        userId,
+        options?.createParent ? "debate" : "idea",
+      )
       const ideaJobId = randomUUID()
       const job = createReplayableEventLog<IdeaJobEvent>()
       const { title: suppliedTitle, ...runInput } = normalizedInput
       let identity: PromptIdentity
       try {
         const generatedTitle =
-          suppliedTitle ?? (await generatePromptTitle(normalizedInput.prompt))
+          suppliedTitle ??
+          (await generatePromptTitle(userId, normalizedInput.prompt))
         identity = createIdeaIdentity(generatedTitle)
 
         db.transaction((transaction) => {

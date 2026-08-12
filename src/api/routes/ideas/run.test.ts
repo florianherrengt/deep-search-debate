@@ -125,7 +125,10 @@ function completedGeneration(text: string) {
   })
 }
 
-function setupGenerations(options?: { refinementFailureAt?: number }): void {
+function setupGenerations(options?: {
+  refinementFailureAt?: number
+  selectionCount?: number
+}): void {
   insertGeneration("planning-id", JSON.stringify(researchPrompts))
   insertGeneration("summary-id", "Combined research briefing")
   insertGeneration("ideas-id", JSON.stringify(generatedIdeas))
@@ -187,7 +190,7 @@ function setupGenerations(options?: { refinementFailureAt?: number }): void {
           .from(ideas)
           .orderBy(ideas.position)
           .all()
-          .slice(0, 6)
+          .slice(0, options?.selectionCount ?? 6)
           .map(({ ideaId }) => ideaId)
         const output = schema.parse({ selectedIdeaIds })
         db.transaction((transaction) => {
@@ -611,6 +614,34 @@ describe("runIdeaJob", () => {
         { type: "done" },
       ]),
     )
+  })
+
+  it("fills an undersized model selection to the tournament minimum", async () => {
+    const { input, events } = createInput()
+    setupGenerations({ selectionCount: 5 })
+    mocks.startDeepSearch.mockImplementation(
+      (_userId: string, searchInput: StartSearchInput) => {
+        const position = searchInput.ideaJobPosition ?? 0
+        return Promise.resolve(
+          persistCompletedSearch(`normalized-search-${position}`, searchInput),
+        )
+      },
+    )
+
+    await runIdeaJob(input)
+
+    const persistedIdeas = db.select().from(ideas).orderBy(ideas.position).all()
+    expect(persistedIdeas.filter(({ selected }) => selected)).toHaveLength(6)
+    await expect(events).resolves.toContainEqual({
+      type: "selected-ideas",
+      selectedIdeaIds: persistedIdeas
+        .slice(0, 6)
+        .map(({ ideaId }) => ideaId),
+    })
+    expect(db.select().from(ideaJobs).get()).toMatchObject({
+      status: "completed",
+      error: null,
+    })
   })
 
   it("fits refined-idea child requests under the external request ceiling", async () => {

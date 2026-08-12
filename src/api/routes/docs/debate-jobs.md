@@ -21,8 +21,8 @@ helpers in `routes/debates/tournament.ts`:
 - initial Elo 1500 and K-factor 32, with each round's rating changes applied
   simultaneously
 - semifinal pairings 1-v-4 and 2-v-3, followed by one final
-- no draws and `5 × selected ideas ÷ 2 + 3` total matches; the default 12-idea
-  field produces 33 matches
+- no draws and `5 × selected ideas ÷ 2 + 3` total matches; the default API
+  ceiling of 8 generated ideas permits at most 23 matches
 
 Six is the minimum viable field because five Swiss rounds without rematches
 require at least five distinct opponents, while an even field lets every idea
@@ -86,9 +86,11 @@ parent; history includes the viewer's private debates and every public debate.
 Debates are private by default.
 
 Creation accepts the same `deepSearchCount`, `maxSearches`,
-`maxResultsPerSearch`, and `maxRounds` controls as an idea job. Their defaults
-remain `2`, `3`, `3`, and `3`; the shared root-workflow page-budget validation
-applies before any row or provider call is created. Narrower values let
+`maxResultsPerSearch`, and `maxRounds` controls as an idea job. Their debate
+defaults are `1`, `2`, `2`, and `1`, with server ceilings of `1`, `3`, `3`, and
+`1`. Debate-owned research can select at most 81 pages by default. Both this
+debate-specific budget and the shared root-workflow page budget apply before any
+row or provider call is created. Narrower values let
 operators run a complete real-provider tournament smoke without a parallel
 test-only workflow.
 
@@ -106,12 +108,12 @@ Starts idea generation and the automatic tournament. It returns `202 Accepted`:
 {
   "prompt": "Design a practical low-friction energy product",
   "isPublic": false,
-  "numberOfIdeas": 12
+  "numberOfIdeas": 8
 }
 ```
 
 `numberOfIdeas` configures how many candidates the idea stage generates. It is
-an integer from 6 through 20 and defaults to 12. The selector may reject ideas,
+an integer from 6 through 8 and defaults to 8. The selector may reject ideas,
 but its admitted set must still satisfy the even 6-through-12 tournament
 invariant. `isPublic` is optional and defaults to `false`.
 
@@ -121,6 +123,10 @@ invariant. `isPublic` is optional and defaults to `false`.
 
 The `Location` header points to `/api/debate-jobs/:slug`. Debate creation reuses
 the generated title and slug stored by its owned idea job.
+Only authenticated users can create debates. A durable rolling 24-hour quota
+permits one debate and five total root workflows per user by default; it is
+charged before title generation and returns `429` with `Retry-After` when full.
+Anonymous access remains read-only and is limited to public debate aggregates.
 
 ### `GET /api/debate-jobs`
 

@@ -494,6 +494,7 @@ describe("deepSearch", () => {
       queries: [],
     })
     expect(mocks.saveSearchResults).toHaveBeenCalledWith({
+      userId: "test-user-id",
       jobId: "deep-search-job-id",
       roundId: "round-0",
       searches: [],

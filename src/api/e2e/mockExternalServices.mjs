@@ -47,8 +47,15 @@ const ideaResearchPrompts = [
     prompt: "Research proven renter-friendly household energy interventions.",
   },
 ]
+const debateResearchPrompts = [
+  {
+    title: "London Renter Energy Constraints",
+    prompt:
+      "Research the main energy constraints and proven renter-friendly interventions for London renters.",
+  },
+]
 
-const ideas = Array.from({ length: 12 }, (_, index) => ({
+const ideas = Array.from({ length: 8 }, (_, index) => ({
   title: `Renter Energy Idea ${index + 1}`,
   description: `A concrete renter-friendly energy product concept ${index + 1}, grounded in the combined mock research evidence.`,
 }))
@@ -62,12 +69,11 @@ const debatePrompt =
 const researchBriefing =
   "London renters face insulation, heating-control, and permission constraints. Removable controls and draught-proofing provide practical intervention opportunities."
 const deepSearchAnswers = [
-  "London renters face insulation, heating-control, and landlord-permission constraints.",
-  "Removable heating controls and draught-proofing are practical renter-friendly interventions.",
+  "London renters face insulation, heating-control, and landlord-permission constraints. Removable heating controls and draught-proofing are practical renter-friendly interventions.",
 ]
 const debateFailureMarker = "[E2E_FAIL_DEBATE_OPENING:"
 const debateFailureMessage = "Injected debate opening failure"
-const debateFailureCandidateOrdinal = 12
+const debateFailureCandidateOrdinal = 8
 const debateFailureAttempts = new Map()
 
 function parseTaggedJson(text, tag) {
@@ -367,6 +373,9 @@ function researchAngle(userMessage) {
   if (refinedIdeaOrdinal) return `idea-${refinedIdeaOrdinal}`
   const researchRequest = /^user_query:\s*(.*)$/m.exec(userMessage)?.[1]
   const source = researchRequest ?? userMessage
+  if (source.includes("constraints and proven renter-friendly interventions")) {
+    return "combined"
+  }
   return source.includes("interventions")
     ? "interventions"
     : "constraints"
@@ -418,12 +427,18 @@ function deepSeekOutput(body) {
   }
 
   if (system.includes("You plan research that will help another model")) {
-    if (!user.includes("Generate exactly 2 deep-search prompts.")) {
-      throw new Error("Idea planning request did not preserve deepSearchCount=2")
+    const isDebate = user.includes(debatePrompt)
+    const expectedCount = isDebate ? 1 : 2
+    if (!user.includes(`Generate exactly ${expectedCount} deep-search prompts.`)) {
+      throw new Error(
+        `Idea planning request did not preserve deepSearchCount=${expectedCount}`,
+      )
     }
     return {
       reasoning: "Split the request into constraints and proven interventions.",
-      text: JSON.stringify({ elements: ideaResearchPrompts }),
+      text: JSON.stringify({
+        elements: isDebate ? debateResearchPrompts : ideaResearchPrompts,
+      }),
     }
   }
   if (system.includes("You generate search-engine queries")) {
@@ -457,6 +472,8 @@ function deepSeekOutput(body) {
       text:
         angle.startsWith("idea-")
           ? `The mock source supports the practical assumptions for Improved Renter Energy Idea ${angle.slice(5)}.`
+          : angle === "combined"
+          ? "The mock source reports insulation and permission constraints alongside removable heating controls and draught-proofing interventions."
           : angle === "interventions"
           ? "The mock source reports practical removable heating controls and draught-proofing interventions."
           : "The mock source reports insulation, heating-control, and landlord-permission constraints.",
@@ -469,6 +486,8 @@ function deepSeekOutput(body) {
       text:
         angle.startsWith("idea-")
           ? `The search validates implementation considerations for Improved Renter Energy Idea ${angle.slice(5)}.`
+          : angle === "combined"
+          ? "The search found insulation, heating-control, and landlord-permission constraints alongside removable controls and draught-proofing."
           : angle === "interventions"
           ? "The search found removable heating controls and draught-proofing interventions for renters."
           : "The search found insulation, heating-control, and landlord-permission constraints for London renters.",
@@ -478,6 +497,8 @@ function deepSeekOutput(body) {
     const angle = researchAngle(user)
     const text = angle.startsWith("idea-")
       ? `Research specific to Improved Renter Energy Idea ${angle.slice(5)} validates its practical workflow, risks, and measurable pilot criteria.`
+      : angle === "combined"
+        ? "London renters face insulation, heating-control, and landlord-permission constraints. Removable heating controls and draught-proofing are practical renter-friendly interventions."
       : angle === "interventions"
         ? "Removable heating controls and draught-proofing are practical renter-friendly interventions."
         : "London renters face insulation, heating-control, and landlord-permission constraints."
@@ -500,14 +521,14 @@ function deepSeekOutput(body) {
   }
   if (system.includes("Generate exactly the requested number of distinct")) {
     if (
-      !user.includes("Generate exactly 12 ideas.") ||
+      !user.includes("Generate exactly 8 ideas.") ||
       !user.includes("Removable controls and draught-proofing")
     ) {
       throw new Error("Idea generation request did not include count and briefing")
     }
     return {
       reasoning:
-        "Turn the combined constraints and interventions into twelve distinct products.",
+        "Turn the combined constraints and interventions into eight distinct products.",
       text: JSON.stringify({ elements: ideas }),
     }
   }
@@ -536,7 +557,7 @@ function deepSeekOutput(body) {
       throw new Error("Idea selection request omitted critiqued ideas")
     }
     return {
-      reasoning: "Select all twelve distinct mock candidates for the tournament.",
+      reasoning: "Select all eight distinct mock candidates for the tournament.",
       text: JSON.stringify({
         selectedIdeaIds: candidates.map(({ ideaId }) => ideaId),
       }),

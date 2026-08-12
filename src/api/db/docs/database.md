@@ -32,10 +32,17 @@ ignores this one documented peer-resolution shim.
 - Better Auth owns the `user`, `session`, `account`, and `verification` tables.
   GitHub OAuth tokens remain server-side in `account`; application requests use
   an opaque database-backed session cookie rather than a JWT.
+  The application adds a signed `credits` balance (default zero) and `is_admin`
+  flag to `user`; Better Auth still owns identity and session behavior.
 - Every root job and every `llm_generations` row has a required `user_id`.
   User-facing reads apply reusable SQL scopes to the query retrieving the root
   resource: an owner match grants private access, while a public debate grants
   inherited access through its idea job, child searches, and generations.
+- Billable resource tables use one nullable `credits_used` column:
+  `llm_generations` for model usage, `deep_search_queries` for search-provider
+  usage, and `deep_search_web_pages` for all ScrapingAnt attempts for that URL.
+  Settlement writes this value and decrements `user.credits` in one transaction.
+  Negative account balances are valid; `credits_used` is never a reservation.
   Inaccessible rows are never loaded before authorization. Nested idea searches,
   debate jobs, and all of their generations inherit the initiating user's ID
   explicitly. Composite
@@ -56,6 +63,10 @@ ignores this one documented peer-resolution shim.
   permitting the aggregate cascade. Generations created directly through
   `POST /api/streams` are deliberately standalone and are deleted with their
   user rather than an unrelated job.
+- `research_job_admissions` records charged root-workflow attempts before any
+  provider call. It deliberately has no job foreign key because a failed title
+  preflight must remain chargeable; rows belong to the user and cascade only
+  when that user is deleted.
 - Query and page lifecycle checks couple each active or terminal stage to its
   valid timestamps, errors, and generation links. SQLite triggers require a
   selected page to share both the result URL and the query's deep-search job.
@@ -135,6 +146,9 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
 
 ## Durable job models
 
+- `research_job_admissions` is the durable rolling-quota ledger. Its kind and
+  creation timestamp are immutable facts; old rows remain useful for audit even
+  after they fall outside the configured admission window.
 - `llm_generations` stores terminal text, reasoning, status, errors, requested
   model ID, prompt/stage name, standardized finish reason, available input,
   output, and reasoning token counts, and the owning job for every replayable

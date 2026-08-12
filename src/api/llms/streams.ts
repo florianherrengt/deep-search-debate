@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { and, eq, type SQL } from "drizzle-orm"
 import type { FinishReason, LanguageModelUsage, streamText } from "ai"
+import { debitCredits } from "../credits.ts"
 import { db } from "../db/index.ts"
 import { llmGenerations } from "../db/schema/index.ts"
 import { getErrorMessage } from "../helpers/getErrorMessage.ts"
@@ -133,6 +134,7 @@ export type TextGenerationPersistenceCallbacks = {
 type TextGenerationRegistrationMetadata = {
   modelId: string
   promptName: string
+  calculateCredits?: (usage: LanguageModelUsage) => number
 }
 
 type TextGenerationTerminalMetadata = {
@@ -163,12 +165,13 @@ export type PreparedTextGeneration = {
 type TerminalGenerationMetadata = {
   finishReason?: FinishReason
   finishReasonResolved?: boolean
+  usage?: LanguageModelUsage
   inputTokens?: number
   outputTokens?: number
   reasoningTokens?: number
 }
 
-export function getUnsuccessfulFinishReasonMessage(
+function getUnsuccessfulFinishReasonMessage(
   finishReason: FinishReason | undefined,
 ): string | undefined {
   if (finishReason === "stop") return undefined
@@ -186,6 +189,7 @@ const streams = new Map<string, TextStream>()
  */
 async function consume(
   id: string,
+  userId: string,
   source: AsyncIterable<SourceStreamPart>,
   stream: TextStream,
   owner: LlmGenerationOwner,
@@ -243,6 +247,15 @@ async function consume(
   let completedAt = new Date()
 
   try {
+    const creditsUsed = errorMessage
+      ? null
+      : options.metadata?.calculateCredits
+        ? options.metadata.calculateCredits(
+            terminalMetadata.usage ?? (() => {
+              throw new Error("LLM generation did not report usage")
+            })(),
+          )
+        : 0
     db.transaction((transaction) => {
       const terminalWrite = transaction
         .update(llmGenerations)
@@ -255,6 +268,7 @@ async function consume(
           inputTokens: terminalMetadata.inputTokens ?? null,
           outputTokens: terminalMetadata.outputTokens ?? null,
           reasoningTokens: terminalMetadata.reasoningTokens ?? null,
+          creditsUsed,
           completedAt,
         })
         .where(eq(llmGenerations.llmGenerationId, id))
@@ -269,6 +283,7 @@ async function consume(
           transaction,
         )
       } else {
+        debitCredits(transaction, userId, creditsUsed ?? 0)
         options.onCompleted?.({ id, text, reasoning }, transaction)
       }
     })
@@ -356,6 +371,7 @@ async function resolveTerminalMetadata(
     finishReasonResolved: finishReason.status === "fulfilled",
     finishReason:
       finishReason.status === "fulfilled" ? finishReason.value : undefined,
+    usage: usage.status === "fulfilled" ? usage.value : undefined,
     inputTokens:
       usage.status === "fulfilled" ? usage.value.inputTokens : undefined,
     outputTokens:
@@ -417,6 +433,7 @@ export function registerTextStream(
       ? {
           modelId: options.metadata.modelId,
           promptName: options.metadata.promptName,
+          calculateCredits: options.metadata.calculateCredits,
         }
       : undefined,
   })
@@ -478,6 +495,7 @@ export function prepareTextGeneration(
     }
     const completion = consume(
       id,
+      userId,
       source,
       stream,
       owner,

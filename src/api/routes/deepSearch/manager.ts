@@ -141,7 +141,7 @@ export function createDeepSearchJobManager(): DeepSearchJobManager {
       const normalizedInput = { ...input, ...validatedInput }
       const isRootJob = normalizedInput.ideaJobId === undefined
       const releaseCapacity = isRootJob
-        ? reserveRootResearchCapacity(userId)
+        ? reserveRootResearchCapacity(userId, "deep-search")
         : undefined
       const deepSearchJobId = randomUUID()
       const job = createReplayableEventLog<DeepSearchJobEvent>()
@@ -150,7 +150,7 @@ export function createDeepSearchJobManager(): DeepSearchJobManager {
         const { title: suppliedTitle, ...persistedInput } = normalizedInput
         const generatedTitle =
           suppliedTitle ??
-          (await generatePromptTitle(normalizedInput.researchRequest))
+          (await generatePromptTitle(userId, normalizedInput.researchRequest))
         identity = createDeepSearchIdentity(generatedTitle)
 
         db.insert(deepSearchJobsTable)

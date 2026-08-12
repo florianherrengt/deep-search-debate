@@ -1,12 +1,14 @@
-import { generateText, Output, streamText } from "ai"
+import { Output, streamText } from "ai"
 import PQueue from "p-queue"
 import z from "zod"
 import { config } from "../config.ts"
+import { requirePositiveCreditBalance } from "../credits.ts"
+import { calculateLlmCredits } from "./costs/index.ts"
 import { PromptName, loadPrompt } from "./prompts.ts"
 import { llm, type LlmCallReasoning } from "./provider.ts"
 import {
   prepareTextGeneration,
-  getUnsuccessfulFinishReasonMessage,
+  awaitGenerationOutput,
   type GenerationHandle,
   type LlmGenerationOwner,
   type TextGenerationPersistenceCallbacks,
@@ -50,12 +52,12 @@ function boundedOutputTokens(requested?: number): number {
 }
 
 function enqueueStreamingGeneration<T extends GenerationHandle>(
-  start: () => T,
+  start: () => T | Promise<T>,
 ): Promise<T> {
   const ready = Promise.withResolvers<T>()
   void llmGenerationQueue
     .add(async () => {
-      const generation = start()
+      const generation = await start()
       ready.resolve(generation)
       await generation.completion
     })
@@ -101,11 +103,17 @@ export async function generateTextStream(
   const model = llm.model(params.model)
   const system = await loadPrompt(params.promptName)
   return enqueueStreamingGeneration(() => {
+    requirePositiveCreditBalance(params.userId)
     const prepared = prepareTextGeneration(params.userId, params.owner, {
       onRegistered: params.onRegistered,
       onCompleted: params.onCompleted,
       onFailed: params.onFailed,
-      metadata: { modelId: model.modelId, promptName: params.promptName },
+      metadata: {
+        modelId: model.modelId,
+        promptName: params.promptName,
+        calculateCredits: (usage) =>
+          calculateLlmCredits(config.llm, model.modelId, usage),
+      },
     })
     try {
       const result = streamText({
@@ -130,28 +138,19 @@ export async function generateTextStream(
 }
 
 /** Generates the immutable display title used before a durable job starts. */
-export async function generatePromptTitle(prompt: string): Promise<string> {
-  const system = await loadStructuredPrompt(
-    PromptName.GeneratePromptTitle,
-    promptTitleSchema,
-  )
-  const result = await llmGenerationQueue.add(() =>
-    generateText({
-      model: llm.model(),
-      prompt: `<user_request>\n${prompt}\n</user_request>`,
-      system,
-      maxOutputTokens: 50,
-      maxRetries: config.llmExecution.maxRetries,
-      timeout: config.llmExecution.totalTimeoutMs,
-      ...llm.callOptions("disabled"),
-      output: Output.object({ schema: promptTitleSchema }),
-    }),
-  )
-
-  const finishError = getUnsuccessfulFinishReasonMessage(result.finishReason)
-  if (finishError) throw new Error(finishError)
-
-  return result.output.title
+export async function generatePromptTitle(
+  userId: string,
+  prompt: string,
+): Promise<string> {
+  const generation = await generateObjectStream({
+    userId,
+    owner: { standalone: true },
+    prompt: `<user_request>\n${prompt}\n</user_request>`,
+    promptName: PromptName.GeneratePromptTitle,
+    maxOutputTokens: 50,
+    schema: promptTitleSchema,
+  })
+  return (await awaitGenerationOutput(generation, generation.output)).title
 }
 
 export async function generateArrayStream<Element>(
@@ -168,10 +167,13 @@ export async function generateArrayStream<Element>(
   const model = llm.model(params.model)
   const system = await loadStructuredPrompt(params.promptName, outputSchema)
   return enqueueStreamingGeneration(() => {
+    requirePositiveCreditBalance(params.userId)
     const prepared = prepareTextGeneration(params.userId, params.owner, {
       metadata: {
         modelId: model.modelId,
         promptName: params.promptName,
+        calculateCredits: (usage) =>
+          calculateLlmCredits(config.llm, model.modelId, usage),
       },
       onRegistered: params.onRegistered,
     })
@@ -219,10 +221,13 @@ export async function generateObjectStream<Result>(
   const model = llm.model(params.model)
   const system = await loadStructuredPrompt(params.promptName, params.schema)
   return enqueueStreamingGeneration(() => {
+    requirePositiveCreditBalance(params.userId)
     const prepared = prepareTextGeneration(params.userId, params.owner, {
       metadata: {
         modelId: model.modelId,
         promptName: params.promptName,
+        calculateCredits: (usage) =>
+          calculateLlmCredits(config.llm, model.modelId, usage),
       },
       onRegistered: params.onRegistered,
       onCompleted: params.onCompleted

@@ -329,11 +329,11 @@ describe("user-owned routes", () => {
     expect(debateStart).toHaveBeenCalledWith(ownerId, {
       prompt: "Debate ideas",
       isPublic: false,
-      numberOfIdeas: 12,
-      deepSearchCount: 2,
-      maxSearches: 3,
-      maxResultsPerSearch: 3,
-      maxRounds: 3,
+      numberOfIdeas: 8,
+      deepSearchCount: 1,
+      maxSearches: 2,
+      maxResultsPerSearch: 2,
+      maxRounds: 1,
     })
   })
 })

@@ -42,7 +42,7 @@ SEARXNG_CATEGORIES=general,science
 SEARXNG_MAX_CONCURRENT_REQUESTS=1
 SEARXNG_MIN_INTERVAL_MS=1000
 LLM_PROVIDER=deepseek
-LLM_MODEL_NAME=deepseek-chat
+LLM_MODEL_NAME=deepseek-v4-flash
 LLM_GENERATION_TIMEOUT_MS=300000
 LLM_FIRST_CHUNK_TIMEOUT_MS=120000
 LLM_CHUNK_TIMEOUT_MS=60000
@@ -50,25 +50,38 @@ LLM_MAX_OUTPUT_TOKENS=8192
 LLM_MAX_RETRIES=2
 LLM_MAX_CONCURRENT_GENERATIONS=4
 LLM_MAX_ACTIVE_STANDALONE_GENERATIONS_PER_USER=2
+RESEARCH_JOB_CREATION_WINDOW_MS=86400000
+RESEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW=5
+DEEP_SEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW=4
+IDEA_JOB_MAX_ROOT_JOB_CREATIONS_PER_WINDOW=2
+DEBATE_MAX_ROOT_JOB_CREATIONS_PER_WINDOW=1
 DEEPSEEK_API_KEY=
 OPENCODE_ZEN_API_KEY=
 SCRAPINGANT_API_KEY=
 SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS=120000
 SCRAPINGANT_REQUEST_TIMEOUT_MS=35000
 SCRAPINGANT_MAX_RESPONSE_BYTES=2000000
-DEEP_SEARCH_MAX_SEARCHES=10
-DEEP_SEARCH_MAX_RESULTS_PER_SEARCH=10
-DEEP_SEARCH_MAX_SELECTED_URLS_PER_ROUND=30
-DEEP_SEARCH_MAX_ROUNDS=3
+DEEP_SEARCH_MAX_SEARCHES=5
+DEEP_SEARCH_MAX_RESULTS_PER_SEARCH=5
+DEEP_SEARCH_MAX_SELECTED_URLS_PER_ROUND=15
+DEEP_SEARCH_MAX_ROUNDS=2
 DEEP_SEARCH_MAX_REQUEST_CHARS=10000
 DEEP_SEARCH_MAX_SUMMARY_CONTEXT_CHARS=100000
 DEEP_SEARCH_MAX_CONCURRENT_JOBS=2
 DEEP_SEARCH_MAX_CONCURRENT_PAGE_TASKS=4
 RESEARCH_MAX_ACTIVE_ROOT_JOBS_PER_USER=2
-RESEARCH_MAX_SELECTED_PAGES_PER_ROOT_JOB=400
-IDEA_JOB_MAX_DEEP_SEARCH_COUNT=10
+RESEARCH_MAX_SELECTED_PAGES_PER_ROOT_JOB=200
+IDEA_JOB_MAX_IDEA_COUNT=12
+IDEA_JOB_MAX_DEEP_SEARCH_COUNT=2
+DEBATE_MAX_IDEA_COUNT=8
+DEBATE_MAX_INITIAL_DEEP_SEARCH_COUNT=1
+DEBATE_MAX_SEARCHES_PER_CHILD=3
+DEBATE_MAX_RESULTS_PER_SEARCH=3
+DEBATE_MAX_RESEARCH_ROUNDS_PER_CHILD=1
+DEBATE_MAX_SELECTED_PAGES_PER_JOB=81
 WEB_SEARCH_TIMEOUT_MS=30000
 WEB_SEARCH_MAX_RESPONSE_BYTES=2000000
+WEB_SEARCH_CREDITS_COST=1
 BETTER_AUTH_SECRET=
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
@@ -108,6 +121,19 @@ idea jobs cannot bypass provider backpressure by starting many child searches.
 All workflows additionally share a process-wide LLM queue configured by
 `LLM_MAX_CONCURRENT_GENERATIONS`; a permit covers SDK retries and remains held
 until durable terminal persistence settles.
+Provider-backed creation requires a session. Root research attempts are charged
+to a durable rolling 24-hour quota before title generation, including attempts
+whose preflight later fails. Anonymous access is limited to read-only views of
+public debate aggregates.
+
+Authenticated users start with zero product credits. One product credit is
+$0.001 ($1 per 1,000 credits). The local debug user is an administrator and can
+grant credits from `/admin/credits`; production administrators are marked in
+the `user.is_admin` column. Provider work checks for a positive balance before
+starting and debits actual settled usage afterward, so a completed call may
+leave a negative balance. Failed LLM and search calls are not charged.
+ScrapingAnt credits reported by any attempted retrieval are charged even when
+the page ultimately fails.
 
 Select the repository's Node version before installing dependencies. This is
 required because `better-sqlite3` contains a Node-version-specific native
@@ -207,7 +233,7 @@ The history page lists durable jobs newest first. Structural progress is stored 
 ## Ideas
 
 Open `/ideas` and enter a prompt to start a researched idea run. The UI requests
-12 ideas by default, and the API accepts values from 6 through 20 via
+8 ideas by default, and the API accepts values from 6 through 12 via
 `numberOfIdeas`. The selector keeps an even field of 6 through 12. Runs use two
 parallel deep searches by default; the API also
 accepts `deepSearchCount`, `maxSearches`, and `maxResultsPerSearch`.
@@ -245,8 +271,9 @@ Runs and their generated output are durable and appear newest first under "Previ
 ## Debates
 
 Open `/debates` to run the researched idea pipeline and an automatic tournament.
-The generated candidate count defaults to 12 and is configurable from 6 through
-20. Only ideas admitted by the selector enter the tournament.
+The generated candidate count defaults to 8 and is configurable from 6 through
+8 under the conservative server defaults. Only ideas admitted by the selector
+enter the tournament.
 
 Every admitted idea plays five Swiss rounds without repeat opponents; losing a
 Swiss match does not eliminate it. Later-round matchmaking uses deterministic
@@ -257,7 +284,7 @@ advance to two semifinals and one final.
 
 Match transcripts, verdicts, standings, and the final winner are durable. The
 selected field produces `5 × ideas ÷ 2 + 3` matches, so the minimum six-idea run
-contains 18 matches and the default 12-idea run contains 33. See [the debate-job
+contains 18 matches and the default eight-idea run contains at most 23. See [the debate-job
 contract](src/api/routes/docs/debate-jobs.md).
 
 ## Verification

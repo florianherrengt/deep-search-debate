@@ -12,6 +12,7 @@ import {
   llmGenerations,
 } from "../../db/schema/index.ts"
 import type { TextStreamPersistenceTransaction } from "../../llms/streams.ts"
+import { debitCredits } from "../../credits.ts"
 import type {
   ExecutedQuery,
   PlannedQuery,
@@ -150,15 +151,18 @@ export function savePlannedQueries(input: {
 }
 
 export function saveSearchResults(input: {
+  userId?: string
   jobId: string
   roundId: string
   searches: Array<{
     plannedQuery: PlannedQuery
     results: SearchResultInput[]
+    creditsUsed?: number
   }>
 }): ExecutedQuery[] {
   const storedSearches = input.searches.map((search) => ({
     ...search.plannedQuery,
+    creditsUsed: search.creditsUsed ?? 0,
     results: search.results.map((result, position) => ({
       resultId: randomUUID(),
       position,
@@ -174,6 +178,14 @@ export function saveSearchResults(input: {
       input.jobId,
       input.roundId,
     )
+    const owner = transaction
+      .select({ userId: deepSearchJobs.userId })
+      .from(deepSearchJobs)
+      .where(eq(deepSearchJobs.deepSearchJobId, input.jobId))
+      .get()
+    if (!owner || (input.userId !== undefined && owner.userId !== input.userId)) {
+      throw new Error("Search query must belong to the credit account owner")
+    }
     const plannedIds = new Set(
       transaction
         .select({ deepSearchQueryId: deepSearchQueries.deepSearchQueryId })
@@ -197,7 +209,10 @@ export function saveSearchResults(input: {
     for (const search of storedSearches) {
       const update = transaction
         .update(deepSearchQueries)
-        .set({ status: "selecting" })
+        .set({
+          status: "selecting",
+          creditsUsed: search.creditsUsed,
+        })
         .where(
           and(
             eq(deepSearchQueries.deepSearchQueryId, search.queryId),
@@ -208,6 +223,7 @@ export function saveSearchResults(input: {
       if (update.changes !== 1) {
         throw new Error("Search query was not ready for results")
       }
+      debitCredits(transaction, owner.userId, search.creditsUsed)
       if (search.results.length > 0) {
         transaction
           .insert(deepSearchResults)
@@ -430,6 +446,40 @@ export function attachPageSummaryGeneration(
     .where(eq(deepSearchWebPages.deepSearchWebPageId, input.pageId))
     .run()
   if (result.changes !== 1) throw new Error("Web page was not persisted")
+}
+
+export function settlePageExtractionCredits(input: {
+  userId: string
+  jobId: string
+  pageId: string
+  creditsUsed: number
+}): void {
+  db.transaction((transaction) => {
+    assertPageOwnedByJob(transaction, input.jobId, input.pageId)
+    const owner = transaction
+      .select({ userId: deepSearchJobs.userId })
+      .from(deepSearchJobs)
+      .where(eq(deepSearchJobs.deepSearchJobId, input.jobId))
+      .get()
+    if (owner?.userId !== input.userId) {
+      throw new Error("Web page must belong to the credit account owner")
+    }
+    const result = transaction
+      .update(deepSearchWebPages)
+      .set({ creditsUsed: input.creditsUsed })
+      .where(
+        and(
+          eq(deepSearchWebPages.deepSearchWebPageId, input.pageId),
+          eq(deepSearchWebPages.status, "extracting"),
+          isNull(deepSearchWebPages.creditsUsed),
+        ),
+      )
+      .run()
+    if (result.changes !== 1) {
+      throw new Error("Web page extraction credits were already settled")
+    }
+    debitCredits(transaction, input.userId, input.creditsUsed)
+  })
 }
 
 export function completePageSummaryGeneration(

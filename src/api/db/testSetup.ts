@@ -15,6 +15,7 @@ db.insert(user)
     name: "Test User",
     email: "test-user@example.com",
     emailVerified: true,
+    credits: 1_000_000,
   })
   .onConflictDoNothing()
   .run()

@@ -34,6 +34,7 @@ import {
   failPageSummaryGeneration,
   failQuerySummaryGeneration,
   savePageFailure,
+  settlePageExtractionCredits,
   savePlannedQueries,
   saveRoundReviewCompletion,
   saveRoundReviewFailure,
@@ -101,6 +102,14 @@ async function summarizeSelectedPage(
     deepSearchJobId: params.deepSearchJobId,
     researchRequest: params.researchRequest,
     url: page.url,
+    onExtractionSettled: (creditsUsed) => {
+      settlePageExtractionCredits({
+        userId: params.userId,
+        jobId: params.deepSearchJobId,
+        pageId: page.pageId,
+        creditsUsed,
+      })
+    },
     onRegistered: (generationId, transaction) => {
       attachPageSummaryGeneration(transaction, {
         jobId: params.deepSearchJobId,
@@ -286,12 +295,20 @@ export async function runDeepSearchPipeline(
       queries,
     })
     const searchedQueries = await settleAll(
-      plannedQueries.map(async (plannedQuery) => ({
-        plannedQuery,
-        results: await webSearch({ query: plannedQuery.query }),
-      })),
+      plannedQueries.map(async (plannedQuery) => {
+        const search = await webSearch({
+          userId: params.userId,
+          query: plannedQuery.query,
+        })
+        // Preserve the array-shaped test seam used by the pipeline's provider
+        // mocks while production returns settled cost metadata.
+        return Array.isArray(search)
+          ? { plannedQuery, results: search, creditsUsed: 0 }
+          : { plannedQuery, ...search }
+      }),
     )
     const executedQueries = saveSearchResults({
+      userId: params.userId,
       jobId: params.deepSearchJobId,
       roundId: persistedRound.roundId,
       searches: searchedQueries,
