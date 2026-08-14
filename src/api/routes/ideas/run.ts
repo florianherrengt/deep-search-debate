@@ -25,10 +25,12 @@ import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
 import { deepSearchResearchRequestSchema } from "../deepSearch/resourceLimits.ts"
 import {
   ideaSchema,
+  ideaEvaluationSchema,
   ideaSelectionSchema,
   MAX_SELECTED_IDEAS,
   MIN_SELECTED_IDEAS,
   type Idea,
+  type IdeaEvaluation,
   type IdeaEventStage,
   type IdeaJobStage,
   type LiveIdeaJob,
@@ -94,7 +96,7 @@ function buildIdeaPrompt(
   ].join("\n")
 }
 
-function buildCritiquePrompt(
+function buildEvaluationPrompt(
   prompt: string,
   researchSummary: string,
   idea: Idea,
@@ -112,8 +114,8 @@ function buildCritiquePrompt(
   ].join("\n")
 }
 
-type CritiquedIdea = PersistedIdea & { critique: string }
-type RefinedIdea = CritiquedIdea & {
+type EvaluatedIdea = PersistedIdea & IdeaEvaluation
+type RefinedIdea = EvaluatedIdea & {
   refinedTitle: string
   refinedDescription: string
 }
@@ -127,35 +129,32 @@ const ideaSelectionProposalSchema = z.object({
     .max(MAX_SELECTED_IDEAS * 2),
 })
 
-function normalizeIdeaSelection(
+export function normalizeIdeaSelection(
   proposal: z.infer<typeof ideaSelectionProposalSchema>,
-  ideas: CritiquedIdea[],
+  ideas: ReadonlyArray<{ ideaId: string }>,
 ): z.infer<typeof ideaSelectionSchema> {
   const orderedIdeaIds = ideas.map(({ ideaId }) => ideaId)
   const knownIdeaIds = new Set(orderedIdeaIds)
-  const selectedIdeaIds: string[] = []
-  const selected = new Set<string>()
-
-  for (const ideaId of proposal.selectedIdeaIds) {
-    if (knownIdeaIds.has(ideaId) && !selected.has(ideaId)) {
-      selected.add(ideaId)
-      selectedIdeaIds.push(ideaId)
-    }
-  }
-
-  for (const ideaId of orderedIdeaIds) {
-    if (selectedIdeaIds.length >= MIN_SELECTED_IDEAS) break
-    if (!selected.has(ideaId)) {
-      selected.add(ideaId)
-      selectedIdeaIds.push(ideaId)
-    }
-  }
-
-  if (selectedIdeaIds.length % 2 !== 0) {
-    const nextIdeaId = orderedIdeaIds.find((ideaId) => !selected.has(ideaId))
-    if (nextIdeaId === undefined) selectedIdeaIds.pop()
-    else selectedIdeaIds.push(nextIdeaId)
-  }
+  const distinctProposedIdeaIds = new Set(
+    proposal.selectedIdeaIds.filter((ideaId) => knownIdeaIds.has(ideaId)),
+  )
+  const proposedIdeaIds = [...distinctProposedIdeaIds].slice(
+    0,
+    MAX_SELECTED_IDEAS,
+  )
+  const fallbackIdeaIds = orderedIdeaIds
+    .filter((ideaId) => !proposedIdeaIds.includes(ideaId))
+    .slice(0, Math.max(0, MIN_SELECTED_IDEAS - proposedIdeaIds.length))
+  const minimumSelection = [...proposedIdeaIds, ...fallbackIdeaIds]
+  const nextIdeaId = orderedIdeaIds.find(
+    (ideaId) => !minimumSelection.includes(ideaId),
+  )
+  const selectedIdeaIds =
+    minimumSelection.length % 2 === 0
+      ? minimumSelection
+      : nextIdeaId === undefined
+        ? minimumSelection.slice(0, -1)
+        : [...minimumSelection, nextIdeaId]
 
   return ideaSelectionSchema.parse({ selectedIdeaIds })
 }
@@ -163,7 +162,7 @@ function normalizeIdeaSelection(
 function buildRefinementPrompt(
   prompt: string,
   researchSummary: string,
-  idea: CritiquedIdea,
+  idea: EvaluatedIdea,
 ): string {
   return [
     "<user_request>",
@@ -175,9 +174,13 @@ function buildRefinementPrompt(
     "<original_idea>",
     JSON.stringify({ title: idea.title, description: idea.description }),
     "</original_idea>",
-    "<critique>",
-    idea.critique,
-    "</critique>",
+    "<evaluation>",
+    JSON.stringify({
+      pros: idea.pros,
+      cons: idea.cons,
+      critique: idea.critique,
+    }),
+    "</evaluation>",
   ].join("\n")
 }
 
@@ -235,22 +238,24 @@ function buildRefinedIdeaResearchRequest(
 function buildSelectionPrompt(
   prompt: string,
   researchSummary: string,
-  ideas: CritiquedIdea[],
+  ideas: EvaluatedIdea[],
 ): string {
   const briefing = truncateMiddle(
     researchSummary,
     Math.floor(config.deepSearch.maxSummaryContextChars * 0.2),
   )
-  const critiquedIdeas = formatBoundedTextEntries(
+  const evaluatedIdeas = formatBoundedTextEntries(
     ideas.map((idea) => ({
-      opening: "<critiqued_idea>\n",
+      opening: "<evaluated_idea>\n",
       text: JSON.stringify({
         ideaId: idea.ideaId,
         title: idea.title,
         description: idea.description,
+        pros: idea.pros,
+        cons: idea.cons,
         critique: idea.critique,
       }),
-      closing: "\n</critiqued_idea>",
+      closing: "\n</evaluated_idea>",
     })),
     config.deepSearch.maxSummaryContextChars - briefing.length,
   )
@@ -261,9 +266,9 @@ function buildSelectionPrompt(
     "<research_briefing>",
     briefing,
     "</research_briefing>",
-    "<critiqued_ideas>",
-    critiquedIdeas,
-    "</critiqued_ideas>",
+    "<evaluated_ideas>",
+    evaluatedIdeas,
+    "</evaluated_ideas>",
   ].join("\n")
 }
 
@@ -361,9 +366,8 @@ async function runResearch(
       }),
     ),
   )
-  let publicationError: unknown
-  for (const [index, started] of starts.entries()) {
-    if (started.status === "rejected") continue
+  const publicationErrors = starts.flatMap((started, index): unknown[] => {
+    if (started.status === "rejected") return []
     const search = started.value
     try {
       input.job.publish({
@@ -373,10 +377,11 @@ async function runResearch(
         slug: search.slug,
         researchRequest: prompts[index].prompt,
       })
+      return []
     } catch (error) {
-      publicationError ??= error
+      return [error]
     }
-  }
+  })
 
   // Wait for every launched child even after one fails. No later pipeline stage
   // runs when a rejection exists, but the parent does not terminate while its
@@ -403,7 +408,8 @@ async function runResearch(
   const failed = settled.find(
     (result): result is PromiseRejectedResult => result.status === "rejected",
   )
-  if (publicationError !== undefined) {
+  if (publicationErrors.length > 0) {
+    const [publicationError] = publicationErrors
     throw publicationError instanceof Error
       ? publicationError
       : new Error("Publishing a child search event failed")
@@ -510,28 +516,26 @@ function persistIdeas(input: RunIdeaJobInput, ideas: Idea[]): PersistedIdea[] {
   return persistedIdeas
 }
 
-async function critiqueIdea(
+async function evaluateIdea(
   input: RunIdeaJobInput,
   researchSummary: string,
   idea: PersistedIdea,
-): Promise<CritiquedIdea> {
-  const generation = await generateTextStream({
+): Promise<EvaluatedIdea> {
+  const generation = await generateObjectStream({
     userId: input.userId,
     owner: { ideaJobId: input.ideaJobId },
-    prompt: buildCritiquePrompt(input.prompt, researchSummary, {
+    prompt: buildEvaluationPrompt(input.prompt, researchSummary, {
       title: idea.title,
       description: idea.description,
     }),
-    promptName: PromptName.CritiqueIdea,
-    // TODO: Revisit critique reasoning when Flash reliably terminates these
-    // streams. It can currently loop without ever emitting answer text, while
-    // a critique only needs the answer prose.
+    promptName: PromptName.EvaluateIdea,
+    schema: ideaEvaluationSchema,
     reasoning: "disabled",
     maxOutputTokens: 1_024,
     onRegistered: (generationId, transaction) => {
       const result = transaction
         .update(ideaRecords)
-        .set({ critiqueGenerationId: generationId })
+        .set({ evaluationGenerationId: generationId })
         .where(
           and(
             eq(ideaRecords.ideaId, idea.ideaId),
@@ -542,26 +546,27 @@ async function critiqueIdea(
       if (result.changes !== 1) throw new Error("Generated idea was not found")
     },
   })
-  await publishStartedGeneration(generation, () => {
-    input.job.publish({
-      type: "critique-generation-stream",
-      position: idea.position,
-      streamId: generation.id,
-    })
+  const evaluation = await awaitGenerationOutput(
+    generation,
+    generation.output,
+  )
+  input.job.publish({
+    type: "idea-evaluated",
+    ideaId: idea.ideaId,
+    ...evaluation,
   })
-  const critique = await awaitGenerationText(generation)
-  return { ...idea, critique }
+  return { ...idea, ...evaluation }
 }
 
-async function critiqueIdeas(
+async function evaluateIdeas(
   input: RunIdeaJobInput,
   researchSummary: string,
   ideas: PersistedIdea[],
-): Promise<CritiquedIdea[]> {
-  // Start every independent critique immediately, but do not fail the parent
+): Promise<EvaluatedIdea[]> {
+  // Start every independent evaluation immediately, but do not fail the parent
   // until all started generations have reached a terminal state.
   const settled = await Promise.allSettled(
-    ideas.map((idea) => critiqueIdea(input, researchSummary, idea)),
+    ideas.map((idea) => evaluateIdea(input, researchSummary, idea)),
   )
   const failed = settled.find(
     (result): result is PromiseRejectedResult => result.status === "rejected",
@@ -576,8 +581,8 @@ async function critiqueIdeas(
 async function selectIdeas(
   input: RunIdeaJobInput,
   researchSummary: string,
-  ideas: CritiquedIdea[],
-): Promise<CritiquedIdea[]> {
+  ideas: EvaluatedIdea[],
+): Promise<EvaluatedIdea[]> {
   const generation = await generateObjectStream({
     userId: input.userId,
     owner: { ideaJobId: input.ideaJobId },
@@ -637,7 +642,7 @@ async function selectIdeas(
 async function refineIdea(
   input: RunIdeaJobInput,
   researchSummary: string,
-  idea: CritiquedIdea,
+  idea: EvaluatedIdea,
 ): Promise<RefinedIdea> {
   const generation = await generateObjectStream({
     userId: input.userId,
@@ -704,7 +709,7 @@ async function refineIdea(
 async function refineIdeas(
   input: RunIdeaJobInput,
   researchSummary: string,
-  ideas: CritiquedIdea[],
+  ideas: EvaluatedIdea[],
 ): Promise<RefinedIdea[]> {
   const settled = await Promise.allSettled(
     ideas.map((idea) => refineIdea(input, researchSummary, idea)),
@@ -784,11 +789,11 @@ export async function runIdeaJob(input: RunIdeaJobInput): Promise<void> {
     const generatedIdeas = await generateIdeas(input, summary)
     const persistedIdeas = persistIdeas(input, generatedIdeas)
 
-    stage = "critique"
-    const critiquedIdeas = await critiqueIdeas(input, summary, persistedIdeas)
+    stage = "evaluation"
+    const evaluatedIdeas = await evaluateIdeas(input, summary, persistedIdeas)
 
     stage = "selection"
-    const selectedIdeas = await selectIdeas(input, summary, critiquedIdeas)
+    const selectedIdeas = await selectIdeas(input, summary, evaluatedIdeas)
 
     stage = "refinement"
     const refinedIdeas = await refineIdeas(input, summary, selectedIdeas)
@@ -808,7 +813,7 @@ export async function runIdeaJob(input: RunIdeaJobInput): Promise<void> {
           // Per-idea work remains an event subphase of the durable ideas stage.
           // Linked generations and searches preserve its detailed progress.
           stage:
-            stage === "critique" ||
+            stage === "evaluation" ||
             stage === "selection" ||
             stage === "refinement" ||
             stage === "idea-research"

@@ -6,16 +6,18 @@ import {
   ideas,
   llmGenerations,
 } from "../../db/schema/index.ts"
+import { PromptName } from "../../llms/prompts.ts"
 import { reconstructIdeaJobEvents } from "./replay.ts"
 
 const ideaJobId = "11111111-1111-4111-8111-111111111111"
 
-function insertGeneration(id: string, text: string): void {
+function insertGeneration(id: string, text: string, promptName?: string): void {
   db.insert(llmGenerations)
     .values({
       userId: "test-user-id",
       ideaJobId,
       llmGenerationId: id,
+      promptName,
       status: "completed",
       text,
       reasoning: `Reasoning for ${id}`,
@@ -28,6 +30,110 @@ describe("reconstructIdeaJobEvents", () => {
   beforeEach(() => {
     db.delete(ideaJobs).run()
     db.delete(llmGenerations).run()
+  })
+
+  it("replays a structured idea evaluation from its generation", () => {
+    const ideaId = "33333333-3333-4333-8333-333333333333"
+    const evaluation = {
+      pros: ["Clear user value", "Fits the existing workflow"],
+      cons: ["Depends on clean data", "Requires behavior change"],
+      critique: "Promising, but the first release should expose uncertainty.",
+    }
+    db.insert(ideaJobs)
+      .values({
+        userId: "test-user-id",
+        ideaJobId,
+        prompt: "Generate concepts",
+        numberOfIdeas: 1,
+        deepSearchCount: 1,
+      })
+      .run()
+    insertGeneration(
+      "evaluation-id",
+      JSON.stringify(evaluation),
+      PromptName.EvaluateIdea,
+    )
+    db.insert(ideas)
+      .values({
+        ideaId,
+        ideaJobId,
+        position: 0,
+        title: "Specific idea",
+        description: "Concrete description",
+        evaluationGenerationId: "evaluation-id",
+      })
+      .run()
+    db.update(ideaJobs)
+      .set({
+        stage: "ideas",
+        status: "failed",
+        error: "Selection failed",
+        completedAt: new Date(),
+      })
+      .run()
+
+    expect(reconstructIdeaJobEvents(ideaJobId)).toEqual([
+      {
+        type: "idea",
+        ideaId,
+        title: "Specific idea",
+        description: "Concrete description",
+      },
+      { type: "idea-evaluated", ideaId, ...evaluation },
+      { type: "error", message: "Selection failed", stage: "selection" },
+      { type: "done" },
+    ])
+  })
+
+  it("keeps an invalid structured evaluation in the evaluation failure stage", () => {
+    const ideaId = "33333333-3333-4333-8333-333333333333"
+    db.insert(ideaJobs)
+      .values({
+        userId: "test-user-id",
+        ideaJobId,
+        prompt: "Generate concepts",
+        numberOfIdeas: 1,
+        deepSearchCount: 1,
+      })
+      .run()
+    insertGeneration(
+      "invalid-evaluation-id",
+      '{"pros":["Only one"],"cons":[],"critique":"Incomplete"}',
+      PromptName.EvaluateIdea,
+    )
+    db.insert(ideas)
+      .values({
+        ideaId,
+        ideaJobId,
+        position: 0,
+        title: "Specific idea",
+        description: "Concrete description",
+        evaluationGenerationId: "invalid-evaluation-id",
+      })
+      .run()
+    db.update(ideaJobs)
+      .set({
+        stage: "ideas",
+        status: "failed",
+        error: "Structured output was invalid",
+        completedAt: new Date(),
+      })
+      .run()
+
+    expect(reconstructIdeaJobEvents(ideaJobId)).toEqual([
+      {
+        type: "idea",
+        ideaId,
+        title: "Specific idea",
+        description: "Concrete description",
+      },
+      {
+        type: "error",
+        message: "Structured output was invalid",
+        stage: "evaluation",
+      },
+      { type: "done" },
+    ])
   })
 
   it("replays every persisted stage and its normalized ideas", () => {
@@ -46,7 +152,16 @@ describe("reconstructIdeaJobEvents", () => {
       "ideas-id",
       '{"elements":[{"title":"Specific idea","description":"Concrete description"}]}',
     )
-    insertGeneration("critique-id", "Specific idea\nA useful critique")
+    const evaluation = {
+      pros: ["Clear value", "Practical workflow"],
+      cons: ["Data dependency", "Adoption risk"],
+      critique: "Promising with a focused pilot.",
+    }
+    insertGeneration(
+      "evaluation-id",
+      JSON.stringify(evaluation),
+      PromptName.EvaluateIdea,
+    )
     db.insert(ideas)
       .values({
         ideaId: "33333333-3333-4333-8333-333333333333",
@@ -54,7 +169,7 @@ describe("reconstructIdeaJobEvents", () => {
         position: 0,
         title: "Specific idea",
         description: "Concrete description",
-        critiqueGenerationId: "critique-id",
+        evaluationGenerationId: "evaluation-id",
       })
       .run()
     db.update(ideaJobs)
@@ -116,15 +231,15 @@ describe("reconstructIdeaJobEvents", () => {
         description: "Concrete description",
       },
       {
-        type: "critique-generation-stream",
-        position: 0,
-        streamId: "critique-id",
+        type: "idea-evaluated",
+        ideaId: "33333333-3333-4333-8333-333333333333",
+        ...evaluation,
       },
       { type: "done" },
     ])
   })
 
-  it("replays an idea whose critique never started", () => {
+  it("replays an idea whose evaluation never started", () => {
     db.insert(ideaJobs)
       .values({
         userId: "test-user-id",
@@ -139,7 +254,7 @@ describe("reconstructIdeaJobEvents", () => {
         ideaId: "33333333-3333-4333-8333-333333333333",
         ideaJobId,
         position: 0,
-        title: "Visible before critique",
+        title: "Visible before evaluation",
         description: "This idea already exists",
       })
       .run()
@@ -147,7 +262,7 @@ describe("reconstructIdeaJobEvents", () => {
       .set({
         stage: "ideas",
         status: "failed",
-        error: "Critique failed before streaming",
+        error: "Evaluation failed before streaming",
         completedAt: new Date(),
       })
       .run()
@@ -156,13 +271,13 @@ describe("reconstructIdeaJobEvents", () => {
       {
         type: "idea",
         ideaId: "33333333-3333-4333-8333-333333333333",
-        title: "Visible before critique",
+        title: "Visible before evaluation",
         description: "This idea already exists",
       },
       {
         type: "error",
-        message: "Critique failed before streaming",
-        stage: "critique",
+        message: "Evaluation failed before streaming",
+        stage: "evaluation",
       },
       { type: "done" },
     ])

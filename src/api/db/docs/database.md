@@ -32,7 +32,7 @@ ignores this one documented peer-resolution shim.
 - Better Auth owns the `user`, `session`, `account`, and `verification` tables.
   GitHub OAuth tokens remain server-side in `account`; application requests use
   an opaque database-backed session cookie rather than a JWT.
-  The application adds a signed `credits` balance (default zero) and `is_admin`
+  The application adds a signed `credits` balance (default 500) and `is_admin`
   flag to `user`; Better Auth still owns identity and session behavior.
 - Every root job and every `llm_generations` row has a required `user_id`.
   User-facing reads apply reusable SQL scopes to the query retrieving the root
@@ -80,7 +80,7 @@ ignores this one documented peer-resolution shim.
   that condition and avoids fabricating selection or summary generations.
 - API validation requires user prompts, research requests, generated queries,
   and persisted search facts to contain non-whitespace content. Idea content is
-  immutable after insertion; its nullable critique and refinement links can
+  immutable after insertion; its nullable evaluation and refinement links can
   each transition exactly once from absent to present, its nullable selected
   flag can transition exactly once from pending to true or false, and its
   refined title/description commit as a pair. A composite foreign key requires
@@ -108,12 +108,14 @@ ignores this one documented peer-resolution shim.
 
 ### Known application-enforced integrity boundaries
 
-- `ideas.critique_generation_id` is null during the valid interval between idea
-  persistence and that idea's critique call starting. A trigger permits only the
+- `ideas.evaluation_generation_id` is null during the valid interval between idea
+  persistence and that idea's evaluation call starting. A trigger permits only the
   one-time null-to-generation transition. Its foreign key and unique index
   prevent nonexistent or reused generations, while a composite foreign key
   enforces same-job ownership without duplicating `user_id` on every idea row.
-  Application orchestration requires every link before job completion.
+  Application orchestration requires every link before job completion. The
+  linked generation stores the validated evaluation; replay parses that payload
+  instead of duplicating it on `ideas`.
 - `ideas.selected` is null from insertion until comparative selection commits.
   The selector's terminal transaction updates the complete idea batch to true
   or false. Application validation enforces an unordered, unique, same-job,
@@ -170,11 +172,10 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
   links. A debate-created idea job points to its owning debate; a standalone
   idea job leaves that FK null.
 - `ideas` stores validated, ordered idea output with stable IDs as soon as idea
-  generation completes. Its critique-generation link is initially null and is
-  attached when that idea's critique starts. Its selected flag remains null
+  generation completes. Its evaluation-generation link is initially null and is
+  attached when that idea's evaluation starts. Its selected flag remains null
   until the comparative selector atomically marks every idea selected or
-  rejected. Each critique's text and reasoning remain in its `llm_generations`
-  row; they are not copied into `ideas` or a second critique table. A selected
+  rejected. Structured evaluations remain in their `llm_generations` rows. A selected
   row then stores its one-time refinement generation and improved title and
   description. The job's idea- and
   selection-generation links separately retain raw structured output and

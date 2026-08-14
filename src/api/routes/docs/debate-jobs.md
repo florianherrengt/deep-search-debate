@@ -1,11 +1,12 @@
 # Debate jobs
 
 Debate jobs are durable automatic tournaments. A fresh user prompt first runs
-the existing researched, critiqued, selected, refined, and individually
+the existing researched, evaluated, selected, refined, and individually
 researched idea pipeline, then admits only its selected normalized ideas to
 Swiss play and a top-four knockout. The
-selection agent consumes critiques, but tournament advocates and judges do not.
-Critiques and the selection output remain available on the linked idea-job view.
+selection agent consumes the structured evaluations, but tournament advocates
+and judges do not. Pros, cons, critiques, and the selection output remain
+available on the linked idea-job view.
 Closing or reloading the page does not cancel work. Live subscriptions replay
 retained events and terminal jobs rebuild their UI snapshot from SQLite.
 

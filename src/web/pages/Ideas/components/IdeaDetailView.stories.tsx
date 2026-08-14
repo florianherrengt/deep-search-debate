@@ -21,7 +21,20 @@ const run: IdeaJobRunState = {
       selection: "selected",
     },
   ],
-  critiqueGenerationStreamIds: { 0: "prep-critique" },
+  ideaEvaluations: {
+    "prep-forecast": {
+      pros: [
+        "Fits the café's existing morning preparation workflow.",
+        "Turns several demand signals into one concrete decision.",
+      ],
+      cons: [
+        "Depends on sufficiently clean till data and demand history.",
+        "Staff may distrust recommendations that hide uncertainty.",
+      ],
+      critique:
+        "The idea has strong operational fit, but adoption depends on transparent confidence ranges and easy staff overrides.",
+    },
+  },
   ideaSelectionStreamId: "selection",
   refinementGenerationStreamIds: { "prep-forecast": "prep-refinement" },
   refinedIdeas: {

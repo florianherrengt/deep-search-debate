@@ -87,7 +87,11 @@ function AppNavigation({ session, signingOut, signOut }: AppNavigationProps) {
           <Avatar
             alt=""
             src={session.user.image ?? undefined}
-            sx={{ height: 30, width: 30 }}
+            sx={{
+              display: { xs: "none", sm: "flex" },
+              height: 30,
+              width: 30,
+            }}
           >
             {session.user.name.slice(0, 1).toUpperCase()}
           </Avatar>
@@ -145,10 +149,11 @@ function AppNavigation({ session, signingOut, signOut }: AppNavigationProps) {
                 sx={{
                   bgcolor: current ? "action.selected" : "transparent",
                   color: current ? "text.primary" : "text.secondary",
+                  fontSize: { xs: "0.75rem", sm: "0.8125rem" },
                   flexShrink: 0,
                   minHeight: { xs: 44, sm: 32 },
                   minWidth: 0,
-                  px: { xs: 0.5, sm: 1.25 },
+                  px: { xs: 0.25, sm: 1.25 },
                   "&:hover": {
                     bgcolor: current ? "action.selected" : "action.hover",
                     color: "text.primary",

@@ -9,8 +9,8 @@ import Stack from "@mui/material/Stack"
 import Typography from "@mui/material/Typography"
 import { useEffect } from "react"
 import { Link, useLocation } from "react-router-dom"
-import { GenerationOutput } from "../../../components/streaming/GenerationOutput.tsx"
 import type { IdeaJobRunState, IdeaResearchState } from "../ideaJobState.ts"
+import { IdeaAssessment } from "./IdeaAssessment.tsx"
 
 function WaitingStatus({ children }: { children: string }) {
   return (
@@ -135,7 +135,7 @@ export function IdeaDetailView({
     )
   }
 
-  const critiqueStreamId = run.critiqueGenerationStreamIds[position]
+  const evaluation = run.ideaEvaluations[idea.ideaId]
   const research = run.refinedIdeaResearch[idea.ideaId]
   const displayTitle = refinedIdea?.title ?? idea.title
   const selectionPresentation =
@@ -197,28 +197,20 @@ export function IdeaDetailView({
         </CardContent>
       </Card>
 
-      {critiqueStreamId ? (
-        <GenerationOutput
-          announcementLabel={`Critique for ${idea.title}`}
-          format="markdown"
-          headingComponent="h2"
-          streamId={critiqueStreamId}
-          title="Critique"
-          waitingText="Critiquing this idea…"
-          testId={`idea-critique-${position}`}
-        />
+      {evaluation ? (
+        <IdeaAssessment evaluation={evaluation} position={position} />
       ) : (
         <Card component="section" variant="outlined">
           <CardContent>
             <Stack spacing={1}>
               <Typography component="h2" variant="h6">
-                Critique
+                Assessment of original idea
               </Typography>
               {run.status === "running" ? (
-                <WaitingStatus>Waiting for this idea’s critique…</WaitingStatus>
+                <WaitingStatus>Waiting for this idea’s assessment…</WaitingStatus>
               ) : (
                 <Typography color="error" variant="body2">
-                  Critique did not start for this idea.
+                  Assessment did not complete for this idea.
                 </Typography>
               )}
             </Stack>
@@ -234,7 +226,7 @@ export function IdeaDetailView({
             </Typography>
             {idea.selection === "pending" && run.status === "running" ? (
               <WaitingStatus>
-                Selection starts after every idea has been critiqued…
+                Selection starts after every idea has been evaluated…
               </WaitingStatus>
             ) : idea.selection === "pending" ? (
               <Typography color="error" variant="body2">

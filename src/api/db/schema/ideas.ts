@@ -17,7 +17,7 @@ import {
  * One stable idea produced by an idea-generation job. Ideas are normalized so
  * tournament rows reference durable IDs instead of brittle JSON array offsets.
  * position preserves generation order as metadata, not identity. Idea rows are
- * immutable after insertion except for its one-time critique link and
+ * immutable after insertion except for its one-time evaluation link and
  * selection decision, so replay sees exactly what debate agents saw. Nullable
  * fields represent the valid intervals before those pipeline stages finish.
  */
@@ -31,9 +31,9 @@ export const ideas = sqliteTable(
     position: integer("position").notNull(),
     title: text("title").notNull(),
     description: text("description").notNull(),
-    // Nullable until critique starts. The one-time SQL guard intentionally does
+    // Nullable until evaluation starts. The one-time SQL guard intentionally does
     // not couple this attachment to the parent job's terminal status.
-    critiqueGenerationId: text("critique_generation_id").unique(),
+    evaluationGenerationId: text("evaluation_generation_id").unique(),
     // Null means selection has not completed. Every idea is atomically resolved
     // to true or false when the selector generation completes.
     selected: integer("selected", { mode: "boolean" }),
@@ -49,8 +49,8 @@ export const ideas = sqliteTable(
   (table) => [
     uniqueIndex("ideas_job_position_idx").on(table.ideaJobId, table.position),
     foreignKey({
-      name: "ideas_critique_generation_owner_fk",
-      columns: [table.critiqueGenerationId, table.ideaJobId],
+      name: "ideas_evaluation_generation_owner_fk",
+      columns: [table.evaluationGenerationId, table.ideaJobId],
       foreignColumns: getLlmGenerationIdeaColumns(),
     }).onDelete("no action"),
     foreignKey({

@@ -32,7 +32,7 @@ describe("calculateScrapingAntCredits", () => {
 })
 
 describe("credit accounts", () => {
-  it("starts at zero, accepts grants, and permits settled overspend", () => {
+  it("starts at 500, accepts grants, and permits settled overspend", () => {
     db.insert(user)
       .values({
         id: creditTestUserId,
@@ -41,6 +41,10 @@ describe("credit accounts", () => {
       })
       .run()
 
+    expect(getCreditAccount(creditTestUserId).credits).toBe(500)
+    expect(() => requirePositiveCreditBalance(creditTestUserId)).not.toThrow()
+
+    chargeUserCredits(creditTestUserId, 500)
     expect(getCreditAccount(creditTestUserId).credits).toBe(0)
     expect(() => requirePositiveCreditBalance(creditTestUserId)).toThrow(
       OutOfCreditsError,

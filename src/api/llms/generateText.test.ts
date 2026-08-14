@@ -408,6 +408,22 @@ describe("generateTextStream", () => {
       })
       .parse(mocks.prepareTextGeneration.mock.calls[0]?.[2] as unknown)
     expect(registration.metadata.calculateCredits).toBeTypeOf("function")
+    const { onCompleted } = mocks.prepareTextGeneration.mock.calls[0]?.[2] as {
+      onCompleted: (
+        completed: { id: string; text: string; reasoning: string },
+        transaction: unknown,
+      ) => void
+    }
+    expect(() =>
+      onCompleted(
+        {
+          id: "stream-id",
+          text: '{"elements":["valid",1]}',
+          reasoning: "",
+        },
+        {},
+      ),
+    ).toThrow()
     expect(prepared.start).toHaveBeenCalledWith(stream, {
       finishReason,
       usage,
@@ -472,6 +488,22 @@ describe("generateTextStream", () => {
     )
     expect(result.id).toBe("stream-id")
     expect(result.completion).toBe(generation.completion)
+    const { onCompleted } = mocks.prepareTextGeneration.mock.calls[0]?.[2] as {
+      onCompleted: (
+        completed: { id: string; text: string; reasoning: string },
+        transaction: unknown,
+      ) => void
+    }
+    expect(() =>
+      onCompleted(
+        {
+          id: "stream-id",
+          text: JSON.stringify({ winnerSlot: "invalid" }),
+          reasoning: "",
+        },
+        {},
+      ),
+    ).toThrow()
     expect(mocks.callOptions).toHaveBeenCalledWith("disabled")
     await expect(result.output).resolves.toEqual({ winnerSlot: 0 })
   })
@@ -514,6 +546,44 @@ describe("generateTextStream", () => {
       { id: "stream-id", output: { winnerSlot: 1 } },
       transaction,
     )
+  })
+
+  it("rejects prototype properties before running a terminal transaction hook", async () => {
+    const schema = z.object({ winnerSlot: z.number().int().min(0).max(1) })
+    const onCompleted = vi.fn()
+    mocks.loadPrompt.mockResolvedValue("System prompt")
+    mocks.streamText.mockReturnValue({
+      stream: { id: "raw-stream" },
+      output: Promise.resolve({ winnerSlot: 0 }),
+    })
+    mockPreparedGeneration()
+
+    await generateObjectStream({
+      userId: "test-user-id",
+      owner: { standalone: true },
+      prompt: "Judge this",
+      promptName: "default",
+      schema,
+      onCompleted,
+    })
+
+    const options = mocks.prepareTextGeneration.mock.calls[0]?.[2] as {
+      onCompleted: (
+        completed: { id: string; text: string; reasoning: string },
+        transaction: unknown,
+      ) => void
+    }
+    expect(() =>
+      options.onCompleted(
+        {
+          id: "stream-id",
+          text: '{"winnerSlot":0,"__proto__":{"polluted":true}}',
+          reasoning: "",
+        },
+        {},
+      ),
+    ).toThrow("forbidden prototype property")
+    expect(onCompleted).not.toHaveBeenCalled()
   })
 
   it("forwards structured-stream registration hooks", async () => {

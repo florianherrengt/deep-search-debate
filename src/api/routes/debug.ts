@@ -67,17 +67,8 @@ export function debug(app: Hono<AppEnv>) {
           retrievalMethod: result.retrievalMethod,
         })
       } catch (error) {
-        if (
-          error instanceof Error &&
-          error.name === "WebExtractionError" &&
-          "scrapingAntCredits" in error &&
-          typeof error.scrapingAntCredits === "number"
-        ) {
-          chargeUserCredits(
-            c.get("userId"),
-            calculateScrapingAntCredits(error.scrapingAntCredits),
-          )
-        }
+        // Keep the debug route aligned with product billing: failed provider
+        // calls are never charged to the user.
         console.error("Debug extraction failed", error)
         return c.json({ error: "Extraction failed" }, 500)
       }

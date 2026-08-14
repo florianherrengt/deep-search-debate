@@ -9,9 +9,7 @@ import {
   type GenerationOutcome,
   type TextGenerationPersistenceCallbacks,
 } from "../../llms/streams.ts"
-import {
-  webExtract,
-} from "../../web_search/webExtract.ts"
+import { webExtract } from "../../web_search/webExtract.ts"
 
 const maxPageContentChars = 100_000
 const pageContentOmission =
@@ -101,6 +99,32 @@ export type PageSummaryStart =
       completion: Promise<GenerationOutcome>
     }
 
+type PageExtractionResult =
+  | { status: "failed"; message: string }
+  | { status: "completed"; content: string; creditsUsed: number }
+
+async function extractPage(
+  params: Pick<StartPageSummaryInput, "userId" | "url">,
+): Promise<PageExtractionResult> {
+  try {
+    requirePositiveCreditBalance(params.userId)
+    const page = await webExtract({ url: params.url })
+    if (!page.content.trim()) {
+      throw new Error("Page extraction returned no content")
+    }
+    return {
+      status: "completed",
+      content: page.content,
+      creditsUsed: calculateScrapingAntCredits(page.scrapingAntCredits ?? 0),
+    }
+  } catch (error) {
+    return {
+      status: "failed",
+      message: getErrorMessage(error, "Page summary failed"),
+    }
+  }
+}
+
 /**
  * Extracts one selected page and either returns a typed local failure or a
  * summary-generation handle. Event publication belongs to the coordinator.
@@ -108,64 +132,46 @@ export type PageSummaryStart =
 export async function startPageSummary(
   params: StartPageSummaryInput,
 ): Promise<PageSummaryStart> {
-  let content: string
-  let extractionCreditsUsed = 0
-  try {
-    requirePositiveCreditBalance(params.userId)
-    const page = await webExtract({ url: params.url })
-    extractionCreditsUsed = calculateScrapingAntCredits(
-      page.scrapingAntCredits ?? 0,
-    )
-    if (!page.content.trim()) {
-      throw new Error("Page extraction returned no content")
-    }
-    content = page.content
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      error.name === "WebExtractionError" &&
-      "scrapingAntCredits" in error &&
-      typeof error.scrapingAntCredits === "number"
-    ) {
-      extractionCreditsUsed = calculateScrapingAntCredits(
-        error.scrapingAntCredits,
-      )
-    }
-    params.onExtractionSettled?.(extractionCreditsUsed)
+  const extraction = await extractPage(params)
+  if (extraction.status === "failed") {
+    // Product policy: failed provider calls are not charged to the user, even
+    // when the provider reports that it consumed credits for the attempt.
+    params.onExtractionSettled?.(0)
     return {
       status: "failed",
       stage: "extraction",
-      message: getErrorMessage(error, "Page summary failed"),
+      message: extraction.message,
     }
   }
-  params.onExtractionSettled?.(extractionCreditsUsed)
+  params.onExtractionSettled?.(extraction.creditsUsed)
 
-  let generation: PageSummaryGeneration
   try {
-    generation = await summarizePage({
+    const generation = await summarizePage({
       userId: params.userId,
       deepSearchJobId: params.deepSearchJobId,
       researchRequest: params.researchRequest,
       url: params.url,
-      content,
+      content: extraction.content,
       ...(params.onRegistered ? { onRegistered: params.onRegistered } : {}),
       ...(params.onCompleted ? { onCompleted: params.onCompleted } : {}),
       ...(params.onFailed ? { onFailed: params.onFailed } : {}),
     })
+
+    return {
+      status: "started",
+      streamId: generation.streamId,
+      summary: generation.completion.then((outcome) =>
+        outcome.status === "failed"
+          ? undefined
+          : outcome.text.trim() || undefined,
+      ),
+      completion: generation.completion,
+    }
   } catch (error) {
     return {
       status: "failed",
       stage: "summary",
       message: getErrorMessage(error, "Page summary failed"),
     }
-  }
-
-  return {
-    status: "started",
-    streamId: generation.streamId,
-    summary: generation.completion.then((outcome) =>
-      outcome.status === "failed" ? undefined : outcome.text.trim() || undefined,
-    ),
-    completion: generation.completion,
   }
 }

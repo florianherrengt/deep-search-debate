@@ -15,10 +15,30 @@ export const ideaSchema = z.object({
 })
 
 export type Idea = z.infer<typeof ideaSchema>
+
+const ideaEvaluationPointSchema = z.string().trim().min(1).max(240)
+const ideaEvaluationPointsSchema = z
+  .array(ideaEvaluationPointSchema)
+  .min(2)
+  .max(4)
+  .refine(
+    (points) =>
+      new Set(points.map((point) => point.toLowerCase())).size ===
+      points.length,
+    { message: "Evaluation points must be distinct" },
+  )
+
+export const ideaEvaluationSchema = z.object({
+  pros: ideaEvaluationPointsSchema,
+  cons: ideaEvaluationPointsSchema,
+  critique: z.string().trim().min(1).max(2_000),
+})
+
+export type IdeaEvaluation = z.infer<typeof ideaEvaluationSchema>
 export type IdeaJobStage = (typeof ideaJobStages)[number]
 export type IdeaEventStage =
   | IdeaJobStage
-  | "critique"
+  | "evaluation"
   | "selection"
   | "refinement"
   | "idea-research"
@@ -53,11 +73,7 @@ export type IdeaJobEvent =
   | { type: "research-summary-stream"; streamId: string }
   | { type: "idea-generation-stream"; streamId: string }
   | ({ type: "idea"; ideaId: string } & Idea)
-  | {
-      type: "critique-generation-stream"
-      position: number
-      streamId: string
-    }
+  | ({ type: "idea-evaluated"; ideaId: string } & IdeaEvaluation)
   | { type: "idea-selection-stream"; streamId: string }
   | ({ type: "selected-ideas" } & IdeaSelection)
   | {

@@ -11,7 +11,7 @@ export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
-  credits: integer("credits").notNull().default(0),
+  credits: integer("credits").notNull().default(500),
   isAdmin: integer("is_admin", { mode: "boolean" }).notNull().default(false),
   emailVerified: integer("email_verified", { mode: "boolean" })
     .default(false)

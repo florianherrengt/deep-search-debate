@@ -421,6 +421,27 @@ const environmentSchema = z.object({
     })
   }
   if (
+    environment.LLM_PROVIDER === "deepseek" &&
+    environment.LLM_MODEL_NAME !== "deepseek-v4-flash"
+  ) {
+    context.addIssue({
+      code: "custom",
+      message:
+        "LLM_MODEL_NAME must be deepseek-v4-flash when LLM_PROVIDER=deepseek",
+      path: ["LLM_MODEL_NAME"],
+    })
+  }
+  if (
+    environment.LLM_PROVIDER === "zen" &&
+    environment.NODE_ENV !== "development"
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "LLM_PROVIDER=zen is available only in development",
+      path: ["LLM_PROVIDER"],
+    })
+  }
+  if (
     environment.LLM_PROVIDER === "zen" &&
     environment.OPENCODE_ZEN_API_KEY === undefined
   ) {

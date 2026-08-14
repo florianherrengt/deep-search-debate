@@ -244,9 +244,11 @@ async function consume(
     failureKind = "empty-output"
     stream.publish({ type: "error", message: errorMessage })
   }
-  let completedAt = new Date()
+  const completedAt = new Date()
 
   try {
+    // Product policy: users are not charged when a generation fails, even when
+    // the provider reports billable token usage for the failed attempt.
     const creditsUsed = errorMessage
       ? null
       : options.metadata?.calculateCredits
@@ -298,7 +300,7 @@ async function consume(
     })
   } catch (error) {
     const message = getErrorMessage(error, "Text generation failed")
-    completedAt = new Date()
+    const failedAt = new Date()
     try {
       // The generation/result transaction rolled back. Record a separate
       // failure so recovery never mistakes this detached stream for live work.
@@ -312,7 +314,7 @@ async function consume(
           inputTokens: terminalMetadata.inputTokens ?? null,
           outputTokens: terminalMetadata.outputTokens ?? null,
           reasoningTokens: terminalMetadata.reasoningTokens ?? null,
-          completedAt,
+          completedAt: failedAt,
         })
         .where(eq(llmGenerations.llmGenerationId, id))
         .run()
@@ -326,7 +328,7 @@ async function consume(
       id,
       owner,
       startedAt,
-      completedAt,
+      completedAt: failedAt,
       status: "failed",
       metadata: options.metadata,
       terminalMetadata,

@@ -14,9 +14,10 @@ The API runs TypeScript directly via `node --experimental-strip-types`. Conseque
 
 `src/api/config.ts` reads and validates environment configuration before any
 server or provider is constructed. `LLM_PROVIDER` and `LLM_MODEL_NAME` are
-required. `LLM_PROVIDER=deepseek` requires `DEEPSEEK_API_KEY`, while
-`LLM_PROVIDER=zen` requires `OPENCODE_ZEN_API_KEY`; the unselected key may be
-absent or blank. `SCRAPINGANT_API_KEY`, `BETTER_AUTH_SECRET`,
+required. `LLM_PROVIDER=deepseek` requires `DEEPSEEK_API_KEY` and the priced
+`deepseek-v4-flash` model. Development alone may use `LLM_PROVIDER=zen`, which
+requires `OPENCODE_ZEN_API_KEY`; the unselected key may be absent or blank.
+`SCRAPINGANT_API_KEY`, `BETTER_AUTH_SECRET`,
 `GITHUB_CLIENT_ID`, and `GITHUB_CLIENT_SECRET` are always required. Production
 also requires `BRAVE_SEARCH_API_KEY`. A missing, blank, or whitespace-only
 required secret fails startup.
@@ -47,7 +48,7 @@ so revoking a debate's visibility also removes it from public discovery.
 Deep-search work is bounded in application configuration. Defaults allow at
 most 5 searches, 5 explored results per search, 15 selected URLs per round,
 2 rounds, 200 selected pages across one complete root workflow, and 10,000
-characters per research request. Accumulated query, result, idea, critique, and
+characters per research request. Accumulated query, result, idea, evaluation, and
 debate context is rebuilt in memory under a 100,000-character ceiling while
 retaining a bounded entry for every item. Internally synthesized refined-idea
 requests allocate that same external request budget across the original prompt
@@ -95,7 +96,7 @@ oversized structured responses. Provider-request failures use two SDK retries by
 configured through `LLM_MAX_RETRIES`, so dependency upgrades cannot silently
 change retry cost or latency. The short title generation retains its narrower
 per-call limit. Evidence-transformation and prose-only stages—including
-page/query/final research synthesis, idea briefing, critique, and debate
+page/query/final research synthesis, idea briefing, idea evaluation, and debate
 advocacy—disable hidden reasoning so it cannot consume that budget without
 producing the required durable text. Web searches have a 30-second deadline
 configured by `WEB_SEARCH_TIMEOUT_MS` and charge the fixed product-credit amount
@@ -157,7 +158,7 @@ key are real runtime dependencies, not mocked outside tests:
   (default 2 MB), then capped to 30 validated, canonical, unique public HTTPS
   results per query before persistence or prompting.
 - **LLM:** `deepseek` uses the native DeepSeek AI SDK provider and
-  `DEEPSEEK_API_KEY`. `zen` uses OpenCode Zen's OpenAI-compatible
+  `DEEPSEEK_API_KEY`. Development-only `zen` uses OpenCode Zen's OpenAI-compatible
   `/chat/completions` endpoint and `OPENCODE_ZEN_API_KEY`. Configure the model
   ID with `LLM_MODEL_NAME`; Zen model IDs are sent without an `opencode/`
   prefix. The selected Zen model must be listed for the
@@ -190,15 +191,15 @@ key are real runtime dependencies, not mocked outside tests:
 
 ## Credit accounting
 
-Users start with zero credits. One product credit represents $0.001. Every paid
+Users start with 500 credits. One product credit represents $0.001. Every paid
 provider call checks that the initiating user's signed balance is positive
 before it starts; there is no reservation, so concurrent calls may all pass and
 overspend. After a successful call, the resource row and user debit commit
-together and the balance may become negative. Failed LLM and search calls are
-not charged. ScrapingAnt is the exception: every reported `ant-credits-cost` is
-accumulated across both retrieval modes and charged even when neither mode
-returns usable content. Its $19 / 100,000 provider-credit plan is converted with
-`ceil(providerCredits * 19 / 100)`.
+together and the balance may become negative. Failed provider calls are
+deliberately not charged. Development-only Zen calls are also excluded from
+product-credit accounting. Successful ScrapingAnt extractions accumulate every
+reported `ant-credits-cost` across both retrieval modes. Its $19 / 100,000
+provider-credit plan is converted with `ceil(providerCredits * 19 / 100)`.
 
 DeepSeek Flash V4 generation cost uses the AI SDK's cache-hit, cache-miss, and
 output token counts with the model-specific pricing function. The resulting

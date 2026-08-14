@@ -18,7 +18,7 @@ const baseRun: IdeaJobRunState = {
   researchSummaryStreamId: null,
   ideaGenerationStreamId: null,
   ideas: [],
-  critiqueGenerationStreamIds: {},
+  ideaEvaluations: {},
   ideaSelectionStreamId: null,
   refinementGenerationStreamIds: {},
   refinedIdeas: {},
@@ -73,9 +73,43 @@ const rejectedIdea: IdeaJobRunState["ideas"][number] = {
   selection: "rejected",
 }
 
-const critiqueGenerationStreamIds = {
-  0: "critique-0",
-  1: "critique-1",
+const ideaEvaluations: IdeaJobRunState["ideaEvaluations"] = {
+  "prep-forecast": {
+    pros: [
+      "Fits the café's existing morning preparation workflow.",
+      "Turns several demand signals into one concrete decision.",
+    ],
+    cons: [
+      "Depends on sufficiently clean till data and demand history.",
+      "Staff may distrust recommendations that hide uncertainty.",
+    ],
+    critique:
+      "The idea has strong operational fit, but adoption depends on transparent confidence ranges and easy staff overrides.",
+  },
+  "last-hour-bundles": {
+    pros: [
+      "The customer proposition is simple to understand.",
+      "It fits naturally into the café's closing workflow.",
+    ],
+    cons: [
+      "The surplus-food marketplace is already crowded.",
+      "Low local customer reach could leave bundles unsold.",
+    ],
+    critique:
+      "The concept is accessible but needs automatic bundle creation and till integration to be meaningfully differentiated.",
+  },
+  "manual-waste-diary": {
+    pros: [
+      "Requires little technical integration to launch.",
+      "Creates a basic record of discarded stock.",
+    ],
+    cons: [
+      "Manual logging creates substantial staff friction.",
+      "The resulting data is likely to be incomplete and inconsistent.",
+    ],
+    critique:
+      "The operational burden is high and the product offers little differentiation from existing waste diaries.",
+  },
 }
 
 const refinementGenerationStreamIds = {
@@ -119,7 +153,10 @@ const selectedIdeaRun: IdeaJobRunState = {
   researchSummaryStreamId: "summary",
   ideaGenerationStreamId: "ideas",
   ideas: selectedIdeas,
-  critiqueGenerationStreamIds,
+  ideaEvaluations: {
+    "prep-forecast": ideaEvaluations["prep-forecast"],
+    "last-hour-bundles": ideaEvaluations["last-hour-bundles"],
+  },
   ideaSelectionStreamId: "selection",
 }
 
@@ -135,18 +172,6 @@ const textById: Record<string, { reasoning: string; text: string }> = {
   ideas: {
     reasoning: "I am turning the strongest constraints into distinct product mechanisms.",
     text: JSON.stringify(ideas),
-  },
-  "critique-0": {
-    reasoning: "I am testing this idea against adoption friction and defensibility.",
-    text: "Strong operational fit, but its accuracy depends on clean till data and enough historical demand. Start with confidence ranges and manual overrides.",
-  },
-  "critique-1": {
-    reasoning: "I am checking whether this idea has a defensible mechanism.",
-    text: "Easy to understand, but crowded and vulnerable to low customer reach. Differentiate through automatic bundle creation inside existing closing workflows.",
-  },
-  "critique-2": {
-    reasoning: "I am testing whether the workflow creates more value than burden.",
-    text: "Manual logging creates high staff friction, unreliable data, and little differentiation from existing waste diaries.",
   },
   selection: {
     reasoning: "Both ideas address distinct, research-backed workflow failures.",
@@ -237,7 +262,7 @@ export const GeneratingIdeas: Story = {
   },
 }
 
-export const CritiquingIdeas: Story = {
+export const EvaluatingIdeas: Story = {
   args: {
     prompt,
     title,
@@ -247,9 +272,8 @@ export const CritiquingIdeas: Story = {
       researchSummaryStreamId: "summary",
       ideaGenerationStreamId: "ideas",
       ideas,
-      critiqueGenerationStreamIds: {
-        0: "critique-0",
-        1: "critique-1",
+      ideaEvaluations: {
+        "prep-forecast": ideaEvaluations["prep-forecast"],
       },
     },
   },
@@ -298,10 +322,7 @@ export const Completed: Story = {
       ...selectedIdeaRun,
       status: "completed",
       ideas: [...selectedIdeas, rejectedIdea],
-      critiqueGenerationStreamIds: {
-        ...critiqueGenerationStreamIds,
-        2: "critique-2",
-      },
+      ideaEvaluations,
       refinementGenerationStreamIds,
       refinedIdeas,
       refinedIdeaResearch: completedRefinedIdeaResearch,

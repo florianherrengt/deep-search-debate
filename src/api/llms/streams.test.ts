@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { eq } from "drizzle-orm"
 import type { streamText } from "ai"
 import z from "zod"
+import { getCreditAccount } from "../credits.ts"
 import { db } from "../db/index.ts"
 import { deepSearchJobs, llmGenerations } from "../db/schema/index.ts"
 import {
@@ -630,15 +631,36 @@ describe("text streams", () => {
     })
   })
 
-  it("rolls back a failed completion hook and terminally fails the generation", async () => {
+  it("does not charge when terminal validation fails", async () => {
     const source = new AsyncQueue<SourceStreamPart>()
+    const creditsBefore = getCreditAccount("test-user-id").credits
     const { id, completion } = registerTextStream(
       "test-user-id",
       { standalone: true },
       source,
       {
+        metadata: {
+          modelId: "configured-model",
+          promptName: "default",
+          calculateCredits: () => 13,
+          finishReason: Promise.resolve("stop"),
+          usage: Promise.resolve({
+            inputTokens: 10,
+            inputTokenDetails: {
+              noCacheTokens: 10,
+              cacheReadTokens: 0,
+              cacheWriteTokens: undefined,
+            },
+            outputTokens: 5,
+            outputTokenDetails: {
+              textTokens: 5,
+              reasoningTokens: 0,
+            },
+            totalTokens: 15,
+          }),
+        },
         onCompleted: () => {
-          throw new Error("SQLite unavailable")
+          throw new Error("Structured output was invalid")
         },
       },
     )
@@ -647,21 +669,22 @@ describe("text streams", () => {
     source.push({ type: "text-delta", id: "text", text: "Result" })
     source.close()
 
-    await expect(completion).rejects.toThrow("SQLite unavailable")
+    await expect(completion).rejects.toThrow("Structured output was invalid")
     await expect(drain(subscribed!)).resolves.toEqual([
       { type: "text", text: "Result" },
-      { type: "error", message: "SQLite unavailable" },
+      { type: "error", message: "Structured output was invalid" },
       { type: "done" },
     ])
     await expect(drain(subscribeToTextStream(id)!)).resolves.toEqual([
       { type: "text", text: "Result" },
-      { type: "error", message: "SQLite unavailable" },
+      { type: "error", message: "Structured output was invalid" },
       { type: "done" },
     ])
     const generation = db
       .select({
         status: llmGenerations.status,
         error: llmGenerations.error,
+        creditsUsed: llmGenerations.creditsUsed,
         completedAt: llmGenerations.completedAt,
       })
       .from(llmGenerations)
@@ -669,9 +692,11 @@ describe("text streams", () => {
       .get()
     expect(generation).toMatchObject({
       status: "failed",
-      error: "SQLite unavailable",
+      error: "Structured output was invalid",
+      creditsUsed: null,
     })
     expect(generation?.completedAt).toBeInstanceOf(Date)
+    expect(getCreditAccount("test-user-id").credits).toBe(creditsBefore)
   })
 
   it("commits registration hooks before consuming provider output", async () => {

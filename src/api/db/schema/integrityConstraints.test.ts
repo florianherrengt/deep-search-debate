@@ -302,7 +302,7 @@ describe("aggregate integrity constraints", () => {
         position: 0,
         title: "Original idea",
         description: "Original description",
-        critiqueGenerationId: generationIds[3],
+        evaluationGenerationId: generationIds[3],
       })
       .run()
     db.update(ideaJobs)
@@ -333,7 +333,7 @@ describe("aggregate integrity constraints", () => {
           position: 1,
           title: "Late idea",
           description: "Added after completion",
-          critiqueGenerationId: generationIds[3],
+          evaluationGenerationId: generationIds[3],
         })
         .run(),
     ).toThrow(/terminal idea collections are immutable/)
@@ -352,11 +352,11 @@ describe("aggregate integrity constraints", () => {
     ).toEqual([])
   })
 
-  it("allows ideas before critique and resolves pipeline links only once", () => {
+  it("allows ideas before evaluation and resolves pipeline links only once", () => {
     const ideaJobId = insertIdeaJob()
-    const critiqueGenerationId = crypto.randomUUID()
+    const evaluationGenerationId = crypto.randomUUID()
     db.insert(llmGenerations)
-      .values({ llmGenerationId: critiqueGenerationId, userId, ideaJobId })
+      .values({ llmGenerationId: evaluationGenerationId, userId, ideaJobId })
       .run()
     const firstIdeaId = crypto.randomUUID()
     const secondIdeaId = crypto.randomUUID()
@@ -379,32 +379,32 @@ describe("aggregate integrity constraints", () => {
       ])
       .run()
     expect(db.select().from(ideas).all()).toMatchObject([
-      { critiqueGenerationId: null },
-      { critiqueGenerationId: null },
+      { evaluationGenerationId: null },
+      { evaluationGenerationId: null },
     ])
     db.update(ideas)
-      .set({ critiqueGenerationId })
+      .set({ evaluationGenerationId })
       .where(sql`${ideas.ideaId} = ${firstIdeaId}`)
       .run()
 
     expect(() =>
       db
         .update(ideas)
-        .set({ critiqueGenerationId })
+        .set({ evaluationGenerationId })
         .where(sql`${ideas.ideaId} = ${secondIdeaId}`)
         .run(),
     ).toThrow(/UNIQUE constraint failed/)
     expect(() =>
       db
         .update(ideas)
-        .set({ critiqueGenerationId: crypto.randomUUID() })
+        .set({ evaluationGenerationId: crypto.randomUUID() })
         .where(sql`${ideas.ideaId} = ${secondIdeaId}`)
         .run(),
     ).toThrow(/FOREIGN KEY constraint failed/)
     expect(() =>
       db
         .update(ideas)
-        .set({ critiqueGenerationId: null })
+        .set({ evaluationGenerationId: null })
         .where(sql`${ideas.ideaId} = ${firstIdeaId}`)
         .run(),
     ).toThrow(/one-time pipeline linkage/)

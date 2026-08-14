@@ -103,11 +103,6 @@ describe("Ideas", () => {
         title: "Prep Forecast",
         description: "Recommend daily prep quantities from recent demand.",
       }
-      yield {
-        type: "critique-generation-stream" as const,
-        position: 0,
-        streamId: "critique",
-      }
       await new Promise<void>((resolve) => {
         if (signal?.aborted) resolve()
         else signal?.addEventListener("abort", () => resolve(), { once: true })
@@ -146,7 +141,6 @@ describe("Ideas", () => {
     )
     expect(ideaLink).toHaveAttribute("target", "_blank")
     expect(ideaLink).toHaveAttribute("rel", "noopener noreferrer")
-    expect(screen.queryByTestId("idea-critique-0")).not.toBeInTheDocument()
     expect(screen.queryByText("Raw structured output")).not.toBeInTheDocument()
     expect(mocks.createIdeaJob).toHaveBeenCalledWith({
       prompt: "Ideas for independent cafés",
@@ -168,10 +162,73 @@ describe("Ideas", () => {
 
   })
 
+  it("shows structured pros and cons for an evaluated idea", () => {
+    render(
+      <MemoryRouter>
+        <IdeaDetailView
+          ideaId="prep-forecast-id"
+          jobSlug="generated-ideas"
+          jobTitle="Generated ideas"
+          numberOfIdeas={1}
+          run={{
+            status: "completed",
+            failedStage: null,
+            researchPromptStreamId: null,
+            research: [],
+            researchSummaryStreamId: null,
+            ideaGenerationStreamId: null,
+            ideas: [
+              {
+                ideaId: "prep-forecast-id",
+                title: "Prep Forecast",
+                description: "Recommend fixed prep quantities.",
+                selection: "rejected",
+              },
+            ],
+            ideaEvaluations: {
+              "prep-forecast-id": {
+                pros: [
+                  "Fits the morning preparation workflow.",
+                  "Produces a concrete daily recommendation.",
+                ],
+                cons: [
+                  "Depends on clean till data.",
+                  "Staff may distrust hidden uncertainty.",
+                ],
+                critique:
+                  "A useful concept that needs confidence ranges and staff overrides.",
+              },
+            },
+            ideaSelectionStreamId: "selection",
+            refinementGenerationStreamIds: {},
+            refinedIdeas: {},
+            refinedIdeaResearch: {},
+            error: null,
+          }}
+        />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByTestId("idea-assessment-0")).toBeVisible()
+    expect(
+      screen.getByRole("heading", {
+        name: "Assessment of original idea",
+      }),
+    ).toBeVisible()
+    expect(screen.getByRole("heading", { name: "Pros" })).toBeVisible()
+    expect(screen.getByRole("heading", { name: "Cons" })).toBeVisible()
+    expect(screen.getByText("Depends on clean till data.")).toBeVisible()
+    expect(
+      screen.getByText(
+        "A useful concept that needs confidence ranges and staff overrides.",
+      ),
+    ).toBeVisible()
+  })
+
   it("shows one idea list with selection progress and reasoning", async () => {
     mocks.subscribeToTextStream.mockImplementation(async function* (id: string) {
       await Promise.resolve()
-      yield { type: "reasoning" as const, text: "Critique reasoning" }
+      yield { type: "reasoning" as const, text: "Selection reasoning" }
       yield { type: "text" as const, text: `Response from ${id}` }
       yield { type: "done" as const }
     })
@@ -208,10 +265,7 @@ describe("Ideas", () => {
               selection: "selected",
             },
           ],
-          critiqueGenerationStreamIds: {
-            0: "prep-critique",
-            1: "bundle-critique",
-          },
+          ideaEvaluations: {},
           ideaSelectionStreamId: "selection",
           refinementGenerationStreamIds: {
             "prep-forecast-id": "prep-refinement",
@@ -271,8 +325,6 @@ describe("Ideas", () => {
         name: "View improved Confidence-Aware Prep Forecast",
       }),
     ).not.toBeInTheDocument()
-    expect(screen.queryByTestId("idea-critique-0")).not.toBeInTheDocument()
-    expect(screen.queryByTestId("idea-critique-1")).not.toBeInTheDocument()
     expect(screen.getByText("Rejected")).toBeVisible()
     expect(screen.getByText("Improved")).toBeVisible()
     expect(screen.getByText("Improving")).toBeVisible()
@@ -284,25 +336,17 @@ describe("Ideas", () => {
     )
     expect(screen.queryByText("Response from selection")).not.toBeInTheDocument()
     fireEvent.click(reasoningToggle)
-    expect(screen.getByText("Critique reasoning")).toBeVisible()
+    expect(screen.getByTestId("idea-selection-reasoning")).toHaveTextContent(
+      "Selection reasoning",
+    )
     expect(screen.getByText("2 ideas selected.")).toBeVisible()
     expect(
       screen.queryByRole("button", { name: /Select ideas/ }),
     ).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole("button", { name: /Critique each idea/ }),
-    ).not.toBeInTheDocument()
     expect(screen.queryByText("Raw structured output")).not.toBeInTheDocument()
   })
 
-  it("shows one idea's details and links to research without rendering it", async () => {
-    mocks.subscribeToTextStream.mockImplementation(async function* (id: string) {
-      await Promise.resolve()
-      yield { type: "reasoning" as const, text: "Research reasoning" }
-      yield { type: "text" as const, text: `Response from ${id}` }
-      yield { type: "done" as const }
-    })
-
+  it("shows one idea's details and links to research without rendering it", () => {
     render(
       <MemoryRouter>
         <IdeaDetailView
@@ -325,7 +369,13 @@ describe("Ideas", () => {
                 selection: "selected",
               },
             ],
-            critiqueGenerationStreamIds: { 0: "prep-critique" },
+            ideaEvaluations: {
+              "prep-forecast-id": {
+                pros: ["Clear operational value", "Practical workflow"],
+                cons: ["Depends on clean data", "Needs staff adoption"],
+                critique: "Promising with visible confidence and overrides.",
+              },
+            },
             ideaSelectionStreamId: null,
             refinementGenerationStreamIds: {
               "prep-forecast-id": "refinement",
@@ -364,9 +414,7 @@ describe("Ideas", () => {
         "Recommend prep ranges with confidence and staff overrides.",
       ),
     ).toBeVisible()
-    expect(await screen.findByTestId("idea-critique-0")).toHaveTextContent(
-      "Response from prep-critique",
-    )
+    expect(screen.getByTestId("idea-assessment-0")).toBeVisible()
     expect(screen.queryByTestId("idea-research-prep-research")).toBeNull()
     expect(mocks.subscribeToDeepSearchJob).not.toHaveBeenCalled()
     expect(
@@ -378,7 +426,7 @@ describe("Ideas", () => {
     )
   })
 
-  it("shows persisted ideas before their critique calls start", () => {
+  it("shows persisted ideas before their evaluation calls start", () => {
     render(
       <MemoryRouter>
         <IdeaJobView
@@ -400,7 +448,7 @@ describe("Ideas", () => {
               selection: "pending",
             },
           ],
-          critiqueGenerationStreamIds: {},
+          ideaEvaluations: {},
           ideaSelectionStreamId: null,
           refinementGenerationStreamIds: {},
           refinedIdeas: {},
@@ -416,7 +464,7 @@ describe("Ideas", () => {
     ).toBeVisible()
     expect(screen.getByRole("link", { name: "View Prep Forecast" })).toBeVisible()
     expect(screen.getByText("Awaiting selection")).toBeVisible()
-    expect(screen.getByText(/Critiquing ideas/)).toBeVisible()
+    expect(screen.getByText(/Evaluating ideas/)).toBeVisible()
     expect(screen.queryByText("Critique pending…")).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: /Critique each idea/ }),
@@ -449,7 +497,7 @@ describe("Ideas", () => {
           researchSummaryStreamId: null,
           ideaGenerationStreamId: null,
           ideas: [],
-          critiqueGenerationStreamIds: {},
+          ideaEvaluations: {},
           ideaSelectionStreamId: null,
           refinementGenerationStreamIds: {},
           refinedIdeas: {},
@@ -489,7 +537,7 @@ describe("Ideas", () => {
           researchSummaryStreamId: "summary",
           ideaGenerationStreamId: null,
           ideas: [],
-          critiqueGenerationStreamIds: {},
+          ideaEvaluations: {},
           ideaSelectionStreamId: null,
           refinementGenerationStreamIds: {},
           refinedIdeas: {},
@@ -507,7 +555,7 @@ describe("Ideas", () => {
     ).toBeVisible()
   })
 
-  it("marks the combined idea stage failed when critique creation fails", () => {
+  it("marks the combined idea stage failed when evaluation creation fails", () => {
     render(
       <MemoryRouter>
         <IdeaJobView
@@ -516,7 +564,7 @@ describe("Ideas", () => {
           title="Generated ideas"
           run={{
           status: "failed",
-          failedStage: "critique",
+          failedStage: "evaluation",
           researchPromptStreamId: "planning",
           research: [],
           researchSummaryStreamId: "summary",
@@ -529,12 +577,12 @@ describe("Ideas", () => {
               selection: "pending",
             },
           ],
-          critiqueGenerationStreamIds: {},
+          ideaEvaluations: {},
           ideaSelectionStreamId: null,
           refinementGenerationStreamIds: {},
           refinedIdeas: {},
           refinedIdeaResearch: {},
-          error: "Critique failed before streaming",
+          error: "Evaluation failed before streaming",
           }}
         />
       </MemoryRouter>,
@@ -547,7 +595,7 @@ describe("Ideas", () => {
     expect(screen.getByText("Selection incomplete")).toBeVisible()
     expect(screen.queryByText("Awaiting selection")).not.toBeInTheDocument()
     expect(
-      screen.queryByText("Critique did not start for this idea."),
+      screen.queryByText("Assessment did not start for this idea."),
     ).not.toBeInTheDocument()
   })
 
@@ -694,7 +742,7 @@ describe("Ideas", () => {
                 selection: "pending",
               },
             ],
-            critiqueGenerationStreamIds: {},
+            ideaEvaluations: {},
             ideaSelectionStreamId: "selection",
             refinementGenerationStreamIds: {},
             refinedIdeas: {},
@@ -712,7 +760,7 @@ describe("Ideas", () => {
     expect(screen.queryByText("Awaiting selection")).not.toBeInTheDocument()
     expect(
       screen.queryByText(
-        "Selection starts after every idea has been critiqued…",
+        "Selection starts after every idea has been evaluated…",
       ),
     ).not.toBeInTheDocument()
   })
@@ -739,7 +787,7 @@ describe("Ideas", () => {
                 selection: "selected",
               },
             ],
-            critiqueGenerationStreamIds: {},
+            ideaEvaluations: {},
             ideaSelectionStreamId: "selection",
             refinementGenerationStreamIds: {
               "prep-forecast-id": "prep-refinement",

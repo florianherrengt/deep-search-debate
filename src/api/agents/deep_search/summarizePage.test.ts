@@ -126,14 +126,18 @@ describe("page summaries", () => {
     await expect(result.summary).resolves.toBe("Completed page summary")
   })
 
-  it("returns extraction failures without starting a summary stream", async () => {
-    mocks.webExtract.mockRejectedValueOnce(new Error("Extraction failed"))
+  it("returns extraction failures without starting a summary stream or charging credits", async () => {
+    const error = new Error("Extraction failed")
+    Object.assign(error, { scrapingAntCredits: 25 })
+    mocks.webExtract.mockRejectedValueOnce(error)
+    const onExtractionSettled = vi.fn()
 
     const result = await startPageSummary({
       userId: "test-user-id",
       deepSearchJobId: "deep-search-job-id",
       researchRequest: "Research this",
       url: "https://example.com/page",
+      onExtractionSettled,
     })
 
     expect(result).toEqual({
@@ -141,6 +145,7 @@ describe("page summaries", () => {
       stage: "extraction",
       message: "Extraction failed",
     })
+    expect(onExtractionSettled).toHaveBeenCalledWith(0)
     expect(mocks.generateTextStream).not.toHaveBeenCalled()
   })
 

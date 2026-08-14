@@ -28,13 +28,20 @@ describe("fresh database migration", () => {
     expect(tableNames.has("deep_search_rounds")).toBe(true)
     expect(tableNames.has("deep_search_queries")).toBe(true)
     expect(tableNames.has("research_job_admissions")).toBe(true)
-
     expect(
       sqlite
         .prepare("SELECT count(*) FROM __drizzle_migrations")
         .pluck()
         .get(),
     ).toBe(1)
+    expect(
+      sqlite
+        .prepare("PRAGMA table_info('user')")
+        .all()
+        .find(
+          (column) => (column as { name?: unknown }).name === "credits",
+        ),
+    ).toMatchObject({ dflt_value: "500" })
     expect(
       sqlite
         .prepare("PRAGMA table_info('deep_search_rounds')")

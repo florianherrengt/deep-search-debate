@@ -1,4 +1,5 @@
 import { Output, streamText } from "ai"
+import { secureJsonParse } from "@ai-sdk/provider-utils"
 import PQueue from "p-queue"
 import z from "zod"
 import { config } from "../config.ts"
@@ -73,6 +74,13 @@ function rejectedOutput<OutputValue>(error: unknown): Promise<OutputValue> {
   )
   void output.catch(() => undefined)
   return output
+}
+
+function parseStructuredText<Result>(
+  schema: z.ZodType<Result>,
+  text: string,
+): Result {
+  return schema.parse(secureJsonParse(text))
 }
 
 // The SDK's default stream handler logs the complete provider error object,
@@ -176,6 +184,12 @@ export async function generateArrayStream<Element>(
           calculateLlmCredits(config.llm, model.modelId, usage),
       },
       onRegistered: params.onRegistered,
+      // Validate the persisted payload inside the terminal transaction. The AI
+      // SDK exposes result.output on a separate promise, which can reject only
+      // after stream consumption would otherwise mark the call billable.
+      onCompleted: ({ text }) => {
+        parseStructuredText(outputSchema, text)
+      },
     })
     try {
       const result = streamText({
@@ -230,17 +244,10 @@ export async function generateObjectStream<Result>(
           calculateLlmCredits(config.llm, model.modelId, usage),
       },
       onRegistered: params.onRegistered,
-      onCompleted: params.onCompleted
-        ? (completed, transaction) => {
-            const output = params.schema.parse(
-              JSON.parse(completed.text) as unknown,
-            )
-            params.onCompleted?.(
-              { id: completed.id, output },
-              transaction,
-            )
-          }
-          : undefined,
+      onCompleted: (completed, transaction) => {
+        const output = parseStructuredText(params.schema, completed.text)
+        params.onCompleted?.({ id: completed.id, output }, transaction)
+      },
     })
     try {
       const result = streamText({

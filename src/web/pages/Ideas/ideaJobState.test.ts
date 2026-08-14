@@ -15,6 +15,13 @@ describe("ideaJobReducer", () => {
         title: "Original title",
         description: "Original description",
       },
+      {
+        type: "idea-evaluated",
+        ideaId: "idea-id",
+        pros: ["Clear value", "Practical workflow"],
+        cons: ["Data dependency", "Adoption risk"],
+        critique: "Promising with a focused pilot.",
+      },
       { type: "selected-ideas", selectedIdeaIds: ["idea-id"] },
       {
         type: "idea-refinement-stream",
@@ -45,6 +52,11 @@ describe("ideaJobReducer", () => {
 
     expect(state.status).toBe("completed")
     expect(state.ideas[0]?.selection).toBe("selected")
+    expect(state.ideaEvaluations["idea-id"]).toEqual({
+      pros: ["Clear value", "Practical workflow"],
+      cons: ["Data dependency", "Adoption risk"],
+      critique: "Promising with a focused pilot.",
+    })
     expect(state.refinementGenerationStreamIds).toEqual({
       "idea-id": "refinement-id",
     })

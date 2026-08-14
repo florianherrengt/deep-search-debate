@@ -36,7 +36,7 @@ function createFixture(stage: DebateRoundStage = "swiss"): Fixture {
       position,
       title: `Idea ${position + 1}`,
       description: `Description ${position + 1}`,
-      critiqueGenerationId: crypto.randomUUID(),
+      evaluationGenerationId: crypto.randomUUID(),
       selected: true,
     }),
   )
@@ -62,8 +62,8 @@ function createFixture(stage: DebateRoundStage = "swiss"): Fixture {
     .run()
   db.insert(llmGenerations)
     .values(
-      ideaRows.map(({ critiqueGenerationId }) => ({
-        llmGenerationId: critiqueGenerationId,
+      ideaRows.map(({ evaluationGenerationId }) => ({
+        llmGenerationId: evaluationGenerationId,
         userId: "test-user-id",
         ideaJobId,
       })),

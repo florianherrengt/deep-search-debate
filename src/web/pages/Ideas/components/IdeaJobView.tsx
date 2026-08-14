@@ -45,20 +45,20 @@ export function IdeaJobView({
     failedStage === "research" ||
     failedStage === "summary" ||
     failedStage === "ideas" ||
-    failedStage === "critique" ||
+    failedStage === "evaluation" ||
     failedStage === "selection" ||
     failedStage === "refinement" ||
     failedStage === "idea-research"
   const failedAfterResearch =
     failedStage === "summary" ||
     failedStage === "ideas" ||
-    failedStage === "critique" ||
+    failedStage === "evaluation" ||
     failedStage === "selection" ||
     failedStage === "refinement" ||
     failedStage === "idea-research"
   const failedAfterSummary =
     failedStage === "ideas" ||
-    failedStage === "critique" ||
+    failedStage === "evaluation" ||
     failedStage === "selection" ||
     failedStage === "refinement" ||
     failedStage === "idea-research"
@@ -113,7 +113,7 @@ export function IdeaJobView({
   const ideaStatus = getProgressStatus({
     failed:
       failedStage === "ideas" ||
-      failedStage === "critique" ||
+      failedStage === "evaluation" ||
       failedStage === "selection",
     running:
       run.status === "running" &&
@@ -211,9 +211,9 @@ export function IdeaJobView({
               Idea generation stopped before producing a complete set.
             </Typography>
           )}
-          {failedStage === "critique" && (
+          {failedStage === "evaluation" && (
             <Typography color="error" variant="body2">
-              Idea critique did not complete.
+              Idea evaluation did not complete.
             </Typography>
           )}
           {selectionStatus === "waiting" &&
@@ -228,7 +228,7 @@ export function IdeaJobView({
               >
                 <CircularProgress aria-hidden="true" size={20} />
                 <Typography color="text.secondary">
-                  Critiquing ideas… Selection starts when every critique is ready.
+                  Evaluating ideas… Selection starts when every evaluation is ready.
                 </Typography>
               </Stack>
             )}

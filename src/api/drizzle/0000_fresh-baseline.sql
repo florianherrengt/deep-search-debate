@@ -304,14 +304,14 @@ CREATE TABLE `ideas` (
 	`position` integer NOT NULL,
 	`title` text NOT NULL,
 	`description` text NOT NULL,
-	`critique_generation_id` text,
+	`evaluation_generation_id` text,
 	`selected` integer,
 	`refinement_generation_id` text,
 	`refined_title` text,
 	`refined_description` text,
 	`created_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
 	FOREIGN KEY (`idea_job_id`) REFERENCES `idea_jobs`(`idea_job_id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`critique_generation_id`,`idea_job_id`) REFERENCES `llm_generations`(`llm_generation_id`,`idea_job_id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`evaluation_generation_id`,`idea_job_id`) REFERENCES `llm_generations`(`llm_generation_id`,`idea_job_id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`refinement_generation_id`,`idea_job_id`) REFERENCES `llm_generations`(`llm_generation_id`,`idea_job_id`) ON UPDATE no action ON DELETE no action,
 	CONSTRAINT "ideas_position_check" CHECK("ideas"."position" >= 0),
 	CONSTRAINT "ideas_content_check" CHECK(length(trim("ideas"."title")) > 0 and length(trim("ideas"."description")) > 0),
@@ -326,7 +326,7 @@ CREATE TABLE `ideas` (
       ))
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `ideas_critique_generation_id_unique` ON `ideas` (`critique_generation_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `ideas_evaluation_generation_id_unique` ON `ideas` (`evaluation_generation_id`);--> statement-breakpoint
 CREATE UNIQUE INDEX `ideas_refinement_generation_id_unique` ON `ideas` (`refinement_generation_id`);--> statement-breakpoint
 CREATE UNIQUE INDEX `ideas_job_position_idx` ON `ideas` (`idea_job_id`,`position`);--> statement-breakpoint
 CREATE TABLE `llm_generations` (
@@ -427,7 +427,7 @@ CREATE TABLE `user` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
 	`email` text NOT NULL,
-	`credits` integer DEFAULT 0 NOT NULL,
+	`credits` integer DEFAULT 500 NOT NULL,
 	`is_admin` integer DEFAULT false NOT NULL,
 	`email_verified` integer DEFAULT false NOT NULL,
 	`image` text,
@@ -565,8 +565,8 @@ WHEN NEW.`idea_id` IS NOT OLD.`idea_id`
 	OR NEW.`created_at` IS NOT OLD.`created_at`
 	OR NOT (
 		(
-			NEW.`critique_generation_id` IS OLD.`critique_generation_id`
-			OR (OLD.`critique_generation_id` IS NULL AND NEW.`critique_generation_id` IS NOT NULL)
+			NEW.`evaluation_generation_id` IS OLD.`evaluation_generation_id`
+			OR (OLD.`evaluation_generation_id` IS NULL AND NEW.`evaluation_generation_id` IS NOT NULL)
 		)
 		AND
 		(

@@ -1696,8 +1696,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "critique_generation_id": {
-          "name": "critique_generation_id",
+        "evaluation_generation_id": {
+          "name": "evaluation_generation_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -1741,10 +1741,10 @@
         }
       },
       "indexes": {
-        "ideas_critique_generation_id_unique": {
-          "name": "ideas_critique_generation_id_unique",
+        "ideas_evaluation_generation_id_unique": {
+          "name": "ideas_evaluation_generation_id_unique",
           "columns": [
-            "critique_generation_id"
+            "evaluation_generation_id"
           ],
           "isUnique": true
         },
@@ -1778,12 +1778,12 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "ideas_critique_generation_owner_fk": {
-          "name": "ideas_critique_generation_owner_fk",
+        "ideas_evaluation_generation_owner_fk": {
+          "name": "ideas_evaluation_generation_owner_fk",
           "tableFrom": "ideas",
           "tableTo": "llm_generations",
           "columnsFrom": [
-            "critique_generation_id",
+            "evaluation_generation_id",
             "idea_job_id"
           ],
           "columnsTo": [
@@ -2433,7 +2433,7 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": 0
+          "default": 500
         },
         "is_admin": {
           "name": "is_admin",

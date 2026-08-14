@@ -26,7 +26,7 @@ text caller must also choose `enabled` or `disabled` reasoning explicitly;
 there is no silent text-generation default. Structured array calls disable
 reasoning, while structured object calls disable it unless a stage deliberately
 opts in. Evidence-transformation stages—page summary, query synthesis, final
-answer, idea briefing, critique, and debate advocacy—also disable hidden
+answer, idea briefing, idea evaluation, and debate advocacy—also disable hidden
 reasoning so it cannot exhaust the shared output budget before required text is
 emitted. A stream
 is successful only when the provider reports the normal `stop` finish reason;

@@ -386,7 +386,7 @@ function assertThinkingMode(body, system) {
     "You decide whether a deep-research job",
   )
   const budgetSensitiveTextSkipsReasoning =
-    system.includes("Critique the generated idea against") ||
+    system.includes("Evaluate the generated idea against") ||
     system.includes("Combine the supplied research texts") ||
     system.includes("You summarize an extracted web page") ||
     system.includes("You summarize the results returned for one web search") ||
@@ -532,7 +532,7 @@ function deepSeekOutput(body) {
       text: JSON.stringify({ elements: ideas }),
     }
   }
-  if (system.includes("Critique the generated idea against")) {
+  if (system.includes("Evaluate the generated idea against")) {
     const generatedIdea = parseTaggedJson(user, "generated_idea")
     const position = ideas.findIndex(
       (idea) => JSON.stringify(idea) === JSON.stringify(generatedIdea),
@@ -541,20 +541,31 @@ function deepSeekOutput(body) {
       !user.includes("<research_briefing>") ||
       position === -1
     ) {
-      throw new Error("Idea critique request did not include its complete context")
+      throw new Error("Idea evaluation request did not include its complete context")
     }
+    const ordinal = position + 1
     return {
       reasoning:
         "Assess this idea independently against the researched constraints.",
-      text: `Idea ${position + 1} has a clear renter-friendly mechanism, but it needs stronger evidence of adoption and differentiation. Improve it by validating its specific workflow and measurable impact.`,
+      text: JSON.stringify({
+        pros: [
+          `Idea ${ordinal} has a clear renter-friendly mechanism.`,
+          `Idea ${ordinal} responds directly to the researched constraints.`,
+        ],
+        cons: [
+          `Idea ${ordinal} needs stronger evidence of adoption.`,
+          `Idea ${ordinal} needs clearer differentiation from alternatives.`,
+        ],
+        critique: `Idea ${ordinal} is promising, but it should validate its specific workflow and measurable impact.`,
+      }),
     }
   }
   if (system.includes("Select the strongest generated ideas")) {
     const candidates = [...user.matchAll(
-      /<critiqued_idea>\s*([\s\S]*?)\s*<\/critiqued_idea>/g,
+      /<evaluated_idea>\s*([\s\S]*?)\s*<\/evaluated_idea>/g,
     )].map((match) => JSON.parse(match[1]))
     if (candidates.length !== ideas.length) {
-      throw new Error("Idea selection request omitted critiqued ideas")
+      throw new Error("Idea selection request omitted evaluated ideas")
     }
     return {
       reasoning: "Select all eight distinct mock candidates for the tournament.",
@@ -563,16 +574,22 @@ function deepSeekOutput(body) {
       }),
     }
   }
-  if (system.includes("Improve the selected idea using its critique")) {
+  if (system.includes("Improve the selected idea using its evaluation")) {
     const originalIdea = parseTaggedJson(user, "original_idea")
+    const evaluation = parseTaggedJson(user, "evaluation")
     const position = ideas.findIndex(
       (idea) => JSON.stringify(idea) === JSON.stringify(originalIdea),
     )
-    if (position === -1 || !user.includes(`Idea ${position + 1} has a clear`)) {
-      throw new Error("Idea refinement request omitted its critique or original")
+    if (
+      position === -1 ||
+      !evaluation.pros.includes(
+        `Idea ${position + 1} has a clear renter-friendly mechanism.`,
+      )
+    ) {
+      throw new Error("Idea refinement request omitted its evaluation or original")
     }
     return {
-      reasoning: `Apply the critique to mock idea ${position + 1}.`,
+      reasoning: `Apply the evaluation to mock idea ${position + 1}.`,
       text: JSON.stringify(refinedIdeas[position]),
     }
   }

@@ -60,7 +60,7 @@ function createFinalStageJob(finalMatchCompleted: boolean): string {
     position,
     title: `Idea ${position + 1}`,
     description: `Description ${position + 1}`,
-    critiqueGenerationId: generationIds[position + 3],
+    evaluationGenerationId: generationIds[position + 3],
   }))
   db.insert(ideas).values(ideaRows).run()
   db.update(ideaJobs)

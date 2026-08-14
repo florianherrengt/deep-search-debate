@@ -51,7 +51,7 @@ describe("credit routes", () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({
-      credits: 0,
+      credits: 500,
       isAdmin: false,
     })
   })
@@ -65,13 +65,13 @@ describe("credit routes", () => {
       })
 
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ credits: 1_000 })
+    await expect(response.json()).resolves.toEqual({ credits: 1_500 })
     expect(
       db.select({ credits: user.credits })
         .from(user)
         .where(eq(user.id, memberId))
         .get(),
-    ).toEqual({ credits: 1_000 })
+    ).toEqual({ credits: 1_500 })
   })
 
   it("rejects admin routes for a regular user", async () => {

@@ -1,11 +1,11 @@
 # Idea jobs
 
 Idea jobs are durable pipelines that turn a user prompt into research-backed,
-critiqued, selected, refined, and individually researched ideas. Each run has an internal UUID, an LLM-generated
+evaluated, selected, refined, and individually researched ideas. Each run has an internal UUID, an LLM-generated
 immutable title, a readable slug, and four durable stages: `planning`,
-`research`, `summary`, and `ideas`. Per-idea critique and comparative selection
-are ordered subphases of `ideas`; each remains visible as its own stream and
-failure stage in the event contract.
+`research`, `summary`, and `ideas`. Per-idea evaluation and comparative selection
+are ordered subphases of `ideas`; each remains visible through completion events
+and failure stages in the event contract.
 
 Closing the page does not cancel the run. While it is running, another
 subscriber in the same API process replays the retained parent event log and
@@ -34,19 +34,19 @@ terminal persistence fails.
 5. One fresh idea generation receives the original user prompt, the final
    research briefing, and `numberOfIdeas`. After the complete array passes
    validation, every `{ title, description }` is persisted and published in
-   generation order with a stable ID and no critique link yet.
-6. One fresh critique generation starts for each persisted idea. Each call
+   generation order with a stable ID and no evaluation link yet.
+6. One fresh structured evaluation generation starts for each persisted idea. Each call
    receives only the original user prompt, research briefing, and that one idea.
-   Hidden reasoning is disabled because some reasoning models can otherwise
-   exhaust the output budget before producing critique text. The prompt limits
-   each critique to 400 words and the stage caps output at 1,024 tokens; the
-   downstream selector needs a concise comparison, not six essays. The calls run
-   concurrently. As each call starts, its generation ID is attached to that
-   idea before the stream event is published. The parent waits for every
-   critique to settle before selection starts.
+   It returns two to four pros, two to four cons, and one concise critique. The
+   prompt limits the complete evaluation to 400 words and the stage caps output
+   at 1,024 tokens; the downstream selector needs a concise comparison, not six
+   essays. The calls run concurrently. As each call starts, its generation ID
+   is attached to that idea before the stream event is published. Validated
+   points and critique text commit atomically with generation completion. The
+   parent waits for every evaluation to settle before selection starts.
 7. One fresh structured selection generation receives the original user prompt,
    the final research briefing passed into idea generation, and every generated
-   idea paired with its critique's final text. Critique reasoning is deliberately
+   idea paired with its complete evaluation. Evaluation reasoning is deliberately
    excluded. Hidden selection reasoning is disabled so the bounded output is
    reserved for the required JSON. The output is an unordered array of unique idea IDs containing an
    even number of ideas from 6 through 12. Every ID must belong to this job.
@@ -55,7 +55,7 @@ terminal persistence fails.
    generation's terminal output.
 8. One fresh structured refinement generation starts concurrently for each
    selected idea. It receives the original request, shared research briefing,
-   original idea, and that idea's critique. Its generation link is attached
+   original idea, and that idea's evaluation. Its generation link is attached
    before publication; validated refined title and description commit together.
 9. One deep-search job is then created for each refined idea. These
    searches reuse the request's existing `maxSearches`,
@@ -63,18 +63,18 @@ terminal persistence fails.
    `deepSearchCount + idea.position`. The parent completes only after every
    selected-idea search completes.
 
-Any planning, child-search, summary, idea-generation, critique-generation,
+Any planning, child-search, summary, idea-generation, evaluation-generation,
 selection-generation, refinement-generation, or selected-idea-search failure
 fails the parent. An invalid selection count,
-duplicate ID, or foreign ID is a selection failure. A critique or selection
-failure does not erase already-valid ideas or critiques; selection remains null
+duplicate ID, or foreign ID is a selection failure. An evaluation or selection
+failure does not erase already-valid ideas or completed evaluations; selection remains null
 when the selection transaction does not complete. Individual page-extraction
 failures inside a child search are non-fatal when the search-result description
 can be used as a fallback. A page-summary failure may likewise produce a
 durably completed standalone child using its snippet, but the idea pipeline's
 explicit parent-quality gate rejects it. Once concurrent work has started, the
 parent waits for all of it to finish even if one operation fails, so it never
-reports a terminal state while visible children or critique streams are still
+reports a terminal state while visible children or evaluation streams are still
 running.
 
 ## HTTP contract
@@ -84,7 +84,7 @@ authenticated user as owner. Detail and event reads apply the idea-job read
 scope: the owner may read a private job, while any viewer may read an idea job
 belonging to a public debate. Anonymous viewers therefore receive inherited
 public access; private, standalone foreign, and unknown UUIDs return 404. Public
-responses omit the owner ID. Planning, summary, idea, critique, selection, and
+responses omit the owner ID. Planning, summary, idea, evaluation, selection, and
 child-search generations inherit the same owner.
 
 ### `POST /api/idea-jobs`
@@ -163,11 +163,10 @@ The event sequence is:
 3. `research-summary-stream` with the briefing LLM stream ID.
 4. `idea-generation-stream` with the structured-output LLM stream ID.
 5. `idea` once per validated object, including its stable `ideaId`.
-6. `critique-generation-stream` once per idea, with the idea's zero-based
-   `position` and free-form critique LLM stream ID. Calls are concurrent, so
-   live events may arrive out of order; `position` is authoritative.
+6. `idea-evaluated` once per completed evaluation, with the stable `ideaId`,
+   ordered `pros`, ordered `cons`, and explanatory `critique`.
 7. `idea-selection-stream` with the structured selector LLM stream ID after all
-   critiques complete.
+   evaluations complete.
 8. `selected-ideas` with the unordered `selectedIdeaIds` array after the
    selector output and every selected flag commit atomically.
 9. `idea-refinement-stream` once per selected idea, keyed by stable `ideaId`.
@@ -175,9 +174,10 @@ The event sequence is:
     description.
 11. `idea-deep-search-started` once per refined idea, with the stable `ideaId`,
     child job ID, title, slug, and generated research request.
-12. On failure, one `error` with the failing stage and message. Refinement and
-    selected-idea research use the event stages `refinement` and
-    `idea-research`; both remain durable subphases of the DB's `ideas` stage.
+12. On failure, one `error` with the failing stage and message. Evaluation,
+    selection, refinement, and selected-idea research use the event stages
+    `evaluation`, `selection`, `refinement`, and `idea-research`; all remain
+    durable subphases of the DB's `ideas` stage.
 13. Exactly one terminal `done`.
 
 Each stream ID is read through `GET /api/streams/:id`, which exposes reasoning
@@ -198,22 +198,22 @@ the same generation still has an unfinished database write.
 - A debate-created idea job points to its owning debate with `ON DELETE
   CASCADE`; standalone idea jobs leave that owner null. Deleting an idea job
   deletes its child searches and all generations owned by either level.
-- Planning prompts, the research briefing, raw structured idea output, and raw
-  structured selection output live in linked `llm_generations` rows. Every
-  started idea critique is linked from its idea. Critique text and reasoning
-  remain only in `llm_generations`; they are not copied into `ideas`.
+- Planning prompts, the research briefing, and raw structured idea, evaluation,
+  and selection output live in linked `llm_generations` rows. Every started
+  idea evaluation is linked from its idea. Replay validates the linked
+  generation payload; it is not copied into another table or column.
 - Each pipeline-level generation link is constrained to the exact idea job and
-  user that own it. Critique links are unique foreign keys, and orchestration
-  creates them only from critique calls owned by that same idea job. Critique
+  user that own it. Evaluation links are unique foreign keys, and orchestration
+  creates them only from evaluation calls owned by that same idea job. Evaluation
   and selection stay event subphases rather than adding durable DB stages.
-- `ideas` is the normalized canonical representation of the validated idea set,
+- `ideas` is the canonical representation of the validated idea set,
   with stable IDs and generation order. The complete batch is inserted before
-  critique fan-out. Each nullable critique link attaches once when its call
+  evaluation fan-out. Each nullable evaluation link attaches once when its call
   starts. The nullable selected flag then transitions once from pending to true
   or false when selection commits. Selected rows additionally own a one-time
   refinement generation link and refined title/description pair. No extra
   refinement or join table is used.
-- New jobs complete only after every idea has terminal critique output, the
+- New jobs complete only after every idea has a terminal structured evaluation, the
   selection generation is terminal, every selected flag has resolved, and all
   selected ideas have completed refinement and attached deep research.
 - Child `deep_search_jobs` reference the parent with a matching owner and retain
@@ -221,9 +221,8 @@ the same generation still has an unfinished database write.
   research uses positions below `deepSearchCount`; selected-idea research uses
   `deepSearchCount + idea.position`. Replay and debate context derive that
   relationship; the idea does not store a redundant child-search ID.
-- Idea cards, critique streams, and selected or rejected presentation replay
-  from normalized `ideas` rows. Raw structured outputs remain available for
-  stream inspection, not as duplicated domain state.
+- Idea cards, evaluations, and selected or rejected presentation replay from
+  `ideas` and their linked generations.
 
 On API startup, orphaned running idea jobs become `interrupted` because their
 provider calls and child orchestration cannot resume. Completed and failed

@@ -8,10 +8,11 @@ export function calculateLlmCredits(
   modelId: string,
   usage: LanguageModelUsage,
 ): number {
-  if (
-    llmConfig.provider === "deepseek" &&
-    modelId === "deepseek-v4-flash"
-  ) {
+  // Zen is restricted to development, where its provider usage is deliberately
+  // excluded from production product-credit accounting.
+  if (llmConfig.provider === "zen") return 0
+
+  if (modelId === "deepseek-v4-flash") {
     return calculateDeepSeekV4FlashCredits(usage)
   }
   throw new Error(`No credit pricing function exists for ${modelId}`)

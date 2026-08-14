@@ -254,7 +254,7 @@ table ideas {
   position integer [not null]
   title text [not null]
   description text [not null]
-  critique_generation_id text [unique]
+  evaluation_generation_id text [unique]
   selected integer
   refinement_generation_id text [unique]
   refined_title text
@@ -341,7 +341,7 @@ table user {
   id text [pk, not null]
   name text [not null]
   email text [not null, unique]
-  credits integer [not null, default: 0]
+  credits integer [not null, default: 500]
   is_admin integer [not null, default: 0]
   email_verified integer [not null, default: 0]
   image text
@@ -422,7 +422,7 @@ ref idea_jobs_selection_generation_owner_fk: idea_jobs.(selection_generation_id,
 
 ref ideas_idea_job_id_idea_jobs_idea_job_id_fk: ideas.idea_job_id > idea_jobs.idea_job_id [delete: cascade, update: no action]
 
-ref ideas_critique_generation_owner_fk: ideas.(critique_generation_id, idea_job_id) > llm_generations.(llm_generation_id, idea_job_id) [delete: no action, update: no action]
+ref ideas_evaluation_generation_owner_fk: ideas.(evaluation_generation_id, idea_job_id) > llm_generations.(llm_generation_id, idea_job_id) [delete: no action, update: no action]
 
 ref ideas_refinement_generation_owner_fk: ideas.(refinement_generation_id, idea_job_id) > llm_generations.(llm_generation_id, idea_job_id) [delete: no action, update: no action]
 

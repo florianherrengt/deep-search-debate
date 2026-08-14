@@ -223,10 +223,10 @@ export const ideasRelations = relations(ideas, ({ many, one }) => ({
     fields: [ideas.ideaJobId],
     references: [ideaJobs.ideaJobId],
   }),
-  critiqueGeneration: one(llmGenerations, {
-    fields: [ideas.critiqueGenerationId],
+  evaluationGeneration: one(llmGenerations, {
+    fields: [ideas.evaluationGenerationId],
     references: [llmGenerations.llmGenerationId],
-    relationName: "ideaCritiqueGeneration",
+    relationName: "ideaEvaluationGeneration",
   }),
   refinementGeneration: one(llmGenerations, {
     fields: [ideas.refinementGenerationId],

@@ -7,6 +7,22 @@ const ideaSchema = z.object({
   description: z.string().min(1),
 })
 
+const ideaEvaluationPointSchema = z.string().trim().min(1).max(240)
+const ideaEvaluationPointsSchema = z
+  .array(ideaEvaluationPointSchema)
+  .min(2)
+  .max(4)
+  .refine(
+    (points) =>
+      new Set(points.map((point) => point.toLowerCase())).size ===
+      points.length,
+  )
+const ideaEvaluationSchema = z.object({
+  pros: ideaEvaluationPointsSchema,
+  cons: ideaEvaluationPointsSchema,
+  critique: z.string().trim().min(1).max(2_000),
+})
+
 const ideaJobStageSchema = z.enum([
   "planning",
   "research",
@@ -15,7 +31,7 @@ const ideaJobStageSchema = z.enum([
 ])
 const ideaEventStageSchema = z.union([
   ideaJobStageSchema,
-  z.literal("critique"),
+  z.literal("evaluation"),
   z.literal("selection"),
   z.literal("refinement"),
   z.literal("idea-research"),
@@ -43,9 +59,9 @@ const ideaJobEventSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("idea"), ...ideaSchema.shape }),
   z.object({
-    type: z.literal("critique-generation-stream"),
-    position: z.number().int().nonnegative(),
-    streamId: z.string().min(1),
+    type: z.literal("idea-evaluated"),
+    ideaId: z.string().min(1),
+    ...ideaEvaluationSchema.shape,
   }),
   z.object({
     type: z.literal("idea-selection-stream"),
@@ -108,6 +124,7 @@ const ideaJobDetailSchema = ideaJobSchema.extend({
 const ideaJobResponseSchema = z.object({ ideaJob: ideaJobDetailSchema })
 
 export type Idea = z.infer<typeof ideaSchema>
+export type IdeaEvaluation = z.infer<typeof ideaEvaluationSchema>
 export type IdeaStage = z.infer<typeof ideaEventStageSchema>
 export type IdeaJobEvent = z.infer<typeof ideaJobEventSchema>
 export type IdeaJob = z.infer<typeof ideaJobSchema>

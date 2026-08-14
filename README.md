@@ -13,10 +13,10 @@ at startup:
 
 | Environment variable | Required when |
 | --- | --- |
-| `LLM_PROVIDER` | Always; `deepseek` or `zen` |
+| `LLM_PROVIDER` | Always; `deepseek`, or `zen` in development only |
 | `LLM_MODEL_NAME` | Always |
 | `DEEPSEEK_API_KEY` | `LLM_PROVIDER=deepseek` |
-| `OPENCODE_ZEN_API_KEY` | `LLM_PROVIDER=zen` |
+| `OPENCODE_ZEN_API_KEY` | Development with `LLM_PROVIDER=zen` |
 | `SCRAPINGANT_API_KEY` | Always |
 | `BETTER_AUTH_SECRET` | Always; at least 32 characters |
 | `GITHUB_CLIENT_ID` | Always |
@@ -133,14 +133,13 @@ to a durable rolling 24-hour quota before title generation, including attempts
 whose preflight later fails. Anonymous access is limited to read-only views of
 public debate aggregates.
 
-Authenticated users start with zero product credits. One product credit is
+Authenticated users start with 500 product credits. One product credit is
 $0.001 ($1 per 1,000 credits). The local debug user is an administrator and can
 grant credits from `/admin/credits`; production administrators are marked in
 the `user.is_admin` column. Provider work checks for a positive balance before
 starting and debits actual settled usage afterward, so a completed call may
-leave a negative balance. Failed LLM and search calls are not charged.
-ScrapingAnt credits reported by any attempted retrieval are charged even when
-the page ultimately fails.
+leave a negative balance. Failed provider calls are not charged.
+Successful ScrapingAnt extractions charge every reported retrieval attempt.
 
 Select the repository's Node version before installing dependencies. This is
 required because `better-sqlite3` contains a Node-version-specific native
@@ -253,21 +252,21 @@ The pipeline uses nine visible phases:
    actual pipeline execution passes through the shared deep-search queue.
 3. A fresh generation combines only the child searches' final-answer text into one research briefing.
 4. A fresh generation receives the user prompt and briefing, then streams the requested title-and-description ideas.
-5. Every persisted idea receives an independent critique using the original
-   request and final research briefing. Critiques start concurrently, and the
-   pipeline waits for all of them to settle.
+5. Every persisted idea receives an independent structured evaluation using the
+   original request and final research briefing. Evaluations start concurrently,
+   and the pipeline waits for all of them to settle.
 6. One structured selector receives the request, briefing, every idea, and each
-   critique's final text. It returns an unordered, unique, even set of 6 through
+   evaluation. It returns an unordered, unique, even set of 6 through
    12 idea IDs. The UI retains the selector's reasoning and marks every idea as
    selected or rejected.
 7. Every selected idea receives a structured refinement generation using its
-   original content, critique, request, and shared research briefing.
+   original content, evaluation, request, and shared research briefing.
 8. Each refined idea starts its own durable deep search through the same shared
    execution queue.
 9. The parent completes only after all selected-idea research completes.
 
 The run is all-or-nothing: a planning, child-search, summary, idea-generation,
-critique, selection, refinement, or selected-idea-research failure fails the
+evaluation, selection, refinement, or selected-idea-research failure fails the
 parent run and prevents later stages.
 Individual blocked, challenged, paywalled, unavailable, or unsupported pages
 remain non-fatal inside a child search because their search snippets can still

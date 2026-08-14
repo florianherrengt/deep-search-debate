@@ -26,7 +26,7 @@ describe("debate job snapshot", () => {
         position,
         title: `Idea ${position + 1}`,
         description: `Description ${position + 1}`,
-        critiqueGenerationId: crypto.randomUUID(),
+        evaluationGenerationId: crypto.randomUUID(),
       }),
     )
 
@@ -51,8 +51,8 @@ describe("debate job snapshot", () => {
       .run()
     db.insert(llmGenerations)
       .values(
-        ideaRows.map(({ critiqueGenerationId }) => ({
-          llmGenerationId: critiqueGenerationId,
+        ideaRows.map(({ evaluationGenerationId }) => ({
+          llmGenerationId: evaluationGenerationId,
           userId: "test-user-id",
           ideaJobId,
         })),

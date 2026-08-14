@@ -1,4 +1,5 @@
 import { aliasedTable, and, asc, eq, lt, sql, type SQL } from "drizzle-orm"
+import { secureJsonParse } from "@ai-sdk/provider-utils"
 import { db } from "../../db/index.ts"
 import {
   deepSearchJobs,
@@ -6,22 +7,38 @@ import {
   ideas,
   llmGenerations,
 } from "../../db/schema/index.ts"
-import type { IdeaJobEvent } from "./schemas.ts"
+import {
+  ideaEvaluationSchema,
+  type IdeaEvaluation,
+  type IdeaJobEvent,
+} from "./schemas.ts"
+
+function parseIdeaEvaluation(text: string | null): IdeaEvaluation | undefined {
+  if (text === null) return
+  try {
+    const evaluation = ideaEvaluationSchema.safeParse(
+      secureJsonParse(text),
+    )
+    return evaluation.success ? evaluation.data : undefined
+  } catch {
+    return
+  }
+}
 
 function replayNormalizedIdeas(ideaJobId: string, deepSearchCount: number): {
   ideaEvents: IdeaJobEvent[]
-  critiqueEvents: IdeaJobEvent[]
+  evaluationEvents: IdeaJobEvent[]
   refinementEvents: IdeaJobEvent[]
   researchEvents: IdeaJobEvent[]
   hasIdeas: boolean
-  allCritiquesCompleted: boolean
+  allEvaluationsCompleted: boolean
   selectionResolved: boolean
   allRefinementsCompleted: boolean
   selectedIdeaIds: string[]
 } {
-  const critiqueGenerations = aliasedTable(
+  const evaluationGenerations = aliasedTable(
     llmGenerations,
-    "idea_critique_generations",
+    "idea_evaluation_generations",
   )
   const refinementGenerations = aliasedTable(
     llmGenerations,
@@ -32,9 +49,8 @@ function replayNormalizedIdeas(ideaJobId: string, deepSearchCount: number): {
       ideaId: ideas.ideaId,
       title: ideas.title,
       description: ideas.description,
-      position: ideas.position,
-      critiqueGenerationId: ideas.critiqueGenerationId,
-      critiqueStatus: critiqueGenerations.status,
+      evaluationStatus: evaluationGenerations.status,
+      evaluationText: evaluationGenerations.text,
       selected: ideas.selected,
       refinementGenerationId: ideas.refinementGenerationId,
       refinementStatus: refinementGenerations.status,
@@ -47,10 +63,10 @@ function replayNormalizedIdeas(ideaJobId: string, deepSearchCount: number): {
     })
     .from(ideas)
     .leftJoin(
-      critiqueGenerations,
+      evaluationGenerations,
       eq(
-        ideas.critiqueGenerationId,
-        critiqueGenerations.llmGenerationId,
+        ideas.evaluationGenerationId,
+        evaluationGenerations.llmGenerationId,
       ),
     )
     .leftJoin(
@@ -76,6 +92,26 @@ function replayNormalizedIdeas(ideaJobId: string, deepSearchCount: number): {
   const selectedIdeas = persistedIdeas.filter(
     ({ selected }) => selected === true,
   )
+  const evaluationReplays = persistedIdeas.map(
+    (idea): { completed: boolean; events: IdeaJobEvent[] } => {
+      const evaluation =
+        idea.evaluationStatus === "completed"
+          ? parseIdeaEvaluation(idea.evaluationText)
+          : undefined
+      return {
+        completed: evaluation !== undefined,
+        events: evaluation
+          ? [
+              {
+                type: "idea-evaluated" as const,
+                ideaId: idea.ideaId,
+                ...evaluation,
+              },
+            ]
+          : [],
+      }
+    },
+  )
 
   return {
     ideaEvents: persistedIdeas.map(({ ideaId, title, description }) => ({
@@ -84,18 +120,7 @@ function replayNormalizedIdeas(ideaJobId: string, deepSearchCount: number): {
       title,
       description,
     })),
-    critiqueEvents: persistedIdeas.flatMap(
-      ({ critiqueGenerationId, position }) =>
-        critiqueGenerationId
-          ? [
-              {
-                type: "critique-generation-stream" as const,
-                position,
-                streamId: critiqueGenerationId,
-              },
-            ]
-          : [],
-    ),
+    evaluationEvents: evaluationReplays.flatMap(({ events }) => events),
     refinementEvents: selectedIdeas.flatMap(
       ({
         ideaId,
@@ -149,9 +174,9 @@ function replayNormalizedIdeas(ideaJobId: string, deepSearchCount: number): {
           : [],
     ),
     hasIdeas: persistedIdeas.length > 0,
-    allCritiquesCompleted:
-      persistedIdeas.length > 0 &&
-      persistedIdeas.every(({ critiqueStatus }) => critiqueStatus === "completed"),
+    allEvaluationsCompleted:
+      evaluationReplays.length > 0 &&
+      evaluationReplays.every(({ completed }) => completed),
     selectionResolved:
       persistedIdeas.length > 0 &&
       persistedIdeas.every(({ selected }) => selected !== null),
@@ -232,7 +257,7 @@ export function reconstructIdeaJobEvents(
         ]
       : []),
     ...normalizedIdeas.ideaEvents,
-    ...normalizedIdeas.critiqueEvents,
+    ...normalizedIdeas.evaluationEvents,
     ...(job.selectionGenerationId
       ? [
           {
@@ -261,8 +286,8 @@ export function reconstructIdeaJobEvents(
                   message: job.error,
                   stage:
                     job.stage === "ideas" && normalizedIdeas.hasIdeas
-                      ? !normalizedIdeas.allCritiquesCompleted
-                        ? ("critique" as const)
+                      ? !normalizedIdeas.allEvaluationsCompleted
+                        ? ("evaluation" as const)
                         : !normalizedIdeas.selectionResolved
                           ? ("selection" as const)
                           : !normalizedIdeas.allRefinementsCompleted

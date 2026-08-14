@@ -79,7 +79,7 @@ function createRunFixture() {
       position,
       title: `Idea ${position + 1}`,
       description: `Description ${position + 1}`,
-      critiqueGenerationId: crypto.randomUUID(),
+      evaluationGenerationId: crypto.randomUUID(),
       refinementGenerationId: crypto.randomUUID(),
       refinedTitle: `Improved idea ${position + 1}`,
       refinedDescription: `Improved description ${position + 1}`,
@@ -89,9 +89,9 @@ function createRunFixture() {
   db.insert(llmGenerations)
     .values(
       ideaRows.flatMap(
-        ({ critiqueGenerationId, refinementGenerationId }) => [
+        ({ evaluationGenerationId, refinementGenerationId }) => [
           {
-            llmGenerationId: critiqueGenerationId,
+            llmGenerationId: evaluationGenerationId,
             userId: "test-user-id",
             ideaJobId,
           },

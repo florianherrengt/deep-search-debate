@@ -110,8 +110,8 @@ test.describe("Ideas", () => {
     const ideaGeneration = liveEvents.find(
       (event) => event.type === "idea-generation-stream",
     )
-    const critiqueGenerations = liveEvents.filter(
-      (event) => event.type === "critique-generation-stream",
+    const evaluations = liveEvents.filter(
+      (event) => event.type === "idea-evaluated",
     )
     const selection = liveEvents.find(
       (event) => event.type === "idea-selection-stream",
@@ -144,7 +144,7 @@ test.describe("Ideas", () => {
     expect(new Set(research.map((item) => item.researchRequest)).size).toBe(2)
     expect(summary).toBeDefined()
     expect(ideaGeneration).toBeDefined()
-    expect(critiqueGenerations).toHaveLength(8)
+    expect(evaluations).toHaveLength(8)
     expect(ideas).toHaveLength(8)
     expect(selection).toBeDefined()
     expect(selected?.selectedIdeaIds).toHaveLength(8)
@@ -167,11 +167,6 @@ test.describe("Ideas", () => {
       request,
       ideaGeneration?.streamId ?? "",
     )
-    const critiqueStreams = await Promise.all(
-      critiqueGenerations
-        .toSorted((first, second) => first.position - second.position)
-        .map((generation) => readTextStream(request, generation.streamId)),
-    )
     const refinementStreams = await Promise.all(
       refinementGenerations.map((generation) =>
         readTextStream(request, generation.streamId),
@@ -181,12 +176,17 @@ test.describe("Ideas", () => {
     expect(summaryStream.text).toContain("insulation, heating-control")
     expect(summaryStream.text).toContain("Removable controls")
     expect(ideaStream.text.trim()).not.toBe("")
-    for (const [position, critiqueStream] of critiqueStreams.entries()) {
-      expect(critiqueStream.text).toContain(`Idea ${position + 1}`)
-      expect(critiqueStream.text).toContain("clear renter-friendly mechanism")
-      expect(
-        critiqueStream.events.some((event) => event.type === "reasoning"),
-      ).toBe(false)
+    const evaluationByIdeaId = new Map(
+      evaluations.map((evaluation) => [evaluation.ideaId, evaluation]),
+    )
+    for (const [position, idea] of ideas.entries()) {
+      const evaluation = evaluationByIdeaId.get(idea.ideaId)!
+      expect(evaluation.pros).toContain(
+        `Idea ${position + 1} has a clear renter-friendly mechanism.`,
+      )
+      expect(evaluation.cons).toContain(
+        `Idea ${position + 1} needs stronger evidence of adoption.`,
+      )
     }
     for (const refinementStream of refinementStreams) {
       const refined = JSON.parse(refinementStream.text) as {
@@ -300,7 +300,6 @@ test.describe("Ideas", () => {
         page.getByText(refined?.description ?? idea.description, { exact: true }),
       ).toHaveCount(0)
     }
-    await expect(page.locator('[data-testid^="idea-critique-"]')).toHaveCount(0)
     for (const child of ideaResearch) {
       await expect(
         page.getByTestId(`idea-research-${child.deepSearchJobId}`),
@@ -343,13 +342,26 @@ test.describe("Ideas", () => {
       name: "Improved idea",
     })
     await expect(improvedHeading).toBeFocused()
-    await expect(detailPage.getByText("Original idea")).toBeVisible()
+    await expect(
+      detailPage.getByRole("heading", {
+        level: 2,
+        name: "Original idea",
+        exact: true,
+      }),
+    ).toBeVisible()
     await expect(
       detailPage.getByText(firstIdea.description, { exact: true }),
     ).toBeVisible()
-    await expect(detailPage.getByTestId("idea-critique-0")).toHaveText(
-      critiqueStreams[0]?.text ?? "",
+    const firstEvaluation = evaluations.find(
+      (evaluation) => evaluation.ideaId === firstIdea.ideaId,
     )
+    await expect(detailPage.getByTestId("idea-assessment-0")).toBeVisible()
+    await expect(
+      detailPage.getByText(firstEvaluation?.pros[0] ?? "missing pro"),
+    ).toBeVisible()
+    await expect(
+      detailPage.getByText(firstEvaluation?.cons[0] ?? "missing con"),
+    ).toBeVisible()
     await expect(
       detailPage.getByTestId(`idea-research-${firstResearch.deepSearchJobId}`),
     ).toHaveCount(0)
@@ -361,9 +373,10 @@ test.describe("Ideas", () => {
     await expect(
       detailPage.getByRole("heading", { level: 1, name: firstRefined.title }),
     ).toBeVisible()
-    await expect(detailPage.getByTestId("idea-critique-0")).toHaveText(
-      critiqueStreams[0]?.text ?? "",
-    )
+    await expect(detailPage.getByTestId("idea-assessment-0")).toBeVisible()
+    await expect(
+      detailPage.getByText(firstEvaluation?.critique ?? "missing analysis"),
+    ).toBeVisible()
     await expect(improvedHeading).toBeFocused()
     await detailPage.close()
 
@@ -400,12 +413,12 @@ test.describe("Ideas", () => {
     ).toEqual(research.map((event) => event.deepSearchJobId).toSorted())
     expect(replayEvents.filter((event) => event.type === "idea")).toEqual(ideas)
     expect(
-      replayEvents.filter(
-        (event) => event.type === "critique-generation-stream",
-      ).toSorted((first, second) => first.position - second.position),
+      replayEvents
+        .filter((event) => event.type === "idea-evaluated")
+        .toSorted((first, second) => first.ideaId.localeCompare(second.ideaId)),
     ).toEqual(
-      critiqueGenerations.toSorted(
-        (first, second) => first.position - second.position,
+      evaluations.toSorted((first, second) =>
+        first.ideaId.localeCompare(second.ideaId),
       ),
     )
     expect(
@@ -454,7 +467,6 @@ test.describe("Ideas", () => {
         }),
       ).toBeVisible()
     }
-    await expect(page.locator('[data-testid^="idea-critique-"]')).toHaveCount(0)
 
     await page.goto("/ideas")
     await expect(

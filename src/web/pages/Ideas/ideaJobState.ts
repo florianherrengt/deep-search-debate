@@ -1,6 +1,7 @@
 import { produce } from "immer"
 import type {
   Idea,
+  IdeaEvaluation,
   IdeaJobEvent,
   IdeaStage,
 } from "../../lib/ideaJobs.ts"
@@ -20,7 +21,7 @@ export type IdeaJobRunState = {
   researchSummaryStreamId: string | null
   ideaGenerationStreamId: string | null
   ideas: Array<Idea & { selection: "pending" | "selected" | "rejected" }>
-  critiqueGenerationStreamIds: Record<number, string>
+  ideaEvaluations: Record<string, IdeaEvaluation>
   ideaSelectionStreamId: string | null
   refinementGenerationStreamIds: Record<string, string>
   refinedIdeas: Record<string, Idea>
@@ -36,7 +37,7 @@ export const initialIdeaJobState: IdeaJobRunState = {
   researchSummaryStreamId: null,
   ideaGenerationStreamId: null,
   ideas: [],
-  critiqueGenerationStreamIds: {},
+  ideaEvaluations: {},
   ideaSelectionStreamId: null,
   refinementGenerationStreamIds: {},
   refinedIdeas: {},
@@ -79,8 +80,12 @@ export const ideaJobReducer = produce<IdeaJobRunState, [IdeaJobAction]>(
           selection: "pending",
         })
         break
-      case "critique-generation-stream":
-        state.critiqueGenerationStreamIds[action.position] = action.streamId
+      case "idea-evaluated":
+        state.ideaEvaluations[action.ideaId] = {
+          pros: action.pros,
+          cons: action.cons,
+          critique: action.critique,
+        }
         break
       case "idea-selection-stream":
         state.ideaSelectionStreamId = action.streamId
