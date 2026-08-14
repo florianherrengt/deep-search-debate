@@ -8,7 +8,7 @@ import { ProcessSection } from "./components/ProcessSection.tsx"
 const homeDescription =
   "Give AI agents a problem. They generate multiple researched ideas and debate them through multiple rounds until one winner remains."
 
-export function Home() {
+export function Home({ authenticated = false }: { authenticated?: boolean }) {
   useSeo({
     title: "RethinkLoop — AI idea tournaments",
     description: homeDescription,
@@ -16,11 +16,14 @@ export function Home() {
   })
 
   return (
-    <Stack spacing={{ xs: 10, md: 14 }} sx={{ pb: { xs: 10, md: 14 } }}>
-      <HeroSection />
-      <BenefitsSection />
+    <Stack
+      spacing={authenticated ? { xs: 8, md: 10 } : { xs: 10, md: 14 }}
+      sx={{ pb: authenticated ? { xs: 7, md: 9 } : { xs: 10, md: 14 } }}
+    >
+      <HeroSection compact={authenticated} />
+      {authenticated ? null : <BenefitsSection />}
       <ProcessSection />
-      <DebatePromptSection />
+      <DebatePromptSection authenticated={authenticated} />
     </Stack>
   )
 }

@@ -18,7 +18,9 @@ function PublicHeader() {
   return (
     <AppBar position="static">
       <Toolbar sx={{ gap: 1, maxWidth: 1200, mx: "auto", width: "100%" }}>
-        <BrandLink />
+        <Box sx={{ flexGrow: 1 }}>
+          <BrandLink />
+        </Box>
         <Box
           aria-label="Landing page navigation"
           component="nav"

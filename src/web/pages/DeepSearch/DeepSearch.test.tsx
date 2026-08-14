@@ -45,6 +45,10 @@ function renderDeepSearch(initialEntry = "/deep-search") {
             path="/deep-search/:slug"
             element={<DeepSearch />}
           />
+          <Route
+            path="/deep-search/:slug/rounds/:roundNumber"
+            element={<DeepSearch />}
+          />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -196,7 +200,7 @@ describe("DeepSearch", () => {
       deepSearchJobId: "job-id",
       slug: "research-this",
     })
-    mocks.subscribeToDeepSearchJob.mockReturnValue(events())
+    mocks.subscribeToDeepSearchJob.mockImplementation(() => events())
     mocks.subscribeToTextStream.mockImplementation((id: string) => {
       if (id === "query-stream-id") return queryGenerationEvents()
       if (id === "selection-stream-id") return selectionEvents()
@@ -212,10 +216,26 @@ describe("DeepSearch", () => {
     })
     fireEvent.click(screen.getByRole("button", { name: "Start deep search" }))
 
-    const round = await screen.findByRole("button", { name: /Round 1/ })
-    await waitFor(() => expect(round).toHaveAttribute("aria-expanded", "false"))
-    fireEvent.click(round)
-    expect(round).toHaveAttribute("aria-expanded", "true")
+    const roundLink = await screen.findByRole("link", { name: /Round 1/ })
+    expect(screen.getByTestId("final-answer")).toBeVisible()
+    expect(roundLink).toHaveAttribute(
+      "href",
+      "/deep-search/research-this/rounds/1",
+    )
+    expect(screen.queryByText("test query")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("heading", { name: "Research results" }),
+    ).not.toBeInTheDocument()
+    fireEvent.click(roundLink)
+
+    await screen.findByText("Complete")
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Round 1" }),
+    ).toBeVisible()
+    expect(screen.getByRole("link", { name: "Back to research" })).toHaveAttribute(
+      "href",
+      "/deep-search/research-this",
+    )
 
     const sourceSelectionList = await screen.findByTestId(
       "selection-test query",
@@ -243,12 +263,6 @@ describe("DeepSearch", () => {
     const reasoningSections = [
       {
         container: screen
-          .getByText("Round 1 search queries")
-          .closest(".MuiPaper-root"),
-        reasoning: "Prioritizing queries",
-      },
-      {
-        container: screen
           .getByText("Source selection")
           .closest(".MuiPaper-root"),
         reasoning: "Comparing source relevance",
@@ -260,7 +274,9 @@ describe("DeepSearch", () => {
         reasoning: "Combining all results",
       },
       {
-        container: screen.getByText("Final answer").closest(".MuiPaper-root"),
+        container: screen
+          .getByText("Candidate answer")
+          .closest(".MuiPaper-root"),
         reasoning: "Synthesizing the research",
       },
     ]
@@ -301,12 +317,8 @@ describe("DeepSearch", () => {
     expect(screen.getByTestId("query-summary-test query")).toHaveTextContent(
       "The search found useful evidence.",
     )
-    expect(screen.getByTestId("final-answer")).toHaveTextContent(
+    expect(screen.getByTestId("round-answer-0")).toHaveTextContent(
       "The final researched answer.",
-    )
-    expect(screen.getAllByRole("status")).toHaveLength(1)
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Final answer: Response complete",
     )
     expect(screen.getByText("Explored source")).toBeVisible()
     expect(screen.getByText("Search listing")).toBeVisible()
@@ -332,7 +344,7 @@ describe("DeepSearch", () => {
       expect.any(AbortSignal),
       expect.any(Function),
     )
-    expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(
+    expect(mocks.subscribeToTextStream).not.toHaveBeenCalledWith(
       "query-stream-id",
       expect.any(AbortSignal),
       expect.any(Function),
@@ -424,7 +436,7 @@ describe("DeepSearch", () => {
       deepSearchJobId: "job-id",
       slug: "research-this",
     })
-    mocks.subscribeToDeepSearchJob.mockReturnValue(events())
+    mocks.subscribeToDeepSearchJob.mockImplementation(() => events())
     mocks.subscribeToTextStream.mockImplementation((id: string) => {
       if (id === "first-summary-stream") return firstSummaryEvents()
       if (id === "second-summary-stream") return secondSummaryEvents()
@@ -436,6 +448,8 @@ describe("DeepSearch", () => {
       target: { value: "Research this" },
     })
     fireEvent.click(screen.getByRole("button", { name: "Start deep search" }))
+
+    fireEvent.click(await screen.findByRole("link", { name: /Round 1/ }))
 
     expect(await screen.findByText("Second summary")).toBeInTheDocument()
     expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(
@@ -604,8 +618,7 @@ describe("DeepSearch", () => {
 
     renderDeepSearch("/deep-search/research-this")
 
-    const round = await screen.findByRole("button", { name: /Round 1/ })
-    expect(round).toHaveAttribute("aria-expanded", "false")
+    const round = await screen.findByRole("link", { name: /Round 1/ })
     expect(within(round).getByText("Review unavailable")).toBeVisible()
 
     fireEvent.click(round)
@@ -658,6 +671,90 @@ describe("DeepSearch", () => {
     expect(document.head.querySelector('link[rel="canonical"]')).toHaveAttribute(
       "href",
       "https://rethinkloop.com/deep-search/research-this",
+    )
+  })
+
+  it("preserves matching server metadata while a direct round route loads", () => {
+    mocks.getDeepSearchJob.mockImplementation(() => new Promise(() => {}))
+    document.documentElement.dataset.seoPage =
+      "/deep-search/research-this/rounds/1"
+    document.title = "Server-rendered research title"
+    const canonical = document.createElement("link")
+    canonical.rel = "canonical"
+    canonical.href = "https://rethinkloop.com/deep-search/research-this"
+    document.head.querySelector('link[rel="canonical"]')?.remove()
+    document.head.appendChild(canonical)
+
+    renderDeepSearch("/deep-search/research-this/rounds/1")
+
+    expect(document.title).toBe("Server-rendered research title")
+    expect(document.head.querySelector('link[rel="canonical"]')).toHaveAttribute(
+      "href",
+      "https://rethinkloop.com/deep-search/research-this",
+    )
+  })
+
+  it("uses the round page key while retaining the public parent canonical", async () => {
+    mocks.getDeepSearchJob.mockResolvedValue({
+      ...deepSearchJob(),
+      isIndexable: true,
+      isPublic: true,
+    })
+    mocks.subscribeToDeepSearchJob.mockImplementation(async function* () {
+      await Promise.resolve()
+      yield {
+        type: "query-stream" as const,
+        round: 0,
+        streamId: "query-stream",
+      }
+      yield { type: "done" as const }
+    })
+
+    renderDeepSearch("/deep-search/research-this/rounds/1")
+
+    await screen.findByText("Complete")
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Round 1" }),
+    ).toBeVisible()
+    await waitFor(() =>
+      expect(document.documentElement.dataset.seoPage).toBe(
+        "/deep-search/research-this/rounds/1",
+      ),
+    )
+    expect(document.head.querySelector('meta[name="robots"]')).toHaveAttribute(
+      "content",
+      "index, follow",
+    )
+    expect(document.head.querySelector('link[rel="canonical"]')).toHaveAttribute(
+      "href",
+      "https://rethinkloop.com/deep-search/research-this",
+    )
+  })
+
+  it("removes parent metadata when a round is absent after replay", async () => {
+    mocks.getDeepSearchJob.mockResolvedValue({
+      ...deepSearchJob(),
+      isIndexable: true,
+      isPublic: true,
+    })
+
+    renderDeepSearch("/deep-search/research-this/rounds/2")
+
+    expect(
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "Round not found",
+      }),
+    ).toBeVisible()
+    await waitFor(() =>
+      expect(document.head.querySelector('link[rel="canonical"]')).toBeNull(),
+    )
+    expect(document.head.querySelector('meta[name="robots"]')).toHaveAttribute(
+      "content",
+      "noindex, nofollow",
+    )
+    expect(document.documentElement.dataset.seoPage).toBe(
+      "/deep-search/research-this/rounds/2",
     )
   })
 })

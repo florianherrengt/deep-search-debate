@@ -65,7 +65,7 @@ test.describe("Debate tournament", () => {
       page.getByRole("heading", { name: "Debate ideas" }),
     ).toBeVisible()
     await expect(
-      page.getByRole("link", { name: "Open the idea generator instead" }),
+      page.getByRole("link", { name: "Only generate options" }),
     ).toHaveAttribute("href", "/ideas")
 
     const prompt = debatePrompt
@@ -83,14 +83,16 @@ test.describe("Debate tournament", () => {
     )
 
     await page.getByLabel("What should the ideas solve?").fill(prompt)
-    await page.getByLabel("Make this debate public").check()
+    await expect(
+      page.getByRole("switch", { name: /public/i }),
+    ).toHaveCount(0)
     await page.getByRole("button", { name: "Start a debate" }).click()
 
     const created = await createdResponse
     expect(created.status()).toBe(202)
     expect(created.request().postDataJSON()).toEqual({
       prompt,
-      isPublic: true,
+      isPublic: false,
       numberOfIdeas: 8,
     })
     const { debateJobId, slug } = (await created.json()) as {
@@ -110,8 +112,26 @@ test.describe("Debate tournament", () => {
     const live = await liveResponse
     expect(live.status()).toBe(200)
     expect(live.headers()["content-type"]).toContain("application/x-ndjson")
-    await expect(page.getByText("Running automatically")).toBeVisible()
+    await expect(page.getByText("Debate in progress")).toBeVisible()
     await expect(page.getByText(/\d+\/23 matches/)).toBeVisible()
+
+    const debateUrl = page.url()
+    const liveMatchLink = page
+      .getByRole("link", { name: /^Open .+ versus .+$/ })
+      .filter({ has: page.getByText("Live", { exact: true }) })
+      .first()
+    await expect(liveMatchLink).toBeVisible({ timeout: 30_000 })
+    const liveMatchLabel = await liveMatchLink.getAttribute("aria-label")
+    expect(liveMatchLabel).not.toBeNull()
+    const matchHeading = (liveMatchLabel ?? "")
+      .replace(/^Open /, "")
+      .replace(" versus ", " vs ")
+    await liveMatchLink.click()
+    await expect(page).toHaveURL(/\/debates\/[^/]+\/matches\/[^/]+$/)
+    const matchUrl = page.url()
+    await expect(
+      page.getByRole("heading", { name: matchHeading, level: 1 }),
+    ).toBeVisible()
     await expect(page.getByText("Streaming", { exact: true })).toBeVisible({
       timeout: 30_000,
     })
@@ -120,27 +140,86 @@ test.describe("Debate tournament", () => {
       "makes the stronger opening case",
       { timeout: 30_000 },
     )
-    expect(await transcript.textContent()).not.toContain(
-      "with no installation burden.",
-    )
     expect(browserStreamRequests.length).toBeGreaterThan(0)
 
-    const debateUrl = page.url()
+    await page.reload()
+    await expect(page).toHaveURL(matchUrl)
+    await expect(
+      page.getByRole("heading", { name: matchHeading, level: 1 }),
+    ).toBeVisible()
+    await expect(page.getByText("Streaming", { exact: true })).toBeVisible()
+    await expect
+      .poll(() => eventRequestCount)
+      .toBeGreaterThan(1)
+    await expect(transcript).toContainText(
+      /makes the stronger opening case|answers the opposing case/,
+    )
+
+    const nextMatchLink = page.getByRole("link", { name: /^Next:/ })
+    await expect(nextMatchLink).toBeVisible()
+    const nextMatchPath = await nextMatchLink.getAttribute("href")
+    expect(nextMatchPath).toMatch(/^\/debates\/[^/]+\/matches\/[^/]+$/)
+    await page.setViewportSize({ width: 667, height: 375 })
+    const landscapeTranscriptBox = await transcript.boundingBox()
+    expect(landscapeTranscriptBox).not.toBeNull()
+    expect(landscapeTranscriptBox?.height).toBeLessThanOrEqual(230)
+    await page.setViewportSize({ width: 375, height: 667 })
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
+    await nextMatchLink.click()
+    await expect(page).toHaveURL(new RegExp(`${nextMatchPath ?? "missing"}$`))
+    await expect(page.getByRole("heading", { level: 1 })).toBeFocused()
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0)
+    await page.setViewportSize({ width: 1280, height: 720 })
+    await expect(
+      page.getByRole("link", { name: /^Previous:/ }),
+    ).toBeVisible()
+    await page.goBack()
+    await expect(page).toHaveURL(matchUrl)
+    await page.getByRole("link", { name: "Back to debate" }).click()
+    await expect(page).toHaveURL(debateUrl)
+
+    const publishResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PATCH" &&
+        new URL(response.url()).pathname ===
+          `/api/debate-jobs/${debateJobId}`,
+    )
+    await page.getByRole("button", { name: "Share" }).click()
+    await page.getByRole("button", { name: "Make public" }).click()
+    expect((await publishResponse).status()).toBe(200)
+    await expect(page.getByText("Public", { exact: true })).toBeVisible()
+    await page.getByRole("button", { name: "Close" }).click()
+
     const anonymousContext = await browser.newContext()
     const anonymousPage = await anonymousContext.newPage()
-    await anonymousPage.goto(debateUrl)
+    await anonymousPage.goto(matchUrl)
     await expect(
       anonymousPage.getByRole("link", { name: "Start your own debate" }),
     ).toHaveAttribute("href", "/debates")
+    await expect(
+      anonymousPage.getByRole("heading", { name: matchHeading, level: 1 }),
+    ).toBeVisible()
+    await expect(
+      anonymousPage.getByRole("log", { name: "Debate messages" }),
+    ).toBeVisible()
+    await expect(
+      anonymousPage.getByRole("button", { name: "Share" }),
+    ).toHaveCount(0)
+    await expect(anonymousPage.getByText("Debug User")).toHaveCount(0)
+    await expect(
+      anonymousPage.getByRole("navigation", { name: "Primary navigation" }),
+    ).toHaveCount(0)
+
+    await anonymousPage.goto(debateUrl)
     await expect(
       anonymousPage.getByRole("heading", {
         name: "Apartment Energy Product Ideas",
       }),
     ).toBeVisible()
-    await expect(anonymousPage.getByText("Running automatically")).toBeVisible()
-    await expect(anonymousPage.getByText("Debug User")).toHaveCount(0)
+    await expect(anonymousPage.getByText("Debate in progress")).toBeVisible()
     await expect(
-      anonymousPage.getByRole("navigation", { name: "Primary navigation" }),
+      anonymousPage.getByRole("button", { name: "Share" }),
     ).toHaveCount(0)
 
     const publicIdeaLink = anonymousPage.getByRole("link", {
@@ -179,26 +258,25 @@ test.describe("Debate tournament", () => {
       publicResearchPage.getByRole("heading", { name: "Final answer" }),
     ).toBeVisible()
 
-    const streamRequestCountBeforeReload = browserStreamRequests.length
-    await page.reload()
-    await expect(page).toHaveURL(debateUrl)
-    await expect(page.getByText("Running automatically")).toBeVisible()
-    await expect(page.getByText("Streaming", { exact: true })).toBeVisible()
-    await expect
-      .poll(() => eventRequestCount)
-      .toBeGreaterThan(1)
-    await expect
-      .poll(() => browserStreamRequests.length)
-      .toBeGreaterThan(streamRequestCountBeforeReload)
-    await expect(transcript).toContainText(
-      /makes the stronger opening case|answers the opposing case/,
-    )
-
+    await page.goto(debateUrl)
     await expect(page.getByText("Debate complete")).toBeVisible({
       timeout: 60_000,
     })
     await expect(page.getByText("23/23 matches", { exact: true })).toBeVisible()
     await expect(page.getByText("Winning idea", { exact: true })).toBeVisible()
+    await expect(page.getByText("Why it won", { exact: true })).toBeVisible()
+    await expect(
+      page.getByRole("heading", { name: "Decisive strengths" }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole("heading", { name: "Closest alternative" }),
+    ).toBeVisible()
+    await expect(
+      page
+        .getByRole("region", { name: "Closest alternative" })
+        .getByText(/^Improved Renter Energy Idea \d+$/),
+    ).toBeVisible()
+    await expect(page.getByText(/wins because/)).toBeVisible()
     await expect(
       page.getByRole("heading", {
         name: "Improved Renter Energy Idea 1",
@@ -283,10 +361,11 @@ test.describe("Debate tournament", () => {
         new URL(response.url()).pathname ===
           `/api/debate-jobs/${debateJobId}`,
     )
-    const publicSwitch = page.getByRole("switch", { name: "Public debate" })
-    await publicSwitch.click()
+    await page.getByRole("button", { name: "Share" }).click()
+    await page.getByRole("button", { name: "Make private" }).click()
     expect((await visibilityResponse).status()).toBe(200)
-    await expect(publicSwitch).not.toBeChecked()
+    await expect(page.getByText("Private", { exact: true })).toBeVisible()
+    await page.getByRole("button", { name: "Close" }).click()
     await anonymousPage.goto(debateUrl)
     await expect(
       anonymousPage.getByRole("heading", { name: "Debate not found" }),
@@ -294,17 +373,21 @@ test.describe("Debate tournament", () => {
     await anonymousContext.close()
 
     const selectableMatch = page
-      .getByRole("button", { name: /^Open .+ versus .+$/ })
+      .getByRole("link", { name: /^Open .+ versus .+$/ })
       .first()
     const selectedLabel = await selectableMatch.getAttribute("aria-label")
     expect(selectedLabel).not.toBeNull()
     const selectedFirstIdea = /^Open (.+) versus /.exec(selectedLabel ?? "")?.[1]
     expect(selectedFirstIdea).toBeTruthy()
     await selectableMatch.click()
+    await expect(page).toHaveURL(/\/debates\/[^/]+\/matches\/[^/]+$/)
     await expect(transcript).toContainText(
       selectedFirstIdea ?? "missing idea title",
     )
     await expect(transcript).toContainText("Judge")
+    await expect(
+      page.getByRole("link", { name: "Back to debate" }),
+    ).toHaveAttribute("href", `/debates/${slug}`)
 
     await page.goto("/debates")
     const historyLink = page.locator(`a[href="/debates/${slug}"]`)
@@ -360,7 +443,7 @@ test.describe("Debate tournament", () => {
     })
     await expect(
       page.getByText(
-        "The debate stopped before it could finish. You can review the completed matches below or start a new debate.",
+        "The debate stopped before it could finish. Review any completed matches, or start a new debate.",
         { exact: true },
       ),
     ).toBeVisible()

@@ -9,6 +9,31 @@ function getMatches(tournament: DebateTournament): DebateMatch[] {
   return tournament.rounds.flatMap((round) => round.matches)
 }
 
+export function getMatch(
+  tournament: DebateTournament,
+  debateMatchId: string,
+): DebateMatch | undefined {
+  return getMatches(tournament).find(
+    (match) => match.debateMatchId === debateMatchId,
+  )
+}
+
+export function getAdjacentMatches(
+  tournament: DebateTournament,
+  debateMatchId: string,
+): { previous?: DebateMatch; next?: DebateMatch } {
+  const matches = getMatches(tournament)
+  const matchIndex = matches.findIndex(
+    (match) => match.debateMatchId === debateMatchId,
+  )
+  if (matchIndex === -1) return {}
+
+  return {
+    previous: matches[matchIndex - 1],
+    next: matches[matchIndex + 1],
+  }
+}
+
 export function getCompletedMatchCount(tournament: DebateTournament): number {
   return getMatches(tournament).filter((match) => match.status === "completed")
     .length
@@ -50,15 +75,31 @@ export function getWinner(
     : finalMatch.secondIdea
 }
 
-export function getSelectedMatch(
+export function getClosestAlternative(
   tournament: DebateTournament,
-  selectedMatchId: string | null | undefined,
-): DebateMatch | undefined {
-  const matches = getMatches(tournament)
-  return (
-    matches.find((match) => match.debateMatchId === selectedMatchId) ??
-    matches.find((match) => match.status === "running") ??
-    matches.toReversed().find((match) => match.status === "completed") ??
-    matches[0]
-  )
+): DebateIdea | undefined {
+  const finalMatch = getFinalMatch(tournament)
+  if (!finalMatch?.winnerIdeaId) return undefined
+
+  if (finalMatch.firstIdea.ideaId === finalMatch.winnerIdeaId) {
+    return finalMatch.secondIdea
+  }
+  if (finalMatch.secondIdea.ideaId === finalMatch.winnerIdeaId) {
+    return finalMatch.firstIdea
+  }
+  return undefined
+}
+
+export function getWinnerReason(
+  tournament: DebateTournament,
+): string | undefined {
+  const finalMatch = getFinalMatch(tournament)
+  return finalMatch?.messages
+    .toSorted(
+      (first, second) =>
+        second.position - first.position ||
+        second.debateMessageId.localeCompare(first.debateMessageId),
+    )
+    .find((message) => message.speakerSlot === 2 && message.text.trim())
+    ?.text.trim()
 }

@@ -131,7 +131,6 @@ const deepSearchJobResponseSchema = z.object({
   deepSearchJob: deepSearchJobDetailSchema,
 })
 
-export type DeepSearchJob = z.infer<typeof deepSearchJobSchema>
 export type DeepSearchJobOrigin = z.infer<typeof deepSearchJobOriginSchema>
 export type DeepSearchJobListItem = z.infer<typeof deepSearchJobListItemSchema>
 export type DeepSearchJobSource = "manual" | "automated"

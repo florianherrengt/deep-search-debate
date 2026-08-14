@@ -12,18 +12,19 @@ import {
   subscribeToStoryStream,
   sufficientEvidenceRun,
 } from "./DeepSearchView.fixture.ts"
-import { DeepSearchView } from "./DeepSearchView.tsx"
+import { DeepSearchOverview } from "./DeepSearchOverview.tsx"
+import { DeepSearchRoundDetail } from "./DeepSearchRoundDetail.tsx"
 
-const meta: Meta<typeof DeepSearchView> = {
+const meta: Meta<typeof DeepSearchOverview> = {
   title: "Pages/Deep Search",
-  component: DeepSearchView,
+  component: DeepSearchOverview,
   parameters: {
     layout: "fullscreen",
   },
   decorators: [
     (Story) => (
       <TextStreamProvider subscribe={subscribeToStoryStream}>
-        <Container maxWidth="sm" sx={{ py: 4 }}>
+        <Container maxWidth="lg" sx={{ py: 4 }}>
           <Story />
         </Container>
       </TextStreamProvider>
@@ -33,12 +34,14 @@ const meta: Meta<typeof DeepSearchView> = {
 
 export default meta
 
-type Story = StoryObj<typeof DeepSearchView>
+type Story = StoryObj<typeof DeepSearchOverview>
 
 export const WithSearchResults: Story = {
   args: {
+    jobSlug: "openai-products-history-and-criticism",
     researchRequest,
     run: completedRun,
+    title: "OpenAI products, history, and criticism",
   },
 }
 
@@ -47,6 +50,18 @@ export const WithStreamingPageSummaries: Story = {
     ...WithSearchResults.args,
     run: streamingPageSummariesRun,
   },
+  render: (args) => (
+    <Container disableGutters maxWidth="md">
+      <DeepSearchRoundDetail
+        jobSlug={args.jobSlug}
+        jobTitle={args.title}
+        maxRounds={2}
+        researchRequest={args.researchRequest}
+        roundNumber={1}
+        run={args.run}
+      />
+    </Container>
+  ),
 }
 
 export const WhileReviewingEvidence: Story = {

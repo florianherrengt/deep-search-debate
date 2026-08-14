@@ -1,26 +1,27 @@
 import { AutoAwesomeRounded, LightbulbOutlined } from "@mui/icons-material"
-import { Alert, Box, Button, Chip, Stack, Typography } from "@mui/material"
+import { Button, Chip, Stack, Typography } from "@mui/material"
+import type { ReactNode } from "react"
 import { Link } from "react-router-dom"
 import { debateStatusPresentation } from "../debatePresentation.ts"
-import { getSelectedMatch, getWinner } from "../debateSelectors.ts"
+import {
+  getClosestAlternative,
+  getWinner,
+  getWinnerReason,
+} from "../debateSelectors.ts"
 import type { DebateTournament } from "../debateUiTypes.ts"
-import { DebateTranscript } from "./DebateTranscript.tsx"
+import { DebateStoppedAlert } from "./DebateStoppedAlert.tsx"
 import { TournamentBoard } from "./TournamentBoard.tsx"
 import { WinnerIdeaCard } from "./WinnerIdeaCard.tsx"
 
 export type DebateViewProps = {
   tournament: DebateTournament
-  selectedMatchId?: string | null
-  onSelectMatch?: (debateMatchId: string) => void
+  ownerActions?: ReactNode
 }
 
-export function DebateView({
-  tournament,
-  selectedMatchId = null,
-  onSelectMatch,
-}: DebateViewProps) {
-  const selectedMatch = getSelectedMatch(tournament, selectedMatchId)
+export function DebateView({ ownerActions, tournament }: DebateViewProps) {
   const winner = getWinner(tournament)
+  const closestAlternative = getClosestAlternative(tournament)
+  const winnerReason = getWinnerReason(tournament)
   const status = debateStatusPresentation[tournament.status]
 
   return (
@@ -37,13 +38,19 @@ export function DebateView({
               {tournament.title}
             </Typography>
           </Stack>
-          <Chip
-            color={status.color}
-            label={status.label}
-            size="small"
-            sx={{ alignSelf: "flex-start" }}
-            variant="outlined"
-          />
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{ alignItems: "center", alignSelf: "flex-start" }}
+          >
+            <Chip
+              color={status.color}
+              label={status.label}
+              size="small"
+              variant="outlined"
+            />
+            {ownerActions}
+          </Stack>
         </Stack>
         <Typography
           color="text.secondary"
@@ -62,54 +69,16 @@ export function DebateView({
         </Button>
       </Stack>
 
-      {tournament.error && (
-        <Alert severity="error">
-          <Stack spacing={1.5} sx={{ alignItems: "flex-start" }}>
-            <Typography variant="body2">
-              The debate stopped before it could finish. You can review the
-              completed matches below or start a new debate.
-            </Typography>
-            <Button
-              color="inherit"
-              component={Link}
-              size="small"
-              to="/debates"
-            >
-              Start a new debate
-            </Button>
-          </Stack>
-        </Alert>
-      )}
-      {winner && <WinnerIdeaCard idea={winner} />}
-
-      <Box
-        sx={{
-          alignItems: "start",
-          display: "grid",
-          gap: 2.5,
-          gridTemplateColumns: {
-            xs: "minmax(0, 1fr)",
-            lg: "minmax(0, 1.2fr) minmax(380px, 0.8fr)",
-          },
-        }}
-      >
-        <TournamentBoard
-          onSelectMatch={onSelectMatch}
-          selectedMatchId={selectedMatch?.debateMatchId}
-          tournament={tournament}
+      {tournament.error && <DebateStoppedAlert />}
+      {winner && (
+        <WinnerIdeaCard
+          closestAlternative={closestAlternative}
+          idea={winner}
+          reason={winnerReason}
         />
-        {selectedMatch && (
-          <Box sx={{ position: { lg: "sticky" }, top: { lg: 16 } }}>
-            <DebateTranscript
-              live={
-                tournament.status === "running" &&
-                selectedMatch.status === "running"
-              }
-              match={selectedMatch}
-            />
-          </Box>
-        )}
-      </Box>
+      )}
+
+      <TournamentBoard tournament={tournament} />
     </Stack>
   )
 }

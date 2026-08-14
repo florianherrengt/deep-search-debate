@@ -14,12 +14,14 @@ import {
   createDeepSearchJob,
   getDeepSearchJob,
   getDeepSearchJobs,
-  type DeepSearchJob,
+  type DeepSearchJobDetail,
   type DeepSearchJobOrigin,
   type DeepSearchJobSource,
 } from "../../lib/deepSearchJobs.ts"
 import { DeepSearchHeader } from "./components/DeepSearchHeader.tsx"
-import { DeepSearchView } from "./components/DeepSearchView.tsx"
+import { DeepSearchOverview } from "./components/DeepSearchOverview.tsx"
+import { DeepSearchRoundDetail } from "./components/DeepSearchRoundDetail.tsx"
+import { getDeepSearchRoundNumbers } from "./deepSearchPresentation.ts"
 import { useDeepSearchJob } from "../../lib/useDeepSearchJob.ts"
 
 const deepSearchJobsQueryKey = ["deep-search-jobs"] as const
@@ -137,10 +139,87 @@ function DeepSearchHistory({ services }: { services: DeepSearchServices }) {
   )
 }
 
-function DeepSearchJobContent({ job }: { job: DeepSearchJob }) {
+function parseRoundNumber(value: string | undefined): number | null {
+  if (value === undefined || !/^[1-9]\d*$/.test(value)) return null
+  const roundNumber = Number(value)
+  return Number.isSafeInteger(roundNumber) ? roundNumber : null
+}
+
+function DeepSearchJobContent({
+  job,
+  routeRoundNumber,
+}: {
+  job: DeepSearchJobDetail
+  routeRoundNumber?: string
+}) {
   const run = useDeepSearchJob(job.deepSearchJobId)
+  const parentPageKey = `/deep-search/${encodeURIComponent(job.slug)}`
+  const roundNumber = parseRoundNumber(routeRoundNumber)
+  const roundIndex = roundNumber === null ? null : roundNumber - 1
+  const roundExists =
+    roundIndex !== null && getDeepSearchRoundNumbers(run).includes(roundIndex)
+  const roundRouteResolved =
+    routeRoundNumber === undefined ||
+    roundNumber === null ||
+    roundNumber > job.maxRounds ||
+    roundExists ||
+    run.status === "completed" ||
+    run.status === "failed"
+  const roundPageKey =
+    routeRoundNumber === undefined
+      ? undefined
+      : `${parentPageKey}/rounds/${encodeURIComponent(routeRoundNumber)}`
+  const roundNotFound =
+    routeRoundNumber !== undefined &&
+    roundRouteResolved &&
+    (roundNumber === null || roundNumber > job.maxRounds || !roundExists)
+  const description = truncateDescription(job.researchRequest)
+
+  useSeo(
+    roundNotFound
+      ? {
+          title: "Research round not found — RethinkLoop",
+          pageKey: roundPageKey,
+          noindex: true,
+        }
+      : {
+          title: `${job.title} — RethinkLoop`,
+          description,
+          path: job.isPublic ? parentPageKey : undefined,
+          pageKey: roundPageKey ?? parentPageKey,
+          noindex: !job.isIndexable,
+          openGraphType: "article" as const,
+          jsonLd:
+            job.isIndexable
+              ? {
+                  "@context": "https://schema.org",
+                  "@type": "Article",
+                  description,
+                  headline: job.title,
+                  inLanguage: "en",
+                  isAccessibleForFree: true,
+                }
+              : undefined,
+          enabled: roundRouteResolved,
+        },
+  )
+
+  if (routeRoundNumber !== undefined) {
+    return (
+      <DeepSearchRoundDetail
+        jobSlug={job.slug}
+        jobTitle={job.title}
+        maxRounds={job.maxRounds}
+        researchRequest={job.researchRequest}
+        roundNumber={roundNumber ?? Number.NaN}
+        run={run}
+      />
+    )
+  }
+
   return (
-    <DeepSearchView
+    <DeepSearchOverview
+      jobSlug={job.slug}
       researchRequest={job.researchRequest}
       run={run}
       title={job.title}
@@ -149,9 +228,11 @@ function DeepSearchJobContent({ job }: { job: DeepSearchJob }) {
 }
 
 function DeepSearchDetail({
+  routeRoundNumber,
   services,
   slug,
 }: {
+  routeRoundNumber?: string
   services: DeepSearchServices
   slug: string
 }) {
@@ -159,36 +240,30 @@ function DeepSearchDetail({
     queryKey: deepSearchJobDetailQueryKey(slug),
     queryFn: ({ signal }) => services.getJob(slug, signal),
   })
-  const pageKey = `/deep-search/${encodeURIComponent(slug)}`
+  const parentPageKey = `/deep-search/${encodeURIComponent(slug)}`
+  const pageKey =
+    routeRoundNumber === undefined
+      ? parentPageKey
+      : `${parentPageKey}/rounds/${encodeURIComponent(routeRoundNumber)}`
 
   useSeo(
-    job.data !== undefined
+    job.data === undefined
       ? {
-          title: `${job.data.title} — RethinkLoop`,
-          description: truncateDescription(job.data.researchRequest),
-          path: job.data.isPublic ? pageKey : undefined,
-          pageKey,
-          noindex: !job.data.isIndexable,
-          openGraphType: "article" as const,
-          jsonLd:
-            job.data.isIndexable
-              ? {
-                  "@context": "https://schema.org",
-                  "@type": "Article",
-                  description: truncateDescription(job.data.researchRequest),
-                  headline: job.data.title,
-                  inLanguage: "en",
-                  isAccessibleForFree: true,
-                }
-              : undefined,
-        }
-      : {
           title: job.isPending
             ? "Loading deep search — RethinkLoop"
             : "Deep search not found — RethinkLoop",
           pageKey,
           noindex: true,
           enabled: !job.isPending,
+        }
+      : {
+          title:
+            routeRoundNumber === undefined
+              ? "Loading deep search — RethinkLoop"
+              : "Loading research round — RethinkLoop",
+          pageKey,
+          noindex: true,
+          enabled: false,
         },
   )
 
@@ -204,7 +279,12 @@ function DeepSearchDetail({
     )
   }
 
-  return <DeepSearchJobContent job={job.data} />
+  return (
+    <DeepSearchJobContent
+      job={job.data}
+      routeRoundNumber={routeRoundNumber}
+    />
+  )
 }
 
 export function DeepSearch({
@@ -212,9 +292,18 @@ export function DeepSearch({
 }: {
   services?: DeepSearchServices
 }) {
-  const { slug } = useParams<{ slug: string }>()
+  const { roundNumber, slug } = useParams<{
+    roundNumber?: string
+    slug: string
+  }>()
   if (slug) {
-    return <DeepSearchDetail services={services} slug={slug} />
+    return (
+      <DeepSearchDetail
+        routeRoundNumber={roundNumber}
+        services={services}
+        slug={slug}
+      />
+    )
   }
   return <DeepSearchHistory services={services} />
 }

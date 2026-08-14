@@ -11,13 +11,13 @@ import {
   Stack,
   Typography,
 } from "@mui/material"
+import { Link } from "react-router-dom"
 import type { DebateIdea, DebateMatch } from "../debateUiTypes.ts"
 
 export type MatchCardProps = {
   match: DebateMatch
+  to: string
   active?: boolean
-  selected?: boolean
-  onSelect?: (debateMatchId: string) => void
 }
 
 function MatchIdea({
@@ -33,13 +33,6 @@ function MatchIdea({
       spacing={1}
       sx={{ alignItems: "center", minWidth: 0 }}
     >
-      <Typography
-        color="text.secondary"
-        sx={{ flexShrink: 0, width: 24 }}
-        variant="caption"
-      >
-        {idea.position + 1}
-      </Typography>
       <Typography
         sx={{
           flexGrow: 1,
@@ -57,9 +50,8 @@ function MatchIdea({
 
 export function MatchCard({
   match,
+  to,
   active = true,
-  selected = false,
-  onSelect,
 }: MatchCardProps) {
   const winnerId = match.winnerIdeaId
   const status =
@@ -71,27 +63,21 @@ export function MatchCard({
         }
       : match.status === "running"
       ? { label: "Live", icon: <ForumRounded />, color: "primary" as const }
-      : match.status === "completed"
+        : match.status === "completed"
         ? { label: "Decided", icon: <CheckCircleRounded />, color: "success" as const }
         : {
-            label: "Waiting",
+            label: "Not started",
             icon: <HourglassEmptyRounded />,
             color: "default" as const,
           }
 
   return (
-    <Card
-      variant="outlined"
-      sx={{
-        borderColor: selected ? "primary.main" : undefined,
-        bgcolor: selected ? "action.selected" : undefined,
-      }}
-    >
+    <Card variant="outlined">
       <CardActionArea
         aria-label={`Open ${match.firstIdea.title} versus ${match.secondIdea.title}`}
-        aria-pressed={selected}
-        onClick={() => onSelect?.(match.debateMatchId)}
+        component={Link}
         sx={{ p: 1.5 }}
+        to={to}
       >
         <Stack spacing={1.25}>
           <Stack

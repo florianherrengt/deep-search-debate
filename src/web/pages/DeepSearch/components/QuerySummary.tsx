@@ -36,7 +36,7 @@ export function QuerySummary({ query, streamId }: QuerySummaryProps) {
       data-query-summary-status={stream.status}
     >
       <Typography
-        component="h6"
+        component="h5"
         variant="h6"
         color={stream.status === "error" ? "error" : "text.primary"}
       >

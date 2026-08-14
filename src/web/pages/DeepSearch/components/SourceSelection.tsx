@@ -23,7 +23,7 @@ export function SourceSelection({
 
   return (
     <GenerationOutput
-      headingComponent="h6"
+      headingComponent="h5"
       showText={false}
       streamId={streamId}
       title="Source selection"

@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -78,6 +79,28 @@ describe("Ideas", () => {
     })
   })
 
+  it("explains how to generate researched options", async () => {
+    renderIdeas()
+
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Generate options" }),
+    ).toBeVisible()
+    expect(
+      screen.getByText(
+        "Describe the question, goal, or constraints. You’ll get multiple researched options to review.",
+      ),
+    ).toBeVisible()
+    expect(
+      screen.getByLabelText("Question, goal, or constraints"),
+    ).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: "Generate options" }),
+    ).toBeDisabled()
+    expect(
+      await screen.findByRole("heading", { name: "Previous option runs" }),
+    ).toBeVisible()
+  })
+
   it("creates a run and shows streamed progress and individual ideas", async () => {
     async function* ideaEvents(_id: string, signal?: AbortSignal) {
       yield { type: "research-prompt-stream" as const, streamId: "planning" }
@@ -121,10 +144,10 @@ describe("Ideas", () => {
     mocks.subscribeToTextStream.mockImplementation(textEvents)
 
     renderIdeas()
-    const submit = screen.getByRole("button", { name: "Generate ideas" })
+    const submit = screen.getByRole("button", { name: "Generate options" })
     expect(submit).toBeDisabled()
     fireEvent.change(
-      screen.getByLabelText("What should we generate ideas for?"),
+      screen.getByLabelText("Question, goal, or constraints"),
       { target: { value: "Ideas for independent cafés" } },
     )
     expect(submit).toBeEnabled()
@@ -139,8 +162,7 @@ describe("Ideas", () => {
       "href",
       "/ideas/independent-cafe-ideas/prep-forecast-id",
     )
-    expect(ideaLink).toHaveAttribute("target", "_blank")
-    expect(ideaLink).toHaveAttribute("rel", "noopener noreferrer")
+    expect(ideaLink).not.toHaveAttribute("target")
     expect(screen.queryByText("Raw structured output")).not.toBeInTheDocument()
     expect(mocks.createIdeaJob).toHaveBeenCalledWith({
       prompt: "Ideas for independent cafés",
@@ -162,7 +184,7 @@ describe("Ideas", () => {
 
   })
 
-  it("shows structured pros and cons for an evaluated idea", () => {
+  it("shows an unselected idea title once with its description and assessment", () => {
     render(
       <MemoryRouter>
         <IdeaDetailView
@@ -209,6 +231,16 @@ describe("Ideas", () => {
       </MemoryRouter>,
     )
 
+    expect(screen.getAllByText("Prep Forecast")).toHaveLength(1)
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Original idea" }),
+    ).toBeVisible()
+    expect(screen.getByText("Recommend fixed prep quantities.")).toBeVisible()
+    const processDetails = screen.getByRole("button", {
+      name: "How this idea was developed",
+    })
+    expect(processDetails).toHaveAttribute("aria-expanded", "false")
+    fireEvent.click(processDetails)
     expect(screen.getByTestId("idea-assessment-0")).toBeVisible()
     expect(
       screen.getByRole("heading", {
@@ -225,13 +257,7 @@ describe("Ideas", () => {
     ).toBeVisible()
   })
 
-  it("shows one idea list with selection progress and reasoning", async () => {
-    mocks.subscribeToTextStream.mockImplementation(async function* (id: string) {
-      await Promise.resolve()
-      yield { type: "reasoning" as const, text: "Selection reasoning" }
-      yield { type: "text" as const, text: `Response from ${id}` }
-      yield { type: "done" as const }
-    })
+  it("shows one stable idea list without an empty selection rationale", () => {
     render(
       <MemoryRouter>
         <IdeaJobView
@@ -292,16 +318,34 @@ describe("Ideas", () => {
       </MemoryRouter>,
     )
 
-    const reasoningToggle = await screen.findByRole("button", {
-      name: "Show reasoning",
+    const ideaStage = screen.getByRole("button", {
+      name: /Generate and assess ideas Complete/,
     })
-    await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent("Response complete"),
-    )
-
+    expect(ideaStage).toHaveAttribute("aria-expanded", "false")
+    const improvementStage = screen.getByRole("button", {
+      name: /Improve and research selected ideas Running/,
+    })
+    expect(improvementStage).toHaveAttribute("aria-expanded", "true")
+    const progressStages = screen.getByRole("group", {
+      name: "Idea generation stages",
+    })
     expect(
-      screen.getByRole("button", { name: /Generate ideas Complete/ }),
-    ).toHaveAttribute("aria-expanded", "true")
+      improvementStage.closest("h3")?.parentElement?.parentElement,
+    ).toBe(progressStages)
+    fireEvent.click(ideaStage)
+    expect(ideaStage).toHaveAttribute("aria-expanded", "true")
+    const ideasHeading = screen.getByRole("heading", {
+      level: 2,
+      name: "Ideas",
+    })
+    const progressHeading = screen.getByRole("heading", {
+      level: 2,
+      name: "Progress",
+    })
+    expect(
+      ideasHeading.compareDocumentPosition(progressHeading) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
     expect(
       screen.getByRole("link", {
         name: "View Confidence-Aware Prep Forecast",
@@ -325,28 +369,444 @@ describe("Ideas", () => {
         name: "View improved Confidence-Aware Prep Forecast",
       }),
     ).not.toBeInTheDocument()
-    expect(screen.getByText("Rejected")).toBeVisible()
+    expect(screen.getByText("Not selected")).toBeVisible()
     expect(screen.getByText("Improved")).toBeVisible()
     expect(screen.getByText("Improving")).toBeVisible()
     expect(screen.queryByTestId("idea-selection")).not.toBeInTheDocument()
-    expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(
+    expect(mocks.subscribeToTextStream).not.toHaveBeenCalledWith(
       "selection",
-      expect.any(AbortSignal),
-      expect.any(Function),
+      expect.anything(),
+      expect.anything(),
     )
     expect(screen.queryByText("Response from selection")).not.toBeInTheDocument()
-    fireEvent.click(reasoningToggle)
-    expect(screen.getByTestId("idea-selection-reasoning")).toHaveTextContent(
-      "Selection reasoning",
-    )
-    expect(screen.getByText("2 ideas selected.")).toBeVisible()
+    expect(screen.queryByText("Selection reasoning")).not.toBeInTheDocument()
+    expect(
+      screen.getByText("2 of 3 ideas selected for improvement."),
+    ).toBeVisible()
     expect(
       screen.queryByRole("button", { name: /Select ideas/ }),
     ).not.toBeInTheDocument()
     expect(screen.queryByText("Raw structured output")).not.toBeInTheDocument()
   })
 
-  it("shows one idea's details and links to research without rendering it", () => {
+  it("keeps the candidate list first and preserves its nodes through selection and refinement", () => {
+    const initialRun = {
+      status: "running" as const,
+      failedStage: null,
+      researchPromptStreamId: null,
+      research: [],
+      researchSummaryStreamId: null,
+      ideaGenerationStreamId: "ideas",
+      ideas: [
+        {
+          ideaId: "prep-forecast-id",
+          title: "Prep Forecast",
+          description: "Recommend daily prep quantities.",
+          selection: "pending" as const,
+        },
+        {
+          ideaId: "closing-bundles-id",
+          title: "Closing Bundles",
+          description: "Bundle likely leftovers.",
+          selection: "pending" as const,
+        },
+      ],
+      ideaEvaluations: {},
+      ideaSelectionStreamId: null,
+      refinementGenerationStreamIds: {},
+      refinedIdeas: {},
+      refinedIdeaResearch: {},
+      error: null,
+    }
+    const { rerender } = render(
+      <MemoryRouter>
+        <IdeaJobView
+          jobSlug="generated-ideas"
+          prompt="Generate ideas"
+          title="Generated ideas"
+          run={initialRun}
+        />
+      </MemoryRouter>,
+    )
+
+    const resultsHeading = screen.getByRole("heading", {
+      level: 2,
+      name: "Ideas",
+    })
+    const processHeading = screen.getByRole("heading", {
+      level: 2,
+      name: "Progress",
+    })
+    expect(
+      resultsHeading.compareDocumentPosition(processHeading) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+
+    const originalLink = screen.getByRole("link", {
+      name: "View Prep Forecast",
+    })
+    const originalCard = originalLink.closest("li")
+    const ideaStage = screen.getByRole("button", {
+      name: /Generate and assess ideas Running/,
+    })
+    fireEvent.click(ideaStage)
+    fireEvent.click(ideaStage)
+    act(() => originalLink.focus())
+
+    rerender(
+      <MemoryRouter>
+        <IdeaJobView
+          jobSlug="generated-ideas"
+          prompt="Generate ideas"
+          title="Generated ideas"
+          run={{
+            ...initialRun,
+            ideas: [
+              { ...initialRun.ideas[0], selection: "selected" },
+              { ...initialRun.ideas[1], selection: "rejected" },
+            ],
+            ideaEvaluations: {
+              "prep-forecast-id": {
+                pros: ["Practical"],
+                cons: ["Needs data"],
+                critique: "Worth improving.",
+              },
+              "closing-bundles-id": {
+                pros: ["Simple"],
+                cons: ["Limited upside"],
+                critique: "Lower potential.",
+              },
+            },
+            ideaSelectionStreamId: "selection",
+            refinementGenerationStreamIds: {
+              "prep-forecast-id": "refinement",
+            },
+            refinedIdeas: {
+              "prep-forecast-id": {
+                ideaId: "prep-forecast-id",
+                title: "Confidence-Aware Prep Forecast",
+                description: "Recommend prep ranges with confidence.",
+              },
+            },
+          }}
+        />
+      </MemoryRouter>,
+    )
+
+    const updatedLink = screen.getByRole("link", {
+      name: "View Confidence-Aware Prep Forecast",
+    })
+    expect(updatedLink.closest("li")).toBe(originalCard)
+    expect(updatedLink).toHaveFocus()
+    expect(screen.getByRole("link", { name: "View Closing Bundles" })).toBeVisible()
+    expect(
+      screen.getByText("1 of 2 ideas selected for improvement."),
+    ).toBeVisible()
+    expect(
+      screen.getByRole("button", {
+        name: /Generate and assess ideas Complete/,
+      }),
+    ).toHaveAttribute("aria-expanded", "true")
+
+    rerender(
+      <MemoryRouter>
+        <IdeaJobView
+          jobSlug="generated-ideas"
+          prompt="Generate ideas"
+          title="Generated ideas"
+          run={{
+            ...initialRun,
+            status: "completed",
+            ideas: [
+              { ...initialRun.ideas[0], selection: "selected" },
+              { ...initialRun.ideas[1], selection: "rejected" },
+            ],
+            ideaEvaluations: {
+              "prep-forecast-id": {
+                pros: ["Practical"],
+                cons: ["Needs data"],
+                critique: "Worth improving.",
+              },
+              "closing-bundles-id": {
+                pros: ["Simple"],
+                cons: ["Limited upside"],
+                critique: "Lower potential.",
+              },
+            },
+            ideaSelectionStreamId: "selection",
+            refinementGenerationStreamIds: {
+              "prep-forecast-id": "refinement",
+            },
+            refinedIdeas: {
+              "prep-forecast-id": {
+                ideaId: "prep-forecast-id",
+                title: "Confidence-Aware Prep Forecast",
+                description: "Recommend prep ranges with confidence.",
+              },
+            },
+            refinedIdeaResearch: {
+              "prep-forecast-id": {
+                deepSearchJobId: "prep-research",
+                title: "Confidence-Aware Prep Forecast",
+                slug: "confidence-aware-prep-forecast",
+                researchRequest: "Research the improved prep forecast.",
+              },
+            },
+          }}
+        />
+      </MemoryRouter>,
+    )
+
+    const completedLink = screen.getByRole("link", {
+      name: "View Confidence-Aware Prep Forecast",
+    })
+    expect(completedLink.closest("li")).toBe(originalCard)
+    expect(completedLink).toHaveFocus()
+    expect(
+      screen.queryByRole("button", {
+        name: /Improve and research selected ideas/,
+      }),
+    ).not.toBeInTheDocument()
+  })
+
+  it("does not expose or subscribe to deferred idea-selection rationale", () => {
+    mocks.subscribeToTextStream.mockImplementation(async function* () {
+      await Promise.resolve()
+      yield { type: "done" as const }
+    })
+
+    render(
+      <MemoryRouter>
+        <IdeaJobView
+          jobSlug="generated-ideas"
+          prompt="Generate ideas"
+          title="Generated ideas"
+          run={{
+            status: "completed",
+            failedStage: null,
+            researchPromptStreamId: null,
+            research: [],
+            researchSummaryStreamId: null,
+            ideaGenerationStreamId: "ideas",
+            ideas: [
+              {
+                ideaId: "prep-forecast-id",
+                title: "Prep Forecast",
+                description: "Recommend daily prep quantities.",
+                selection: "selected",
+              },
+            ],
+            ideaEvaluations: {},
+            ideaSelectionStreamId: "selection-rationale",
+            refinementGenerationStreamIds: {},
+            refinedIdeas: {},
+            refinedIdeaResearch: {},
+            error: null,
+          }}
+        />
+      </MemoryRouter>,
+    )
+
+    expect(
+      screen.queryByText("Why these ideas were selected"),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText("Selection reasoning")).not.toBeInTheDocument()
+    expect(mocks.subscribeToTextStream).not.toHaveBeenCalledWith(
+      "selection-rationale",
+      expect.anything(),
+      expect.anything(),
+    )
+    expect(
+      screen.queryByRole("button", {
+        name: /Improve and research selected ideas/,
+      }),
+    ).not.toBeInTheDocument()
+  })
+
+  it("keeps a focused downstream stage until focus leaves after completion", () => {
+    const selectedIdea = {
+      ideaId: "prep-forecast-id",
+      title: "Prep Forecast",
+      description: "Recommend daily prep quantities.",
+      selection: "selected" as const,
+    }
+    const runningRun = {
+      status: "running" as const,
+      failedStage: null,
+      researchPromptStreamId: null,
+      research: [],
+      researchSummaryStreamId: null,
+      ideaGenerationStreamId: null,
+      ideas: [selectedIdea],
+      ideaEvaluations: {},
+      ideaSelectionStreamId: "selection",
+      refinementGenerationStreamIds: {
+        "prep-forecast-id": "refinement",
+      },
+      refinedIdeas: {},
+      refinedIdeaResearch: {},
+      error: null,
+    }
+    const { rerender } = render(
+      <MemoryRouter>
+        <IdeaJobView
+          jobSlug="generated-ideas"
+          prompt="Generate ideas"
+          title="Generated ideas"
+          run={runningRun}
+        />
+      </MemoryRouter>,
+    )
+    const improvementStage = screen.getByRole("button", {
+      name: /Improve and research selected ideas Running/,
+    })
+    act(() => improvementStage.focus())
+
+    rerender(
+      <MemoryRouter>
+        <IdeaJobView
+          jobSlug="generated-ideas"
+          prompt="Generate ideas"
+          title="Generated ideas"
+          run={{
+            ...runningRun,
+            status: "completed",
+            refinedIdeas: {
+              "prep-forecast-id": {
+                ideaId: "prep-forecast-id",
+                title: "Confidence-Aware Prep Forecast",
+                description: "Recommend prep ranges with confidence.",
+              },
+            },
+            refinedIdeaResearch: {
+              "prep-forecast-id": {
+                deepSearchJobId: "prep-research",
+                title: "Confidence-Aware Prep Forecast",
+                slug: "confidence-aware-prep-forecast",
+                researchRequest: "Research the improved prep forecast.",
+              },
+            },
+          }}
+        />
+      </MemoryRouter>,
+    )
+
+    expect(improvementStage).toHaveFocus()
+    expect(improvementStage).toHaveTextContent("Complete")
+
+    const ideaLink = screen.getByRole("link", {
+      name: "View Confidence-Aware Prep Forecast",
+    })
+    act(() => ideaLink.focus())
+
+    expect(ideaLink).toHaveFocus()
+    expect(
+      screen.queryByRole("button", {
+        name: /Improve and research selected ideas/,
+      }),
+    ).not.toBeInTheDocument()
+  })
+
+  it.each([
+    {
+      failedStage: "refinement" as const,
+      message: "One or more selected ideas could not be improved.",
+    },
+    {
+      failedStage: "idea-research" as const,
+      message: "Supporting research did not complete for every selected idea.",
+    },
+  ])("explains a $failedStage failure in the downstream stage", ({ failedStage, message }) => {
+    render(
+      <MemoryRouter>
+        <IdeaJobView
+          jobSlug="generated-ideas"
+          prompt="Generate ideas"
+          title="Generated ideas"
+          run={{
+            status: "failed",
+            failedStage,
+            researchPromptStreamId: null,
+            research: [],
+            researchSummaryStreamId: null,
+            ideaGenerationStreamId: null,
+            ideas: [
+              {
+                ideaId: "prep-forecast-id",
+                title: "Prep Forecast",
+                description: "Recommend daily prep quantities.",
+                selection: "selected",
+              },
+            ],
+            ideaEvaluations: {},
+            ideaSelectionStreamId: null,
+            refinementGenerationStreamIds: {},
+            refinedIdeas:
+              failedStage === "idea-research"
+                ? {
+                    "prep-forecast-id": {
+                      ideaId: "prep-forecast-id",
+                      title: "Improved Prep Forecast",
+                      description: "Recommend confidence-aware prep ranges.",
+                    },
+                  }
+                : {},
+            refinedIdeaResearch: {},
+            error: "The workflow stopped",
+          }}
+        />
+      </MemoryRouter>,
+    )
+
+    expect(
+      screen.getByRole("button", {
+        name: /Improve and research selected ideas Failed/,
+      }),
+    ).toBeVisible()
+    expect(screen.getByText(message)).toBeVisible()
+  })
+
+  it("marks downstream work not run when selection fails after recording selections", () => {
+    render(
+      <MemoryRouter>
+        <IdeaJobView
+          jobSlug="generated-ideas"
+          prompt="Generate ideas"
+          title="Generated ideas"
+          run={{
+            status: "failed",
+            failedStage: "selection",
+            researchPromptStreamId: "planning",
+            research: [],
+            researchSummaryStreamId: "summary",
+            ideaGenerationStreamId: "ideas",
+            ideas: [
+              {
+                ideaId: "prep-forecast-id",
+                title: "Prep Forecast",
+                description: "Recommend daily prep quantities.",
+                selection: "selected",
+              },
+            ],
+            ideaEvaluations: {},
+            ideaSelectionStreamId: "selection",
+            refinementGenerationStreamIds: {},
+            refinedIdeas: {},
+            refinedIdeaResearch: {},
+            error: "Selection failed",
+          }}
+        />
+      </MemoryRouter>,
+    )
+
+    expect(
+      screen.getByRole("button", {
+        name: /Improve and research selected ideas Not run/,
+      }),
+    ).toBeVisible()
+  })
+
+  it("shows a refined idea title once and links to its research", () => {
     render(
       <MemoryRouter>
         <IdeaDetailView
@@ -408,12 +868,27 @@ describe("Ideas", () => {
         name: "Confidence-Aware Prep Forecast",
       }),
     ).toBeVisible()
-    expect(screen.getByText("Prep Forecast")).toBeVisible()
+    expect(
+      screen.getAllByText("Confidence-Aware Prep Forecast"),
+    ).toHaveLength(1)
+    const processDetails = screen.getByRole("button", {
+      name: "How this idea was developed",
+    })
+    expect(processDetails).toHaveAttribute("aria-expanded", "false")
+    expect(screen.getByText("Prep Forecast")).not.toBeVisible()
+    expect(
+      screen
+        .getByRole("heading", { level: 2, name: "Improved idea" })
+        .compareDocumentPosition(processDetails) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
     expect(
       screen.getByText(
         "Recommend prep ranges with confidence and staff overrides.",
       ),
     ).toBeVisible()
+    expect(screen.getByTestId("idea-assessment-0")).not.toBeVisible()
+    fireEvent.click(processDetails)
     expect(screen.getByTestId("idea-assessment-0")).toBeVisible()
     expect(screen.queryByTestId("idea-research-prep-research")).toBeNull()
     expect(mocks.subscribeToDeepSearchJob).not.toHaveBeenCalled()
@@ -426,6 +901,65 @@ describe("Ideas", () => {
     )
   })
 
+  it("preserves a manually expanded idea-development section through completion", () => {
+    const runningRun = {
+      status: "running" as const,
+      failedStage: null,
+      researchPromptStreamId: null,
+      research: [],
+      researchSummaryStreamId: null,
+      ideaGenerationStreamId: "ideas",
+      ideas: [
+        {
+          ideaId: "prep-forecast-id",
+          title: "Prep Forecast",
+          description: "Recommend fixed prep quantities.",
+          selection: "selected" as const,
+        },
+      ],
+      ideaEvaluations: {
+        "prep-forecast-id": {
+          pros: ["Practical"],
+          cons: ["Needs data"],
+          critique: "Worth improving.",
+        },
+      },
+      ideaSelectionStreamId: "selection",
+      refinementGenerationStreamIds: {},
+      refinedIdeas: {},
+      refinedIdeaResearch: {},
+      error: null,
+    }
+    const renderView = (status: "running" | "completed") => (
+      <MemoryRouter>
+        <IdeaDetailView
+          ideaId="prep-forecast-id"
+          jobSlug="generated-ideas"
+          jobTitle="Generated ideas"
+          numberOfIdeas={1}
+          run={{ ...runningRun, status }}
+        />
+      </MemoryRouter>
+    )
+    const { rerender } = render(renderView("running"))
+    const processDetails = screen.getByRole("button", {
+      name: "How this idea was developed",
+    })
+    expect(processDetails).toHaveAttribute("aria-expanded", "true")
+
+    fireEvent.click(processDetails)
+    fireEvent.click(processDetails)
+    act(() => processDetails.focus())
+    rerender(renderView("completed"))
+
+    expect(
+      screen.getByRole("button", { name: "How this idea was developed" }),
+    ).toBe(processDetails)
+    expect(processDetails).toHaveAttribute("aria-expanded", "true")
+    expect(processDetails).toHaveFocus()
+    expect(screen.getByTestId("idea-assessment-0")).toBeVisible()
+  })
+
   it("shows persisted ideas before their evaluation calls start", () => {
     render(
       <MemoryRouter>
@@ -436,9 +970,9 @@ describe("Ideas", () => {
           run={{
           status: "running",
           failedStage: null,
-          researchPromptStreamId: "planning",
+          researchPromptStreamId: null,
           research: [],
-          researchSummaryStreamId: "summary",
+          researchSummaryStreamId: null,
           ideaGenerationStreamId: "ideas",
           ideas: [
             {
@@ -460,7 +994,9 @@ describe("Ideas", () => {
     )
 
     expect(
-      screen.getByRole("button", { name: /Generate ideas Running/ }),
+      screen.getByRole("button", {
+        name: /Generate and assess ideas Running/,
+      }),
     ).toBeVisible()
     expect(screen.getByRole("link", { name: "View Prep Forecast" })).toBeVisible()
     expect(screen.getByText("Awaiting selection")).toBeVisible()
@@ -510,6 +1046,75 @@ describe("Ideas", () => {
     expect(
       screen.getByRole("button", { name: /Plan the research Failed/ }),
     ).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: /Deep research Not run/ }),
+    ).toBeVisible()
+    expect(
+      screen.getByRole("button", {
+        name: /Summarise the research Not run/,
+      }),
+    ).toBeVisible()
+    expect(
+      screen.getByRole("button", {
+        name: /Generate and assess ideas Not run/,
+      }),
+    ).toBeVisible()
+    expect(
+      screen.queryByRole("button", { name: /Waiting/ }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByText("Review what completed before the run stopped."),
+    ).toBeVisible()
+    expect(
+      screen.queryByText(
+        "Follow the current stage or expand an earlier stage for details.",
+      ),
+    ).not.toBeInTheDocument()
+  })
+
+  it("marks stages after a research failure as not run", () => {
+    render(
+      <IdeaJobView
+        jobSlug="generated-ideas"
+        title="Generated ideas"
+        prompt="Generate ideas"
+        run={{
+          status: "failed",
+          failedStage: "research",
+          researchPromptStreamId: "planning",
+          research: [],
+          researchSummaryStreamId: null,
+          ideaGenerationStreamId: null,
+          ideas: [],
+          ideaEvaluations: {},
+          ideaSelectionStreamId: null,
+          refinementGenerationStreamIds: {},
+          refinedIdeas: {},
+          refinedIdeaResearch: {},
+          error: "Research failed",
+        }}
+      />,
+    )
+
+    expect(
+      screen.getByRole("button", { name: /Plan the research Complete/ }),
+    ).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: /Deep research Failed/ }),
+    ).toBeVisible()
+    expect(
+      screen.getByRole("button", {
+        name: /Summarise the research Not run/,
+      }),
+    ).toBeVisible()
+    expect(
+      screen.getByRole("button", {
+        name: /Generate and assess ideas Not run/,
+      }),
+    ).toBeVisible()
+    expect(
+      screen.queryByRole("button", { name: /Waiting/ }),
+    ).not.toBeInTheDocument()
   })
 
   it("uses the reported failure stage instead of the last stream boundary", () => {
@@ -548,7 +1153,9 @@ describe("Ideas", () => {
     )
 
     expect(
-      screen.getByRole("button", { name: /Generate ideas Failed/ }),
+      screen.getByRole("button", {
+        name: /Generate and assess ideas Failed/,
+      }),
     ).toBeVisible()
     expect(
       screen.getByRole("button", { name: /Summarise the research Complete/ }),
@@ -589,7 +1196,9 @@ describe("Ideas", () => {
     )
 
     expect(
-      screen.getByRole("button", { name: /Generate ideas Failed/ }),
+      screen.getByRole("button", {
+        name: /Generate and assess ideas Failed/,
+      }),
     ).toBeVisible()
     expect(screen.getByRole("link", { name: "View Prep Forecast" })).toBeVisible()
     expect(screen.getByText("Selection incomplete")).toBeVisible()

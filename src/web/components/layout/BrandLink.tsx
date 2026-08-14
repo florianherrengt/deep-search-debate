@@ -8,7 +8,6 @@ export function BrandLink() {
       component={Link}
       sx={{
         color: "text.primary",
-        flexGrow: 1,
         fontWeight: 650,
         letterSpacing: "-0.02em",
         textDecoration: "none",

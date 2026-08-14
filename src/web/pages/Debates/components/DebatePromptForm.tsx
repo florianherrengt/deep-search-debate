@@ -1,12 +1,17 @@
-import { AutoAwesomeRounded, LightbulbOutlined } from "@mui/icons-material"
+import {
+  AutoAwesomeRounded,
+  ExpandMoreRounded,
+  LightbulbOutlined,
+  TuneRounded,
+} from "@mui/icons-material"
 import {
   Alert,
   Button,
   Card,
   CardContent,
-  FormControlLabel,
+  Collapse,
+  MenuItem,
   Stack,
-  Switch,
   TextField,
   Typography,
 } from "@mui/material"
@@ -16,37 +21,36 @@ import { Link } from "react-router-dom"
 export type DebatePromptFormProps = {
   onSubmit: (input: {
     prompt: string
-    isPublic: boolean
     numberOfIdeas: number
   }) => void
   isStarting?: boolean
   error?: string | null
   initialPrompt?: string
-  initialIsPublic?: boolean
   initialNumberOfIdeas?: number
 }
+
+const ideaCountOptions = [6, 8] as const
 
 export function DebatePromptForm({
   onSubmit,
   isStarting = false,
   error = null,
   initialPrompt = "",
-  initialIsPublic = false,
   initialNumberOfIdeas = 8,
 }: DebatePromptFormProps) {
   const [prompt, setPrompt] = useState(initialPrompt)
-  const [isPublic, setIsPublic] = useState(initialIsPublic)
   const [numberOfIdeas, setNumberOfIdeas] = useState(initialNumberOfIdeas)
-  const ideaCountIsValid =
-    Number.isInteger(numberOfIdeas) &&
-    numberOfIdeas >= 6 &&
-    numberOfIdeas <= 8
+  const [advancedOptionsOpen, setAdvancedOptionsOpen] = useState(false)
+  const ideaCountIsValid = ideaCountOptions.some(
+    (option) => option === numberOfIdeas,
+  )
+  const handedOffPrompt = initialPrompt.trim().length > 0
 
   function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     const trimmedPrompt = prompt.trim()
     if (trimmedPrompt && ideaCountIsValid && !isStarting) {
-      onSubmit({ prompt: trimmedPrompt, isPublic, numberOfIdeas })
+      onSubmit({ prompt: trimmedPrompt, numberOfIdeas })
     }
   }
 
@@ -56,12 +60,13 @@ export function DebatePromptForm({
         <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
           <AutoAwesomeRounded color="primary" />
           <Typography component="h1" variant="h4">
-            Debate ideas
+            {handedOffPrompt ? "Review and start your debate" : "Debate ideas"}
           </Typography>
         </Stack>
         <Typography color="text.secondary" variant="body1">
-          AI agents debate multiple researched ideas head-to-head over multiple
-          rounds. See which one wins.
+          {handedOffPrompt
+            ? "Your question is ready. Edit it if needed, then start the debate."
+            : "Describe a problem or decision. The agents will research competing ideas, test them head-to-head, and choose a winner."}
         </Typography>
       </Stack>
 
@@ -74,38 +79,48 @@ export function DebatePromptForm({
               autoFocus
               disabled={isStarting}
               label="What should the ideas solve?"
-              minRows={4}
+              minRows={handedOffPrompt ? 2 : 3}
               multiline
               onChange={(event) => setPrompt(event.target.value)}
               placeholder="Create a product that helps independent cafés reduce food waste."
               value={prompt}
             />
-            <TextField
+            <Button
+              aria-expanded={advancedOptionsOpen}
+              color="inherit"
               disabled={isStarting}
-              error={!ideaCountIsValid}
-              helperText="Generate 6 to 8 ideas. The selector admits an even set of at least 6."
-              label="Ideas to generate"
-              onChange={(event) => setNumberOfIdeas(Number(event.target.value))}
-              slotProps={{ htmlInput: { min: 6, max: 8, step: 1 } }}
-              type="number"
-              value={numberOfIdeas}
-            />
-            <Stack spacing={0.25}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={isPublic}
-                    disabled={isStarting}
-                    onChange={(event) => setIsPublic(event.target.checked)}
-                  />
-                }
-                label="Make this debate public"
-              />
-              <Typography color="text.secondary" variant="body2">
-                Public debates can be watched live by anyone with the link. You
-                can change this later.
-              </Typography>
-            </Stack>
+              endIcon={
+                <ExpandMoreRounded
+                  sx={{
+                    transform: advancedOptionsOpen ? "rotate(180deg)" : undefined,
+                  }}
+                />
+              }
+              onClick={() => setAdvancedOptionsOpen((current) => !current)}
+              startIcon={<TuneRounded />}
+              sx={{ alignSelf: "flex-start", px: 0.5 }}
+            >
+              Advanced options
+            </Button>
+            <Collapse in={advancedOptionsOpen} unmountOnExit>
+              <TextField
+                disabled={isStarting}
+                error={!ideaCountIsValid}
+                fullWidth
+                helperText="Choose how many candidate ideas enter the tournament."
+                label="Candidate ideas"
+                onChange={(event) => setNumberOfIdeas(Number(event.target.value))}
+                select
+                size="small"
+                value={numberOfIdeas}
+              >
+                {ideaCountOptions.map((option) => (
+                  <MenuItem key={option} value={option}>
+                    {option} ideas
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Collapse>
             <Stack
               direction={{ xs: "column", sm: "row" }}
               spacing={1}
@@ -116,7 +131,7 @@ export function DebatePromptForm({
                 sx={{ flexGrow: 1 }}
                 variant="body2"
               >
-                Research, debates, and results stay open to inspect.
+                Private by default. You can share it after it starts.
               </Typography>
               <Button
                 disabled={isStarting || !prompt.trim() || !ideaCountIsValid}
@@ -138,7 +153,7 @@ export function DebatePromptForm({
         sx={{ alignSelf: "flex-start" }}
         to="/ideas"
       >
-        Open the idea generator instead
+        Only generate options
       </Button>
     </Stack>
   )

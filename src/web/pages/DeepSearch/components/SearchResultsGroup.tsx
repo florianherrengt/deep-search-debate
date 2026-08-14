@@ -4,7 +4,6 @@ import {
   AccordionDetails,
   AccordionSummary,
   Chip,
-  Divider,
   Paper,
   Stack,
   Typography,
@@ -57,7 +56,7 @@ export function SearchResultsGroup({
           </Stack>
         </Stack>
 
-        <Typography component="h5" variant="h5" sx={{ overflowWrap: "anywhere" }}>
+        <Typography component="h4" variant="h5" sx={{ overflowWrap: "anywhere" }}>
           {search.query}
         </Typography>
 
@@ -74,14 +73,16 @@ export function SearchResultsGroup({
           streamId={search.querySummaryStreamId}
         />
       </Stack>
-
-      <Divider />
-
       <Accordion
         disableGutters
         elevation={0}
-        slots={{ heading: "h6" }}
+        slots={{ heading: "h5" }}
         square
+        sx={{
+          borderTop: 1,
+          borderColor: "divider",
+          "&::before": { display: "none" },
+        }}
       >
         <AccordionSummary
           expandIcon={<ExpandMore />}

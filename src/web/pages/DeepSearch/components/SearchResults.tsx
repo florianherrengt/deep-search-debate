@@ -13,7 +13,7 @@ export function SearchResults({ searches }: SearchResultsProps) {
   return (
     <Stack component="section" spacing={2} aria-labelledby={sectionId}>
       <Stack spacing={0.5}>
-        <Typography id={sectionId} component="h4" variant="h5">
+        <Typography id={sectionId} component="h3" variant="h5">
           Research results
         </Typography>
         <Typography color="text.secondary">

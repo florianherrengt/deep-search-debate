@@ -22,8 +22,11 @@ export const Ready: Story = {
   args: { onSubmit: () => undefined },
 }
 
-export const ReadyToPublish: Story = {
-  args: { initialIsPublic: true, onSubmit: () => undefined },
+export const HandedOffFromLandingPage: Story = {
+  args: {
+    initialPrompt: "Should we enter the independent café market?",
+    onSubmit: () => undefined,
+  },
 }
 
 export const StartingTournament: Story = {

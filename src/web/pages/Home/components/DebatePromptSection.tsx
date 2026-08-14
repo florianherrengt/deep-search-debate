@@ -9,7 +9,7 @@ import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { sectionTitleSx } from "../landingStyles.ts"
 
-export function DebatePromptSection() {
+export function DebatePromptSection({ authenticated }: { authenticated: boolean }) {
   const [prompt, setPrompt] = useState("")
   const navigate = useNavigate()
 
@@ -70,7 +70,9 @@ export function DebatePromptSection() {
             Start a debate
           </Button>
           <Typography color="text.secondary" variant="caption">
-            Sign in required. Your debate is saved automatically.
+            {authenticated
+              ? "Your debate is saved automatically."
+              : "Sign in required. Your debate is saved automatically."}
           </Typography>
         </Stack>
       </Stack>

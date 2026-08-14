@@ -10,18 +10,20 @@ import type { IdeaEvaluation } from "../../../lib/ideaJobs.ts"
 
 function AssessmentPoints({
   color,
+  headingComponent,
   icon: Icon,
   points,
   title,
 }: {
   color: "success.main" | "warning.main"
+  headingComponent: "h3" | "h4"
   icon: typeof CheckCircleOutlined
   points: string[]
   title: string
 }) {
   return (
     <Stack spacing={1.25}>
-      <Typography component="h3" variant="subtitle1">
+      <Typography component={headingComponent} variant="subtitle1">
         {title}
       </Typography>
       <Stack
@@ -48,11 +50,15 @@ function AssessmentPoints({
 
 export function IdeaAssessment({
   evaluation,
+  headingComponent = "h2",
   position,
 }: {
   evaluation: IdeaEvaluation
+  headingComponent?: "h2" | "h3"
   position: number
 }) {
+  const detailHeadingComponent = headingComponent === "h2" ? "h3" : "h4"
+
   return (
     <Card
       component="section"
@@ -62,7 +68,7 @@ export function IdeaAssessment({
       <CardContent>
         <Stack spacing={2}>
           <Stack spacing={0.5}>
-            <Typography component="h2" variant="h6">
+            <Typography component={headingComponent} variant="h6">
               Assessment of original idea
             </Typography>
             <Typography color="text.secondary" variant="body2">
@@ -81,12 +87,14 @@ export function IdeaAssessment({
           >
             <AssessmentPoints
               color="success.main"
+              headingComponent={detailHeadingComponent}
               icon={CheckCircleOutlined}
               points={evaluation.pros}
               title="Pros"
             />
             <AssessmentPoints
               color="warning.main"
+              headingComponent={detailHeadingComponent}
               icon={RemoveCircleOutlined}
               points={evaluation.cons}
               title="Cons"
@@ -94,7 +102,7 @@ export function IdeaAssessment({
           </Box>
           <Divider />
           <Stack spacing={0.75}>
-            <Typography component="h3" variant="subtitle1">
+            <Typography component={detailHeadingComponent} variant="subtitle1">
               Analysis
             </Typography>
             <Typography color="text.secondary">

@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest"
 import {
+  getAdjacentMatches,
   getCompletedMatchCount,
   getCurrentSwissRound,
-  getSelectedMatch,
+  getClosestAlternative,
+  getMatch,
   getSwissRounds,
   getWinner,
+  getWinnerReason,
 } from "./debateSelectors.ts"
 import type {
   DebateIdea,
@@ -29,6 +32,7 @@ function match(
   debateMatchId: string,
   status: DebateMatch["status"],
   winnerIdeaId: string | null = null,
+  messages: DebateMatch["messages"] = [],
 ): DebateMatch {
   return {
     debateMatchId,
@@ -37,7 +41,7 @@ function match(
     secondIdea,
     winnerIdeaId,
     status,
-    messages: [],
+    messages,
   }
 }
 
@@ -69,7 +73,18 @@ const tournament: DebateTournament = {
       debateRoundId: "final",
       stage: "final",
       stageRoundNumber: 1,
-      matches: [match("final", "completed", secondIdea.ideaId)],
+      matches: [
+        match("final", "completed", secondIdea.ideaId, [
+          {
+            debateMessageId: "judge-verdict",
+            llmGenerationId: "judge-generation",
+            position: 4,
+            speakerSlot: 2,
+            text: "Second idea wins because it is easier to validate.",
+            createdAt: new Date("2026-08-12T10:00:00.000Z"),
+          },
+        ]),
+      ],
     },
   ],
   standings: [],
@@ -84,12 +99,38 @@ describe("debate selectors", () => {
       ["swiss-one", "swiss-two"],
     )
     expect(getWinner(tournament)).toBe(secondIdea)
+    expect(getClosestAlternative(tournament)).toBe(firstIdea)
+    expect(getWinnerReason(tournament)).toBe(
+      "Second idea wins because it is easier to validate.",
+    )
   })
 
-  it("prefers an explicit selection, then a running match", () => {
-    expect(getSelectedMatch(tournament, "completed")?.debateMatchId).toBe(
-      "completed",
-    )
-    expect(getSelectedMatch(tournament, null)?.debateMatchId).toBe("running")
+  it("does not invent a closest alternative before the final is decided", () => {
+    expect(
+      getClosestAlternative({
+        ...tournament,
+        rounds: tournament.rounds.map((round) =>
+          round.stage === "final"
+            ? {
+                ...round,
+                matches: round.matches.map((finalMatch) => ({
+                  ...finalMatch,
+                  status: "running" as const,
+                  winnerIdeaId: null,
+                })),
+              }
+            : round,
+        ),
+      }),
+    ).toBeUndefined()
+  })
+
+  it("finds a routed match and its previous and next matches", () => {
+    expect(getMatch(tournament, "running")?.debateMatchId).toBe("running")
+    expect(getMatch(tournament, "missing")).toBeUndefined()
+    const adjacentMatches = getAdjacentMatches(tournament, "running")
+    expect(adjacentMatches.previous?.debateMatchId).toBe("completed")
+    expect(adjacentMatches.next?.debateMatchId).toBe("final")
+    expect(getAdjacentMatches(tournament, "missing")).toEqual({})
   })
 })

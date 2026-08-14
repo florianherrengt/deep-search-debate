@@ -57,8 +57,8 @@ test.describe("Ideas", () => {
         ),
     )
 
-    await page.getByLabel("What should we generate ideas for?").fill(prompt)
-    await page.getByRole("button", { name: "Generate ideas" }).click()
+    await page.getByLabel("Question, goal, or constraints").fill(prompt)
+    await page.getByRole("button", { name: "Generate options" }).click()
 
     const created = await createdResponse
     expect(created.status()).toBe(202)
@@ -268,9 +268,54 @@ test.describe("Ideas", () => {
       expect(answer.text).toContain(refined?.title ?? "missing refined title")
     }
 
-    const ideaStage = page.getByRole("button", { name: /Generate ideas/ })
+    const ideaStage = page.getByRole("button", {
+      name: /Generate and assess ideas/,
+    })
+    const progressStages = page.getByRole("group", {
+      name: "Idea generation stages",
+    })
+    const progressStageGeometry = await progressStages
+      .locator(":scope > *")
+      .evaluateAll((stages) =>
+        stages.map((stage, index) => {
+          const bounds = stage.getBoundingClientRect()
+          const previousBounds = stages[index - 1]?.getBoundingClientRect()
+          const styles = getComputedStyle(stage)
+          return {
+            borderBottomWidth: Number.parseFloat(styles.borderBottomWidth),
+            borderTopWidth: Number.parseFloat(styles.borderTopWidth),
+            gap: previousBounds ? bounds.top - previousBounds.bottom : null,
+            radiusBottomLeft: Number.parseFloat(styles.borderBottomLeftRadius),
+            radiusBottomRight: Number.parseFloat(styles.borderBottomRightRadius),
+            radiusTopLeft: Number.parseFloat(styles.borderTopLeftRadius),
+            radiusTopRight: Number.parseFloat(styles.borderTopRightRadius),
+          }
+        }),
+      )
+    expect(progressStageGeometry).toHaveLength(4)
+    expect(progressStageGeometry.slice(1).every(({ gap }) => gap === 0)).toBe(
+      true,
+    )
+    expect(progressStageGeometry[0]?.radiusTopLeft).toBe(10)
+    expect(progressStageGeometry[0]?.radiusTopRight).toBe(10)
+    expect(progressStageGeometry.at(-1)?.radiusBottomLeft).toBe(10)
+    expect(progressStageGeometry.at(-1)?.radiusBottomRight).toBe(10)
+    expect(
+      progressStageGeometry.slice(0, -1).every(
+        ({ radiusBottomLeft, radiusBottomRight }) =>
+          radiusBottomLeft === 0 && radiusBottomRight === 0,
+      ),
+    ).toBe(true)
+    expect(
+      progressStageGeometry.slice(1).every(
+        ({ borderTopWidth }, index) =>
+          borderTopWidth +
+            (progressStageGeometry[index]?.borderBottomWidth ?? 0) ===
+          1,
+      ),
+    ).toBe(true)
     await expect(ideaStage).toContainText("Complete")
-    await expect(ideaStage).toHaveAttribute("aria-expanded", "true")
+    await expect(ideaStage).toHaveAttribute("aria-expanded", "false")
     await expect(page.getByText("Raw structured output")).toHaveCount(0)
     for (const idea of ideas) {
       const refined = refinedIdeas.find(({ ideaId }) => ideaId === idea.ideaId)
@@ -282,8 +327,7 @@ test.describe("Ideas", () => {
         "href",
         `/ideas/${slug}/${idea.ideaId}#improved-idea`,
       )
-      await expect(ideaLink).toHaveAttribute("target", "_blank")
-      await expect(ideaLink).toHaveAttribute("rel", "noopener noreferrer")
+      await expect(ideaLink).not.toHaveAttribute("target", "_blank")
       await expect(
         page.getByRole("link", {
           name: `View selected ${idea.title}`,
@@ -298,7 +342,7 @@ test.describe("Ideas", () => {
       ).toHaveCount(0)
       await expect(
         page.getByText(refined?.description ?? idea.description, { exact: true }),
-      ).toHaveCount(0)
+      ).toBeVisible()
     }
     for (const child of ideaResearch) {
       await expect(
@@ -311,10 +355,24 @@ test.describe("Ideas", () => {
     await expect(
       page.getByRole("button", { name: /Select ideas/ }),
     ).toHaveCount(0)
+    await ideaStage.click()
+    await expect(ideaStage).toHaveAttribute("aria-expanded", "true")
+    await expect(
+      page.getByRole("heading", { name: /Why these ideas were selected/ }),
+    ).toHaveCount(0)
     await expect(
       page.getByRole("heading", { name: "Selection reasoning" }),
-    ).toBeVisible()
+    ).toHaveCount(0)
     await expect(page.getByText("selectedIdeaIds")).toHaveCount(0)
+    await expect(
+      page.getByText("8 of 8 ideas selected for improvement."),
+    ).toBeVisible()
+
+    await expect(
+      page.getByRole("button", {
+        name: /Improve and research selected ideas/,
+      }),
+    ).toHaveCount(0)
 
     const firstIdea = ideas[0]
     const firstRefined = refinedIdeas.find(
@@ -323,62 +381,71 @@ test.describe("Ideas", () => {
     const firstResearch = ideaResearch.find(
       ({ ideaId }) => ideaId === firstIdea.ideaId,
     )!
-    const detailPagePromise = page.waitForEvent("popup")
     await page
       .getByRole("link", {
         name: `View ${firstRefined.title}`,
         exact: true,
       })
       .click()
-    const detailPage = await detailPagePromise
-    await expect(detailPage).toHaveURL(
+    await expect(page).toHaveURL(
       new RegExp(`/ideas/${slug}/${firstIdea.ideaId}#improved-idea$`),
     )
     await expect(
-      detailPage.getByRole("heading", { level: 1, name: firstRefined.title }),
+      page.getByRole("heading", { level: 1, name: firstRefined.title }),
     ).toBeVisible()
-    const improvedHeading = detailPage.getByRole("heading", {
+    const improvedHeading = page.getByRole("heading", {
       level: 2,
       name: "Improved idea",
     })
     await expect(improvedHeading).toBeFocused()
+    const developmentStage = page.getByRole("button", {
+      name: "How this idea was developed",
+    })
+    await expect(developmentStage).toHaveAttribute("aria-expanded", "false")
+    await developmentStage.click()
+    await expect(developmentStage).toHaveAttribute("aria-expanded", "true")
     await expect(
-      detailPage.getByRole("heading", {
-        level: 2,
+      page.getByRole("heading", {
+        level: 3,
         name: "Original idea",
         exact: true,
       }),
     ).toBeVisible()
     await expect(
-      detailPage.getByText(firstIdea.description, { exact: true }),
+      page.getByText(firstIdea.description, { exact: true }),
     ).toBeVisible()
     const firstEvaluation = evaluations.find(
       (evaluation) => evaluation.ideaId === firstIdea.ideaId,
     )
-    await expect(detailPage.getByTestId("idea-assessment-0")).toBeVisible()
+    await expect(page.getByTestId("idea-assessment-0")).toBeVisible()
     await expect(
-      detailPage.getByText(firstEvaluation?.pros[0] ?? "missing pro"),
+      page.getByText(firstEvaluation?.pros[0] ?? "missing pro"),
     ).toBeVisible()
     await expect(
-      detailPage.getByText(firstEvaluation?.cons[0] ?? "missing con"),
+      page.getByText(firstEvaluation?.cons[0] ?? "missing con"),
     ).toBeVisible()
     await expect(
-      detailPage.getByTestId(`idea-research-${firstResearch.deepSearchJobId}`),
+      page.getByTestId(`idea-research-${firstResearch.deepSearchJobId}`),
     ).toHaveCount(0)
     await expect(
-      detailPage.getByRole("link", { name: "Open full research" }),
+      page.getByRole("link", { name: "Open full research" }),
     ).toHaveAttribute("href", `/deep-search/${firstResearch.slug}`)
 
-    await detailPage.reload()
+    await page.reload()
     await expect(
-      detailPage.getByRole("heading", { level: 1, name: firstRefined.title }),
-    ).toBeVisible()
-    await expect(detailPage.getByTestId("idea-assessment-0")).toBeVisible()
-    await expect(
-      detailPage.getByText(firstEvaluation?.critique ?? "missing analysis"),
+      page.getByRole("heading", { level: 1, name: firstRefined.title }),
     ).toBeVisible()
     await expect(improvedHeading).toBeFocused()
-    await detailPage.close()
+    await expect(developmentStage).toHaveAttribute("aria-expanded", "false")
+    await expect(page.getByTestId("idea-assessment-0")).toBeHidden()
+    await developmentStage.click()
+    await expect(developmentStage).toHaveAttribute("aria-expanded", "true")
+    await expect(page.getByTestId("idea-assessment-0")).toBeVisible()
+    await expect(
+      page.getByText(firstEvaluation?.critique ?? "missing analysis"),
+    ).toBeVisible()
+    await page.getByRole("link", { name: "Back to ideas" }).click()
+    await expect(page).toHaveURL(new RegExp(`/ideas/${slug}$`))
 
     const summaryStage = page.getByRole("button", {
       name: /Summarise the research/,
@@ -455,10 +522,15 @@ test.describe("Ideas", () => {
 
     await page.reload()
     const replayedIdeaStage = page.getByRole("button", {
-      name: /Generate ideas/,
+      name: /Generate and assess ideas/,
     })
     await expect(replayedIdeaStage).toContainText("Complete")
-    await expect(replayedIdeaStage).toHaveAttribute("aria-expanded", "true")
+    await expect(replayedIdeaStage).toHaveAttribute("aria-expanded", "false")
+    await expect(
+      page.getByRole("button", {
+        name: /Improve and research selected ideas/,
+      }),
+    ).toHaveCount(0)
     for (const refined of refinedIdeas) {
       await expect(
         page.getByRole("link", {
@@ -470,7 +542,7 @@ test.describe("Ideas", () => {
 
     await page.goto("/ideas")
     await expect(
-      page.getByRole("heading", { name: "Previous idea runs" }),
+      page.getByRole("heading", { name: "Previous option runs" }),
     ).toBeVisible()
     const historyLink = page.locator(`a[href="/ideas/${slug}"]`)
     await expect(historyLink).toBeVisible()

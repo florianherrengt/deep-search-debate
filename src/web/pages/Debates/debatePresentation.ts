@@ -1,7 +1,7 @@
 import type { DebateStage, DebateTournament } from "./debateUiTypes.ts"
 
 export const debateStatusPresentation = {
-  running: { label: "Running automatically", color: "primary" },
+  running: { label: "Debate in progress", color: "primary" },
   completed: { label: "Debate complete", color: "success" },
   failed: { label: "Debate failed", color: "error" },
   interrupted: { label: "Debate interrupted", color: "warning" },

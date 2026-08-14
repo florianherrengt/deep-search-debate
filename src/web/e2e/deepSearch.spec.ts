@@ -182,6 +182,27 @@ test.describe("Deep search", () => {
     const firstPageSummary = pageSummaryStreams[0]
     expect(firstPageSummary).toBeDefined()
     const summaryPath = `/api/streams/${firstPageSummary?.streamId ?? ""}`
+
+    await expect(page.getByTestId("final-answer")).toBeVisible()
+    await expect(
+      page.getByRole("heading", { name: "Research rounds" }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole("heading", { name: "Research results" }),
+    ).toHaveCount(0)
+    const roundLink = page.getByRole("link", { name: /Round 1/ })
+    await expect(roundLink).toHaveAttribute(
+      "href",
+      `/deep-search/${slug}/rounds/1`,
+    )
+    await roundLink.click()
+    await expect(page).toHaveURL(
+      new RegExp(`/deep-search/${slug}/rounds/1$`),
+    )
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Round 1" }),
+    ).toBeVisible()
+
     await expect
       .poll(() => observedStreamResponses.has(summaryPath))
       .toBe(true)
@@ -261,26 +282,7 @@ test.describe("Deep search", () => {
       .join("")
     expect(streamedFinalAnswer.trim()).not.toBe("")
 
-    const roundAccordion = page
-      .getByRole("button", { name: /Round 1/ })
-      .first()
-    await expect(roundAccordion).toHaveAttribute("aria-expanded", "false")
-    await roundAccordion.click()
-    await expect(roundAccordion).toHaveAttribute("aria-expanded", "true")
-
     const reasoningSections = [
-      {
-        events: queryEvents,
-        section: page
-          .getByRole("heading", { name: "Round 1 search queries" })
-          .locator(".."),
-      },
-      {
-        events: finalAnswerEvents,
-        section: page
-          .getByRole("heading", { name: "Final answer" })
-          .locator(".."),
-      },
       {
         events: selectionEvents,
         section: page
@@ -312,15 +314,9 @@ test.describe("Deep search", () => {
       page.getByRole("heading", { name: "Research results" }),
     ).toBeVisible()
     await expect(
-      page.getByRole("heading", { name: "Final answer" }),
-    ).toBeVisible()
-    await expect(
-      page.getByRole("heading", { name: "Round 1 candidate answer" }),
+      page.getByRole("heading", { name: "Candidate answer" }),
     ).toBeVisible()
     await expect(page.getByTestId("round-answer-0")).toHaveText(
-      streamedFinalAnswer,
-    )
-    await expect(page.getByTestId("final-answer")).toHaveText(
       streamedFinalAnswer,
     )
     await page.setViewportSize({ width: 390, height: 844 })
@@ -452,12 +448,46 @@ test.describe("Deep search", () => {
     })
 
     await page.reload()
+    await expect(page).toHaveURL(
+      new RegExp(`/deep-search/${slug}/rounds/1$`),
+    )
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Round 1" }),
+    ).toBeVisible()
+    await expect(page.getByRole("link", { name: "Back to research" })).toHaveAttribute(
+      "href",
+      `/deep-search/${slug}`,
+    )
+    await expect(
+      page.getByRole("heading", { name: "Research results" }),
+    ).toBeVisible()
+
+    await page.getByRole("link", { name: "Back to research" }).click()
+    await expect(page).toHaveURL(new RegExp(`/deep-search/${slug}$`))
+    await expect(page.getByTestId("final-answer")).toHaveText(
+      streamedFinalAnswer,
+    )
     await expect(
       page.getByRole("heading", { name: "Research rounds" }),
     ).toBeVisible()
-    await expect(
-      page.getByRole("button", { name: /Round 1/ }).first(),
-    ).toHaveAttribute("aria-expanded", "false")
+    await expect(page.getByRole("link", { name: /Round 1/ })).toBeVisible()
+    const finalReasoningSections = [
+      {
+        reasoning: finalAnswerEvents
+          .filter((event) => event.type === "reasoning")
+          .map((event) => event.text)
+          .join(""),
+        section: page
+          .getByRole("heading", { name: "Final answer" })
+          .locator(".."),
+      },
+    ].filter(({ reasoning }) => reasoning)
+    for (const { reasoning, section } of finalReasoningSections) {
+      await expect(page.getByText(reasoning, { exact: true })).toBeHidden()
+      await section.getByRole("button", { name: "Show reasoning" }).click()
+      await expect(page.getByText(reasoning, { exact: true })).toBeVisible()
+    }
+
     await page.goto("/deep-search")
     await expect(page.getByRole("heading", { name: "Previous searches" })).toBeVisible()
     const historyLink = page.locator(

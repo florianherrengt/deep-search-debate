@@ -1,26 +1,11 @@
 import { Container } from "@mui/material"
 import type { Meta, StoryObj } from "@storybook/react"
-import { useState } from "react"
-import { DebateView, type DebateViewProps } from "./DebateView.tsx"
+import { DebateView } from "./DebateView.tsx"
 import {
   completedTournament,
   semifinalTournament,
   swissTournament,
 } from "../stories/fixtures.ts"
-
-function InteractiveDebateView(props: DebateViewProps) {
-  const [selectedMatchId, setSelectedMatchId] = useState(
-    props.selectedMatchId,
-  )
-
-  return (
-    <DebateView
-      {...props}
-      onSelectMatch={setSelectedMatchId}
-      selectedMatchId={selectedMatchId}
-    />
-  )
-}
 
 const meta: Meta<typeof DebateView> = {
   title: "Pages/Debates/Tournament",
@@ -33,7 +18,6 @@ const meta: Meta<typeof DebateView> = {
       </Container>
     ),
   ],
-  render: (args) => <InteractiveDebateView {...args} />,
 }
 
 export default meta
@@ -42,21 +26,18 @@ type Story = StoryObj<typeof DebateView>
 export const RunningSwiss: Story = {
   args: {
     tournament: swissTournament,
-    selectedMatchId: swissTournament.rounds[1]?.matches[2]?.debateMatchId,
   },
 }
 
 export const RunningSemifinal: Story = {
   args: {
     tournament: semifinalTournament,
-    selectedMatchId: "semifinal-2",
   },
 }
 
 export const Completed: Story = {
   args: {
     tournament: completedTournament,
-    selectedMatchId: "final-1",
   },
 }
 

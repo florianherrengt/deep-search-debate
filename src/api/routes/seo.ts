@@ -1,11 +1,15 @@
 import { and, eq, inArray } from "drizzle-orm"
 import type { Hono } from "hono"
+import z from "zod"
 
 import { config } from "../config.ts"
 import { db } from "../db/index.ts"
 import {
   debateJobs as debateJobsTable,
+  debateMatches as debateMatchesTable,
+  debateRounds as debateRoundsTable,
   deepSearchJobs as deepSearchJobsTable,
+  deepSearchRounds as deepSearchRoundsTable,
   ideaJobs as ideaJobsTable,
   ideas as ideasTable,
 } from "../db/schema/index.ts"
@@ -15,6 +19,12 @@ const HOME_DESCRIPTION =
   "Give AI agents a problem. They generate multiple researched ideas and debate them through multiple rounds until one winner remains."
 const EXAMPLES_DESCRIPTION =
   "Explore selected RethinkLoop examples with researched ideas, multi-round AI debates, and a final winner."
+const uuidSchema = z.uuid()
+const oneBasedRoundNumberSchema = z
+  .string()
+  .regex(/^[1-9]\d*$/)
+  .transform(Number)
+  .pipe(z.number().int().positive().max(Number.MAX_SAFE_INTEGER))
 const privatePageLabels: Readonly<Record<string, string>> = {
   "/about": "About",
   "/admin/credits": "Admin Credits",
@@ -248,6 +258,55 @@ function resolveDebate(slug: string, viewerUserId: string | null): SeoPageResult
   }
 }
 
+function resolveDebateMatch(
+  slug: string,
+  matchId: string,
+  viewerUserId: string | null,
+): SeoPageResult {
+  const row = db
+    .select({
+      isPublic: debateJobsTable.isPublic,
+      prompt: ideaJobsTable.prompt,
+      status: debateJobsTable.status,
+      title: ideaJobsTable.title,
+      userId: debateJobsTable.userId,
+    })
+    .from(debateMatchesTable)
+    .innerJoin(
+      debateRoundsTable,
+      eq(debateMatchesTable.debateRoundId, debateRoundsTable.debateRoundId),
+    )
+    .innerJoin(
+      debateJobsTable,
+      eq(debateRoundsTable.debateJobId, debateJobsTable.debateJobId),
+    )
+    .innerJoin(
+      ideaJobsTable,
+      eq(debateJobsTable.debateJobId, ideaJobsTable.debateJobId),
+    )
+    .where(
+      and(
+        eq(debateMatchesTable.debateMatchId, matchId),
+        eq(ideaJobsTable.slug, slug),
+      ),
+    )
+    .get()
+
+  if (row === undefined || (!row.isPublic && row.userId !== viewerUserId)) {
+    return { kind: "not-found" }
+  }
+  return {
+    kind: "page",
+    metadata: articleMetadata({
+      description: row.prompt,
+      indexable: row.isPublic && row.status === "completed",
+      path: resourcePath("debates", slug),
+      public: row.isPublic,
+      title: row.title,
+    }),
+  }
+}
+
 function findIdeaJob(slug: string) {
   return db
     .select({
@@ -374,6 +433,59 @@ function resolveDeepSearch(
   }
 }
 
+function resolveDeepSearchRound(
+  slug: string,
+  roundNumber: number,
+  viewerUserId: string | null,
+): SeoPageResult {
+  const row = db
+    .select({
+      debateIsPublic: debateJobsTable.isPublic,
+      debateStatus: debateJobsTable.status,
+      researchRequest: deepSearchJobsTable.researchRequest,
+      title: deepSearchJobsTable.title,
+      userId: deepSearchJobsTable.userId,
+    })
+    .from(deepSearchRoundsTable)
+    .innerJoin(
+      deepSearchJobsTable,
+      eq(
+        deepSearchJobsTable.deepSearchJobId,
+        deepSearchRoundsTable.deepSearchJobId,
+      ),
+    )
+    .leftJoin(
+      ideaJobsTable,
+      eq(ideaJobsTable.ideaJobId, deepSearchJobsTable.ideaJobId),
+    )
+    .leftJoin(
+      debateJobsTable,
+      eq(debateJobsTable.debateJobId, ideaJobsTable.debateJobId),
+    )
+    .where(
+      and(
+        eq(deepSearchJobsTable.slug, slug),
+        eq(deepSearchRoundsTable.position, roundNumber - 1),
+      ),
+    )
+    .get()
+
+  if (row === undefined || !canReadInheritedResource(row, viewerUserId)) {
+    return { kind: "not-found" }
+  }
+  const isPublic = row.debateIsPublic === true
+  return {
+    kind: "page",
+    metadata: articleMetadata({
+      description: row.researchRequest,
+      indexable: isPublic && row.debateStatus === "completed",
+      path: resourcePath("deep-search", slug),
+      public: isPublic,
+      title: row.title,
+    }),
+  }
+}
+
 /** Resolves an application route using the same visibility facts as API reads. */
 export function resolveSeoPage(
   path: string,
@@ -433,6 +545,36 @@ export function resolveSeoPage(
         title: `${privatePageLabel} — RethinkLoop`,
       },
     }
+  }
+
+  const debateMatch = normalizedPath.match(
+    /^\/debates\/([^/]+)\/matches\/([^/]+)$/,
+  )
+  if (debateMatch !== null) {
+    const slug = decodeSegment(debateMatch[1])
+    const matchId = decodeSegment(debateMatch[2])
+    if (
+      slug === null ||
+      matchId === null ||
+      !uuidSchema.safeParse(matchId).success
+    ) {
+      return { kind: "not-found" }
+    }
+    return resolveDebateMatch(slug, matchId, viewerUserId)
+  }
+
+  const deepSearchRound = normalizedPath.match(
+    /^\/deep-search\/([^/]+)\/rounds\/([^/]+)$/,
+  )
+  if (deepSearchRound !== null) {
+    const slug = decodeSegment(deepSearchRound[1])
+    const roundNumberSegment = decodeSegment(deepSearchRound[2])
+    if (slug === null || roundNumberSegment === null) {
+      return { kind: "not-found" }
+    }
+    const roundNumber = oneBasedRoundNumberSchema.safeParse(roundNumberSegment)
+    if (!roundNumber.success) return { kind: "not-found" }
+    return resolveDeepSearchRound(slug, roundNumber.data, viewerUserId)
   }
 
   const match = normalizedPath.match(

@@ -26,6 +26,27 @@ describe("Home", () => {
     )
   })
 
+  it("uses session-aware save copy and a compact authenticated hierarchy", () => {
+    const { rerender } = render(
+      <MemoryRouter>
+        <Home />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByText(/sign in required/i)).toBeVisible()
+
+    rerender(
+      <MemoryRouter>
+        <Home authenticated />
+      </MemoryRouter>,
+    )
+
+    expect(screen.queryByText(/sign in required/i)).not.toBeInTheDocument()
+    expect(screen.getByText("Your debate is saved automatically.")).toBeVisible()
+    expect(screen.queryByRole("heading", { name: "See the full case" })).not.toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "How agents test the ideas" })).toBeVisible()
+  })
+
   it("hands the final question to the debate form in the URL", () => {
     render(
       <MemoryRouter>

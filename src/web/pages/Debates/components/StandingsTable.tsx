@@ -27,7 +27,7 @@ export function StandingsTable({
             <TableCell sx={{ width: 42 }}>Rank</TableCell>
             <TableCell>Idea</TableCell>
             <TableCell align="right">Wins</TableCell>
-            <TableCell align="right">Elo</TableCell>
+            <TableCell align="right">Rating</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>

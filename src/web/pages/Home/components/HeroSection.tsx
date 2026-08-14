@@ -7,7 +7,7 @@ import Typography from "@mui/material/Typography"
 import { Link as RouterLink } from "react-router-dom"
 import { IdeaTournamentDiagram } from "./IdeaTournamentDiagram.tsx"
 
-export function HeroSection() {
+export function HeroSection({ compact = false }: { compact?: boolean }) {
   return (
     <Box
       component="section"
@@ -21,11 +21,11 @@ export function HeroSection() {
             xs: "1fr",
             md: "minmax(0, 1.08fr) minmax(380px, 0.92fr)",
           },
-          minHeight: { md: "calc(100dvh - 96px)" },
+          minHeight: compact ? undefined : { md: "calc(100dvh - 96px)" },
           overflow: "clip",
-          pb: { xs: 8, md: 11 },
+          pb: compact ? { xs: 4, md: 6 } : { xs: 8, md: 11 },
           position: "relative",
-          pt: { xs: 7, md: 10 },
+          pt: compact ? { xs: 3, md: 5 } : { xs: 7, md: 10 },
           "&::before": {
             background: `radial-gradient(circle, color-mix(in srgb, ${palette.primary.main} 14%, transparent) 0%, transparent 68%)`,
             content: '""',

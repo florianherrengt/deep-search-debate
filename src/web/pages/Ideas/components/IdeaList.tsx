@@ -10,7 +10,7 @@ import type { IdeaJobRunState } from "../ideaJobState.ts"
 
 const selectionPresentation = {
   pending: { color: "default", label: "Awaiting selection" },
-  rejected: { color: "error", label: "Rejected" },
+  rejected: { color: "default", label: "Not selected" },
   selected: { color: "primary", label: "Selected" },
 } as const
 
@@ -39,13 +39,19 @@ function getIdeaPresentation(
 export function IdeaList({
   run,
   jobSlug,
+  ideas = run.ideas,
+  headingComponent = "h3",
+  showDescriptions = false,
 }: {
   jobSlug: string
   run: IdeaJobRunState
+  ideas?: IdeaJobRunState["ideas"]
+  headingComponent?: "h3" | "h4"
+  showDescriptions?: boolean
 }) {
   return (
     <Stack component="ul" spacing={1} sx={{ listStyle: "none", m: 0, p: 0 }}>
-      {run.ideas.map((idea) => {
+      {ideas.map((idea) => {
         const refinedIdea = run.refinedIdeas[idea.ideaId]
         const displayedIdea = refinedIdea ?? idea
         const presentation = getIdeaPresentation(idea, run)
@@ -56,8 +62,6 @@ export function IdeaList({
             <CardActionArea
               aria-label={`View ${displayedIdea.title}`}
               component={Link}
-              rel="noopener noreferrer"
-              target="_blank"
               to={refinedIdea ? `${destination}#improved-idea` : destination}
             >
               <CardContent>
@@ -69,10 +73,15 @@ export function IdeaList({
                     justifyContent: "space-between",
                   }}
                 >
-                  <Stack sx={{ minWidth: 0 }}>
-                    <Typography component="h3" variant="subtitle1">
+                  <Stack spacing={0.5} sx={{ minWidth: 0 }}>
+                    <Typography component={headingComponent} variant="subtitle1">
                       {displayedIdea.title}
                     </Typography>
+                    {showDescriptions && (
+                      <Typography color="text.secondary" variant="body2">
+                        {displayedIdea.description}
+                      </Typography>
+                    )}
                   </Stack>
                   <Stack
                     direction="row"

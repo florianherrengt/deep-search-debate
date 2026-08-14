@@ -17,6 +17,7 @@ import { useSeo } from "../../lib/seo.ts"
 
 interface AuthGateProps {
   anonymous?: ReactNode
+  showAnonymousDuringSessionCheck?: boolean
   children: (props: {
     authError?: string
     session: AuthSession
@@ -53,7 +54,11 @@ function SignInSeo() {
   return null
 }
 
-export function AuthGate({ anonymous, children }: AuthGateProps) {
+export function AuthGate({
+  anonymous,
+  children,
+  showAnonymousDuringSessionCheck = false,
+}: AuthGateProps) {
   const sessionQuery = authClient.useSession()
   const queryClient = useQueryClient()
   const [signingIn, setSigningIn] = useState(false)
@@ -65,6 +70,14 @@ export function AuthGate({ anonymous, children }: AuthGateProps) {
     enabled: anonymous === undefined,
     staleTime: Infinity,
   })
+
+  if (
+    showAnonymousDuringSessionCheck &&
+    anonymous !== undefined &&
+    (sessionQuery.data === null || sessionQuery.data === undefined)
+  ) {
+    return anonymous
+  }
 
   if (sessionQuery.isPending) {
     return centeredPage(

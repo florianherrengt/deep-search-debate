@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -100,6 +100,10 @@ function renderDebates(initialEntry = "/debates") {
         <Routes>
           <Route path="/debates" element={<Debates />} />
           <Route path="/debates/:slug" element={<Debates />} />
+          <Route
+            path="/debates/:slug/matches/:matchId"
+            element={<Debates />}
+          />
           <Route path="/ideas" element={<div>Idea generator</div>} />
         </Routes>
       </MemoryRouter>
@@ -108,7 +112,16 @@ function renderDebates(initialEntry = "/debates") {
 }
 
 describe("Debates", () => {
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    document.head
+      .querySelectorAll(
+        'meta[name], meta[property], link[rel="canonical"], script[data-seo-json-ld]',
+      )
+      .forEach((element) => element.remove())
+    document.title = ""
+    delete document.documentElement.dataset.seoPage
+  })
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -139,14 +152,14 @@ describe("Debates", () => {
   it("describes the tournament without fixed match or round counts", () => {
     renderDebates()
 
-    expect(document.body).toHaveTextContent("multiple researched ideas")
-    expect(document.body).toHaveTextContent("multiple rounds")
+    expect(document.body).toHaveTextContent("research competing ideas")
+    expect(document.body).toHaveTextContent("test them head-to-head")
     expect(document.body).not.toHaveTextContent(
       /\b33\b|five rounds|four ideas|semifinals?/i,
     )
   })
 
-  it("starts a tournament and streams its active transcript", async () => {
+  it("starts a private tournament and opens its live match transcript", async () => {
     renderDebates()
 
     fireEvent.change(screen.getByLabelText("What should the ideas solve?"), {
@@ -154,12 +167,28 @@ describe("Debates", () => {
     })
     fireEvent.click(screen.getByRole("button", { name: "Start a debate" }))
 
-    expect(await screen.findByText("Live opening argument")).toBeVisible()
+    const liveMatchLink = await screen.findByRole("link", {
+      name: "Open First idea versus Second idea",
+    })
+    expect(liveMatchLink).toHaveAttribute(
+      "href",
+      "/debates/better-cafe-ideas/matches/match",
+    )
     expect(
       screen.getByRole("link", {
         name: "View the underlying idea generation",
       }),
     ).toHaveAttribute("href", "/ideas/better-cafe-ideas")
+    fireEvent.click(liveMatchLink)
+
+    expect(await screen.findByText("Live opening argument")).toBeVisible()
+    expect(
+      screen.getByRole("heading", { name: "First idea vs Second idea" }),
+    ).toBeVisible()
+    expect(screen.getByRole("link", { name: "Back to debate" })).toHaveAttribute(
+      "href",
+      "/debates/better-cafe-ideas",
+    )
     expect(mocks.createDebateJob).toHaveBeenCalledWith({
       prompt: "Design a better café",
       isPublic: false,
@@ -189,22 +218,13 @@ describe("Debates", () => {
     )
   })
 
-  it("can create a public debate", async () => {
+  it("does not ask for publishing before creating a debate", () => {
     renderDebates()
 
-    fireEvent.change(screen.getByLabelText("What should the ideas solve?"), {
-      target: { value: "Design a public product" },
-    })
-    fireEvent.click(screen.getByLabelText("Make this debate public"))
-    fireEvent.click(screen.getByRole("button", { name: "Start a debate" }))
-
-    await waitFor(() =>
-      expect(mocks.createDebateJob).toHaveBeenCalledWith({
-        prompt: "Design a public product",
-        isPublic: true,
-        numberOfIdeas: 8,
-      }),
-    )
+    expect(
+      screen.queryByRole("switch", { name: /public/i }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText(/Private by default/)).toBeVisible()
   })
 
   it("lets the owner publish a debate and copy its canonical URL", async () => {
@@ -215,7 +235,8 @@ describe("Debates", () => {
     })
     renderDebates("/debates/debate-id")
 
-    fireEvent.click(await screen.findByLabelText("Public debate"))
+    fireEvent.click(await screen.findByRole("button", { name: "Share" }))
+    fireEvent.click(screen.getByRole("button", { name: "Make public" }))
     await waitFor(() =>
       expect(mocks.updateDebateJob).toHaveBeenCalledWith(
         "debate-id",
@@ -233,17 +254,38 @@ describe("Debates", () => {
     expect(screen.getByRole("button", { name: "Copied" })).toBeVisible()
   })
 
+  it("clears a dismissed visibility error before Share is reopened", async () => {
+    mocks.updateDebateJob.mockRejectedValueOnce(new Error("Network failed"))
+    renderDebates("/debates/debate-id")
+
+    fireEvent.click(await screen.findByRole("button", { name: "Share" }))
+    fireEvent.click(screen.getByRole("button", { name: "Make public" }))
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not connect to the server. Check your connection and try again.",
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Close" }))
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Share" }))
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  })
+
   it("keeps a running public debate public until its streams finish", async () => {
     mocks.getDebateJob.mockResolvedValue(tournament({ isPublic: true }))
 
     renderDebates("/debates/debate-id")
 
-    const visibility = await screen.findByLabelText("Public debate")
-    expect(visibility).toBeDisabled()
+    fireEvent.click(await screen.findByRole("button", { name: "Share" }))
     expect(
       screen.getByText("A live public debate can be made private after it finishes."),
     ).toBeVisible()
-    fireEvent.click(visibility)
+    expect(
+      screen.queryByRole("button", { name: "Make private" }),
+    ).not.toBeInTheDocument()
     expect(mocks.updateDebateJob).not.toHaveBeenCalled()
   })
 
@@ -287,6 +329,36 @@ describe("Debates", () => {
     )
   })
 
+  it("preserves matching server metadata while a direct match is loading", () => {
+    mocks.getDebateJob.mockReturnValue(new Promise(() => undefined))
+    const matchPath =
+      "/debates/better%20caf%C3%A9/matches/first%20match"
+    document.documentElement.dataset.seoPage = matchPath
+    document.title = "First idea vs Second idea — RethinkLoop"
+    const robots = document.createElement("meta")
+    robots.name = "robots"
+    robots.content = "index, follow"
+    document.head.appendChild(robots)
+    const canonical = document.createElement("link")
+    canonical.rel = "canonical"
+    canonical.href = "https://rethinkloop.com/debates/better-cafe-ideas"
+    document.head.appendChild(canonical)
+
+    renderDebates(matchPath)
+
+    expect(screen.getByRole("progressbar")).toBeVisible()
+    expect(document.title).toBe("First idea vs Second idea — RethinkLoop")
+    expect(document.head.querySelector('meta[name="robots"]')).toHaveAttribute(
+      "content",
+      "index, follow",
+    )
+    expect(document.head.querySelector('link[rel="canonical"]')).toHaveAttribute(
+      "href",
+      "https://rethinkloop.com/debates/better-cafe-ideas",
+    )
+    expect(document.documentElement.dataset.seoPage).toBe(matchPath)
+  })
+
   it("does not show visibility controls to a public viewer", async () => {
     mocks.getDebateJob.mockResolvedValue(
       tournament({ isOwner: false, isPublic: true }),
@@ -295,9 +367,120 @@ describe("Debates", () => {
     renderDebates("/debates/debate-id")
 
     expect(await screen.findByText("Better Café Ideas")).toBeVisible()
-    expect(screen.queryByLabelText("Public debate")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Share" }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText("Public")).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Copy link" })).not.toBeInTheDocument()
   })
+
+  it("restores a match directly from its URL with adjacent navigation", async () => {
+    const snapshot = tournament({ status: "completed" })
+    const firstMatch = snapshot.rounds[0].matches[0]
+    const nextMatch = {
+      ...firstMatch,
+      debateMatchId: "next-match",
+      position: 1,
+      firstIdea: {
+        ...firstMatch.secondIdea,
+        ideaId: "third",
+        title: "Third idea",
+      },
+      status: "completed" as const,
+    }
+    mocks.getDebateJob.mockResolvedValue({
+      ...snapshot,
+      rounds: [
+        {
+          ...snapshot.rounds[0],
+          matches: [firstMatch, nextMatch],
+        },
+      ],
+    })
+
+    renderDebates("/debates/better-cafe-ideas/matches/next-match")
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Third idea vs Second idea",
+      }),
+    ).toBeVisible()
+    expect(
+      screen.getByRole("link", {
+        name: "Previous: First idea versus Second idea",
+      }),
+    ).toHaveAttribute(
+      "href",
+      "/debates/better-cafe-ideas/matches/match",
+    )
+    expect(screen.getByRole("link", { name: "Back to debate" })).toHaveAttribute(
+      "href",
+      "/debates/better-cafe-ideas",
+    )
+    expect(mocks.getDebateJob).toHaveBeenCalledWith(
+      "better-cafe-ideas",
+      expect.any(AbortSignal),
+    )
+  })
+
+  it("shows a debate-scoped not-found state for an invalid match URL", async () => {
+    mocks.getDebateJob.mockResolvedValue(
+      tournament({ isPublic: true, stage: "final", status: "completed" }),
+    )
+    renderDebates("/debates/better-cafe-ideas/matches/missing-match")
+
+    expect(
+      await screen.findByRole("heading", { name: "Match not found" }),
+    ).toBeVisible()
+    expect(screen.getByRole("link", { name: "Back to debate" })).toHaveAttribute(
+      "href",
+      "/debates/better-cafe-ideas",
+    )
+    expect(
+      screen.queryByRole("heading", { name: "Debate transcript" }),
+    ).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(document.title).toBe("Match not found — RethinkLoop"),
+    )
+    expect(document.head.querySelector('meta[name="robots"]')).toHaveAttribute(
+      "content",
+      "noindex, nofollow",
+    )
+    expect(document.head.querySelector('link[rel="canonical"]')).toBeNull()
+    expect(
+      document.head.querySelector('script[data-seo-json-ld="true"]'),
+    ).toBeNull()
+  })
+
+  it.each([
+    ["failed", "Debate failed"],
+    ["interrupted", "Debate interrupted"],
+  ] as const)(
+    "explains a %s tournament from a direct match URL without exposing its internal error",
+    async (status, statusLabel) => {
+      mocks.getDebateJob.mockResolvedValue(
+        tournament({
+          status,
+          error: "Internal provider failure details",
+        }),
+      )
+
+      renderDebates("/debates/better-cafe-ideas/matches/match")
+
+      expect(await screen.findByText(statusLabel)).toBeVisible()
+      expect(
+        screen.getByText(
+          "The debate stopped before it could finish. Review any completed matches, or start a new debate.",
+        ),
+      ).toBeVisible()
+      expect(
+        screen.getByRole("link", { name: "Start a new debate" }),
+      ).toHaveAttribute("href", "/debates")
+      expect(
+        screen.queryByText("Internal provider failure details"),
+      ).not.toBeInTheDocument()
+    },
+  )
 
   it("restores a completed tournament from its durable snapshot", async () => {
     const first = tournament().rounds[0].matches[0].firstIdea
@@ -341,7 +524,26 @@ describe("Debates", () => {
     expect(
       await screen.findByRole("heading", { name: "First idea" }),
     ).toBeVisible()
+    expect(
+      screen.getByRole("heading", { name: "Decisive strengths" }),
+    ).toBeVisible()
     expect(screen.getByText("The first idea is more practical.")).toBeVisible()
+    const closestAlternative = screen.getByRole("region", {
+      name: "Closest alternative",
+    })
+    expect(
+      within(closestAlternative).getByRole("heading", {
+        name: "Closest alternative",
+      }),
+    ).toBeVisible()
+    expect(
+      within(closestAlternative).getByText("Second idea", { exact: true }),
+    ).toBeVisible()
+    expect(
+      within(closestAlternative).getByText("Second description", {
+        exact: true,
+      }),
+    ).toBeVisible()
     expect(
       screen.getByRole("link", {
         name: "View the underlying idea generation",
@@ -374,7 +576,7 @@ describe("Debates", () => {
     expect(await screen.findByText("Debate failed")).toBeVisible()
     expect(
       screen.getByText(
-        "The debate stopped before it could finish. You can review the completed matches below or start a new debate.",
+        "The debate stopped before it could finish. Review any completed matches, or start a new debate.",
       ),
     ).toBeVisible()
     expect(screen.queryByText("Judge generation failed")).not.toBeInTheDocument()
@@ -487,7 +689,7 @@ describe("Debates", () => {
   it("links to the standalone idea generator", () => {
     renderDebates()
     expect(
-      screen.getByRole("link", { name: "Open the idea generator instead" }),
+      screen.getByRole("link", { name: "Only generate options" }),
     ).toHaveAttribute("href", "/ideas")
   })
 

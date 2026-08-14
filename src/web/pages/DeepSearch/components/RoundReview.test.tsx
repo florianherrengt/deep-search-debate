@@ -67,6 +67,12 @@ describe("RoundReview", () => {
       />,
     )
 
+    expect(
+      screen.getByRole("heading", {
+        level: 4,
+        name: "Round 1 research review",
+      }),
+    ).toBeVisible()
     expect(screen.getByRole("alert")).toHaveTextContent(expected)
     expect(mocks.subscribeToTextStream).not.toHaveBeenCalled()
   })

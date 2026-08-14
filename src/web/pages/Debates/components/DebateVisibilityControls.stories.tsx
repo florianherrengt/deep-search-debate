@@ -22,6 +22,7 @@ const baseArgs = {
   canMakePrivate: true,
   isPending: false,
   onChange: () => undefined,
+  onClose: () => undefined,
   shareUrl: "https://rethinkloop.com/debates/3c6cd152-0a60-4e17-b837-21406bb338e1",
 }
 

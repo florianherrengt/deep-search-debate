@@ -11,4 +11,10 @@ describe("appTheme", () => {
     )
     expect(appTheme.vars).toBeDefined()
   })
+
+  it("removes native heading margins from semantic accordion slots", () => {
+    expect(
+      appTheme.components?.MuiAccordion?.styleOverrides,
+    ).toHaveProperty("heading.all", "unset")
+  })
 })

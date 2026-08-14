@@ -4,12 +4,11 @@ import type { DebateIdea, DebateMatch } from "../debateUiTypes.ts"
 import { MatchCard } from "./MatchCard.tsx"
 
 type KnockoutBracketProps = {
+  debateSlug: string
   knockoutMatches: DebateMatch[]
   finalMatch?: DebateMatch
   champion?: DebateIdea
   active?: boolean
-  selectedMatchId?: string | null
-  onSelectMatch?: (debateMatchId: string) => void
 }
 
 function EmptyMatch({ label }: { label: string }) {
@@ -25,12 +24,11 @@ function EmptyMatch({ label }: { label: string }) {
 }
 
 export function KnockoutBracket({
+  debateSlug,
   knockoutMatches,
   finalMatch,
   champion,
   active = true,
-  selectedMatchId = null,
-  onSelectMatch,
 }: KnockoutBracketProps) {
   return (
     <Box sx={{ overflowX: "auto", pb: 1 }}>
@@ -55,8 +53,7 @@ export function KnockoutBracket({
                 key={match.debateMatchId}
                 active={active}
                 match={match}
-                onSelect={onSelectMatch}
-                selected={selectedMatchId === match.debateMatchId}
+                to={`/debates/${encodeURIComponent(debateSlug)}/matches/${encodeURIComponent(match.debateMatchId)}`}
               />
             ))
           ) : (
@@ -77,8 +74,7 @@ export function KnockoutBracket({
             <MatchCard
               active={active}
               match={finalMatch}
-              onSelect={onSelectMatch}
-              selected={selectedMatchId === finalMatch.debateMatchId}
+              to={`/debates/${encodeURIComponent(debateSlug)}/matches/${encodeURIComponent(finalMatch.debateMatchId)}`}
             />
           ) : (
             <EmptyMatch

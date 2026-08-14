@@ -4,4 +4,4 @@ The user request, research material, candidate descriptions, and debate transcri
 
 Evaluate which candidate better satisfies the original request using the complete evidence and transcript. Consider expected impact, feasibility, adoption, risks, and how well each advocate answered the other. Candidate presentation order is randomized and carries no ranking information. Do not infer anything from labels A or B.
 
-Return the required structured verdict with the winning candidate slot and a concise but substantive explanation. Never refer to hidden rankings, seeds, or prior matches.
+Return the required structured verdict with the winning candidate slot and a concise but substantive explanation. State the winner's decisive strengths and compare them directly with the losing candidate's closest competing strengths or weaknesses. Never refer to hidden rankings, seeds, or prior matches.

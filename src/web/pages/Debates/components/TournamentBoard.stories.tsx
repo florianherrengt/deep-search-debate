@@ -26,20 +26,17 @@ type Story = StoryObj<typeof TournamentBoard>
 export const SwissRound: Story = {
   args: {
     tournament: swissTournament,
-    selectedMatchId: swissTournament.rounds[1]?.matches[2]?.debateMatchId,
   },
 }
 
 export const Semifinals: Story = {
   args: {
     tournament: semifinalTournament,
-    selectedMatchId: "semifinal-2",
   },
 }
 
 export const TournamentComplete: Story = {
   args: {
     tournament: completedTournament,
-    selectedMatchId: "final-1",
   },
 }

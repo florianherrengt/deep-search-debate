@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import type { DebateMatch } from "../debateUiTypes.ts"
@@ -51,6 +51,53 @@ function withStreamedText(text: string): DebateMatch {
 }
 
 describe("DebateTranscript", () => {
+  it("shows a status beside the transcript heading only while live", () => {
+    const completedMatch: DebateMatch = {
+      ...match,
+      status: "completed",
+    }
+    const { rerender } = render(
+      <DebateTranscript live={false} match={completedMatch} />,
+    )
+
+    expect(
+      screen.getByRole("heading", { name: "Debate transcript" }),
+    ).toBeVisible()
+    expect(screen.queryByText("Transcript", { exact: true })).toBeNull()
+
+    rerender(<DebateTranscript live match={match} />)
+
+    expect(screen.getByText("Streaming", { exact: true })).toBeVisible()
+  })
+
+  it("keeps a full-page mobile transcript scrollable without overriding manual reading", () => {
+    const { rerender } = render(<DebateTranscript fullPage match={match} />)
+    const viewport = screen.getByRole("log")
+
+    expect(viewport).toHaveStyle({
+      maxHeight: "min(520px, 60vh)",
+      minHeight: "0",
+    })
+
+    setViewportGeometry(viewport, 100)
+    rerender(
+      <DebateTranscript
+        fullPage
+        match={withStreamedText("Updated argument")}
+      />,
+    )
+    expect(viewport.scrollTop).toBe(100)
+
+    setViewportGeometry(viewport, 790)
+    rerender(
+      <DebateTranscript
+        fullPage
+        match={withStreamedText("Another updated argument")}
+      />,
+    )
+    expect(viewport.scrollTop).toBe(1_000)
+  })
+
   it("does not override manual scrolling while text streams", () => {
     const { rerender } = render(<DebateTranscript match={match} />)
     const viewport = screen.getByRole("log")
@@ -69,6 +116,27 @@ describe("DebateTranscript", () => {
     rerender(<DebateTranscript match={withStreamedText("Updated argument")} />)
 
     expect(viewport.scrollTop).toBe(1_000)
+  })
+
+  it("shows one visible role label for a judge message", () => {
+    const judgeMatch: DebateMatch = {
+      ...match,
+      status: "completed",
+      messages: [
+        {
+          ...match.messages[0],
+          speakerSlot: 2,
+          text: "The first idea makes the stronger case.",
+        },
+      ],
+    }
+
+    render(<DebateTranscript match={judgeMatch} />)
+
+    const message = within(screen.getByRole("log")).getByRole("article")
+    const roleLabels = within(message).getAllByText("Judge")
+    expect(roleLabels).toHaveLength(1)
+    expect(roleLabels[0]).toBeVisible()
   })
 
   it("does not expose a running judge's structured stream", () => {

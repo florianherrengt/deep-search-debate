@@ -1,10 +1,16 @@
 import Alert from "@mui/material/Alert"
+import Button from "@mui/material/Button"
 import Chip from "@mui/material/Chip"
 import CircularProgress from "@mui/material/CircularProgress"
 import Stack from "@mui/material/Stack"
+import Typography from "@mui/material/Typography"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
-import { useNavigate, useParams, useSearchParams } from "react-router-dom"
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom"
 import { JobHistory } from "../../components/JobHistory.tsx"
 import { RequestError } from "../../components/RequestError.tsx"
 import {
@@ -17,9 +23,11 @@ import {
 import { getRequestErrorMessage } from "../../lib/requestErrors.ts"
 import { truncateDescription, useSeo } from "../../lib/seo.ts"
 import { DebatePromptForm } from "./components/DebatePromptForm.tsx"
+import { DebateMatchDetail } from "./components/DebateMatchDetail.tsx"
 import { DebateVisibilityControls } from "./components/DebateVisibilityControls.tsx"
 import { DebateView } from "./components/DebateView.tsx"
 import { debateStatusPresentation } from "./debatePresentation.ts"
+import { getMatch } from "./debateSelectors.ts"
 import { debateJobQueryKey, useDebateJob } from "./useDebateJob.ts"
 
 const debateJobsQueryKey = ["debate-jobs"] as const
@@ -59,7 +67,7 @@ function DebateStart() {
         }
         isStarting={creation.isPending}
         initialPrompt={searchParams.get("prompt") ?? ""}
-        onSubmit={(input) => creation.mutate(input)}
+        onSubmit={(input) => creation.mutate({ ...input, isPublic: false })}
       />
 
       <JobHistory
@@ -92,11 +100,27 @@ function DebateStart() {
   )
 }
 
-function DebateDetail({ slug }: { slug: string }) {
-  const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null)
+function DebateDetail({
+  matchId,
+  slug,
+}: {
+  matchId?: string
+  slug: string
+}) {
   const queryClient = useQueryClient()
   const job = useDebateJob(slug)
-  const pageKey = `/debates/${encodeURIComponent(slug)}`
+  const debatePath = `/debates/${encodeURIComponent(slug)}`
+  const matchPath =
+    matchId === undefined
+      ? undefined
+      : `${debatePath}/matches/${encodeURIComponent(matchId)}`
+  const pageKey = matchPath ?? debatePath
+  const match =
+    matchId === undefined || job.data === undefined
+      ? undefined
+      : getMatch(job.data, matchId)
+  const invalidMatch =
+    matchId !== undefined && job.data !== undefined && match === undefined
   const debateJobId = job.data?.debateJobId
   const visibility = useMutation({
     mutationFn: (update: UpdateDebateJobInput) => {
@@ -116,11 +140,17 @@ function DebateDetail({ slug }: { slug: string }) {
   })
 
   useSeo(
-    job.data !== undefined
+    invalidMatch
+      ? {
+          title: "Match not found — RethinkLoop",
+          pageKey,
+          noindex: true,
+        }
+      : job.data !== undefined
       ? {
           title: `${job.data.title} — RethinkLoop`,
           description: truncateDescription(job.data.prompt),
-          path: job.data.isPublic ? pageKey : undefined,
+          path: job.data.isPublic ? debatePath : undefined,
           pageKey,
           noindex:
             !job.data.isPublic || job.data.status !== "completed",
@@ -159,28 +189,60 @@ function DebateDetail({ slug }: { slug: string }) {
     )
   }
 
+  if (matchId) {
+    if (!match) {
+      return (
+        <Stack spacing={2} sx={{ alignItems: "flex-start" }}>
+          <Typography component="h1" variant="h4">
+            Match not found
+          </Typography>
+          <Typography color="text.secondary">
+            This match does not exist in this debate.
+          </Typography>
+          <Button
+            component={Link}
+            to={`/debates/${encodeURIComponent(slug)}`}
+            variant="contained"
+          >
+            Back to debate
+          </Button>
+        </Stack>
+      )
+    }
+
+    return (
+      <Stack spacing={2}>
+        {job.subscriptionError && !job.data.error && (
+          <Alert severity="warning">{job.subscriptionError}</Alert>
+        )}
+        <DebateMatchDetail match={match} tournament={job.data} />
+      </Stack>
+    )
+  }
+
   return (
     <Stack spacing={2}>
       {job.subscriptionError && !job.data.error && (
         <Alert severity="warning">{job.subscriptionError}</Alert>
       )}
-      {job.data.isOwner ? (
-        <DebateVisibilityControls
-          canMakePrivate={job.data.status !== "running"}
-          error={
-            visibility.error
-              ? getRequestErrorMessage(visibility.error)
-              : undefined
-          }
-          isPending={visibility.isPending}
-          isPublic={job.data.isPublic}
-          onChange={(isPublic) => visibility.mutate({ isPublic })}
-          shareUrl={`${window.location.origin}/debates/${encodeURIComponent(slug)}`}
-        />
-      ) : null}
       <DebateView
-        onSelectMatch={setSelectedMatchId}
-        selectedMatchId={selectedMatchId}
+        ownerActions={
+          job.data.isOwner ? (
+            <DebateVisibilityControls
+              canMakePrivate={job.data.status !== "running"}
+              error={
+                visibility.error
+                  ? getRequestErrorMessage(visibility.error)
+                  : undefined
+              }
+              isPending={visibility.isPending}
+              isPublic={job.data.isPublic}
+              onChange={(isPublic) => visibility.mutate({ isPublic })}
+              onClose={() => visibility.reset()}
+              shareUrl={`${window.location.origin}/debates/${encodeURIComponent(slug)}`}
+            />
+          ) : null
+        }
         tournament={job.data}
       />
     </Stack>
@@ -188,9 +250,9 @@ function DebateDetail({ slug }: { slug: string }) {
 }
 
 export function Debates() {
-  const { slug } = useParams<{ slug: string }>()
+  const { matchId, slug } = useParams<{ matchId: string; slug: string }>()
   return slug ? (
-    <DebateDetail slug={slug} />
+    <DebateDetail matchId={matchId} slug={slug} />
   ) : (
     <DebateStart />
   )

@@ -1,0 +1,151 @@
+import {
+  ArrowBackRounded,
+  ArrowForwardRounded,
+  NavigateBeforeRounded,
+} from "@mui/icons-material"
+import { Button, Chip, Stack, Typography } from "@mui/material"
+import { Link } from "react-router-dom"
+import {
+  debateStageLabels,
+  debateStatusPresentation,
+} from "../debatePresentation.ts"
+import { getAdjacentMatches } from "../debateSelectors.ts"
+import type { DebateMatch, DebateTournament } from "../debateUiTypes.ts"
+import { DebateStoppedAlert } from "./DebateStoppedAlert.tsx"
+import { DebateTranscript } from "./DebateTranscript.tsx"
+
+export type DebateMatchDetailProps = {
+  match: DebateMatch
+  tournament: DebateTournament
+}
+
+function matchName(match: DebateMatch): string {
+  return `${match.firstIdea.title} versus ${match.secondIdea.title}`
+}
+
+function matchPath(tournament: DebateTournament, match: DebateMatch): string {
+  return `/debates/${encodeURIComponent(tournament.slug)}/matches/${encodeURIComponent(match.debateMatchId)}`
+}
+
+export function DebateMatchDetail({
+  match,
+  tournament,
+}: DebateMatchDetailProps) {
+  const { previous, next } = getAdjacentMatches(
+    tournament,
+    match.debateMatchId,
+  )
+  const round = tournament.rounds.find((candidate) =>
+    candidate.matches.some(
+      (candidateMatch) =>
+        candidateMatch.debateMatchId === match.debateMatchId,
+    ),
+  )
+  const debatePath = `/debates/${encodeURIComponent(tournament.slug)}`
+  const live = tournament.status === "running" && match.status === "running"
+  const roundLabel =
+    round?.stage === "swiss"
+      ? `Round ${round.stageRoundNumber}`
+      : round
+        ? debateStageLabels[round.stage]
+        : "Debate match"
+  const matchStatus =
+    match.status === "completed"
+      ? { label: "Decision made", color: "success" as const }
+      : live
+        ? { label: "Live now", color: "primary" as const }
+        : tournament.status === "failed" ||
+            tournament.status === "interrupted"
+          ? debateStatusPresentation[tournament.status]
+          : tournament.status === "running"
+            ? { label: "Not started", color: "default" as const }
+            : { label: "Stopped", color: "default" as const }
+
+  return (
+    <Stack spacing={3}>
+      <Button
+        component={Link}
+        startIcon={<ArrowBackRounded />}
+        sx={{ alignSelf: "flex-start" }}
+        to={debatePath}
+      >
+        Back to debate
+      </Button>
+
+      <Stack spacing={1}>
+        <Typography color="text.secondary" variant="overline">
+          {roundLabel}
+        </Typography>
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={1}
+          sx={{ alignItems: { sm: "center" } }}
+        >
+          <Typography
+            component="h1"
+            sx={{ flexGrow: 1, overflowWrap: "anywhere" }}
+            variant="h4"
+          >
+            {match.firstIdea.title} vs {match.secondIdea.title}
+          </Typography>
+          <Chip
+            color={matchStatus.color}
+            label={matchStatus.label}
+            size="small"
+            sx={{ alignSelf: "flex-start" }}
+            variant={live ? "filled" : "outlined"}
+          />
+        </Stack>
+        <Typography color="text.secondary" variant="body2">
+          From {tournament.title}
+        </Typography>
+      </Stack>
+
+      {tournament.error && <DebateStoppedAlert />}
+
+      <DebateTranscript fullPage live={live} match={match} />
+
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        spacing={1.5}
+        sx={{ justifyContent: "space-between" }}
+      >
+        {previous ? (
+          <Button
+            component={Link}
+            startIcon={<NavigateBeforeRounded />}
+            sx={{
+              justifyContent: "flex-start",
+              minWidth: 0,
+              overflowWrap: "anywhere",
+              textAlign: "left",
+              width: { xs: "100%", sm: "auto" },
+            }}
+            to={matchPath(tournament, previous)}
+            variant="outlined"
+          >
+            Previous: {matchName(previous)}
+          </Button>
+        ) : null}
+        {next && (
+          <Button
+            component={Link}
+            endIcon={<ArrowForwardRounded />}
+            sx={{
+              justifyContent: "flex-end",
+              minWidth: 0,
+              ml: { sm: "auto" },
+              overflowWrap: "anywhere",
+              textAlign: "right",
+              width: { xs: "100%", sm: "auto" },
+            }}
+            to={matchPath(tournament, next)}
+            variant="outlined"
+          >
+            Next: {matchName(next)}
+          </Button>
+        )}
+      </Stack>
+    </Stack>
+  )
+}

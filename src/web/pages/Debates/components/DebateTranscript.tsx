@@ -1,5 +1,4 @@
 import {
-  GavelRounded,
   PsychologyRounded,
   RecordVoiceOverRounded,
 } from "@mui/icons-material"
@@ -120,14 +119,6 @@ function TranscriptMessage({
             <Typography sx={{ fontWeight: 700 }} variant="caption">
               {getSpeakerName(message, match)}
             </Typography>
-            {isJudge && (
-              <Chip
-                icon={<GavelRounded />}
-                label="Judge"
-                size="small"
-                variant="outlined"
-              />
-            )}
             {streaming &&
               (stream.status === "streaming" ||
                 stream.status === "reconnecting") && (
@@ -173,9 +164,11 @@ function TranscriptMessage({
 function TranscriptMessages({
   match,
   live,
+  fullPage,
 }: {
   match: DebateMatch
   live: boolean
+  fullPage: boolean
 }) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const followOutputRef = useRef(true)
@@ -221,12 +214,20 @@ function TranscriptMessages({
       aria-live="polite"
       onScroll={handleScroll}
       role="log"
-      sx={{
-        maxHeight: { xs: 520, lg: "calc(100vh - 290px)" },
-        minHeight: 360,
+      sx={(theme) => ({
+        maxHeight: fullPage ? "min(520px, 60vh)" : 520,
+        minHeight: fullPage ? 0 : 360,
         overflowY: "auto",
-        px: { xs: 1.5, sm: 2.5 },
-      }}
+        px: 1.5,
+        [theme.breakpoints.up("sm")]: {
+          px: 2.5,
+        },
+        [theme.breakpoints.up("lg")]: {
+          maxHeight: fullPage
+            ? "min(520px, 60vh)"
+            : "calc(100vh - 290px)",
+        },
+      })}
     >
       {messages.map((message) => (
         <TranscriptMessage
@@ -244,9 +245,11 @@ function TranscriptMessages({
 export function DebateTranscript({
   match,
   live = match.status === "running",
+  fullPage = false,
 }: {
   match: DebateMatch
   live?: boolean
+  fullPage?: boolean
 }) {
   return (
     <Card variant="outlined">
@@ -263,12 +266,7 @@ export function DebateTranscript({
                 Debate transcript
               </Typography>
             </Stack>
-            <Chip
-              color={live ? "primary" : "default"}
-              label={live ? "Streaming" : "Transcript"}
-              size="small"
-              variant={live ? "filled" : "outlined"}
-            />
+            {live && <Chip color="primary" label="Streaming" size="small" />}
           </Stack>
 
           <Stack
@@ -299,7 +297,7 @@ export function DebateTranscript({
       </CardContent>
       <Divider />
       {match.messages.length > 0 ? (
-        <TranscriptMessages live={live} match={match} />
+        <TranscriptMessages fullPage={fullPage} live={live} match={match} />
       ) : (
         <Stack
           spacing={1}

@@ -135,7 +135,10 @@ const darkTheme = createTheme({
           colorScheme: "dark",
         },
         body: {
-          minWidth: 320,
+          minWidth: 0,
+        },
+        "main [data-route-focus-target]:focus:not(:focus-visible)": {
+          outline: "none",
         },
         "::selection": {
           backgroundColor: withAlpha(theme.vars.palette.primary.main, 0.28),
@@ -316,15 +319,20 @@ const darkTheme = createTheme({
         elevation: 0,
       },
       styleOverrides: {
+        heading: {
+          all: "unset",
+        },
         root: ({ theme }) => ({
           backgroundColor: theme.vars.palette.background.paper,
           backgroundImage: "none",
           boxShadow: "none",
+          // Replacing the semantic heading slot with h2/h3/h6 bypasses the
+          // slot's built-in reset, so retain the same geometry for raw slots.
+          "& > .MuiAccordion-heading": {
+            all: "unset",
+          },
           "&::before": {
             backgroundColor: theme.vars.palette.divider,
-          },
-          "&.Mui-expanded": {
-            margin: 0,
           },
         }),
       },

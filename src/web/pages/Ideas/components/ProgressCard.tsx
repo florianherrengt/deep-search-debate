@@ -7,9 +7,18 @@ import {
   Stack,
   Typography,
 } from "@mui/material"
-import { type ReactNode, useState } from "react"
+import {
+  type FocusEventHandler,
+  type ReactNode,
+  useState,
+} from "react"
 
-export type ProgressStatus = "waiting" | "running" | "completed" | "failed"
+export type ProgressStatus =
+  | "waiting"
+  | "running"
+  | "completed"
+  | "failed"
+  | "not-run"
 
 const defaultAutoExpandStatuses: ProgressStatus[] = ["running"]
 
@@ -24,6 +33,7 @@ const statusPresentation: Record<
   running: { label: "Running", color: "primary" },
   completed: { label: "Complete", color: "success" },
   failed: { label: "Failed", color: "error" },
+  "not-run": { label: "Not run", color: "default" },
 }
 
 export function ProgressCard({
@@ -31,30 +41,30 @@ export function ProgressCard({
   status,
   children,
   autoExpandStatuses = defaultAutoExpandStatuses,
+  onBlurCapture,
+  onFocusCapture,
 }: {
   title: string
   status: ProgressStatus
   children: ReactNode
   autoExpandStatuses?: ProgressStatus[]
+  onBlurCapture?: FocusEventHandler<HTMLDivElement>
+  onFocusCapture?: FocusEventHandler<HTMLDivElement>
 }) {
-  const [manualState, setManualState] = useState<{
-    status: ProgressStatus
-    expanded: boolean
-  } | null>(null)
+  const [manualExpanded, setManualExpanded] = useState<boolean | null>(null)
 
-  // A manual choice applies only during the current stage status.
-  // When the stage changes status, the new key ignores that
-  // stale choice and automatically expands or collapses the card once.
-  const expanded =
-    manualState?.status === status
-      ? manualState.expanded
-      : autoExpandStatuses.includes(status)
+  // Once someone opens or closes a stage, keep that choice as its status
+  // changes so streaming updates do not move the content out from under them.
+  const expanded = manualExpanded ?? autoExpandStatuses.includes(status)
   const presentation = statusPresentation[status]
 
   return (
     <Accordion
       expanded={expanded}
-      onChange={(_event, next) => setManualState({ status, expanded: next })}
+      onBlurCapture={onBlurCapture}
+      onChange={(_event, next) => setManualExpanded(next)}
+      onFocusCapture={onFocusCapture}
+      slots={{ heading: "h3" }}
       variant="outlined"
       disableGutters
     >
@@ -64,7 +74,7 @@ export function ProgressCard({
           spacing={1}
           sx={{ alignItems: "center", width: "100%" }}
         >
-          <Typography component="h2" variant="subtitle1" sx={{ flexGrow: 1 }}>
+          <Typography component="span" variant="subtitle1" sx={{ flexGrow: 1 }}>
             {title}
           </Typography>
           <Chip
@@ -75,7 +85,15 @@ export function ProgressCard({
           />
         </Stack>
       </AccordionSummary>
-      <AccordionDetails>{children}</AccordionDetails>
+      <AccordionDetails>
+        {status === "not-run" ? (
+          <Typography color="text.secondary">
+            This stage did not run because an earlier stage failed.
+          </Typography>
+        ) : (
+          children
+        )}
+      </AccordionDetails>
     </Accordion>
   )
 }

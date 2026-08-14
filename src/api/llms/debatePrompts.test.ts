@@ -21,5 +21,7 @@ describe("debate prompts", () => {
 
     expect(prompt).toContain("draws are forbidden")
     expect(prompt).toContain("presentation order is randomized")
+    expect(prompt).toContain("decisive strengths")
+    expect(prompt).toContain("losing candidate")
   })
 })

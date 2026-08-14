@@ -36,29 +36,39 @@ function IdeaHistory() {
   })
 
   useSeo({
-    title: "Ideas — RethinkLoop",
+    title: "Generate options — RethinkLoop",
     description:
-      "Generate multiple distinct, researched ideas from a problem statement before they enter an AI agent debate.",
+      "Generate multiple distinct, researched options from a question, goal, or set of constraints.",
     noindex: true,
   })
 
   return (
     <Stack spacing={3}>
-      <Typography component="h1" variant="h4">
-        Ideas
-      </Typography>
+      <Stack spacing={0.75}>
+        <Typography component="h1" variant="h4">
+          Generate options
+        </Typography>
+        <Typography
+          color="text.secondary"
+          sx={{ maxWidth: "65ch" }}
+          variant="body1"
+        >
+          Describe the question, goal, or constraints. You’ll get multiple
+          researched options to review.
+        </Typography>
+      </Stack>
       <PromptForm
-        label="What should we generate ideas for?"
+        label="Question, goal, or constraints"
         onSubmit={(prompt) => creation.mutate(prompt)}
         pending={creation.isPending}
-        submitLabel="Generate ideas"
+        submitLabel="Generate options"
       />
       {creation.error && <RequestError error={creation.error} />}
 
       <JobHistory
-        emptyMessage="No idea runs yet."
+        emptyMessage="No option runs yet."
         error={history.error}
-        heading="Previous idea runs"
+        heading="Previous option runs"
         headingId="idea-history"
         isPending={history.isPending}
         items={history.data?.map((job) => ({

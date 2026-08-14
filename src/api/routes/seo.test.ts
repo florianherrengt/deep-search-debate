@@ -5,9 +5,13 @@ import { config } from "../config.ts"
 import { db } from "../db/index.ts"
 import {
   debateJobs as debateJobsTable,
+  debateMatches as debateMatchesTable,
+  debateRounds as debateRoundsTable,
   deepSearchJobs as deepSearchJobsTable,
+  deepSearchRounds as deepSearchRoundsTable,
   ideaJobs as ideaJobsTable,
   ideas as ideasTable,
+  llmGenerations as llmGenerationsTable,
 } from "../db/schema/index.ts"
 import { app } from "../index.ts"
 import { DEBATE_TOURNAMENT_FORMAT } from "./debates/tournament.ts"
@@ -85,6 +89,89 @@ function seedDebate(options: {
       )
       .run()
   }
+}
+
+function seedMatch(options: {
+  debateJobId: string
+  firstIdeaId: string
+  matchId: string
+  secondIdeaId: string
+}): void {
+  const debateRoundId = crypto.randomUUID()
+  db.insert(debateRoundsTable)
+    .values({
+      debateRoundId,
+      debateJobId: options.debateJobId,
+      stage: "swiss",
+      stageRoundNumber: 1,
+    })
+    .run()
+  db.insert(debateMatchesTable)
+    .values({
+      debateMatchId: options.matchId,
+      debateRoundId,
+      position: 0,
+      firstIdeaId: options.firstIdeaId,
+      secondIdeaId: options.secondIdeaId,
+    })
+    .run()
+}
+
+function seedDebateWithMatch(options: {
+  isPublic: boolean
+  matchId: string
+  slug: string
+}): void {
+  const debateJobId = crypto.randomUUID()
+  const firstIdeaId = crypto.randomUUID()
+  const secondIdeaId = crypto.randomUUID()
+  seedDebate({
+    slug: options.slug,
+    debateJobId,
+    ideaJobId: crypto.randomUUID(),
+    isPublic: options.isPublic,
+    status: "completed",
+    ideas: [
+      {
+        ideaId: firstIdeaId,
+        title: "First idea",
+        description: "First description",
+      },
+      {
+        ideaId: secondIdeaId,
+        title: "Second idea",
+        description: "Second description",
+      },
+    ],
+  })
+  seedMatch({
+    debateJobId,
+    firstIdeaId,
+    matchId: options.matchId,
+    secondIdeaId,
+  })
+}
+
+function seedDeepSearchRound(options: {
+  deepSearchJobId: string
+  position: number
+}): void {
+  const llmGenerationId = crypto.randomUUID()
+  db.insert(llmGenerationsTable)
+    .values({
+      deepSearchJobId: options.deepSearchJobId,
+      llmGenerationId,
+      userId: "test-user-id",
+    })
+    .run()
+  db.insert(deepSearchRoundsTable)
+    .values({
+      deepSearchJobId: options.deepSearchJobId,
+      deepSearchRoundId: crypto.randomUUID(),
+      llmGenerationId,
+      position: options.position,
+    })
+    .run()
 }
 
 function createSeoApp(debateJobIds: readonly string[] = []): Hono<AppEnv> {
@@ -310,6 +397,226 @@ describe("resolveSeoPage", () => {
         noindex: true,
       },
     })
+  })
+
+  it.each([
+    "/debates/public-debate/matches/44444444-4444-4444-8444-444444444444",
+    "/debates/public-debate/matches/44444444-4444-4444-8444-444444444444/",
+  ])("resolves a public match reload at %s with its parent debate metadata", (path) => {
+    const debateJobId = "11111111-1111-4111-8111-111111111111"
+    const firstIdeaId = "22222222-2222-4222-8222-222222222222"
+    const secondIdeaId = "33333333-3333-4333-8333-333333333333"
+    seedDebate({
+      slug: "public-debate",
+      debateJobId,
+      ideaJobId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      isPublic: true,
+      status: "completed",
+      ideas: [
+        {
+          ideaId: firstIdeaId,
+          title: "First idea",
+          description: "First description",
+        },
+        {
+          ideaId: secondIdeaId,
+          title: "Second idea",
+          description: "Second description",
+        },
+      ],
+    })
+    seedMatch({
+      debateJobId,
+      firstIdeaId,
+      matchId: "44444444-4444-4444-8444-444444444444",
+      secondIdeaId,
+    })
+
+    expect(resolveSeoPage(path, null)).toMatchObject({
+      kind: "page",
+      metadata: {
+        canonicalUrl: `${config.auth.baseUrl}/debates/public-debate`,
+        description: "Prompt for public-debate",
+        noindex: false,
+        title: "Run for public-debate — RethinkLoop",
+      },
+    })
+  })
+
+  it("does not disclose malformed, missing, foreign, or private matches", () => {
+    seedDebateWithMatch({
+      isPublic: true,
+      matchId: "55555555-5555-4555-8555-555555555555",
+      slug: "other-public-debate",
+    })
+    seedDebateWithMatch({
+      isPublic: false,
+      matchId: "66666666-6666-4666-8666-666666666666",
+      slug: "private-debate",
+    })
+    seedDebate({
+      slug: "named-public-debate",
+      debateJobId: "77777777-7777-4777-8777-777777777777",
+      ideaJobId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      isPublic: true,
+      status: "completed",
+    })
+
+    for (const path of [
+      "/debates/named-public-debate/matches/not-a-uuid",
+      "/debates/named-public-debate/matches/88888888-8888-4888-8888-888888888888",
+      "/debates/named-public-debate/matches/55555555-5555-4555-8555-555555555555",
+      "/debates/private-debate/matches/66666666-6666-4666-8666-666666666666",
+    ]) {
+      expect(resolveSeoPage(path, null)).toEqual({ kind: "not-found" })
+    }
+  })
+
+  it("serves a private match only to its owner and marks it noindex", () => {
+    const matchId = "99999999-9999-4999-8999-999999999999"
+    seedDebateWithMatch({
+      isPublic: false,
+      matchId,
+      slug: "owned-private-debate",
+    })
+    const path = `/debates/owned-private-debate/matches/${matchId}`
+
+    expect(resolveSeoPage(path, "other-user-id")).toEqual({
+      kind: "not-found",
+    })
+    expect(resolveSeoPage(path, "test-user-id")).toMatchObject({
+      kind: "page",
+      metadata: {
+        canonicalUrl: null,
+        noindex: true,
+        title: "Run for owned-private-debate — RethinkLoop",
+      },
+    })
+  })
+
+  it.each([
+    "/deep-search/public-research/rounds/1",
+    "/deep-search/public-research/rounds/1/",
+  ])(
+    "resolves a public research round at %s with its parent metadata",
+    (path) => {
+      const deepSearchJobId = crypto.randomUUID()
+      seedDebate({
+        slug: "public-research-parent",
+        debateJobId: crypto.randomUUID(),
+        ideaJobId: crypto.randomUUID(),
+        isPublic: true,
+        status: "completed",
+        deepSearch: { deepSearchJobId, slug: "public-research" },
+      })
+      seedDeepSearchRound({ deepSearchJobId, position: 0 })
+
+      expect(resolveSeoPage(path, null)).toMatchObject({
+        kind: "page",
+        metadata: {
+          canonicalUrl: `${config.auth.baseUrl}/deep-search/public-research`,
+          description: "Research request",
+          noindex: false,
+          title: "Research for public-research-parent — RethinkLoop",
+        },
+      })
+    },
+  )
+
+  it("serves a private research round only to its owner with noindex", () => {
+    const deepSearchJobId = crypto.randomUUID()
+    seedDebate({
+      slug: "private-research-parent",
+      debateJobId: crypto.randomUUID(),
+      ideaJobId: crypto.randomUUID(),
+      isPublic: false,
+      status: "completed",
+      deepSearch: { deepSearchJobId, slug: "private-research" },
+    })
+    seedDeepSearchRound({ deepSearchJobId, position: 0 })
+    const path = "/deep-search/private-research/rounds/1"
+
+    expect(resolveSeoPage(path, "test-user-id")).toMatchObject({
+      kind: "page",
+      metadata: {
+        canonicalUrl: null,
+        noindex: true,
+        title: "Research for private-research-parent — RethinkLoop",
+      },
+    })
+    expect(resolveSeoPage(path, null)).toEqual({ kind: "not-found" })
+    expect(resolveSeoPage(path, "other-user-id")).toEqual({
+      kind: "not-found",
+    })
+  })
+
+  it("keeps a public research round noindex until its root debate completes", () => {
+    const deepSearchJobId = crypto.randomUUID()
+    seedDebate({
+      slug: "running-research-parent",
+      debateJobId: crypto.randomUUID(),
+      ideaJobId: crypto.randomUUID(),
+      isPublic: true,
+      status: "running",
+      deepSearch: { deepSearchJobId, slug: "running-research" },
+    })
+    seedDeepSearchRound({ deepSearchJobId, position: 0 })
+
+    expect(
+      resolveSeoPage("/deep-search/running-research/rounds/1", null),
+    ).toMatchObject({
+      kind: "page",
+      metadata: {
+        canonicalUrl: `${config.auth.baseUrl}/deep-search/running-research`,
+        noindex: true,
+      },
+    })
+  })
+
+  it("does not disclose malformed, missing, or cross-job research rounds", () => {
+    seedDebate({
+      slug: "named-research-parent",
+      debateJobId: crypto.randomUUID(),
+      ideaJobId: crypto.randomUUID(),
+      isPublic: true,
+      status: "completed",
+      deepSearch: {
+        deepSearchJobId: crypto.randomUUID(),
+        slug: "named-research",
+      },
+    })
+    const foreignDeepSearchJobId = crypto.randomUUID()
+    seedDebate({
+      slug: "foreign-research-parent",
+      debateJobId: crypto.randomUUID(),
+      ideaJobId: crypto.randomUUID(),
+      isPublic: true,
+      status: "completed",
+      deepSearch: {
+        deepSearchJobId: foreignDeepSearchJobId,
+        slug: "foreign-research",
+      },
+    })
+    seedDeepSearchRound({
+      deepSearchJobId: foreignDeepSearchJobId,
+      position: 0,
+    })
+
+    for (const path of [
+      "/deep-search/named-research/rounds/0",
+      "/deep-search/named-research/rounds/-1",
+      "/deep-search/named-research/rounds/1.5",
+      "/deep-search/named-research/rounds/01",
+      "/deep-search/named-research/rounds/+1",
+      "/deep-search/named-research/rounds/9007199254740992",
+      "/deep-search/named-research/rounds/not-a-number",
+      "/deep-search/named-research/rounds/1",
+      "/deep-search/named-research/rounds/2",
+      "/deep-search/named-research/rounds",
+      "/deep-search/named-research/rounds/1/extra",
+    ]) {
+      expect(resolveSeoPage(path, null)).toEqual({ kind: "not-found" })
+    }
   })
 
   it("resolves individual ideas and returns not-found for unknown nested IDs", () => {

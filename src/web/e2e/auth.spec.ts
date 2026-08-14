@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test"
 
 test("signs in and out with the local debug user", async ({ page }) => {
+  await page.setViewportSize({ height: 844, width: 320 })
   await page.goto("/")
 
   await expect(
@@ -12,6 +13,11 @@ test("signs in and out with the local debug user", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Sign in to continue" }),
   ).toHaveCount(0)
+  expect(
+    await page
+      .locator("html")
+      .evaluate((element) => element.scrollWidth <= element.clientWidth),
+  ).toBe(true)
   await page
     .getByRole("main")
     .getByRole("link", { name: "Start a debate" })
@@ -22,11 +28,20 @@ test("signs in and out with the local debug user", async ({ page }) => {
   ).toBeVisible()
   await page.getByRole("button", { name: "Continue as debug user" }).click()
 
-  await expect(page.getByRole("heading", { name: "Debate ideas" })).toBeVisible()
-  await expect(page.getByText("Debug User")).toBeVisible()
+  const debateHeading = page.getByRole("heading", { name: "Debate ideas" })
+  await expect(debateHeading).toBeVisible()
+  await expect(
+    page.getByRole("textbox", { name: "What should the ideas solve?" }),
+  ).toBeFocused()
+  await page
+    .getByRole("button", { name: "Open account menu for Debug User" })
+    .click()
+  await expect(
+    page.getByRole("menu", { name: "Account menu" }).getByText("Debug User"),
+  ).toBeVisible()
 
-  await page.getByRole("button", { name: "Sign out" }).click()
+  await page.getByRole("menuitem", { name: "Sign out" }).click()
   await expect(
     page.getByRole("heading", { name: "Sign in to continue" }),
-  ).toBeVisible()
+  ).toBeFocused()
 })
