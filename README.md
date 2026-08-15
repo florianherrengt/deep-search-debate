@@ -139,6 +139,9 @@ grant credits from `/admin/credits`; production administrators are marked in
 the `user.is_admin` column. Provider work checks for a positive balance before
 starting and debits actual settled usage afterward, so a completed call may
 leave a negative balance. Failed provider calls are not charged.
+Completed usage remains charged; stopped in-progress attempts do not debit
+RethinkLoop credits. The application cannot guarantee how an upstream provider
+bills work already performed.
 Successful ScrapingAnt extractions charge every reported retrieval attempt.
 
 Select the repository's Node version before installing dependencies. This is
@@ -215,12 +218,16 @@ npm run dev:web
 
 Each LLM generation is a retained stream identified by a UUID:
 
-1. `POST /api/streams` starts generation immediately and returns `{ "id": "<uuid>" }`.
+1. `POST /api/streams` admits a generation and returns `{ "id": "<uuid>" }` once its durable row is registered.
 2. `GET /api/streams/:id` returns NDJSON events, replaying everything buffered before following live output.
 
 Stream events are `reasoning`, `text`, `error`, and `done`. Reads are non-destructive, so reconnects and concurrent readers receive the same retained history.
 
-Live deltas are retained in memory. When generation terminates, complete text and reasoning are written once to SQLite and remain replayable after restart. See [the full streaming contract](src/api/routes/docs/text-streaming.md).
+Live deltas are retained in memory. After terminal persistence succeeds, the
+generation's accumulated text and reasoning are written once to SQLite and
+remain replayable after restart, including partial output from an internally
+interrupted attempt. See [the full streaming
+contract](src/api/routes/docs/text-streaming.md).
 
 ## Deep search
 
@@ -229,6 +236,15 @@ generates a short title and returns both its internal UUID and readable slug.
 Browser and detail URLs use the slug; `GET
 /api/deep-search-jobs/:deepSearchJobId/events` keeps using the internal UUID to
 replay and follow the NDJSON feed.
+
+The owner can irreversibly stop a running standalone search from its detail
+page. The API persists the request before cancelling queued or active work,
+keeps completed results visible, and replays the same state after refresh. A
+persisted request is shown as disabled `Stopping…` without active-work
+indicators, then as `Stopped`; a restart interruption without a Stop request is
+shown as `Interrupted`. Automated child searches inherit their idea or debate
+root's cancellation and do not expose a direct Stop action. Closing or
+reloading the page alone never stops work.
 
 After the page summaries settle, every executed query receives a query-level Markdown synthesis. All returned results are included: successfully explored results contribute their full page summaries, while unselected results and failed extractions fall back to their search descriptions. The synthesis receives one uniform content field and is not told which form was used.
 
@@ -274,6 +290,15 @@ support its synthesis.
 
 Runs and their generated output are durable and appear newest first under "Previous idea runs." See [the idea-job contract](src/api/routes/docs/idea-jobs.md).
 
+The owner can irreversibly stop a running standalone idea run from its detail
+page. The request is persisted before queued generations and child searches are
+cancelled. Completed output remains visible during cleanup and after refresh. A
+persisted request is shown as disabled `Stopping…` without active-work
+indicators, then as `Stopped`; a restart interruption without a Stop request is
+shown as `Interrupted`. Debate-owned idea runs inherit their debate root's Stop
+signal and do not expose their own Stop action. Closing or reloading the page
+alone never stops work.
+
 ## Debates
 
 Open `/debates` to run the researched idea pipeline and an automatic tournament.
@@ -292,6 +317,21 @@ Match transcripts, verdicts, standings, and the final winner are durable. The
 selected field produces `5 × ideas ÷ 2 + 3` matches, so the minimum six-idea run
 contains 18 matches and the default eight-idea run contains at most 23. See [the debate-job
 contract](src/api/routes/docs/debate-jobs.md).
+
+The owner can irreversibly stop a running debate from its detail page. The API
+persists the request before cancelling its active idea research, child searches,
+advocates, judges, or queued tournament work. Completed rounds, transcripts,
+and results remain visible while cleanup settles and after refresh; no new
+round or message starts after the root is stopping. A persisted request is shown
+as disabled `Stopping…` without active-tournament indicators, then as `Stopped`;
+a restart interruption without a Stop request is shown as `Interrupted`. Public
+viewers never receive the Stop action, and closing or reloading the page alone
+never stops work.
+
+Nested workflow presentation is causal: only work still active when its root
+Stop is requested becomes stopping or stopped. An idea run or child search that
+completed before a later ancestor Stop remains `Completed` and keeps its normal
+terminal replay.
 
 ## Verification
 
@@ -312,7 +352,7 @@ npm run storybook
 npm run storybook:build
 ```
 
-The Deep Search stories include standalone streaming, completed, and failed search findings and source findings, plus page-level result fixtures for the summary-first hierarchy. The Ideas stories cover planning, active research, idea generation, and a completed run.
+The Deep Search stories include standalone streaming, completed, and failed search findings and source findings, plus page-level result fixtures for the summary-first hierarchy. The Ideas stories cover planning, active research, idea generation, stopping, stopped, and completed runs. The Debates stories include stopping and stopped tournaments with retained completed results.
 
 Run the end-to-end test separately:
 
@@ -320,4 +360,4 @@ Run the end-to-end test separately:
 npm run test:e2e
 ```
 
-The E2E tests start isolated API and Vite servers with a migrated temporary SQLite database. Deterministic process-level mocks replace only outbound DeepSeek, SearXNG, and ScrapingAnt responses; the Hono routes, extraction pipeline, persistence, NDJSON streams, React UI, replay, and history remain real. The Deep Search scenario covers query generation through final synthesis. The Ideas scenario covers planning, parallel child searches, research summarization, exact-count idea generation, child-search links, durable replay, and history. No provider credentials or network access are required.
+The E2E tests start isolated API and Vite servers with a migrated temporary SQLite database. Deterministic process-level mocks replace only outbound DeepSeek, SearXNG, and ScrapingAnt responses; the Hono routes, extraction pipeline, persistence, NDJSON streams, React UI, replay, and history remain real. The Deep Search scenarios cover query generation through final synthesis and root Stop. The Ideas scenarios cover planning, parallel child searches, research summarization, exact-count idea generation, child-search links, durable replay and history, plus root Stop cascading to active children and surviving refresh. The Debates scenarios cover a complete deterministic tournament, the debate-only retry and failure behavior, and root Stop during active tournament work with completed results retained after refresh. No provider credentials or network access are required.

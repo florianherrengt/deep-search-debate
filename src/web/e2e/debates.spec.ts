@@ -404,6 +404,101 @@ test.describe("Debate tournament", () => {
     expect(unexpectedBrowserRequests).toEqual([])
   })
 
+  test("stops an active tournament without starting another round", async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(90_000)
+
+    const prompt = `${debatePrompt} [E2E_STOP_DEBATE]`
+    await page.goto("/debates")
+    const createdResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname === "/api/debate-jobs",
+    )
+    await page.getByLabel("What should the ideas solve?").fill(prompt)
+    await page.getByRole("button", { name: "Start a debate" }).click()
+
+    const created = await createdResponse
+    const { debateJobId, slug } = (await created.json()) as {
+      debateJobId: string
+      slug: string
+    }
+    expect(created.status()).toBe(202)
+    const liveMatch = page
+      .getByRole("link", { name: /^Open .+ versus .+$/ })
+      .filter({ has: page.getByText("Live", { exact: true }) })
+      .first()
+    await expect(liveMatch).toBeVisible({ timeout: 60_000 })
+
+    const cancelResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname ===
+          `/api/debate-jobs/${debateJobId}/cancel`,
+    )
+    await page.getByRole("button", { name: "Stop workflow" }).click()
+    const stopDialog = page.getByRole("dialog", {
+      name: "Stop this workflow?",
+    })
+    await stopDialog.getByRole("button", { name: "Stop workflow" }).click()
+    expect((await cancelResponse).status()).toBe(202)
+    await expect(page.getByRole("button", { name: "Stopping…" })).toBeDisabled()
+    await expect(page.getByText("Stopped").first()).toBeVisible({
+      timeout: 30_000,
+    })
+    await expect(
+      page.getByText(
+        "You stopped this debate. Completed matches and messages are kept.",
+      ),
+    ).toBeVisible()
+
+    const detail = await request.get(`/api/debate-jobs/${slug}`)
+    const { debateJob } = (await detail.json()) as {
+      debateJob: DebateTournamentSnapshot
+    }
+    expect(debateJob).toMatchObject({
+      debateJobId,
+      stage: "swiss",
+      status: "interrupted",
+      stopRequested: true,
+      canStop: false,
+      error: "Workflow stopped by user",
+    })
+    expect(debateJob.rounds).toHaveLength(1)
+    expect(debateJob.rounds[0]?.matches).toHaveLength(4)
+    expect(
+      debateJob.rounds[0]?.matches.some((match) => match.messages.length > 0),
+    ).toBe(true)
+
+    const ideaDetail = await request.get(`/api/idea-jobs/${slug}`)
+    expect(ideaDetail.status()).toBe(200)
+    const ideaPayload = (await ideaDetail.json()) as {
+      ideaJob: {
+        status: string
+        stopRequested: boolean
+        canStop: boolean
+      }
+    }
+    expect(ideaPayload.ideaJob).toMatchObject({
+      status: "completed",
+      stopRequested: false,
+      canStop: false,
+    })
+    const terminalEvents = await request.get(
+      `/api/debate-jobs/${debateJobId}/events`,
+    )
+    expect(parseEvents(await terminalEvents.text())).toEqual([
+      { type: "updated" },
+      { type: "done" },
+    ])
+
+    await page.reload()
+    await expect(page.getByText("Stopped").first()).toBeVisible()
+    await expect(page.getByText(/\d+\/23 matches/)).toBeVisible()
+  })
+
   test("fails after one opening exhausts provider retries without starting another round", async ({
     page,
     request,
@@ -438,7 +533,7 @@ test.describe("Debate tournament", () => {
     expect(created.status()).toBe(202)
     expect(debateJobId).toMatch(uuidPattern)
     await expect(page).toHaveURL(new RegExp(`/debates/${slug}$`))
-    await expect(page.getByText("Debate failed")).toBeVisible({
+    await expect(page.getByText("Debate failed").first()).toBeVisible({
       timeout: 60_000,
     })
     await expect(

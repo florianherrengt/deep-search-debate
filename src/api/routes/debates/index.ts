@@ -28,7 +28,11 @@ function reconstructDebateJobEvents(
   viewerUserId: string | null,
 ): DebateJobEvent[] | undefined {
   const job = db
-    .select({ status: debateJobsTable.status, error: debateJobsTable.error })
+    .select({
+      status: debateJobsTable.status,
+      error: debateJobsTable.error,
+      cancelRequestedAt: debateJobsTable.cancelRequestedAt,
+    })
     .from(debateJobsTable)
     .where(
       and(
@@ -41,7 +45,9 @@ function reconstructDebateJobEvents(
 
   return [
     { type: "updated" },
-    ...(job.error ? [{ type: "error" as const, message: job.error }] : []),
+    ...(job.error && job.cancelRequestedAt === null
+      ? [{ type: "error" as const, message: job.error }]
+      : []),
     ...(job.status === "running" ? [] : [{ type: "done" as const }]),
   ]
 }
@@ -114,6 +120,38 @@ export function debateJobReads(
 /** Registers authenticated debate creation, history, and owner mutations. */
 export function debateJobs(app: Hono<AppEnv>, manager: DebateJobManager): void {
   app.post(
+    "/debate-jobs/:debateJobId/cancel",
+    zValidator("param", debateJobEventParamsSchema),
+    (c) => {
+      const { debateJobId } = c.req.valid("param")
+      const result = manager.stop(c.get("userId"), debateJobId)
+      switch (result.kind) {
+        case "requested":
+          return c.json(
+            {
+              status: "cancellation-requested" as const,
+              cancelRequestedAt: result.cancelRequestedAt,
+            },
+            202,
+          )
+        case "already-interrupted":
+          return c.json(
+            {
+              status: "interrupted" as const,
+              cancelRequestedAt: result.cancelRequestedAt,
+              completedAt: result.completedAt,
+            },
+            200,
+          )
+        case "not-found":
+          return c.json({ error: "Debate job not found" }, 404)
+        case "not-cancellable":
+          return c.json({ error: `Debate job is ${result.status}` }, 409)
+      }
+    },
+  )
+
+  app.post(
     "/debate-jobs",
     zValidator("json", createDebateJobInputSchema),
     async (c) => {
@@ -145,6 +183,7 @@ export function debateJobs(app: Hono<AppEnv>, manager: DebateJobManager): void {
           isPublic: debateJobsTable.isPublic,
           stage: debateJobsTable.stage,
           status: debateJobsTable.status,
+          cancelRequestedAt: debateJobsTable.cancelRequestedAt,
           error: debateJobsTable.error,
           createdAt: debateJobsTable.createdAt,
           completedAt: debateJobsTable.completedAt,
@@ -163,11 +202,14 @@ export function debateJobs(app: Hono<AppEnv>, manager: DebateJobManager): void {
         .all()
 
       const response = listDebateJobsResponseSchema.parse({
-        debateJobs: summaries.map((summary) => ({
-          ...summary,
-          createdAt: summary.createdAt.toISOString(),
-          completedAt: summary.completedAt?.toISOString() ?? null,
-        })),
+        debateJobs: summaries.map(
+          ({ cancelRequestedAt, ...summary }) => ({
+            ...summary,
+            stopRequested: cancelRequestedAt !== null,
+            createdAt: summary.createdAt.toISOString(),
+            completedAt: summary.completedAt?.toISOString() ?? null,
+          }),
+        ),
       })
       return c.json(response)
     },

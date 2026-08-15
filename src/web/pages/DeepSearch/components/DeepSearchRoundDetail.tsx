@@ -1,5 +1,7 @@
 import ArrowBackRounded from "@mui/icons-material/ArrowBackRounded"
 import ArrowForwardRounded from "@mui/icons-material/ArrowForwardRounded"
+import Alert from "@mui/material/Alert"
+import AlertTitle from "@mui/material/AlertTitle"
 import Button from "@mui/material/Button"
 import Chip from "@mui/material/Chip"
 import CircularProgress from "@mui/material/CircularProgress"
@@ -24,6 +26,7 @@ export type DeepSearchRoundDetailProps = {
   /** One-based round number read from the route. */
   roundNumber: number
   run: DeepSearchRunState
+  stopRequested?: boolean
 }
 
 function isValidRoundNumber(roundNumber: number, maxRounds: number): boolean {
@@ -129,12 +132,21 @@ export function DeepSearchRoundDetail({
   researchRequest,
   roundNumber,
   run,
+  stopRequested = false,
 }: DeepSearchRoundDetailProps) {
+  const presentationRun: DeepSearchRunState =
+    stopRequested && run.status === "running"
+      ? { ...run, status: "stopping" }
+      : run
   const validRoundNumber = isValidRoundNumber(roundNumber, maxRounds)
   const roundIndex = roundNumber - 1
-  const roundIndexes = getDeepSearchRoundNumbers(run)
+  const roundIndexes = getDeepSearchRoundNumbers(presentationRun)
   const roundExists = validRoundNumber && roundIndexes.includes(roundIndex)
-  const terminal = run.status === "completed" || run.status === "failed"
+  const terminal =
+    presentationRun.status === "completed" ||
+    presentationRun.status === "failed" ||
+    presentationRun.status === "stopping" ||
+    presentationRun.status === "interrupted"
 
   if (!validRoundNumber || (!roundExists && terminal)) {
     return (
@@ -190,15 +202,23 @@ export function DeepSearchRoundDetail({
     )
   }
 
-  const queryStreamId = run.queryGenerations.find(
+  const queryStreamId = presentationRun.queryGenerations.find(
     ({ round }) => round === roundIndex,
   )?.streamId
-  const answerStreamId = run.roundAnswers.find(
+  const answerStreamId = presentationRun.roundAnswers.find(
     ({ round }) => round === roundIndex,
   )?.streamId
-  const review = run.roundReviews.find(({ round }) => round === roundIndex)
-  const searches = run.searches.filter(({ round }) => round === roundIndex)
-  const status = getDeepSearchRoundStatus(run, roundIndex, roundIndexes)
+  const review = presentationRun.roundReviews.find(
+    ({ round }) => round === roundIndex,
+  )
+  const searches = presentationRun.searches.filter(
+    ({ round }) => round === roundIndex,
+  )
+  const status = getDeepSearchRoundStatus(
+    presentationRun,
+    roundIndex,
+    roundIndexes,
+  )
   const statusLabel =
     status === "complete"
       ? "Complete"
@@ -243,6 +263,13 @@ export function DeepSearchRoundDetail({
           {getRoundSummary({ answerStreamId, review, status })}
         </Typography>
       </Stack>
+
+      {run.error && presentationRun.status === "interrupted" && (
+        <Alert severity="info">
+          <AlertTitle>{stopRequested ? "Stopped" : "Interrupted"}</AlertTitle>
+          {run.error}
+        </Alert>
+      )}
 
       <Stack
         aria-labelledby="round-research-question"

@@ -64,7 +64,8 @@ describe("final research answer", () => {
       ].join("\n"),
       promptName: "answer-research-request",
       reasoning: "disabled",
-      maxOutputTokens: 4_096,
+      maxOutputTokens: 8_192,
+      workflowSignal: undefined,
     })
     expect(generation.streamId).toBe("final-answer-stream-id")
     await expect(generation.answer).resolves.toBe("Completed answer")

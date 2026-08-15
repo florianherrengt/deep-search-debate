@@ -46,7 +46,8 @@ export function TournamentBoard({ tournament }: TournamentBoardProps) {
       match.secondIdea.ideaId,
     ]) ?? [],
   )
-  const tournamentActive = tournament.status === "running"
+  const tournamentActive =
+    tournament.status === "running" && !tournament.stopRequested
   const currentRoundId =
     tournamentActive && tournament.stage === "swiss"
       ? (currentSwissRound?.debateRoundId ?? null)

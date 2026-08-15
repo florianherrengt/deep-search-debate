@@ -15,8 +15,19 @@ const statusPresentation = {
   }
 >
 
-export function JobStatusBadge({ status }: { status: JobStatus }) {
-  const presentation = statusPresentation[status]
+export function JobStatusBadge({
+  status,
+  stopRequested = false,
+}: {
+  status: JobStatus
+  stopRequested?: boolean
+}) {
+  const presentation =
+    status === "running" && stopRequested
+      ? { label: "Stopping…", color: "warning" as const }
+      : status === "interrupted" && stopRequested
+        ? { label: "Stopped", color: "warning" as const }
+        : statusPresentation[status]
 
   return (
     <Chip

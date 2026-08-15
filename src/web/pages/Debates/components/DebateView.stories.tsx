@@ -50,3 +50,37 @@ export const Failed: Story = {
     },
   },
 }
+
+export const Stopping: Story = {
+  args: {
+    tournament: {
+      ...swissTournament,
+      stopRequested: true,
+      canStop: false,
+    },
+  },
+}
+
+export const Stopped: Story = {
+  args: {
+    tournament: {
+      ...swissTournament,
+      status: "interrupted",
+      stopRequested: true,
+      canStop: false,
+      error: "Workflow stopped by user",
+    },
+  },
+}
+
+export const Interrupted: Story = {
+  args: {
+    tournament: {
+      ...swissTournament,
+      status: "interrupted",
+      stopRequested: false,
+      canStop: false,
+      error: "Workflow interrupted during restart recovery",
+    },
+  },
+}

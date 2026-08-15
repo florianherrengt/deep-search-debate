@@ -66,19 +66,21 @@ function createApp(viewerUserId: string | null = ownerId): Hono<AppEnv> {
   streamReads(app)
   deepSearchJobReads(app, {
     start: deepSearchStart,
+    stop: vi.fn(),
     requireParentQualityAcceptance: vi.fn(),
     getLiveJob: () => undefined,
   })
-  ideaJobReads(app, { start: ideaStart, getLiveJob: () => undefined })
-  debateJobReads(app, { start: debateStart, getLiveJob: () => undefined })
+  ideaJobReads(app, { start: ideaStart, stop: vi.fn(), getLiveJob: () => undefined })
+  debateJobReads(app, { start: debateStart, stop: vi.fn(), getLiveJob: () => undefined })
   streams(app)
   deepSearchJobs(app, {
     start: deepSearchStart,
+    stop: vi.fn(),
     requireParentQualityAcceptance: vi.fn(),
     getLiveJob: () => undefined,
   })
-  ideaJobs(app, { start: ideaStart, getLiveJob: () => undefined })
-  debateJobs(app, { start: debateStart, getLiveJob: () => undefined })
+  ideaJobs(app, { start: ideaStart, stop: vi.fn(), getLiveJob: () => undefined })
+  debateJobs(app, { start: debateStart, stop: vi.fn(), getLiveJob: () => undefined })
   return app
 }
 

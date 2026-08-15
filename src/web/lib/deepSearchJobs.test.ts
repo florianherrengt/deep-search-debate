@@ -98,6 +98,8 @@ describe("deep search jobs client", () => {
             type: "final-answer-stream",
             streamId: "final-answer-stream-id",
           },
+          { type: "stop-requested" },
+          { type: "interrupted", message: "Workflow stopped by user" },
           { type: "done" },
         ]),
       )
@@ -158,6 +160,8 @@ describe("deep search jobs client", () => {
         type: "final-answer-stream",
         streamId: "final-answer-stream-id",
       },
+      { type: "stop-requested" },
+      { type: "interrupted", message: "Workflow stopped by user" },
       { type: "done" },
     ])
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/deep-search-jobs", {
@@ -199,6 +203,7 @@ describe("deep search jobs client", () => {
       maxResultsPerSearch: 3,
       maxRounds: 3,
       status: "completed" as const,
+      stopRequested: false,
       error: null,
       createdAt: "2026-08-01T12:00:00.000Z",
       completedAt: "2026-08-01T12:01:00.000Z",
@@ -209,7 +214,12 @@ describe("deep search jobs client", () => {
       .mockResolvedValueOnce(Response.json({ deepSearchJobs: [job] }))
       .mockResolvedValueOnce(
         Response.json({
-          deepSearchJob: { ...job, isIndexable: true, isPublic: true },
+          deepSearchJob: {
+            ...job,
+            canStop: false,
+            isIndexable: true,
+            isPublic: true,
+          },
         }),
       )
     vi.stubGlobal("fetch", fetchMock)
@@ -233,6 +243,8 @@ describe("deep search jobs client", () => {
       completedAt: new Date(job.completedAt),
       isIndexable: true,
       isPublic: true,
+      canStop: false,
+      stopRequested: false,
     }
     await expect(getDeepSearchJobs("manual")).resolves.toEqual([parsedListJob])
     await expect(getDeepSearchJob("research-this")).resolves.toEqual(
@@ -260,6 +272,7 @@ describe("deep search jobs client", () => {
       maxResultsPerSearch: 3,
       maxRounds: 3,
       status: "completed" as const,
+      stopRequested: false,
       error: null,
       createdAt: "2026-08-01T12:00:00.000Z",
       completedAt: "2026-08-01T12:01:00.000Z",

@@ -20,6 +20,7 @@ type SummarizeSearchQueryInput = TextGenerationPersistenceCallbacks & {
   researchRequest: string
   query: string
   results: QuerySummaryResult[]
+  workflowSignal?: AbortSignal
 }
 
 export type QuerySummaryGeneration = {
@@ -59,9 +60,13 @@ export async function summarizeSearchQuery(
     // reasoning; DeepSeek counts both against maxOutputTokens.
     reasoning: "disabled",
     maxOutputTokens: 2_048,
+    workflowSignal: params.workflowSignal,
     ...(params.onRegistered ? { onRegistered: params.onRegistered } : {}),
     ...(params.onCompleted ? { onCompleted: params.onCompleted } : {}),
     ...(params.onFailed ? { onFailed: params.onFailed } : {}),
+    ...(params.onInterrupted
+      ? { onInterrupted: params.onInterrupted }
+      : {}),
   })
   return {
     streamId: generation.id,

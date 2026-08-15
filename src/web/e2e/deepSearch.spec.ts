@@ -14,6 +14,59 @@ function parseEvents<Event>(body: string): Event[] {
 // External HTTP responses are deterministic; the API, persistence, streaming,
 // extraction pipeline, and browser behavior remain real.
 test.describe("Deep search", () => {
+  test("stops an active root and reconstructs the stopped state", async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(30_000)
+    await page.goto("/deep-search")
+    const researchRequest =
+      "[E2E_STOP_DEEP_SEARCH] Research renter energy constraints."
+    const createdResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname === "/api/deep-search-jobs",
+    )
+    await page.getByLabel("Research request").fill(researchRequest)
+    await page.getByRole("button", { name: "Start deep search" }).click()
+    const created = await createdResponse
+    const { deepSearchJobId, slug } = (await created.json()) as {
+      deepSearchJobId: string
+      slug: string
+    }
+
+    await page.getByRole("button", { name: "Stop workflow" }).click()
+    const dialog = page.getByRole("dialog", { name: "Stop this workflow?" })
+    const cancellationResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname ===
+          `/api/deep-search-jobs/${deepSearchJobId}/cancel`,
+    )
+    await dialog.getByRole("button", { name: "Stop workflow" }).click()
+    expect((await cancellationResponse).status()).toBe(202)
+
+    await expect(page.getByText("Workflow stopped by user")).toBeVisible()
+    await expect(page.getByText("Stopped").first()).toBeVisible()
+    await expect(page.getByRole("button", { name: "Stop workflow" })).toHaveCount(0)
+    const replay = await request.get(
+      `/api/deep-search-jobs/${deepSearchJobId}/events`,
+    )
+    const events = parseEvents<DeepSearchJobEvent>(await replay.text())
+    expect(events.slice(-3)).toEqual([
+      { type: "stop-requested" },
+      { type: "interrupted", message: "Workflow stopped by user" },
+      { type: "done" },
+    ])
+    expect(events.some((event) => event.type === "error")).toBe(false)
+
+    await page.reload()
+    await expect(page).toHaveURL(new RegExp(`/deep-search/${slug}$`))
+    await expect(page.getByText("Workflow stopped by user")).toBeVisible()
+    await expect(page.getByText("Stopped").first()).toBeVisible()
+    await expect(page.getByRole("button", { name: "Stop workflow" })).toHaveCount(0)
+  })
+
   test("persists, reopens, and replays a mixed-result final answer", async ({
     page,
     request,

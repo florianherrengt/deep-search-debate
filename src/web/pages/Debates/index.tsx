@@ -13,6 +13,7 @@ import {
 } from "react-router-dom"
 import { JobHistory } from "../../components/JobHistory.tsx"
 import { RequestError } from "../../components/RequestError.tsx"
+import { StopWorkflowControl } from "../../components/StopWorkflowControl.tsx"
 import {
   createDebateJob,
   getDebateJobs,
@@ -21,12 +22,13 @@ import {
   type UpdateDebateJobInput,
 } from "../../lib/debateJobs.ts"
 import { getRequestErrorMessage } from "../../lib/requestErrors.ts"
+import { requestResearchStop } from "../../lib/researchCancellation.ts"
 import { truncateDescription, useSeo } from "../../lib/seo.ts"
 import { DebatePromptForm } from "./components/DebatePromptForm.tsx"
 import { DebateMatchDetail } from "./components/DebateMatchDetail.tsx"
 import { DebateVisibilityControls } from "./components/DebateVisibilityControls.tsx"
 import { DebateView } from "./components/DebateView.tsx"
-import { debateStatusPresentation } from "./debatePresentation.ts"
+import { getDebateStatusPresentation } from "./debatePresentation.ts"
 import { getMatch } from "./debateSelectors.ts"
 import { debateJobQueryKey, useDebateJob } from "./useDebateJob.ts"
 
@@ -77,7 +79,10 @@ function DebateStart() {
         headingId="debate-history"
         isPending={history.isPending}
         items={history.data?.map((job) => {
-          const status = debateStatusPresentation[job.status]
+          const status = getDebateStatusPresentation(
+            job.status,
+            job.stopRequested,
+          )
           return {
             createdAt: job.createdAt,
             id: job.debateJobId,
@@ -131,6 +136,22 @@ function DebateDetail({
       queryClient.setQueryData<DebateTournamentSnapshot>(
         debateJobQueryKey(slug),
         (current) => (current ? { ...current, ...update } : current),
+      )
+      void queryClient.invalidateQueries({
+        queryKey: debateJobsQueryKey,
+        exact: true,
+      })
+    },
+  })
+  const stop = useMutation({
+    mutationFn: (id: string) => requestResearchStop("debate", id),
+    onSuccess: () => {
+      queryClient.setQueryData<DebateTournamentSnapshot>(
+        debateJobQueryKey(slug),
+        (current) =>
+          current
+            ? { ...current, canStop: false, stopRequested: true }
+            : current,
       )
       void queryClient.invalidateQueries({
         queryKey: debateJobsQueryKey,
@@ -225,22 +246,37 @@ function DebateDetail({
       {job.subscriptionError && !job.data.error && (
         <Alert severity="warning">{job.subscriptionError}</Alert>
       )}
+      {stop.error && (
+        <Alert severity="error">{getRequestErrorMessage(stop.error)}</Alert>
+      )}
       <DebateView
         ownerActions={
           job.data.isOwner ? (
-            <DebateVisibilityControls
-              canMakePrivate={job.data.status !== "running"}
-              error={
-                visibility.error
-                  ? getRequestErrorMessage(visibility.error)
-                  : undefined
-              }
-              isPending={visibility.isPending}
-              isPublic={job.data.isPublic}
-              onChange={(isPublic) => visibility.mutate({ isPublic })}
-              onClose={() => visibility.reset()}
-              shareUrl={`${window.location.origin}/debates/${encodeURIComponent(slug)}`}
-            />
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+              <StopWorkflowControl
+                canStop={job.data.canStop}
+                pending={stop.isPending}
+                stopping={
+                  job.data.isOwner &&
+                  job.data.status === "running" &&
+                  job.data.stopRequested
+                }
+                onConfirm={() => stop.mutate(job.data.debateJobId)}
+              />
+              <DebateVisibilityControls
+                canMakePrivate={job.data.status !== "running"}
+                error={
+                  visibility.error
+                    ? getRequestErrorMessage(visibility.error)
+                    : undefined
+                }
+                isPending={visibility.isPending}
+                isPublic={job.data.isPublic}
+                onChange={(isPublic) => visibility.mutate({ isPublic })}
+                onClose={() => visibility.reset()}
+                shareUrl={`${window.location.origin}/debates/${encodeURIComponent(slug)}`}
+              />
+            </Stack>
           ) : null
         }
         tournament={job.data}

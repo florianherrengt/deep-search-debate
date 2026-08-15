@@ -69,4 +69,22 @@ describe("ideaJobReducer", () => {
       slug: "improved-title",
     })
   })
+
+  it("keeps explicit Stop terminal through duplicate replay", () => {
+    const events: IdeaJobEvent[] = [
+      { type: "stop-requested" },
+      { type: "stop-requested" },
+      { type: "interrupted", message: "Workflow stopped by user" },
+      { type: "done" },
+      { type: "done" },
+    ]
+
+    const state = events.reduce(ideaJobReducer, {
+      ...initialIdeaJobState,
+      status: "running",
+    })
+
+    expect(state.status).toBe("interrupted")
+    expect(state.error).toBe("Workflow stopped by user")
+  })
 })

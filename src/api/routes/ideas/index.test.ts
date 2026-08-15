@@ -35,6 +35,7 @@ function createApp(): Hono<AppEnv> {
   })
   const manager: DeepSearchJobManager = {
     start: vi.fn(),
+    stop: vi.fn(),
     requireParentQualityAcceptance: vi.fn(),
     getLiveJob: vi.fn(),
   }
@@ -63,6 +64,7 @@ describe("idea job routes", () => {
   it("guards internal idea-job starts before creating a job", async () => {
     const deepSearchManager: DeepSearchJobManager = {
       start: vi.fn(),
+      stop: vi.fn(),
       requireParentQualityAcceptance: vi.fn(),
       getLiveJob: vi.fn(),
     }
@@ -229,6 +231,7 @@ describe("idea job routes", () => {
     })
     const manager = createIdeaJobManager({
       start: vi.fn(),
+      stop: vi.fn(),
       requireParentQualityAcceptance: vi.fn(),
       getLiveJob: vi.fn(),
     })
@@ -275,6 +278,7 @@ describe("idea job routes", () => {
   it("rolls back the idea row and does not start work when owner creation fails", async () => {
     const deepSearchManager: DeepSearchJobManager = {
       start: vi.fn(),
+      stop: vi.fn(),
       requireParentQualityAcceptance: vi.fn(),
       getLiveJob: vi.fn(),
     }
@@ -366,5 +370,184 @@ describe("idea job routes", () => {
       },
       { type: "done" },
     ])
+  })
+
+  it("stops a root without a live controller and replays the exact suffix", async () => {
+    const ideaJobId = crypto.randomUUID()
+    db.insert(ideaJobsTable)
+      .values({
+        ideaJobId,
+        userId: "test-user-id",
+        title: "Stoppable ideas",
+        slug: "stoppable-ideas",
+        prompt: "Generate stoppable ideas",
+        numberOfIdeas: 8,
+        deepSearchCount: 2,
+      })
+      .run()
+    const app = createApp()
+
+    const first = await app.request(`/idea-jobs/${ideaJobId}/cancel`, {
+      method: "POST",
+    })
+    expect(first.status).toBe(202)
+    await expect(first.json()).resolves.toMatchObject({
+      status: "cancellation-requested",
+    })
+    expect(db.select().from(ideaJobsTable).get()).toMatchObject({
+      status: "interrupted",
+      error: "Workflow stopped by user",
+    })
+
+    const repeat = await app.request(`/idea-jobs/${ideaJobId}/cancel`, {
+      method: "POST",
+    })
+    expect(repeat.status).toBe(200)
+    await expect(repeat.json()).resolves.toMatchObject({ status: "interrupted" })
+
+    const events = await app.request(`/idea-jobs/${ideaJobId}/events`)
+    await expect(readEvents(events)).resolves.toEqual([
+      { type: "stop-requested" },
+      { type: "interrupted", message: "Workflow stopped by user" },
+      { type: "done" },
+    ])
+  })
+
+  it("persists Stop before aborting the active manager controller", async () => {
+    let persistedBeforeAbort = false
+    mocks.runIdeaJob.mockImplementation(
+      ({
+        ideaJobId,
+        workflowSignal,
+      }: {
+        ideaJobId: string
+        workflowSignal: AbortSignal
+      }) =>
+        new Promise<void>((resolve) => {
+          workflowSignal.addEventListener(
+            "abort",
+            () => {
+              persistedBeforeAbort =
+                db
+                  .select({
+                    cancelRequestedAt: ideaJobsTable.cancelRequestedAt,
+                  })
+                  .from(ideaJobsTable)
+                  .where(eq(ideaJobsTable.ideaJobId, ideaJobId))
+                  .get()?.cancelRequestedAt instanceof Date
+              db.update(ideaJobsTable)
+                .set({
+                  status: "interrupted",
+                  error: "Workflow stopped by user",
+                  completedAt: new Date(),
+                })
+                .where(eq(ideaJobsTable.ideaJobId, ideaJobId))
+                .run()
+              resolve()
+            },
+            { once: true },
+          )
+        }),
+    )
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const app = createApp()
+    const created = await app.request("/idea-jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: "Generate ideas" }),
+    })
+    const { ideaJobId } = (await created.json()) as { ideaJobId: string }
+
+    const stopped = await app.request(`/idea-jobs/${ideaJobId}/cancel`, {
+      method: "POST",
+    })
+
+    expect(stopped.status).toBe(202)
+    expect(persistedBeforeAbort).toBe(true)
+  })
+
+  it("returns 404 for another owner's root", async () => {
+    db.insert(userTable)
+      .values({
+        email: "stop-owner@example.com",
+        emailVerified: true,
+        id: "stop-owner-id",
+        name: "Stop Owner",
+      })
+      .onConflictDoNothing()
+      .run()
+    const ideaJobId = crypto.randomUUID()
+    db.insert(ideaJobsTable)
+      .values({
+        ideaJobId,
+        userId: "stop-owner-id",
+        title: "Foreign ideas",
+        slug: "foreign-stop-ideas",
+        prompt: "Generate foreign ideas",
+        numberOfIdeas: 8,
+        deepSearchCount: 2,
+      })
+      .run()
+
+    const response = await createApp().request(
+      `/idea-jobs/${ideaJobId}/cancel`,
+      { method: "POST" },
+    )
+
+    expect(response.status).toBe(404)
+  })
+
+  it("projects root Stop state and rejects debate-owned descendants", async () => {
+    const rootIdeaJobId = crypto.randomUUID()
+    const debateJobId = crypto.randomUUID()
+    db.insert(ideaJobsTable)
+      .values({
+        ideaJobId: rootIdeaJobId,
+        userId: "test-user-id",
+        title: "Root ideas",
+        slug: "root-ideas",
+        prompt: "Generate root ideas",
+        numberOfIdeas: 8,
+        deepSearchCount: 2,
+      })
+      .run()
+    db.insert(debateJobs)
+      .values({ debateJobId, randomSeed: 1, userId: "test-user-id" })
+      .run()
+    const nestedIdeaJobId = crypto.randomUUID()
+    db.insert(ideaJobsTable)
+      .values({
+        debateJobId,
+        ideaJobId: nestedIdeaJobId,
+        userId: "test-user-id",
+        title: "Nested ideas",
+        slug: "nested-ideas",
+        prompt: "Generate nested ideas",
+        numberOfIdeas: 8,
+        deepSearchCount: 2,
+      })
+      .run()
+    const app = createApp()
+
+    const detail = await app.request("/idea-jobs/root-ideas")
+    await expect(detail.json()).resolves.toMatchObject({
+      ideaJob: { canStop: true, stopRequested: false },
+    })
+    const history = await app.request("/idea-jobs")
+    const historyBody = (await history.json()) as {
+      ideaJobs: Array<{ ideaJobId: string; stopRequested: boolean }>
+    }
+    expect(
+      historyBody.ideaJobs.find(({ ideaJobId }) => ideaJobId === rootIdeaJobId),
+    ).toMatchObject({
+      ideaJobId: rootIdeaJobId,
+      stopRequested: false,
+    })
+
+    const nestedStop = await app.request(
+      `/idea-jobs/${nestedIdeaJobId}/cancel`,
+      { method: "POST" },
+    )
+    expect(nestedStop.status).toBe(409)
   })
 })

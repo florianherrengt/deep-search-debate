@@ -13,17 +13,18 @@ import type { DebateJobManager } from "./manager.ts"
 import { DEBATE_TOURNAMENT_FORMAT } from "./tournament.ts"
 import type { AppEnv } from "../../types/auth.ts"
 
-function createApp(): Hono<AppEnv> {
+function createApp(manager?: DebateJobManager): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
   app.use("*", async (c, next) => {
     c.set("userId", "test-user-id")
     await next()
   })
-  const manager: DebateJobManager = {
+  const debateManager: DebateJobManager = manager ?? {
     start: vi.fn(),
+    stop: vi.fn(),
     getLiveJob: vi.fn(),
   }
-  debateJobs(app, manager)
+  debateJobs(app, debateManager)
   return app
 }
 
@@ -36,6 +37,7 @@ describe("debate job routes", () => {
     const start = vi.fn()
     const manager: DebateJobManager = {
       start,
+      stop: vi.fn(),
       getLiveJob: vi.fn(),
     }
     const app = new Hono<AppEnv>()
@@ -53,6 +55,56 @@ describe("debate job routes", () => {
 
     expect(response.status).toBe(400)
     expect(start).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    {
+      result: {
+        kind: "requested" as const,
+        newlyRequested: true,
+        cancelRequestedAt: new Date("2026-08-15T00:00:00.000Z"),
+      },
+      status: 202,
+      body: {
+        status: "cancellation-requested",
+        cancelRequestedAt: "2026-08-15T00:00:00.000Z",
+      },
+    },
+    {
+      result: {
+        kind: "already-interrupted" as const,
+        cancelRequestedAt: new Date("2026-08-15T00:00:00.000Z"),
+        completedAt: new Date("2026-08-15T00:00:01.000Z"),
+      },
+      status: 200,
+      body: {
+        status: "interrupted",
+        cancelRequestedAt: "2026-08-15T00:00:00.000Z",
+        completedAt: "2026-08-15T00:00:01.000Z",
+      },
+    },
+    {
+      result: { kind: "not-found" as const },
+      status: 404,
+      body: { error: "Debate job not found" },
+    },
+    {
+      result: { kind: "not-cancellable" as const, status: "completed" as const },
+      status: 409,
+      body: { error: "Debate job is completed" },
+    },
+  ])("maps debate Stop result to HTTP $status", async ({ result, status, body }) => {
+    const stop = vi.fn().mockReturnValue(result)
+    const app = createApp({ start: vi.fn(), stop, getLiveJob: vi.fn() })
+    const debateJobId = crypto.randomUUID()
+
+    const response = await app.request(`/debate-jobs/${debateJobId}/cancel`, {
+      method: "POST",
+    })
+
+    expect(response.status).toBe(status)
+    await expect(response.json()).resolves.toEqual(body)
+    expect(stop).toHaveBeenCalledWith("test-user-id", debateJobId)
   })
 
   it("lists newest debate summaries with their idea prompts", async () => {
@@ -120,6 +172,7 @@ describe("debate job routes", () => {
           isPublic: false,
           stage: "final",
           status: "completed",
+          stopRequested: false,
           error: null,
           createdAt: newerCreatedAt.toISOString(),
           completedAt: newerCompletedAt.toISOString(),

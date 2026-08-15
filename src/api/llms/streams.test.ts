@@ -4,7 +4,16 @@ import type { streamText } from "ai"
 import z from "zod"
 import { getCreditAccount } from "../credits.ts"
 import { db } from "../db/index.ts"
-import { deepSearchJobs, llmGenerations } from "../db/schema/index.ts"
+import {
+  debateJobs,
+  deepSearchJobs,
+  ideaJobs,
+  llmGenerations,
+} from "../db/schema/index.ts"
+import {
+  WorkflowInterruptedError,
+  workflowAbortReason,
+} from "../workflowRuntime.ts"
 import {
   awaitGenerationOutput,
   awaitGenerationText,
@@ -769,6 +778,242 @@ describe("text streams", () => {
 
   it("returns undefined for unknown streams", () => {
     expect(subscribeToTextStream("missing")).toBeUndefined()
+  })
+
+  it("persists a manager-owned abort as interrupted without debiting credits", async () => {
+    const before = getCreditAccount("test-user-id").credits
+    const controller = new AbortController()
+    const onInterrupted = vi.fn()
+    const source = new AsyncQueue<SourceStreamPart>()
+    const generation = registerTextStream(
+      "test-user-id",
+      { standalone: true },
+      source,
+      {
+        workflowSignal: controller.signal,
+        onInterrupted,
+        metadata: {
+          modelId: "configured-model",
+          promptName: "default",
+          calculateCredits: () => 50,
+          finishReason: Promise.resolve("stop"),
+          usage: Promise.resolve({
+            inputTokens: 10,
+            inputTokenDetails: {
+              noCacheTokens: 10,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+            },
+            outputTokens: 2,
+            outputTokenDetails: {
+              textTokens: 2,
+              reasoningTokens: 0,
+            },
+            totalTokens: 12,
+          }),
+        },
+      },
+    )
+    source.push({ type: "text-delta", id: "text", text: "Partial" })
+    controller.abort(workflowAbortReason("user-stop"))
+    source.close()
+
+    await expect(generation.completion).resolves.toMatchObject({
+      status: "interrupted",
+      reason: "user-stop",
+      text: "Partial",
+    })
+    await expect(awaitGenerationText(generation)).rejects.toEqual(
+      new WorkflowInterruptedError("user-stop"),
+    )
+    expect(onInterrupted).toHaveBeenCalledOnce()
+    expect(
+      db
+        .select({
+          status: llmGenerations.status,
+          creditsUsed: llmGenerations.creditsUsed,
+          error: llmGenerations.error,
+        })
+        .from(llmGenerations)
+        .where(eq(llmGenerations.llmGenerationId, generation.id))
+        .get(),
+    ).toEqual({
+      status: "interrupted",
+      creditsUsed: null,
+      error: "Workflow stopped by user",
+    })
+    expect(getCreditAccount("test-user-id").credits).toBe(before)
+  })
+
+  it("keeps ordinary AbortError provider failures classified as failed", async () => {
+    const source = new AsyncQueue<SourceStreamPart>()
+    const generation = registerTextStream(
+      "test-user-id",
+      { standalone: true },
+      source,
+    )
+    source.push({ type: "error", error: new DOMException("Timed out", "AbortError") })
+    source.close()
+
+    await expect(generation.completion).resolves.toMatchObject({
+      status: "failed",
+      failureKind: "stream",
+      error: "Timed out",
+    })
+  })
+
+  it("turns an idea-root Stop race at terminal persistence into interruption", async () => {
+    const ideaJobId = crypto.randomUUID()
+    db.insert(ideaJobs)
+      .values({
+        ideaJobId,
+        userId: "test-user-id",
+        title: `Terminal race ${ideaJobId}`,
+        slug: `terminal-race-${ideaJobId}`,
+        prompt: "Generate ideas",
+        numberOfIdeas: 8,
+        deepSearchCount: 2,
+      })
+      .run()
+    const source = new AsyncQueue<SourceStreamPart>()
+    const generation = registerTextStream(
+      "test-user-id",
+      { ideaJobId },
+      source,
+    )
+    source.push({ type: "text-delta", id: "text", text: "Too late" })
+    db.update(ideaJobs)
+      .set({ cancelRequestedAt: new Date() })
+      .where(eq(ideaJobs.ideaJobId, ideaJobId))
+      .run()
+    source.close()
+
+    await expect(generation.completion).resolves.toMatchObject({
+      status: "interrupted",
+      reason: "user-stop",
+      text: "Too late",
+    })
+    expect(
+      db
+        .select({
+          status: llmGenerations.status,
+          creditsUsed: llmGenerations.creditsUsed,
+        })
+        .from(llmGenerations)
+        .where(eq(llmGenerations.llmGenerationId, generation.id))
+        .get(),
+    ).toEqual({ status: "interrupted", creditsUsed: null })
+  })
+
+  it("does not register idea-owned generation work after Stop", () => {
+    const ideaJobId = crypto.randomUUID()
+    db.insert(ideaJobs)
+      .values({
+        ideaJobId,
+        userId: "test-user-id",
+        title: `Stopped registration ${ideaJobId}`,
+        slug: `stopped-registration-${ideaJobId}`,
+        prompt: "Generate ideas",
+        numberOfIdeas: 8,
+        deepSearchCount: 2,
+        cancelRequestedAt: new Date(),
+    })
+      .run()
+    let pulled = false
+    const source = {
+      [Symbol.asyncIterator](): AsyncIterator<SourceStreamPart> {
+        return {
+          next: () => {
+            pulled = true
+            return Promise.resolve({ value: undefined, done: true })
+          },
+        }
+      },
+    }
+
+    expect(() =>
+      registerTextStream("test-user-id", { ideaJobId }, source),
+    ).toThrow("Effective research root is stop-requested")
+    expect(pulled).toBe(false)
+  })
+
+  it("guards debate-owned registration and terminal settlement after Stop", async () => {
+    const debateJobId = crypto.randomUUID()
+    db.insert(debateJobs)
+      .values({
+        debateJobId,
+        userId: "test-user-id",
+        randomSeed: 12,
+      })
+      .run()
+    const source = new AsyncQueue<SourceStreamPart>()
+    const generation = registerTextStream(
+      "test-user-id",
+      { debateJobId },
+      source,
+    )
+    source.push({ type: "text-delta", id: "text", text: "Partial verdict" })
+    db.update(debateJobs)
+      .set({ cancelRequestedAt: new Date() })
+      .where(eq(debateJobs.debateJobId, debateJobId))
+      .run()
+    source.close()
+
+    await expect(generation.completion).resolves.toMatchObject({
+      status: "interrupted",
+      reason: "user-stop",
+      text: "Partial verdict",
+    })
+    expect(
+      db
+        .select({
+          status: llmGenerations.status,
+          creditsUsed: llmGenerations.creditsUsed,
+        })
+        .from(llmGenerations)
+        .where(eq(llmGenerations.llmGenerationId, generation.id))
+        .get(),
+    ).toEqual({ status: "interrupted", creditsUsed: null })
+
+    expect(() =>
+      registerTextStream(
+        "test-user-id",
+        { debateJobId },
+        new AsyncQueue<SourceStreamPart>(),
+      ),
+    ).toThrow("Effective research root is stop-requested")
+  })
+
+  it("fails closed when interrupted cleanup cannot commit", async () => {
+    const controller = new AbortController()
+    const source = new AsyncQueue<SourceStreamPart>()
+    const generation = registerTextStream(
+      "test-user-id",
+      { standalone: true },
+      source,
+      {
+        workflowSignal: controller.signal,
+        onInterrupted: () => {
+          throw new Error("Interrupted cleanup failed")
+        },
+      },
+    )
+    controller.abort(workflowAbortReason("parent-stop"))
+    source.close()
+
+    await expect(generation.completion).rejects.toThrow(
+      "Interrupted cleanup failed",
+    )
+    expect(
+      db
+        .select({ status: llmGenerations.status, error: llmGenerations.error })
+        .from(llmGenerations)
+        .where(eq(llmGenerations.llmGenerationId, generation.id))
+        .get(),
+    ).toEqual({
+      status: "failed",
+      error: "Interrupted cleanup failed",
+    })
   })
 
   it("replays terminal output and reasoning from a database-only generation", async () => {

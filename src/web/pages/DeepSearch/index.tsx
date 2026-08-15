@@ -9,6 +9,7 @@ import { JobHistory } from "../../components/JobHistory.tsx"
 import { JobStatusBadge } from "../../components/JobStatusBadge.tsx"
 import { PromptForm } from "../../components/PromptForm.tsx"
 import { RequestError } from "../../components/RequestError.tsx"
+import { StopWorkflowControl } from "../../components/StopWorkflowControl.tsx"
 import { truncateDescription, useSeo } from "../../lib/seo.ts"
 import {
   createDeepSearchJob,
@@ -23,6 +24,7 @@ import { DeepSearchOverview } from "./components/DeepSearchOverview.tsx"
 import { DeepSearchRoundDetail } from "./components/DeepSearchRoundDetail.tsx"
 import { getDeepSearchRoundNumbers } from "./deepSearchPresentation.ts"
 import { useDeepSearchJob } from "../../lib/useDeepSearchJob.ts"
+import { requestResearchStop } from "../../lib/researchCancellation.ts"
 
 const deepSearchJobsQueryKey = ["deep-search-jobs"] as const
 
@@ -30,12 +32,18 @@ export type DeepSearchServices = {
   createJob: typeof createDeepSearchJob
   getJob: typeof getDeepSearchJob
   getJobs: typeof getDeepSearchJobs
+  stopJob: (
+    deepSearchJobId: string,
+    signal?: AbortSignal,
+  ) => ReturnType<typeof requestResearchStop>
 }
 
 const defaultDeepSearchServices: DeepSearchServices = {
   createJob: createDeepSearchJob,
   getJob: getDeepSearchJob,
   getJobs: getDeepSearchJobs,
+  stopJob: (deepSearchJobId, signal) =>
+    requestResearchStop("deep-search", deepSearchJobId, signal),
 }
 
 function deepSearchJobListQueryKey(source: DeepSearchJobSource) {
@@ -80,7 +88,9 @@ function DeepSearchHistory({ services }: { services: DeepSearchServices }) {
     mutationFn: (request: string) =>
       services.createJob({ researchRequest: request }),
     onSuccess: ({ slug }) => {
-      void queryClient.invalidateQueries({ queryKey: deepSearchJobsQueryKey })
+      void queryClient.invalidateQueries({
+        queryKey: [...deepSearchJobsQueryKey, "list"],
+      })
       void navigate(`/deep-search/${slug}`)
     },
   })
@@ -130,7 +140,12 @@ function DeepSearchHistory({ services }: { services: DeepSearchServices }) {
           label: job.title,
           origin: job.origin ? <DeepSearchOrigin origin={job.origin} /> : undefined,
           prompt: job.researchRequest,
-          status: <JobStatusBadge status={job.status} />,
+          status: (
+            <JobStatusBadge
+              status={job.status}
+              stopRequested={job.stopRequested}
+            />
+          ),
           to: `/deep-search/${job.slug}`,
         }))}
         onRetry={() => void history.refetch()}
@@ -147,10 +162,14 @@ function parseRoundNumber(value: string | undefined): number | null {
 
 function DeepSearchJobContent({
   job,
+  onStop,
   routeRoundNumber,
+  stopPending,
 }: {
   job: DeepSearchJobDetail
+  onStop: () => void
   routeRoundNumber?: string
+  stopPending: boolean
 }) {
   const run = useDeepSearchJob(job.deepSearchJobId)
   const parentPageKey = `/deep-search/${encodeURIComponent(job.slug)}`
@@ -164,7 +183,9 @@ function DeepSearchJobContent({
     roundNumber > job.maxRounds ||
     roundExists ||
     run.status === "completed" ||
-    run.status === "failed"
+    run.status === "failed" ||
+    run.status === "stopping" ||
+    run.status === "interrupted"
   const roundPageKey =
     routeRoundNumber === undefined
       ? undefined
@@ -213,6 +234,7 @@ function DeepSearchJobContent({
         researchRequest={job.researchRequest}
         roundNumber={roundNumber ?? Number.NaN}
         run={run}
+        stopRequested={job.stopRequested}
       />
     )
   }
@@ -222,6 +244,19 @@ function DeepSearchJobContent({
       jobSlug={job.slug}
       researchRequest={job.researchRequest}
       run={run}
+      stopControl={
+        <StopWorkflowControl
+          canStop={job.canStop && run.status === "running"}
+          pending={stopPending}
+          stopping={
+            job.stopRequested &&
+            !job.isPublic &&
+            (run.status === "running" || run.status === "stopping")
+          }
+          onConfirm={onStop}
+        />
+      }
+      stopRequested={job.stopRequested}
       title={job.title}
     />
   )
@@ -236,9 +271,25 @@ function DeepSearchDetail({
   services: DeepSearchServices
   slug: string
 }) {
+  const queryClient = useQueryClient()
   const job = useQuery({
     queryKey: deepSearchJobDetailQueryKey(slug),
     queryFn: ({ signal }) => services.getJob(slug, signal),
+  })
+  const stop = useMutation({
+    mutationFn: (deepSearchJobId: string) => services.stopJob(deepSearchJobId),
+    onSuccess: () => {
+      queryClient.setQueryData<DeepSearchJobDetail>(
+        deepSearchJobDetailQueryKey(slug),
+        (current) =>
+          current
+            ? { ...current, canStop: false, stopRequested: true }
+            : current,
+      )
+      void queryClient.invalidateQueries({
+        queryKey: [...deepSearchJobsQueryKey, "list"],
+      })
+    },
   })
   const parentPageKey = `/deep-search/${encodeURIComponent(slug)}`
   const pageKey =
@@ -280,10 +331,15 @@ function DeepSearchDetail({
   }
 
   return (
-    <DeepSearchJobContent
-      job={job.data}
-      routeRoundNumber={routeRoundNumber}
-    />
+    <>
+      {stop.error && <RequestError error={stop.error} />}
+      <DeepSearchJobContent
+        job={job.data}
+        onStop={() => stop.mutate(job.data.deepSearchJobId)}
+        routeRoundNumber={routeRoundNumber}
+        stopPending={stop.isPending}
+      />
+    </>
   )
 }
 

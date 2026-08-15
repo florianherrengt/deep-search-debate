@@ -14,7 +14,13 @@ export type IdeaResearchState = {
 }
 
 export type IdeaJobRunState = {
-  status: "idle" | "running" | "completed" | "failed"
+  status:
+    | "idle"
+    | "running"
+    | "stopping"
+    | "completed"
+    | "failed"
+    | "interrupted"
   failedStage: IdeaStage | null
   researchPromptStreamId: string | null
   research: IdeaResearchState[]
@@ -59,6 +65,10 @@ export const ideaJobReducer = produce<IdeaJobRunState, [IdeaJobAction]>(
         state.researchPromptStreamId = action.streamId
         break
       case "deep-search-started":
+        state.research = state.research.filter(
+          ({ deepSearchJobId }) =>
+            deepSearchJobId !== action.deepSearchJobId,
+        )
         state.research.push({
           deepSearchJobId: action.deepSearchJobId,
           title: action.title,
@@ -73,6 +83,9 @@ export const ideaJobReducer = produce<IdeaJobRunState, [IdeaJobAction]>(
         state.ideaGenerationStreamId = action.streamId
         break
       case "idea":
+        state.ideas = state.ideas.filter(
+          ({ ideaId }) => ideaId !== action.ideaId,
+        )
         state.ideas.push({
           ideaId: action.ideaId,
           title: action.title,
@@ -117,13 +130,28 @@ export const ideaJobReducer = produce<IdeaJobRunState, [IdeaJobAction]>(
           researchRequest: action.researchRequest,
         }
         break
+      case "stop-requested":
+        if (state.status === "idle" || state.status === "running") {
+          state.status = "stopping"
+        }
+        break
+      case "interrupted":
+        state.status = "interrupted"
+        state.error = action.message
+        break
       case "error":
         state.status = "failed"
         state.error = action.message
         state.failedStage = action.stage
         break
       case "done":
-        if (state.status !== "failed") state.status = "completed"
+        if (
+          state.status !== "failed" &&
+          state.status !== "interrupted" &&
+          state.status !== "stopping"
+        ) {
+          state.status = "completed"
+        }
         break
     }
   },

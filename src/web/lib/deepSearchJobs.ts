@@ -79,6 +79,8 @@ const deepSearchJobEventSchema = z.discriminatedUnion("type", [
     type: z.literal("final-answer-stream"),
     streamId: z.string().min(1),
   }),
+  z.object({ type: z.literal("stop-requested") }),
+  z.object({ type: z.literal("interrupted"), message: z.string().min(1) }),
   z.object({ type: z.literal("error"), message: z.string() }),
   z.object({ type: z.literal("done") }),
 ])
@@ -101,6 +103,7 @@ const deepSearchJobSchema = z.object({
   maxResultsPerSearch: z.number().int().positive(),
   maxRounds: z.number().int().positive(),
   status: z.enum(["running", "completed", "failed", "interrupted"]),
+  stopRequested: z.boolean(),
   error: z.string().nullable(),
   createdAt: z.iso.datetime().transform((value) => new Date(value)),
   completedAt: z.iso.datetime().transform((value) => new Date(value)).nullable(),
@@ -124,6 +127,7 @@ const deepSearchJobsResponseSchema = z.object({
   deepSearchJobs: z.array(deepSearchJobListItemSchema),
 })
 const deepSearchJobDetailSchema = deepSearchJobSchema.extend({
+  canStop: z.boolean(),
   isIndexable: z.boolean(),
   isPublic: z.boolean(),
 })

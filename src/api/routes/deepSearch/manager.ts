@@ -14,9 +14,22 @@ import {
   type PromptIdentity,
 } from "../../helpers/promptTitles.ts"
 import { createReplayableEventLog } from "../../helpers/replayableEventLog.ts"
+import { addAbortableQueueTask } from "../../helpers/addAbortableQueueTask.ts"
 import { generatePromptTitle } from "../../llms/generateText.ts"
 import { reserveRootResearchCapacity } from "../researchCapacity.ts"
+import { assertEffectiveResearchRootRunning } from "../researchCancellation.ts"
+import {
+  createWorkflowController,
+  getWorkflowStopReason,
+  WorkflowInterruptedError,
+  workflowAbortReason,
+} from "../../workflowRuntime.ts"
+import {
+  requestDeepSearchStop,
+  type StopRequestResult,
+} from "./cancellation.ts"
 import { runDeepSearchJob } from "./run.ts"
+import { interruptDeepSearchJob } from "./jobLifecycle.ts"
 import {
   deepSearchExecutionInputSchema,
   type DeepSearchExecutionRequest,
@@ -35,6 +48,11 @@ type StartedDeepSearchJob = {
   slug: string
   /** Resolves to the persisted final answer, or rejects for any failed job. */
   completion: Promise<string>
+}
+
+type StartDeepSearchJobOptions = {
+  /** Internal parent cancellation; never sourced from an HTTP request. */
+  workflowSignal?: AbortSignal
 }
 
 const deepSearchJobQueue = new PQueue({
@@ -79,7 +97,9 @@ export type DeepSearchJobManager = {
   start(
     userId: string,
     input: StartDeepSearchJobInput,
+    options?: StartDeepSearchJobOptions,
   ): Promise<StartedDeepSearchJob>
+  stop(userId: string, deepSearchJobId: string): StopRequestResult
   /** Applies the idea pipeline's stricter policy after durable completion. */
   requireParentQualityAcceptance(deepSearchJobId: string): void
   getLiveJob(deepSearchJobId: string): LiveDeepSearchJob | undefined
@@ -133,10 +153,18 @@ function requireParentQualityAcceptance(deepSearchJobId: string): void {
 
 /** Owns the live logs used by both direct and idea-pipeline deep searches. */
 export function createDeepSearchJobManager(): DeepSearchJobManager {
-  const liveJobs = new Map<string, LiveDeepSearchJob>()
+  const liveJobs = new Map<
+    string,
+    {
+      job: LiveDeepSearchJob
+      controller: AbortController
+      completion: Promise<string>
+      publishStopRequested: () => void
+    }
+  >()
 
   return {
-    async start(userId, input) {
+    async start(userId, input, options) {
       const validatedInput = deepSearchExecutionInputSchema.parse(input)
       const normalizedInput = { ...input, ...validatedInput }
       const isRootJob = normalizedInput.ideaJobId === undefined
@@ -145,41 +173,88 @@ export function createDeepSearchJobManager(): DeepSearchJobManager {
         : undefined
       const deepSearchJobId = randomUUID()
       const job = createReplayableEventLog<DeepSearchJobEvent>()
+      const controller = createWorkflowController(options?.workflowSignal)
+      let stopRequestedPublished = false
+      const publishStopRequested = () => {
+        if (stopRequestedPublished) return
+        stopRequestedPublished = true
+        try {
+          job.publish({ type: "stop-requested" })
+        } catch {
+          // Durable replay remains authoritative if the retained log closed.
+        }
+      }
+      controller.signal.addEventListener(
+        "abort",
+        () => {
+          if (getWorkflowStopReason(controller.signal) === "parent-stop") {
+            publishStopRequested()
+          }
+        },
+        { once: true },
+      )
       let identity: PromptIdentity
       try {
         const { title: suppliedTitle, ...persistedInput } = normalizedInput
         const generatedTitle =
           suppliedTitle ??
-          (await generatePromptTitle(userId, normalizedInput.researchRequest))
+          (await generatePromptTitle(
+            userId,
+            normalizedInput.researchRequest,
+            controller.signal,
+          ))
         identity = createDeepSearchIdentity(generatedTitle)
 
-        db.insert(deepSearchJobsTable)
-          .values({ deepSearchJobId, userId, ...identity, ...persistedInput })
-          .run()
+        db.transaction((transaction) => {
+          if (normalizedInput.ideaJobId !== undefined) {
+            assertEffectiveResearchRootRunning(transaction, {
+              kind: "idea",
+              jobId: normalizedInput.ideaJobId,
+            })
+          }
+          transaction
+            .insert(deepSearchJobsTable)
+            .values({ deepSearchJobId, userId, ...identity, ...persistedInput })
+            .run()
+        })
       } finally {
         releaseCapacity?.()
       }
 
       // The route serving child events reads this same log while the durable
       // database rows remain the source used after a process restart.
-      liveJobs.set(deepSearchJobId, job)
-
-      const completion = deepSearchJobQueue
-        .add(
-          () =>
-            runDeepSearchJob(
-              deepSearchJobId,
-              userId,
-              job,
-              normalizedInput.researchRequest,
-              normalizedInput.maxSearches,
-              normalizedInput.maxResultsPerSearch,
-              normalizedInput.maxRounds,
-            ),
-          // A newly admitted root should not wait behind an entire eagerly
-          // queued child batch. Running jobs are never pre-empted.
-          { priority: isRootJob ? 1 : 0 },
-        )
+      // A newly admitted root should not wait behind an entire eagerly queued
+      // child batch. Running jobs are never pre-empted.
+      let runnerStarted = false
+      const completion = addAbortableQueueTask(
+        deepSearchJobQueue,
+        () => {
+          runnerStarted = true
+          return runDeepSearchJob(
+            deepSearchJobId,
+            userId,
+            job,
+            normalizedInput.researchRequest,
+            normalizedInput.maxSearches,
+            normalizedInput.maxResultsPerSearch,
+            normalizedInput.maxRounds,
+            controller.signal,
+          )
+        },
+        controller.signal,
+        { priority: isRootJob ? 1 : 0 },
+      ).catch((error: unknown) => {
+        const stopReason = getWorkflowStopReason(controller.signal)
+        if (!runnerStarted && stopReason) {
+          const interrupted = new WorkflowInterruptedError(stopReason)
+          interruptDeepSearchJob(deepSearchJobId, interrupted.message)
+          job.publish({ type: "interrupted", message: interrupted.message })
+          job.publish({ type: "done" })
+          job.close()
+          throw interrupted
+        }
+        throw error
+      })
         .finally(() => {
           if (hasDurableTerminalState(deepSearchJobId)) {
             // Existing subscribers retain their iterator. New subscribers use
@@ -187,12 +262,34 @@ export function createDeepSearchJobManager(): DeepSearchJobManager {
             liveJobs.delete(deepSearchJobId)
           }
         })
+      liveJobs.set(deepSearchJobId, {
+        job,
+        controller,
+        completion,
+        publishStopRequested,
+      })
 
       return { deepSearchJobId, ...identity, completion }
     },
     requireParentQualityAcceptance,
+    stop(userId, deepSearchJobId) {
+      const result = requestDeepSearchStop(userId, deepSearchJobId)
+      if (result.kind === "requested") {
+        const active = liveJobs.get(deepSearchJobId)
+        if (result.newlyRequested) active?.publishStopRequested()
+        if (active) {
+          active.controller.abort(workflowAbortReason("user-stop"))
+        } else {
+          interruptDeepSearchJob(
+            deepSearchJobId,
+            new WorkflowInterruptedError("user-stop").message,
+          )
+        }
+      }
+      return result
+    },
     getLiveJob(deepSearchJobId) {
-      return liveJobs.get(deepSearchJobId)
+      return liveJobs.get(deepSearchJobId)?.job
     },
   }
 }

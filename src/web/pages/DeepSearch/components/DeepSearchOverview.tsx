@@ -1,5 +1,6 @@
 import ChevronRightRounded from "@mui/icons-material/ChevronRightRounded"
 import Alert from "@mui/material/Alert"
+import AlertTitle from "@mui/material/AlertTitle"
 import Chip from "@mui/material/Chip"
 import CircularProgress from "@mui/material/CircularProgress"
 import Divider from "@mui/material/Divider"
@@ -9,7 +10,7 @@ import ListItemButton from "@mui/material/ListItemButton"
 import Paper from "@mui/material/Paper"
 import Stack from "@mui/material/Stack"
 import Typography from "@mui/material/Typography"
-import { Fragment } from "react"
+import { Fragment, type ReactNode } from "react"
 import { Link } from "react-router-dom"
 
 import { GenerationOutput } from "../../../components/streaming/GenerationOutput.tsx"
@@ -29,10 +30,18 @@ export type DeepSearchOverviewProps = {
   researchRequest: string
   run: DeepSearchRunState & { subscriptionError?: string | null }
   showHeader?: boolean
+  stopControl?: ReactNode
+  stopRequested?: boolean
   title: string
 }
 
 function getHeaderDescription(run: DeepSearchRunState): string {
+  if (run.status === "stopping") {
+    return "Stopping research after in-progress work settles."
+  }
+  if (run.status === "interrupted") {
+    return "Research was stopped before completion. Available work has been kept."
+  }
   if (run.status === "failed") {
     return run.finalAnswerStreamId
       ? "Research stopped before completion. Review the partial answer and available evidence."
@@ -97,23 +106,44 @@ export function DeepSearchOverview({
   researchRequest,
   run,
   showHeader = true,
+  stopControl,
+  stopRequested = false,
   title,
 }: DeepSearchOverviewProps) {
-  const progressMessage = getProgressMessage(run)
-  const roundNumbers = getDeepSearchRoundNumbers(run)
+  const presentationRun: DeepSearchRunState =
+    stopRequested && run.status === "running"
+      ? { ...run, status: "stopping" }
+      : run
+  const progressMessage = getProgressMessage(presentationRun)
+  const roundNumbers = getDeepSearchRoundNumbers(presentationRun)
 
   return (
     <Stack spacing={3}>
       {showHeader && (
-        <DeepSearchHeader description={getHeaderDescription(run)} title={title} />
+        <DeepSearchHeader
+          description={
+            presentationRun.status === "interrupted" && !stopRequested
+              ? "Research was interrupted before completion. Available work has been kept."
+              : getHeaderDescription(presentationRun)
+          }
+          title={title}
+        />
       )}
+      {stopControl}
       <Typography
         color="text.secondary"
         sx={{ maxWidth: "85ch", overflowWrap: "anywhere" }}
       >
         {researchRequest}
       </Typography>
-      {run.error && <Alert severity="error">{run.error}</Alert>}
+      {run.error && (
+        <Alert severity={presentationRun.status === "interrupted" ? "info" : "error"}>
+          {presentationRun.status === "interrupted" && (
+            <AlertTitle>{stopRequested ? "Stopped" : "Interrupted"}</AlertTitle>
+          )}
+          {run.error}
+        </Alert>
+      )}
       {run.subscriptionError && !run.error && (
         <Alert severity="warning">{run.subscriptionError}</Alert>
       )}
@@ -165,7 +195,7 @@ export function DeepSearchOverview({
             <List aria-labelledby="research-rounds-heading" disablePadding>
               {roundNumbers.map((round, index) => {
                 const status = getDeepSearchRoundStatus(
-                  run,
+                  presentationRun,
                   round,
                   roundNumbers,
                 )

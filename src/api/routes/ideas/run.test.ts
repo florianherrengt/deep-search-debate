@@ -377,6 +377,7 @@ function createInput() {
     .run()
   const manager: DeepSearchJobManager = {
     start: mocks.startDeepSearch,
+    stop: vi.fn(),
     requireParentQualityAcceptance:
       mocks.requireParentQualityAcceptance,
     getLiveJob: vi.fn(),

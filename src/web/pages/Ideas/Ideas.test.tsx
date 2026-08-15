@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   createIdeaJob: vi.fn(),
   getIdeaJob: vi.fn(),
   getIdeaJobs: vi.fn(),
+  requestResearchStop: vi.fn(),
   subscribeToDeepSearchJob: vi.fn(),
   subscribeToIdeaJob: vi.fn(),
   subscribeToTextStream: vi.fn(),
@@ -31,6 +32,10 @@ vi.mock("../../lib/textStreams.ts", () => ({
 
 vi.mock("../../lib/deepSearchJobs.ts", () => ({
   subscribeToDeepSearchJob: mocks.subscribeToDeepSearchJob,
+}))
+
+vi.mock("../../lib/researchCancellation.ts", () => ({
+  requestResearchStop: mocks.requestResearchStop,
 }))
 
 import { Ideas } from "./index.tsx"
@@ -62,6 +67,10 @@ describe("Ideas", () => {
       ideaJobId: "idea-job-id",
       slug: "independent-cafe-ideas",
     })
+    mocks.requestResearchStop.mockResolvedValue({
+      status: "cancellation-requested",
+      cancelRequestedAt: new Date(),
+    })
     mocks.getIdeaJob.mockResolvedValue({
       ideaJobId: "idea-job-id",
       title: "Independent Café Ideas",
@@ -73,6 +82,8 @@ describe("Ideas", () => {
       isPublic: false,
       stage: "planning",
       status: "running",
+      stopRequested: false,
+      canStop: true,
       error: null,
       createdAt: new Date(),
       completedAt: null,
@@ -183,6 +194,155 @@ describe("Ideas", () => {
     ).toHaveAttribute("href", "/deep-search/proven-cafe-interventions")
 
   })
+
+  it("confirms and requests Stop only for a stoppable standalone run", async () => {
+    async function* runningEvents() {
+      yield { type: "research-prompt-stream" as const, streamId: "planning" }
+      await new Promise(() => undefined)
+    }
+    mocks.subscribeToIdeaJob.mockImplementation(runningEvents)
+
+    renderIdeas("/ideas/independent-cafe-ideas")
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Stop workflow" }),
+    )
+    expect(
+      screen.getByRole("heading", { name: "Stop this workflow?" }),
+    ).toBeVisible()
+    fireEvent.click(
+      screen.getByRole("button", { name: "Stop workflow" }),
+    )
+
+    await waitFor(() => {
+      expect(mocks.requestResearchStop).toHaveBeenCalledWith(
+        "idea",
+        "idea-job-id",
+      )
+    })
+    expect(
+      await screen.findByRole("button", { name: "Stopping…" }),
+    ).toBeDisabled()
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument()
+  })
+
+  it.each([
+    [false, true],
+    [true, false],
+  ] as const)(
+    "restores durable stopping for isPublic=%s with ownerControl=%s",
+    async (isPublic, ownerControl) => {
+      mocks.getIdeaJob.mockResolvedValue({
+        ...(await mocks.getIdeaJob()),
+        canStop: false,
+        isPublic,
+        stopRequested: true,
+      })
+      mocks.subscribeToIdeaJob.mockImplementation(async function* (
+        _jobId: string,
+        signal?: AbortSignal,
+      ) {
+        yield { type: "stop-requested" as const }
+        await new Promise<void>((resolve) => {
+          if (signal?.aborted) resolve()
+          else signal?.addEventListener("abort", () => resolve(), { once: true })
+        })
+      })
+
+      renderIdeas("/ideas/independent-cafe-ideas")
+
+      expect(
+        await screen.findByText("Stopping queued and active work…"),
+      ).toBeVisible()
+      const stoppingControls = screen.queryAllByRole("button", {
+        name: "Stopping…",
+      })
+      expect(stoppingControls).toHaveLength(ownerControl ? 1 : 0)
+      expect(
+        stoppingControls.every((control) => control.hasAttribute("disabled")),
+      ).toBe(true)
+    },
+  )
+
+  it.each([
+    [true, "Stopped", "This run was stopped. Completed work remains available below."],
+    [false, "Interrupted", "This run was interrupted. Completed work remains available below."],
+  ] as const)(
+    "distinguishes stopped=%s from restart interruption",
+    (stopRequested, label, description) => {
+      render(
+        <IdeaJobView
+          jobSlug="generated-ideas"
+          prompt="Generate ideas"
+          title="Generated ideas"
+          stopRequested={stopRequested}
+          run={{
+            status: "interrupted",
+            failedStage: null,
+            researchPromptStreamId: null,
+            research: [],
+            researchSummaryStreamId: null,
+            ideaGenerationStreamId: null,
+            ideas: [],
+            ideaEvaluations: {},
+            ideaSelectionStreamId: null,
+            refinementGenerationStreamIds: {},
+            refinedIdeas: {},
+            refinedIdeaResearch: {},
+            error: "Workflow ended",
+          }}
+        />,
+      )
+
+      expect(screen.getByText(label)).toBeVisible()
+      expect(screen.getByText(description)).toBeVisible()
+    },
+  )
+
+  it.each([
+    [true, "Stopped"],
+    [false, "Interrupted"],
+  ] as const)(
+    "distinguishes stopped=%s on an individual idea URL",
+    (stopRequested, label) => {
+      render(
+        <MemoryRouter>
+          <IdeaDetailView
+            ideaId="prep-forecast-id"
+            jobSlug="generated-ideas"
+            jobTitle="Generated ideas"
+            numberOfIdeas={1}
+            stopRequested={stopRequested}
+            run={{
+              status: "interrupted",
+              failedStage: null,
+              researchPromptStreamId: null,
+              research: [],
+              researchSummaryStreamId: null,
+              ideaGenerationStreamId: null,
+              ideas: [
+                {
+                  ideaId: "prep-forecast-id",
+                  title: "Prep Forecast",
+                  description: "Recommend daily prep quantities.",
+                  selection: "pending",
+                },
+              ],
+              ideaEvaluations: {},
+              ideaSelectionStreamId: null,
+              refinementGenerationStreamIds: {},
+              refinedIdeas: {},
+              refinedIdeaResearch: {},
+              error: "Workflow ended",
+            }}
+          />
+        </MemoryRouter>,
+      )
+
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0)
+      expect(screen.queryByRole("progressbar")).not.toBeInTheDocument()
+    },
+  )
 
   it("shows an unselected idea title once with its description and assessment", () => {
     render(

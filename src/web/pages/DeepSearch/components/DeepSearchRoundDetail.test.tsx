@@ -240,6 +240,28 @@ describe("DeepSearchRoundDetail", () => {
     expect(screen.queryByText("Internal provider details")).not.toBeInTheDocument()
   })
 
+  it.each([
+    [true, "Stopped"],
+    [false, "Interrupted"],
+  ] as const)(
+    "distinguishes stopped=%s on a direct round URL",
+    (stopRequested, label) => {
+      renderDetail({
+        stopRequested,
+        run: run({
+          error: "Workflow ended",
+          finalAnswerStreamId: null,
+          roundAnswers: [],
+          roundReviews: [],
+          status: "interrupted",
+        }),
+      })
+
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0)
+      expect(screen.queryByRole("progressbar")).not.toBeInTheDocument()
+    },
+  )
+
   it("shows not found for a valid but absent round after the run is terminal", () => {
     renderDetail({
       roundNumber: 2,

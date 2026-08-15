@@ -21,7 +21,18 @@ import {
   user,
 } from "../../db/schema/index.ts"
 import { createDeepSearchJobManager } from "./manager.ts"
+import { reconstructDeepSearchJobEvents } from "./replay.ts"
 import type { LiveDeepSearchJob } from "./schemas.ts"
+import {
+  WorkflowInterruptedError,
+  workflowAbortReason,
+} from "../../workflowRuntime.ts"
+
+async function readEvents(job: LiveDeepSearchJob) {
+  const events = []
+  for await (const event of job.subscribe()) events.push(event)
+  return events
+}
 
 function completeWithFailedPage(
   deepSearchJobId: string,
@@ -81,6 +92,33 @@ describe("createDeepSearchJobManager", () => {
     expect(mocks.generatePromptTitle).not.toHaveBeenCalled()
     expect(mocks.runDeepSearchJob).not.toHaveBeenCalled()
     expect(db.select().from(deepSearchJobs).all()).toEqual([])
+  })
+
+  it("does not create an idea child after its effective root requested Stop", async () => {
+    const parentIdeaJobId = crypto.randomUUID()
+    db.insert(ideaJobs)
+      .values({
+        ideaJobId: parentIdeaJobId,
+        userId: "test-user-id",
+        prompt: "Generate ideas",
+        numberOfIdeas: 8,
+        deepSearchCount: 2,
+        cancelRequestedAt: new Date(),
+      })
+      .run()
+
+    await expect(
+      createDeepSearchJobManager().start("test-user-id", {
+        title: "Late child",
+        researchRequest: "Research after Stop",
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        ideaJobId: parentIdeaJobId,
+        ideaJobPosition: 0,
+      }),
+    ).rejects.toThrow("Effective research root is stop-requested")
+    expect(db.select().from(deepSearchJobs).all()).toEqual([])
+    expect(mocks.runDeepSearchJob).not.toHaveBeenCalled()
   })
 
   it("rejects a root job when the user already has the active-job limit", async () => {
@@ -342,6 +380,7 @@ describe("createDeepSearchJobManager", () => {
       3,
       3,
       3,
+      expect.any(AbortSignal),
     )
   })
 
@@ -432,5 +471,244 @@ describe("createDeepSearchJobManager", () => {
 
     await expect(started.completion).rejects.toThrow("SQLite unavailable")
     expect(manager.getLiveJob(started.deepSearchJobId)).toBeDefined()
+  })
+
+  it("persists Stop before aborting and retains the registry until durable cleanup", async () => {
+    const cleanup = Promise.withResolvers<string>()
+    mocks.runDeepSearchJob.mockImplementation(
+      (deepSearchJobId: string, ...args: unknown[]) => {
+        const job = args[1] as LiveDeepSearchJob
+        const signal = args.at(-1) as AbortSignal
+        signal.addEventListener(
+          "abort",
+          () => {
+            expect(
+              db
+                .select({ cancelRequestedAt: deepSearchJobs.cancelRequestedAt })
+                .from(deepSearchJobs)
+                .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+                .get()?.cancelRequestedAt,
+            ).toBeInstanceOf(Date)
+            db.update(deepSearchJobs)
+              .set({
+                status: "interrupted",
+                error: "Workflow stopped by user",
+                completedAt: new Date(),
+              })
+              .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+              .run()
+            job.publish({
+              type: "interrupted",
+              message: "Workflow stopped by user",
+            })
+            job.publish({ type: "done" })
+            job.close()
+            cleanup.resolve("Stopped")
+          },
+          { once: true },
+        )
+        return cleanup.promise
+      },
+    )
+    const manager = createDeepSearchJobManager()
+    const started = await manager.start("test-user-id", {
+      title: "Stop ordering",
+      researchRequest: "Research this",
+      maxSearches: 3,
+      maxResultsPerSearch: 3,
+    })
+
+    const liveJob = manager.getLiveJob(started.deepSearchJobId)
+    if (!liveJob) throw new Error("Expected a live direct deep-search job")
+    expect(manager.stop("test-user-id", started.deepSearchJobId)).toMatchObject({
+      kind: "requested",
+      newlyRequested: true,
+    })
+    expect(manager.stop("test-user-id", started.deepSearchJobId)).toMatchObject({
+      kind: "already-interrupted",
+    })
+    expect(manager.getLiveJob(started.deepSearchJobId)).toBeDefined()
+    await expect(started.completion).resolves.toBe("Stopped")
+    expect(await readEvents(liveJob)).toEqual([
+      { type: "stop-requested" },
+      { type: "interrupted", message: "Workflow stopped by user" },
+      { type: "done" },
+    ])
+    expect(manager.getLiveJob(started.deepSearchJobId)).toBeUndefined()
+  })
+
+  it("keeps queued inherited Stop live events identical to durable replay", async () => {
+    const blockingParentIdeaJobId = crypto.randomUUID()
+    const stoppedParentIdeaJobId = crypto.randomUUID()
+    db.insert(ideaJobs)
+      .values([
+        {
+          ideaJobId: blockingParentIdeaJobId,
+          userId: "test-user-id",
+          title: "Blocking parent",
+          slug: "blocking-parent",
+          prompt: "Keep the queue occupied",
+          numberOfIdeas: 8,
+          deepSearchCount: 2,
+        },
+        {
+          ideaJobId: stoppedParentIdeaJobId,
+          userId: "test-user-id",
+          title: "Stopped parent",
+          slug: "stopped-parent",
+          prompt: "Stop the queued child",
+          numberOfIdeas: 8,
+          deepSearchCount: 2,
+        },
+      ])
+      .run()
+    const blockers = Array.from(
+      { length: config.deepSearch.maxConcurrentJobs },
+      () => Promise.withResolvers<string>(),
+    )
+    let invocation = 0
+    mocks.runDeepSearchJob.mockImplementation(() => {
+      const blocker = blockers[invocation++]
+      if (!blocker) throw new Error("Queued child unexpectedly started")
+      return blocker.promise
+    })
+    const manager = createDeepSearchJobManager()
+    const blockingJobs = await Promise.all(
+      blockers.map((_, position) =>
+        manager.start("test-user-id", {
+          title: `Blocking child ${position}`,
+          researchRequest: `Block queue slot ${position}`,
+          maxSearches: 3,
+          maxResultsPerSearch: 3,
+          ideaJobId: blockingParentIdeaJobId,
+          ideaJobPosition: position,
+        }),
+      ),
+    )
+    await vi.waitFor(() => {
+      expect(mocks.runDeepSearchJob).toHaveBeenCalledTimes(blockers.length)
+    })
+    const parentController = new AbortController()
+    const stopped = await manager.start(
+      "test-user-id",
+      {
+        title: "Queued inherited Stop",
+        researchRequest: "Never start this queued child",
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        ideaJobId: stoppedParentIdeaJobId,
+        ideaJobPosition: 0,
+      },
+      { workflowSignal: parentController.signal },
+    )
+    const liveJob = manager.getLiveJob(stopped.deepSearchJobId)
+    if (!liveJob) throw new Error("Expected a live queued deep-search job")
+
+    db.update(ideaJobs)
+      .set({ cancelRequestedAt: new Date() })
+      .where(eq(ideaJobs.ideaJobId, stoppedParentIdeaJobId))
+      .run()
+    parentController.abort(workflowAbortReason("user-stop"))
+
+    await expect(stopped.completion).rejects.toThrow(
+      "Workflow stopped by parent",
+    )
+    for (const blocker of blockers) blocker.resolve("Completed blocker")
+    await Promise.all(blockingJobs.map(({ completion }) => completion))
+    const liveEvents = await readEvents(liveJob)
+    expect(liveEvents).toEqual([
+      { type: "stop-requested" },
+      { type: "interrupted", message: "Workflow stopped by parent" },
+      { type: "done" },
+    ])
+    expect(reconstructDeepSearchJobEvents(stopped.deepSearchJobId)).toEqual(
+      liveEvents,
+    )
+    expect(mocks.runDeepSearchJob).toHaveBeenCalledTimes(blockers.length)
+  })
+
+  it("keeps active inherited Stop live events identical to durable replay", async () => {
+    const parentIdeaJobId = crypto.randomUUID()
+    db.insert(ideaJobs)
+      .values({
+        ideaJobId: parentIdeaJobId,
+        userId: "test-user-id",
+        title: "Active parent",
+        slug: "active-parent",
+        prompt: "Stop the active child",
+        numberOfIdeas: 8,
+        deepSearchCount: 2,
+      })
+      .run()
+    mocks.runDeepSearchJob.mockImplementation(
+      (
+        deepSearchJobId: string,
+        _userId: string,
+        job: LiveDeepSearchJob,
+        ...args: unknown[]
+      ) => {
+        const signal = args.at(-1) as AbortSignal
+        return new Promise<string>((_resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              const interrupted = new WorkflowInterruptedError("parent-stop")
+              db.update(deepSearchJobs)
+                .set({
+                  status: "interrupted",
+                  error: interrupted.message,
+                  completedAt: new Date(),
+                })
+                .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+                .run()
+              job.publish({
+                type: "interrupted",
+                message: interrupted.message,
+              })
+              job.publish({ type: "done" })
+              job.close()
+              reject(interrupted)
+            },
+            { once: true },
+          )
+        })
+      },
+    )
+    const manager = createDeepSearchJobManager()
+    const parentController = new AbortController()
+    const stopped = await manager.start(
+      "test-user-id",
+      {
+        title: "Active inherited Stop",
+        researchRequest: "Start then stop this child",
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        ideaJobId: parentIdeaJobId,
+        ideaJobPosition: 0,
+      },
+      { workflowSignal: parentController.signal },
+    )
+    await vi.waitFor(() => expect(mocks.runDeepSearchJob).toHaveBeenCalledOnce())
+    const liveJob = manager.getLiveJob(stopped.deepSearchJobId)
+    if (!liveJob) throw new Error("Expected a live active deep-search job")
+
+    db.update(ideaJobs)
+      .set({ cancelRequestedAt: new Date() })
+      .where(eq(ideaJobs.ideaJobId, parentIdeaJobId))
+      .run()
+    parentController.abort(workflowAbortReason("user-stop"))
+
+    await expect(stopped.completion).rejects.toThrow(
+      "Workflow stopped by parent",
+    )
+    const liveEvents = await readEvents(liveJob)
+    expect(liveEvents).toEqual([
+      { type: "stop-requested" },
+      { type: "interrupted", message: "Workflow stopped by parent" },
+      { type: "done" },
+    ])
+    expect(reconstructDeepSearchJobEvents(stopped.deepSearchJobId)).toEqual(
+      liveEvents,
+    )
   })
 })

@@ -90,6 +90,11 @@ const ideaJobEventSchema = z.discriminatedUnion("type", [
     slug: z.string().min(1),
     researchRequest: z.string().min(1),
   }),
+  z.object({ type: z.literal("stop-requested") }),
+  z.object({
+    type: z.literal("interrupted"),
+    message: z.string().min(1),
+  }),
   z.object({
     type: z.literal("error"),
     message: z.string(),
@@ -107,6 +112,7 @@ const ideaJobSchema = z.object({
   numberOfIdeas: z.number().int().positive(),
   deepSearchCount: z.number().int().positive(),
   status: z.enum(["running", "completed", "failed", "interrupted"]),
+  stopRequested: z.boolean(),
   error: z.string().nullable(),
   createdAt: z.iso.datetime().transform((value) => new Date(value)),
   completedAt: z.iso.datetime().transform((value) => new Date(value)).nullable(),
@@ -118,6 +124,7 @@ const createIdeaJobResponseSchema = z.object({
 })
 const ideaJobsResponseSchema = z.object({ ideaJobs: z.array(ideaJobSchema) })
 const ideaJobDetailSchema = ideaJobSchema.extend({
+  canStop: z.boolean(),
   isIndexable: z.boolean(),
   isPublic: z.boolean(),
 })

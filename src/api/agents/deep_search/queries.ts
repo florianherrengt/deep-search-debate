@@ -21,6 +21,7 @@ type GenerateWebSearchQueriesInput = {
   }[]
   previousCandidateAnswer?: string
   previousReviewReason?: string
+  workflowSignal?: AbortSignal
 }
 
 export type QueryGeneration = {
@@ -73,6 +74,7 @@ export async function generateWebSearchQueries(
     promptName: PromptName.GenerateWebSearchQueries,
     element: z.string().trim().min(1).max(500),
     maxOutputTokens: 2_048,
+    workflowSignal: params.workflowSignal,
   })
 
   const queries = awaitGenerationOutput(

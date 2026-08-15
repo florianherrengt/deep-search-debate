@@ -54,6 +54,16 @@ ignores this one documented peer-resolution shim.
   idea and deep-search jobs have no parent. Application writers create these
   ownership links once and never reparent them; under that contract, deleting a
   debate cascades through its complete generated pipeline.
+- Stop requests are stored only on workflow roots. `debate_jobs` may retain a
+  `cancel_requested_at` timestamp; standalone `idea_jobs` and
+  `deep_search_jobs` may retain one only while they have no parent. Nested jobs
+  derive cancellation through the debate → idea → deep-search ownership chain
+  instead of duplicating the timestamp. Read projections compare a descendant's
+  lifecycle with that root timestamp, so work completed before a later ancestor
+  Stop remains completed rather than being relabeled. Lifecycle checks allow
+  the timestamp on running roots and interrupted roots, while completed and
+  failed jobs require it to be null. An interrupted root without the timestamp
+  remains the distinct server-restart case.
 - Workflow-created `llm_generations` rows carry exactly one debate, idea, or
   deep-search owner FK; standalone stream generations carry none. Root
   generation links include the exact job ID and user ID in their composite
@@ -101,10 +111,12 @@ ignores this one documented peer-resolution shim.
   ```
 - The API workspace's `predev` and `prestart` lifecycle scripts apply pending
   migrations before either development or production startup.
-- Keep the baseline immutable after it is shared and add forward migrations for
-  later schema changes. `baselineMigration.test.ts` verifies a fresh database
-  through the same Drizzle migrator used by the application. There is no
-  compatibility path for databases created before this baseline.
+- Migration history currently consists of one intentionally fresh
+  `0000_fresh-baseline` migration. Databases created from the superseded history
+  are unsupported and must be recreated; there is no data-preserving upgrade
+  path. `baselineMigration.test.ts` verifies fresh creation through the same
+  Drizzle migrator used by the application. Keep this current baseline
+  immutable once shared and add forward migrations for later schema changes.
 
 ### Known application-enforced integrity boundaries
 
@@ -193,7 +205,18 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
   resolved by `(idea_job_id, idea_job_position = deepSearchCount +
   idea.position)` for debate context and UI replay.
 
-On startup, `recoverInterruptedWork()` marks orphaned running LLM generations, deep-search work, idea jobs, and debate jobs as interrupted or failed. A debate whose final verdict already committed is instead recovered as completed, closing the small crash window before the parent job's terminal update. External provider work is not resumable after process termination; completed debate rounds, results, and transcript generations remain replayable.
+On startup, `recoverInterruptedWork()` settles all orphaned running LLM
+generations, deep-search work, idea jobs, and debate jobs in one transaction.
+Persisted root stop requests are classified before ordinary restart recovery:
+the directly stopped root retains its timestamp and user-stop explanation,
+while nested work derives a parent-stop explanation without copying the
+timestamp. Active query and page rows reuse their existing failed terminal
+states. A stopped debate is interrupted even if its final verdict already
+committed; only an otherwise running, uncancelled debate in that small crash
+window is recovered as completed. Remaining orphaned jobs use the distinct
+server-restart interruption explanation. External provider work is not
+resumable after process termination; completed debate rounds, results, and
+transcript generations remain replayable.
 
 ## Tests
 

@@ -11,7 +11,18 @@ import { createReplayableEventLog } from "../../helpers/replayableEventLog.ts"
 import { generatePromptTitle } from "../../llms/generateText.ts"
 import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
 import { reserveRootResearchCapacity } from "../researchCapacity.ts"
+import {
+  createWorkflowController,
+  getWorkflowStopReason,
+  WorkflowInterruptedError,
+  workflowAbortReason,
+} from "../../workflowRuntime.ts"
+import {
+  requestIdeaStop,
+  type IdeaStopRequestResult,
+} from "./cancellation.ts"
 import { runIdeaJob } from "./run.ts"
+import { interruptIdeaJob } from "./jobLifecycle.ts"
 import {
   createIdeaJobInputSchema,
   type CreateIdeaJobRequest,
@@ -41,6 +52,8 @@ type StartIdeaJobOptions = {
     transaction: IdeaJobCreationTransaction,
     ideaJobId: string,
   ) => { debateJobId: string }
+  /** Internal parent cancellation; never sourced from an HTTP request. */
+  workflowSignal?: AbortSignal
 }
 
 export type IdeaJobManager = {
@@ -49,6 +62,7 @@ export type IdeaJobManager = {
     input: StartIdeaJobInput,
     options?: StartIdeaJobOptions,
   ): Promise<StartedIdeaJob>
+  stop(userId: string, ideaJobId: string): IdeaStopRequestResult
   getLiveJob(ideaJobId: string): LiveIdeaJob | undefined
 }
 
@@ -92,7 +106,15 @@ function hasDurableTerminalState(ideaJobId: string): boolean {
 export function createIdeaJobManager(
   deepSearchManager: DeepSearchJobManager,
 ): IdeaJobManager {
-  const liveJobs = new Map<string, LiveIdeaJob>()
+  const liveJobs = new Map<
+    string,
+    {
+      job: LiveIdeaJob
+      controller: AbortController
+      completion: Promise<void>
+      publishStopRequested: () => void
+    }
+  >()
 
   return {
     async start(userId, input, options) {
@@ -104,12 +126,36 @@ export function createIdeaJobManager(
       )
       const ideaJobId = randomUUID()
       const job = createReplayableEventLog<IdeaJobEvent>()
+      const controller = createWorkflowController(options?.workflowSignal)
+      let stopRequestedPublished = false
+      const publishStopRequested = () => {
+        if (stopRequestedPublished) return
+        stopRequestedPublished = true
+        try {
+          job.publish({ type: "stop-requested" })
+        } catch {
+          // Durable replay remains authoritative if the retained log closed.
+        }
+      }
+      controller.signal.addEventListener(
+        "abort",
+        () => {
+          if (getWorkflowStopReason(controller.signal) === "parent-stop") {
+            publishStopRequested()
+          }
+        },
+        { once: true },
+      )
       const { title: suppliedTitle, ...runInput } = normalizedInput
       let identity: PromptIdentity
       try {
         const generatedTitle =
           suppliedTitle ??
-          (await generatePromptTitle(userId, normalizedInput.prompt))
+          (await generatePromptTitle(
+            userId,
+            normalizedInput.prompt,
+            controller.signal,
+          ))
         identity = createIdeaIdentity(generatedTitle)
 
         db.transaction((transaction) => {
@@ -130,24 +176,45 @@ export function createIdeaJobManager(
       } finally {
         releaseCapacity()
       }
-      liveJobs.set(ideaJobId, job)
-
       const completion = runIdeaJob({
         ideaJobId,
         userId,
         ...runInput,
         job,
         deepSearchManager,
+        workflowSignal: controller.signal,
       })
         .then(() => requireCompletedIdeaJob(ideaJobId))
         .finally(() => {
           if (hasDurableTerminalState(ideaJobId)) liveJobs.delete(ideaJobId)
         })
+      liveJobs.set(ideaJobId, {
+        job,
+        controller,
+        completion,
+        publishStopRequested,
+      })
 
       return { ideaJobId, ...identity, completion }
     },
+    stop(userId, ideaJobId) {
+      const result = requestIdeaStop(userId, ideaJobId)
+      if (result.kind === "requested") {
+        const active = liveJobs.get(ideaJobId)
+        if (result.newlyRequested) active?.publishStopRequested()
+        if (active) {
+          active.controller.abort(workflowAbortReason("user-stop"))
+        } else {
+          interruptIdeaJob(
+            ideaJobId,
+            new WorkflowInterruptedError("user-stop").message,
+          )
+        }
+      }
+      return result
+    },
     getLiveJob(ideaJobId) {
-      return liveJobs.get(ideaJobId)
+      return liveJobs.get(ideaJobId)?.job
     },
   }
 }

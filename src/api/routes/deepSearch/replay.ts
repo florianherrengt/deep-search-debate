@@ -8,6 +8,10 @@ import {
   deepSearchWebPages,
 } from "../../db/schema/index.ts"
 import type { DeepSearchJobEvent } from "./schemas.ts"
+import {
+  resolveEffectiveResearchRoot,
+  stopRequestAppliesToJob,
+} from "../researchCancellation.ts"
 
 /** Reconstructs reducer-compatible progress from normalized typed rows. */
 export function reconstructDeepSearchJobEvents(
@@ -25,6 +29,17 @@ export function reconstructDeepSearchJobEvents(
     )
     .get()
   if (!job) return
+  const effectiveRoot = db.transaction((transaction) =>
+    resolveEffectiveResearchRoot(transaction, {
+      kind: "deep-search",
+      jobId: deepSearchJobId,
+    }),
+  )
+  const stopRequested = stopRequestAppliesToJob({
+    status: job.status,
+    completedAt: job.completedAt,
+    cancelRequestedAt: effectiveRoot?.cancelRequestedAt ?? null,
+  })
 
   const rounds = db
     .select()
@@ -261,11 +276,16 @@ export function reconstructDeepSearchJobEvents(
     : []
   const terminalEvents: DeepSearchJobEvent[] =
     job.status === "running"
-      ? []
+      ? stopRequested
+        ? [{ type: "stop-requested" }]
+        : []
       : [
-          ...(job.error
-            ? [{ type: "error" as const, message: job.error }]
-            : []),
+          ...(stopRequested ? [{ type: "stop-requested" as const }] : []),
+          ...(job.status === "interrupted"
+            ? [{ type: "interrupted" as const, message: job.error! }]
+            : job.status === "failed"
+              ? [{ type: "error" as const, message: job.error! }]
+              : []),
           { type: "done" },
         ]
 

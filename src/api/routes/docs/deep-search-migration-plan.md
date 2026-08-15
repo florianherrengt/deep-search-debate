@@ -7,7 +7,9 @@ This record replaces the old forward-looking migration plan. It describes the
 architecture that now exists. The migration retained adaptive rounds, typed
 events, intermediate LLM streams, normalized persistence, replay after restart,
 idea-owned child searches, and the established failure policies without adding
-a workflow engine, event store, broker, or compatibility layer.
+an external workflow engine, event store, broker, or compatibility layer. The
+coordinator now uses the pinned Effect runtime internally, behind one
+Promise-facing boundary.
 
 ## Completed sequence
 
@@ -50,8 +52,8 @@ a workflow engine, event store, broker, or compatibility layer.
 ## Current ownership model
 
 ```text
-runDeepSearchJob             terminal job success/failure and public terminal events
-`- runDeepSearchPipeline    rounds, stage order, fallback policy, deduplication
+runDeepSearchJob             terminal success/failure/interruption and events
+`- runDeepSearchPipeline    Effect-owned rounds, ordering, fan-outs, fallbacks
    |- agent adapters         prompts, provider calls, extraction, output validation
    |- store commands         normalized transactional state changes
    `- job.publish            lightweight notification after the owning write
@@ -72,14 +74,18 @@ register generation + owning link atomically
 ```
 
 Already-started concurrent work is settled before a parent becomes terminal.
-Events do not cause database writes and are not a second source of truth.
+An owner Stop is persisted on a standalone root before its manager controller
+interrupts queued or active work; active children inherit cancellation without
+copying that timestamp, while children completed before the request keep their
+completed state. Events do not cause database writes and are not a second
+source of truth.
 
 ## Resource model
 
 - A user may have two active root research workflows by default. A process-local
   reservation is acquired before the asynchronous title preflight, so racing
   requests cannot both spend provider work for one remaining slot.
-- Every root workflow has an aggregate worst-case selected-page budget of 400 by
+- Every root workflow has an aggregate worst-case selected-page budget of 200 by
   default. An idea job accounts for its initial searches plus at most 12
   selected-idea searches.
 - Deep-search execution uses one process queue with concurrency two. Newly
@@ -112,8 +118,9 @@ decision rather than hidden inside this architecture migration.
 - Every generation has one immutable workflow owner before consumption starts.
 - Terminal workflow facts and generation outcome cannot disagree after a
   successful transaction.
-- Completed and failed work replays from normalized SQLite rows.
-- A browser disconnect does not cancel provider work.
+- Completed, failed, and interrupted work replays from normalized SQLite rows.
+- A browser disconnect does not cancel provider work; an owner may explicitly
+  stop a standalone deep-search root.
 - Public debates remain public while live anonymous streams may exist; owners
   can revoke them after termination.
 - No legacy schema, old persistence adapter, or internal public-stream consumer

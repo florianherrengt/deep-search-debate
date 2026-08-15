@@ -53,6 +53,8 @@ export const debateJobs = sqliteTable(
       .notNull()
       .default("running"),
     error: text("error"),
+    /** Set when the owner requests an irreversible stop of this root workflow. */
+    cancelRequestedAt: integer("cancel_requested_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
@@ -89,9 +91,11 @@ export const debateJobs = sqliteTable(
       sql`(
         (${table.status} = 'running' and ${table.completedAt} is null and ${table.error} is null)
         or
-        (${table.status} = 'completed' and ${table.stage} = 'final' and ${table.completedAt} is not null and ${table.error} is null)
+        (${table.status} = 'completed' and ${table.stage} = 'final' and ${table.completedAt} is not null and ${table.error} is null and ${table.cancelRequestedAt} is null)
         or
-        (${table.status} in ('failed', 'interrupted') and ${table.completedAt} is not null and ${table.error} is not null)
+        (${table.status} = 'failed' and ${table.completedAt} is not null and ${table.error} is not null and ${table.cancelRequestedAt} is null)
+        or
+        (${table.status} = 'interrupted' and ${table.completedAt} is not null and ${table.error} is not null)
       )`,
     ),
   ],

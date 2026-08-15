@@ -1,4 +1,5 @@
 import PQueue from "p-queue"
+import { Effect, Result } from "effect"
 import { answerResearchRequest } from "../../agents/deep_search/finalAnswer.ts"
 import { generateWebSearchQueries } from "../../agents/deep_search/queries.ts"
 import { summarizeSearchQuery } from "../../agents/deep_search/querySummaries.ts"
@@ -13,8 +14,14 @@ import type {
 import { selectWebSearchResults } from "../../agents/deep_search/selection.ts"
 import { startPageSummary } from "../../agents/deep_search/summaries.ts"
 import { getErrorMessage } from "../../helpers/getErrorMessage.ts"
+import { addAbortableQueueTask } from "../../helpers/addAbortableQueueTask.ts"
 import { webSearch } from "../../web_search/index.ts"
 import { config } from "../../config.ts"
+import {
+  runWorkflowEffect,
+  WorkflowFailure,
+  WorkflowInterruptedError,
+} from "../../workflowRuntime.ts"
 import { promoteRoundAnswer } from "./jobLifecycle.ts"
 import type {
   ExecutedQuery,
@@ -33,6 +40,9 @@ import {
   completeQuerySummaryGeneration,
   failPageSummaryGeneration,
   failQuerySummaryGeneration,
+  interruptPageSummaryGeneration,
+  interruptQuerySummaryGeneration,
+  interruptRoundReviewGeneration,
   savePageFailure,
   settlePageExtractionCredits,
   savePlannedQueries,
@@ -50,6 +60,7 @@ export type DeepSearchPipelineInput = {
   maxResultsPerSearch?: number
   maxRounds?: number
   publish: (event: DeepSearchEvent) => void
+  workflowSignal?: AbortSignal
 }
 
 const pageSummaryQueue = new PQueue({
@@ -76,20 +87,40 @@ function toPublicSearch(search: ExecutedQuery): DeepSearchSearch {
   }
 }
 
-async function settleAll<Result>(
-  promises: readonly Promise<Result>[],
-): Promise<Result[]> {
-  const settled = await Promise.allSettled(promises)
-  // allSettled preserves input order, so concurrent failures have a stable
-  // winner instead of depending on provider response timing.
-  const failure = settled.find(
-    (result): result is PromiseRejectedResult =>
-      result.status === "rejected",
+function workflowEffect<Value>(
+  run: () => Value | PromiseLike<Value>,
+  fallback = "Deep-search work failed",
+): Effect.Effect<Value, WorkflowFailure> {
+  return Effect.uninterruptible(
+    Effect.tryPromise({
+      try: () => Promise.resolve().then(run),
+      catch: (cause) =>
+        cause instanceof WorkflowFailure
+          ? cause
+          : new WorkflowFailure({
+              message: getErrorMessage(cause, fallback),
+              cause,
+            }),
+    }),
   )
-  if (failure) throw failure.reason
-  return settled.map((result) => {
-    if (result.status === "rejected") throw result.reason
-    return result.value
+}
+
+function settleAll<Value>(
+  effects: readonly Effect.Effect<Value, WorkflowFailure>[],
+): Effect.Effect<Value[], WorkflowFailure> {
+  return Effect.gen(function*() {
+    const settled = yield* Effect.all(effects, {
+      concurrency: "unbounded",
+      mode: "result",
+    })
+    // Result mode waits for every started effect and preserves input order.
+    // Inspecting in that order keeps concurrent failure selection stable.
+    const firstFailure = settled.find(Result.isFailure)
+    if (firstFailure) yield* Effect.fail(firstFailure.failure)
+    return settled.map((result) => {
+      if (Result.isFailure(result)) throw result.failure
+      return result.success
+    })
   })
 }
 
@@ -102,6 +133,7 @@ async function summarizeSelectedPage(
     deepSearchJobId: params.deepSearchJobId,
     researchRequest: params.researchRequest,
     url: page.url,
+    workflowSignal: params.workflowSignal,
     onExtractionSettled: (creditsUsed) => {
       settlePageExtractionCredits({
         userId: params.userId,
@@ -130,6 +162,14 @@ async function summarizeSelectedPage(
         pageId: page.pageId,
         generationId: failed.id,
         message: failed.error,
+      })
+    },
+    onInterrupted: (interrupted, transaction) => {
+      interruptPageSummaryGeneration(transaction, {
+        jobId: params.deepSearchJobId,
+        pageId: page.pageId,
+        generationId: interrupted.id,
+        message: interrupted.error,
       })
     },
   })
@@ -195,6 +235,7 @@ async function reviewSearchRound(
     completedRound: round.position,
     maxRounds,
     searchSummaries: [...searchSummaries],
+    workflowSignal: params.workflowSignal,
     onCompleted: (completed, transaction) => {
       saveRoundReviewCompletion(transaction, {
         jobId: params.deepSearchJobId,
@@ -210,7 +251,16 @@ async function reviewSearchRound(
         generationId: streamId,
       })
     },
+    onInterrupted: (interrupted, transaction) => {
+      interruptRoundReviewGeneration(transaction, {
+        jobId: params.deepSearchJobId,
+        roundId: round.roundId,
+        generationId: interrupted.id,
+        message: interrupted.error,
+      })
+    },
   }).catch((error: unknown) => {
+    if (error instanceof WorkflowInterruptedError) throw error
     persistRoundReviewFailure(params, round, error)
     return undefined
   })
@@ -247,283 +297,357 @@ function promoteCandidateAnswer(
 }
 
 /** Coordinates the complete deep-search workflow and persists each stage before publishing it. */
-export async function runDeepSearchPipeline(
+function deepSearchPipelineEffect(
   params: DeepSearchPipelineInput,
-): Promise<string> {
-  const maxSearches = params.maxSearches ?? 3
-  const maxResultsPerSearch = params.maxResultsPerSearch ?? 3
-  const maxRounds = params.maxRounds ?? 3
-  const pageSummaryTasks = new Map<string, Promise<string | undefined>>()
-  const previousQueries: string[] = []
-  const searchSummaries: SearchSummary[] = []
-  let previousCandidateAnswer: string | undefined
-  let previousReviewReason: string | undefined
+): Effect.Effect<string, WorkflowFailure> {
+  return Effect.gen(function*() {
+    const maxSearches = params.maxSearches ?? 3
+    const maxResultsPerSearch = params.maxResultsPerSearch ?? 3
+    const maxRounds = params.maxRounds ?? 3
+    const pageSummaryTasks = new Map<string, Promise<string | undefined>>()
+    const previousQueries: string[] = []
+    const searchSummaries: SearchSummary[] = []
+    let previousCandidateAnswer: string | undefined
+    let previousReviewReason: string | undefined
 
-  for (let round = 0; round < maxRounds; round += 1) {
-    const queryGeneration = await generateWebSearchQueries({
-      userId: params.userId,
-      deepSearchJobId: params.deepSearchJobId,
-      researchRequest: params.researchRequest,
-      maxSearches,
-      round,
-      previousQueries: [...previousQueries],
-      previousSearchSummaries: [...searchSummaries],
-      previousCandidateAnswer,
-      previousReviewReason,
-    })
-    let persistedRound: SearchRound
-    try {
-      persistedRound = createSearchRound({
-        jobId: params.deepSearchJobId,
-        position: round,
-        generationId: queryGeneration.streamId,
-      })
-      params.publish({
-        type: "query-stream",
-        round,
-        streamId: queryGeneration.streamId,
-      })
-    } catch (error) {
-      await queryGeneration.queries.catch(() => undefined)
-      throw error
-    }
-
-    const queries = await queryGeneration.queries
-    const plannedQueries = savePlannedQueries({
-      jobId: params.deepSearchJobId,
-      roundId: persistedRound.roundId,
-      queries,
-    })
-    const searchedQueries = await settleAll(
-      plannedQueries.map(async (plannedQuery) => {
-        const search = await webSearch({
-          userId: params.userId,
-          query: plannedQuery.query,
-        })
-        // Preserve the array-shaped test seam used by the pipeline's provider
-        // mocks while production returns settled cost metadata.
-        return Array.isArray(search)
-          ? { plannedQuery, results: search, creditsUsed: 0 }
-          : { plannedQuery, ...search }
-      }),
-    )
-    const executedQueries = saveSearchResults({
-      userId: params.userId,
-      jobId: params.deepSearchJobId,
-      roundId: persistedRound.roundId,
-      searches: searchedQueries,
-    })
-    if (executedQueries.length > 0) {
-      params.publish({
-        type: "search-results",
-        round,
-        searches: executedQueries.map(toPublicSearch),
-      })
-    }
-    previousQueries.push(...executedQueries.map(({ query }) => query))
-
-    const pagesToSummarize = new Map<string, SelectedPage>()
-    for (const search of executedQueries) {
-      if (search.results.length === 0) {
-        completeEmptySearchQuery({
-          jobId: params.deepSearchJobId,
-          queryId: search.queryId,
-        })
-        params.publish({
-          type: "selected-search-results",
-          round,
-          query: search.query,
-          selectedLinks: [],
-        })
-        continue
-      }
-      const selectionGeneration = await selectWebSearchResults({
-        userId: params.userId,
-        deepSearchJobId: params.deepSearchJobId,
-        userQuery: params.researchRequest,
-        searchQuery: search.query,
-        results: search.results.map((result) => ({
-          id: result.resultId,
-          title: result.title,
-          url: result.url,
-          snippet: result.shortText,
-        })),
-        maxResultsToExplore: maxResultsPerSearch,
-      })
-      try {
-        attachSelectionGeneration({
-          jobId: params.deepSearchJobId,
-          queryId: search.queryId,
-          generationId: selectionGeneration.streamId,
-        })
-        params.publish({
-          type: "selection-stream",
-          round,
-          query: search.query,
-          streamId: selectionGeneration.streamId,
-        })
-      } catch (error) {
-        await selectionGeneration.selectedIds.catch(() => undefined)
-        throw error
-      }
-
-      const resultsById = new Map(
-        search.results.map((result) => [result.resultId, result]),
-      )
-      const selectedResults = (await selectionGeneration.selectedIds)
-        .map((id) => resultsById.get(id))
-        .filter((result) => result !== undefined)
-      const selectedPages = saveSelectedResults({
-        jobId: params.deepSearchJobId,
-        queryId: search.queryId,
-        selectionGenerationId: selectionGeneration.streamId,
-        selectedResultIds: [
-          ...new Set(selectedResults.map(({ resultId }) => resultId)),
-        ],
-      })
-      params.publish({
-        type: "selected-search-results",
-        round,
-        query: search.query,
-        selectedLinks: selectedResults.map(({ url }) => url),
-      })
-
-      for (const page of selectedPages) {
-        if (pageSummaryTasks.has(page.url) || pagesToSummarize.has(page.url)) {
-          continue
-        }
-        pagesToSummarize.set(page.url, page)
-      }
-    }
-
-    for (const page of pagesToSummarize.values()) {
-      pageSummaryTasks.set(
-        page.url,
-        pageSummaryQueue.add(() => summarizeSelectedPage(params, page)),
-      )
-    }
-
-    const pageSummaries = new Map(
-      await settleAll(
-        [...pageSummaryTasks].map(async ([url, task]) => {
-          const summary = await task
-          return [url, summary] as const
-        }),
-      ),
-    )
-
-    const roundSummaries = await settleAll(
-      executedQueries.map(async (search) => {
-        if (search.results.length === 0) {
-          return {
-            round,
-            query: search.query,
-            content: EMPTY_SEARCH_SUMMARY,
-          }
-        }
-        const generation = await summarizeSearchQuery({
+    for (let round = 0; round < maxRounds; round += 1) {
+      const queryGeneration = yield* workflowEffect(() =>
+        generateWebSearchQueries({
           userId: params.userId,
           deepSearchJobId: params.deepSearchJobId,
           researchRequest: params.researchRequest,
-          query: search.query,
-          results: search.results.map((result) => ({
-            title: result.title,
-            url: result.url,
-            content: pageSummaries.get(result.url) || result.shortText,
-          })),
-          onRegistered: (generationId, transaction) => {
-            attachQuerySummaryGeneration(transaction, {
+          maxSearches,
+          round,
+          previousQueries: [...previousQueries],
+          previousSearchSummaries: [...searchSummaries],
+          previousCandidateAnswer,
+          previousReviewReason,
+          workflowSignal: params.workflowSignal,
+        }),
+      )
+      const persistedRound = yield* workflowEffect(async () => {
+        try {
+          const storedRound = createSearchRound({
+            jobId: params.deepSearchJobId,
+            position: round,
+            generationId: queryGeneration.streamId,
+          })
+          params.publish({
+            type: "query-stream",
+            round,
+            streamId: queryGeneration.streamId,
+          })
+          return storedRound
+        } catch (error) {
+          await queryGeneration.queries.catch(() => undefined)
+          throw error
+        }
+      })
+
+      const queries = yield* workflowEffect(() => queryGeneration.queries)
+      const plannedQueries = yield* workflowEffect(() =>
+        savePlannedQueries({
+          jobId: params.deepSearchJobId,
+          roundId: persistedRound.roundId,
+          queries,
+        }),
+      )
+      const searchedQueries = yield* settleAll(
+        plannedQueries.map((plannedQuery) =>
+          workflowEffect(async () => {
+            const search = await webSearch({
+              userId: params.userId,
+              query: plannedQuery.query,
+              signal: params.workflowSignal,
+            })
+            // Preserve the array-shaped test seam used by provider mocks while
+            // production returns settled cost metadata.
+            return Array.isArray(search)
+              ? { plannedQuery, results: search, creditsUsed: 0 }
+              : { plannedQuery, ...search }
+          }),
+        ),
+      )
+      const executedQueries = yield* workflowEffect(() => {
+        const storedQueries = saveSearchResults({
+          userId: params.userId,
+          jobId: params.deepSearchJobId,
+          roundId: persistedRound.roundId,
+          searches: searchedQueries,
+        })
+        if (storedQueries.length > 0) {
+          params.publish({
+            type: "search-results",
+            round,
+            searches: storedQueries.map(toPublicSearch),
+          })
+        }
+        return storedQueries
+      })
+      previousQueries.push(...executedQueries.map(({ query }) => query))
+
+      const pagesToSummarize = new Map<string, SelectedPage>()
+      for (const search of executedQueries) {
+        if (search.results.length === 0) {
+          yield* workflowEffect(() => {
+            completeEmptySearchQuery({
               jobId: params.deepSearchJobId,
               queryId: search.queryId,
+            })
+            params.publish({
+              type: "selected-search-results",
+              round,
+              query: search.query,
+              selectedLinks: [],
+            })
+          })
+          continue
+        }
+        const selectionGeneration = yield* workflowEffect(() =>
+          selectWebSearchResults({
+            userId: params.userId,
+            deepSearchJobId: params.deepSearchJobId,
+            userQuery: params.researchRequest,
+            searchQuery: search.query,
+            results: search.results.map((result) => ({
+              id: result.resultId,
+              title: result.title,
+              url: result.url,
+              snippet: result.shortText,
+            })),
+            maxResultsToExplore: maxResultsPerSearch,
+            workflowSignal: params.workflowSignal,
+          }),
+        )
+        yield* workflowEffect(async () => {
+          try {
+            attachSelectionGeneration({
+              jobId: params.deepSearchJobId,
+              queryId: search.queryId,
+              generationId: selectionGeneration.streamId,
+            })
+            params.publish({
+              type: "selection-stream",
+              round,
+              query: search.query,
+              streamId: selectionGeneration.streamId,
+            })
+          } catch (error) {
+            await selectionGeneration.selectedIds.catch(() => undefined)
+            throw error
+          }
+        })
+
+        const resultsById = new Map(
+          search.results.map((result) => [result.resultId, result]),
+        )
+        const selectedIds = yield* workflowEffect(
+          () => selectionGeneration.selectedIds,
+        )
+        const selectedResults = selectedIds
+          .map((id) => resultsById.get(id))
+          .filter((result) => result !== undefined)
+        const selectedPages = yield* workflowEffect(() => {
+          const storedPages = saveSelectedResults({
+            jobId: params.deepSearchJobId,
+            queryId: search.queryId,
+            selectionGenerationId: selectionGeneration.streamId,
+            selectedResultIds: [
+              ...new Set(selectedResults.map(({ resultId }) => resultId)),
+            ],
+          })
+          params.publish({
+            type: "selected-search-results",
+            round,
+            query: search.query,
+            selectedLinks: selectedResults.map(({ url }) => url),
+          })
+          return storedPages
+        })
+
+        for (const page of selectedPages) {
+          if (pageSummaryTasks.has(page.url) || pagesToSummarize.has(page.url)) {
+            continue
+          }
+          pagesToSummarize.set(page.url, page)
+        }
+      }
+
+      for (const page of pagesToSummarize.values()) {
+        pageSummaryTasks.set(
+          page.url,
+          addAbortableQueueTask(
+            pageSummaryQueue,
+            () => summarizeSelectedPage(params, page),
+            params.workflowSignal,
+          ),
+        )
+      }
+
+      const pageSummaries = new Map(
+        yield* settleAll(
+          [...pageSummaryTasks].map(([url, task]) =>
+            workflowEffect(async () => {
+              const summary = await task
+              return [url, summary] as const
+            }),
+          ),
+        ),
+      )
+
+      const roundSummaries = yield* settleAll(
+        executedQueries.map((search) =>
+          workflowEffect(async () => {
+            if (search.results.length === 0) {
+              return {
+                round,
+                query: search.query,
+                content: EMPTY_SEARCH_SUMMARY,
+              }
+            }
+            const generation = await summarizeSearchQuery({
+              userId: params.userId,
+              deepSearchJobId: params.deepSearchJobId,
+              researchRequest: params.researchRequest,
+              query: search.query,
+              results: search.results.map((result) => ({
+                title: result.title,
+                url: result.url,
+                content: pageSummaries.get(result.url) || result.shortText,
+              })),
+              workflowSignal: params.workflowSignal,
+              onRegistered: (generationId, transaction) => {
+                attachQuerySummaryGeneration(transaction, {
+                  jobId: params.deepSearchJobId,
+                  queryId: search.queryId,
+                  generationId,
+                })
+              },
+              onCompleted: (completed, transaction) => {
+                completeQuerySummaryGeneration(transaction, {
+                  jobId: params.deepSearchJobId,
+                  queryId: search.queryId,
+                  generationId: completed.id,
+                })
+              },
+              onFailed: (failed, transaction) => {
+                failQuerySummaryGeneration(transaction, {
+                  jobId: params.deepSearchJobId,
+                  queryId: search.queryId,
+                  generationId: failed.id,
+                  message: failed.error,
+                })
+              },
+              onInterrupted: (interrupted, transaction) => {
+                interruptQuerySummaryGeneration(transaction, {
+                  jobId: params.deepSearchJobId,
+                  queryId: search.queryId,
+                  generationId: interrupted.id,
+                  message: interrupted.error,
+                })
+              },
+            })
+            try {
+              params.publish({
+                type: "query-summary-stream",
+                round,
+                query: search.query,
+                streamId: generation.streamId,
+              })
+            } catch (error) {
+              await generation.summary.catch(() => undefined)
+              throw error
+            }
+            return {
+              round,
+              query: search.query,
+              content: (await generation.summary).trim(),
+            }
+          }),
+        ),
+      )
+      searchSummaries.push(...roundSummaries)
+
+      const candidate = yield* workflowEffect(() =>
+        answerResearchRequest({
+          userId: params.userId,
+          deepSearchJobId: params.deepSearchJobId,
+          researchRequest: params.researchRequest,
+          searchSummaries: [...searchSummaries],
+          workflowSignal: params.workflowSignal,
+          onRegistered: (generationId, transaction) => {
+            attachRoundAnswerGeneration(transaction, {
+              jobId: params.deepSearchJobId,
+              roundId: persistedRound.roundId,
               generationId,
             })
           },
-          onCompleted: (completed, transaction) => {
-            completeQuerySummaryGeneration(transaction, {
-              jobId: params.deepSearchJobId,
-              queryId: search.queryId,
-              generationId: completed.id,
-            })
-          },
-          onFailed: (failed, transaction) => {
-            failQuerySummaryGeneration(transaction, {
-              jobId: params.deepSearchJobId,
-              queryId: search.queryId,
-              generationId: failed.id,
-              message: failed.error,
-            })
-          },
-        })
+        }),
+      )
+      yield* workflowEffect(async () => {
         try {
           params.publish({
-            type: "query-summary-stream",
+            type: "round-answer-stream",
             round,
-            query: search.query,
-            streamId: generation.streamId,
+            streamId: candidate.streamId,
           })
         } catch (error) {
-          await generation.summary.catch(() => undefined)
+          await candidate.answer.catch(() => undefined)
           throw error
         }
-        return {
-          round,
-          query: search.query,
-          content: (await generation.summary).trim(),
-        }
+      })
+      const candidateAnswer = yield* workflowEffect(() => candidate.answer)
+
+      if (round + 1 >= maxRounds) {
+        yield* workflowEffect(() =>
+          promoteCandidateAnswer(params, persistedRound, candidate.streamId),
+        )
+        return candidateAnswer
+      }
+
+      const decision = yield* workflowEffect(() =>
+        reviewSearchRound(
+          params,
+          persistedRound,
+          maxRounds,
+          searchSummaries,
+          candidateAnswer,
+        ),
+      )
+      if (!decision) {
+        yield* workflowEffect(() =>
+          promoteCandidateAnswer(params, persistedRound, candidate.streamId),
+        )
+        return candidateAnswer
+      }
+
+      yield* workflowEffect(() =>
+        params.publish({ type: "round-review", round, ...decision }),
+      )
+      if (decision.decision === "stop") {
+        yield* workflowEffect(() =>
+          promoteCandidateAnswer(params, persistedRound, candidate.streamId),
+        )
+        return candidateAnswer
+      }
+      previousCandidateAnswer = candidateAnswer
+      previousReviewReason = decision.reason
+    }
+
+    return yield* Effect.fail(
+      new WorkflowFailure({
+        message: "Deep-search pipeline exhausted without a candidate answer",
       }),
     )
-    searchSummaries.push(...roundSummaries)
+  })
+}
 
-    const candidate = await answerResearchRequest({
-      userId: params.userId,
-      deepSearchJobId: params.deepSearchJobId,
-      researchRequest: params.researchRequest,
-      searchSummaries: [...searchSummaries],
-      onRegistered: (generationId, transaction) => {
-        attachRoundAnswerGeneration(transaction, {
-          jobId: params.deepSearchJobId,
-          roundId: persistedRound.roundId,
-          generationId,
-        })
-      },
-    })
-    try {
-      params.publish({
-        type: "round-answer-stream",
-        round,
-        streamId: candidate.streamId,
-      })
-    } catch (error) {
-      await candidate.answer.catch(() => undefined)
-      throw error
-    }
-    const candidateAnswer = await candidate.answer
-
-    if (round + 1 >= maxRounds) {
-      promoteCandidateAnswer(params, persistedRound, candidate.streamId)
-      return candidateAnswer
-    }
-
-    const decision = await reviewSearchRound(
-      params,
-      persistedRound,
-      maxRounds,
-      searchSummaries,
-      candidateAnswer,
-    )
-    if (!decision) {
-      promoteCandidateAnswer(params, persistedRound, candidate.streamId)
-      return candidateAnswer
-    }
-
-    params.publish({ type: "round-review", round, ...decision })
-    if (decision.decision === "stop") {
-      promoteCandidateAnswer(params, persistedRound, candidate.streamId)
-      return candidateAnswer
-    }
-    previousCandidateAnswer = candidateAnswer
-    previousReviewReason = decision.reason
-  }
-
-  throw new Error("Deep-search pipeline exhausted without a candidate answer")
+/** Effect-owned coordinator with a single Promise-facing runtime boundary. */
+export async function runDeepSearchPipeline(
+  params: DeepSearchPipelineInput,
+): Promise<string> {
+  return runWorkflowEffect(
+    deepSearchPipelineEffect(params),
+    params.workflowSignal,
+  )
 }

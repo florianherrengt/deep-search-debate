@@ -1,8 +1,9 @@
 import Alert from "@mui/material/Alert"
+import AlertTitle from "@mui/material/AlertTitle"
 import CircularProgress from "@mui/material/CircularProgress"
 import Stack from "@mui/material/Stack"
 import Typography from "@mui/material/Typography"
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import { GenerationOutput } from "../../../components/streaming/GenerationOutput.tsx"
 import type { IdeaJobRunState } from "../ideaJobState.ts"
 import { IdeaList } from "./IdeaList.tsx"
@@ -17,16 +18,18 @@ function getProgressStatus({
   notRun,
   running,
   completed,
+  stopped,
 }: {
   failed: boolean
   notRun: boolean
   running: boolean
   completed: boolean
+  stopped: boolean
 }): ProgressStatus {
   if (failed) return "failed"
-  if (notRun) return "not-run"
   if (running) return "running"
   if (completed) return "completed"
+  if (notRun || stopped) return "not-run"
   return "waiting"
 }
 
@@ -114,17 +117,27 @@ export function IdeaJobView({
   title,
   prompt,
   run,
+  stopControl,
+  stopError,
+  stopRequested = false,
 }: {
   jobSlug: string
   title: string
   prompt: string
   run: IdeaJobRunState & { subscriptionError?: string | null }
+  stopControl?: ReactNode
+  stopError?: Error | null
+  stopRequested?: boolean
 }) {
   const [improvementStageHasFocus, setImprovementStageHasFocus] =
     useState(false)
+  const status =
+    stopRequested && run.status === "running" ? "stopping" : run.status
+  const presentationRun: IdeaJobRunState =
+    status === run.status ? run : { ...run, status }
   const failedStage = run.failedStage
   const failedProgressStage =
-    run.status === "failed" && failedStage
+    status === "failed" && failedStage
       ? failedStageToProgressStage[failedStage]
       : null
   // The terminal error identifies the attempted stage. Earlier sequential
@@ -153,29 +166,32 @@ export function IdeaJobView({
   const planningStatus = getProgressStatus({
     failed: failedStage === "planning",
     notRun: notRunAfterFailure("planning"),
-    running: run.status === "running" && run.research.length === 0,
+    running: status === "running" && run.research.length === 0,
     completed:
       Boolean(run.researchPromptStreamId) || completedBeforeFailure("planning"),
+    stopped: status === "stopping" || status === "interrupted",
   })
   const researchStatus = getProgressStatus({
     failed: failedStage === "research",
     notRun: notRunAfterFailure("research"),
     running:
-      run.status === "running" &&
+      status === "running" &&
       run.research.length > 0 &&
       !run.researchSummaryStreamId,
     completed:
       Boolean(run.researchSummaryStreamId) || completedBeforeFailure("research"),
+    stopped: status === "stopping" || status === "interrupted",
   })
   const summaryStatus = getProgressStatus({
     failed: failedStage === "summary",
     notRun: notRunAfterFailure("summary"),
     running:
-      run.status === "running" &&
+      status === "running" &&
       Boolean(run.researchSummaryStreamId) &&
       !run.ideaGenerationStreamId,
     completed:
       Boolean(run.ideaGenerationStreamId) || completedBeforeFailure("summary"),
+    stopped: status === "stopping" || status === "interrupted",
   })
   const ideaStatus = getProgressStatus({
     failed:
@@ -184,32 +200,35 @@ export function IdeaJobView({
       failedStage === "selection",
     notRun: notRunAfterFailure("ideas"),
     running:
-      run.status === "running" &&
+      status === "running" &&
       Boolean(run.ideaGenerationStreamId) &&
       !selectionCompleted,
     completed:
       selectionCompleted ||
       completedBeforeFailure("ideas") ||
-      (run.status === "completed" && Boolean(run.ideaGenerationStreamId)),
+      (status === "completed" && Boolean(run.ideaGenerationStreamId)),
+    stopped: status === "stopping" || status === "interrupted",
   })
   const selectionStatus = getProgressStatus({
     failed: failedStage === "selection",
     notRun: false,
     running:
-      run.status === "running" &&
+      status === "running" &&
       Boolean(run.ideaSelectionStreamId) &&
       !selectionCompleted,
     completed: selectionCompleted,
+    stopped: status === "stopping" || status === "interrupted",
   })
   const improvementStatus = getProgressStatus({
     failed: failedStage === "refinement" || failedStage === "idea-research",
     notRun: notRunAfterFailure("improvement"),
     running:
-      run.status === "running" &&
+      status === "running" &&
       selectionCompleted &&
       selectedIdeaCount > 0,
+    stopped: status === "stopping" || status === "interrupted",
     completed:
-      run.status === "completed" &&
+      status === "completed" &&
       selectionCompleted &&
       selectedIdeaCount > 0,
   })
@@ -218,13 +237,20 @@ export function IdeaJobView({
     (selectionCompleted ||
       failedStage === "refinement" ||
       failedStage === "idea-research") &&
-    (run.status !== "completed" || improvementStageHasFocus)
+    (status !== "completed" || improvementStageHasFocus)
   return (
     <Stack spacing={3}>
-      <Stack spacing={0.5}>
-        <Typography component="h1" variant="h4">
-          {title}
-        </Typography>
+      <Stack spacing={1}>
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={1}
+          sx={{ alignItems: { sm: "center" }, justifyContent: "space-between" }}
+        >
+          <Typography component="h1" variant="h4">
+            {title}
+          </Typography>
+          {stopControl}
+        </Stack>
         <Typography
           color="text.secondary"
           sx={{ maxWidth: "85ch", overflowWrap: "anywhere" }}
@@ -232,7 +258,15 @@ export function IdeaJobView({
           {prompt}
         </Typography>
       </Stack>
-      {run.error && <Alert severity="error">{run.error}</Alert>}
+      {run.error && (
+        <Alert severity={status === "interrupted" ? "info" : "error"}>
+          {status === "interrupted" && (
+            <AlertTitle>{stopRequested ? "Stopped" : "Interrupted"}</AlertTitle>
+          )}
+          {run.error}
+        </Alert>
+      )}
+      {stopError && <Alert severity="error">{stopError.message}</Alert>}
       {run.subscriptionError && !run.error && (
         <Alert severity="warning">{run.subscriptionError}</Alert>
       )}
@@ -242,7 +276,7 @@ export function IdeaJobView({
           ideas={run.ideas}
           jobSlug={jobSlug}
           key="idea-results"
-          run={run}
+          run={presentationRun}
           selectedIdeaCount={selectedIdeaCount}
           selectionCompleted={selectionCompleted}
         />
@@ -256,15 +290,21 @@ export function IdeaJobView({
       >
         <Stack spacing={0.5}>
           <Typography component="h2" id="idea-process" variant="h5">
-            {run.status === "completed"
+            {status === "completed"
               ? "How these ideas were developed"
               : "Progress"}
           </Typography>
           <Typography color="text.secondary">
-            {run.status === "completed"
+            {status === "completed"
               ? "Review the research, candidate ideas, and decisions behind the results."
-              : run.status === "failed"
+              : status === "failed"
                 ? "Review what completed before the run stopped."
+                : status === "interrupted"
+                  ? stopRequested
+                    ? "This run was stopped. Completed work remains available below."
+                    : "This run was interrupted. Completed work remains available below."
+                  : status === "stopping"
+                    ? "Stopping queued and active work…"
                 : "Follow the current stage or expand an earlier stage for details."}
           </Typography>
         </Stack>
@@ -352,7 +392,7 @@ export function IdeaJobView({
               )}
               {selectionStatus === "waiting" &&
                 hasIdeas &&
-                run.status === "running" && (
+                status === "running" && (
                   <Stack
                     aria-live="polite"
                     direction="row"

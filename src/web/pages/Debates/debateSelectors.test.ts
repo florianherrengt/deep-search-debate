@@ -53,6 +53,8 @@ const tournament: DebateTournament = {
   prompt: "Prompt",
   isPublic: false,
   isOwner: true,
+  stopRequested: false,
+  canStop: false,
   stage: "final",
   status: "completed",
   expectedMatchCount: 4,

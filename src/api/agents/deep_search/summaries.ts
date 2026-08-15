@@ -35,6 +35,7 @@ type SummarizePageInput = TextGenerationPersistenceCallbacks & {
   researchRequest: string
   url: string
   content: string
+  workflowSignal?: AbortSignal
 }
 
 export type PageSummaryGeneration = {
@@ -68,9 +69,13 @@ export async function summarizePage(
     // the summary for the same provider output budget and can consume it all.
     reasoning: "disabled",
     maxOutputTokens: 2_048,
+    workflowSignal: params.workflowSignal,
     ...(params.onRegistered ? { onRegistered: params.onRegistered } : {}),
     ...(params.onCompleted ? { onCompleted: params.onCompleted } : {}),
     ...(params.onFailed ? { onFailed: params.onFailed } : {}),
+    ...(params.onInterrupted
+      ? { onInterrupted: params.onInterrupted }
+      : {}),
   })
   return {
     streamId: generation.id,
@@ -84,6 +89,7 @@ type StartPageSummaryInput = TextGenerationPersistenceCallbacks & {
   researchRequest: string
   url: string
   onExtractionSettled?: (creditsUsed: number) => void
+  workflowSignal?: AbortSignal
 }
 
 export type PageSummaryStart =
@@ -104,11 +110,14 @@ type PageExtractionResult =
   | { status: "completed"; content: string; creditsUsed: number }
 
 async function extractPage(
-  params: Pick<StartPageSummaryInput, "userId" | "url">,
+  params: Pick<StartPageSummaryInput, "userId" | "url" | "workflowSignal">,
 ): Promise<PageExtractionResult> {
   try {
     requirePositiveCreditBalance(params.userId)
-    const page = await webExtract({ url: params.url })
+    const page = await webExtract({
+      url: params.url,
+      signal: params.workflowSignal,
+    })
     if (!page.content.trim()) {
       throw new Error("Page extraction returned no content")
     }
@@ -152,18 +161,22 @@ export async function startPageSummary(
       researchRequest: params.researchRequest,
       url: params.url,
       content: extraction.content,
+      workflowSignal: params.workflowSignal,
       ...(params.onRegistered ? { onRegistered: params.onRegistered } : {}),
       ...(params.onCompleted ? { onCompleted: params.onCompleted } : {}),
       ...(params.onFailed ? { onFailed: params.onFailed } : {}),
+      ...(params.onInterrupted
+        ? { onInterrupted: params.onInterrupted }
+        : {}),
     })
 
     return {
       status: "started",
       streamId: generation.streamId,
       summary: generation.completion.then((outcome) =>
-        outcome.status === "failed"
-          ? undefined
-          : outcome.text.trim() || undefined,
+        outcome.status === "completed"
+          ? outcome.text.trim() || undefined
+          : undefined,
       ),
       completion: generation.completion,
     }

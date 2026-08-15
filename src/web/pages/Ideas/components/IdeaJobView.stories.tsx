@@ -314,6 +314,48 @@ export const ResearchingRefinedIdeas: Story = {
   },
 }
 
+export const Stopping: Story = {
+  args: {
+    prompt,
+    stopRequested: true,
+    title,
+    run: {
+      ...baseRun,
+      status: "stopping",
+      research,
+      researchSummaryStreamId: "summary",
+    },
+  },
+}
+
+export const Stopped: Story = {
+  args: {
+    prompt,
+    stopRequested: true,
+    title,
+    run: {
+      ...baseRun,
+      status: "interrupted",
+      research,
+      error: "Workflow stopped by user",
+    },
+  },
+}
+
+export const Interrupted: Story = {
+  args: {
+    prompt,
+    stopRequested: false,
+    title,
+    run: {
+      ...baseRun,
+      status: "interrupted",
+      research,
+      error: "Workflow interrupted during restart recovery",
+    },
+  },
+}
+
 export const Completed: Story = {
   args: {
     prompt,

@@ -12,6 +12,7 @@ CREATE TABLE `deep_search_jobs` (
 	`final_answer_generation_id` text,
 	`status` text DEFAULT 'running' NOT NULL,
 	`error` text,
+	`cancel_requested_at` integer,
 	`created_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
 	`completed_at` integer,
 	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,
@@ -25,12 +26,15 @@ CREATE TABLE `deep_search_jobs` (
 	CONSTRAINT "deep_search_jobs_limits_check" CHECK("deep_search_jobs"."max_searches" > 0 and "deep_search_jobs"."max_results_per_search" > 0 and "deep_search_jobs"."max_rounds" > 0),
 	CONSTRAINT "deep_search_jobs_research_request_content_check" CHECK(length(trim("deep_search_jobs"."research_request")) > 0),
 	CONSTRAINT "deep_search_jobs_status_check" CHECK("deep_search_jobs"."status" in ('running', 'completed', 'failed', 'interrupted')),
+	CONSTRAINT "deep_search_jobs_cancel_root_check" CHECK("deep_search_jobs"."cancel_requested_at" is null or "deep_search_jobs"."idea_job_id" is null),
 	CONSTRAINT "deep_search_jobs_terminal_fields_check" CHECK((
         ("deep_search_jobs"."status" = 'running' and "deep_search_jobs"."completed_at" is null and "deep_search_jobs"."error" is null)
         or
-        ("deep_search_jobs"."status" = 'completed' and "deep_search_jobs"."final_answer_generation_id" is not null and "deep_search_jobs"."completed_at" is not null and "deep_search_jobs"."error" is null)
+        ("deep_search_jobs"."status" = 'completed' and "deep_search_jobs"."final_answer_generation_id" is not null and "deep_search_jobs"."completed_at" is not null and "deep_search_jobs"."error" is null and "deep_search_jobs"."cancel_requested_at" is null)
         or
-        ("deep_search_jobs"."status" in ('failed', 'interrupted') and "deep_search_jobs"."completed_at" is not null and "deep_search_jobs"."error" is not null)
+        ("deep_search_jobs"."status" = 'failed' and "deep_search_jobs"."completed_at" is not null and "deep_search_jobs"."error" is not null and "deep_search_jobs"."cancel_requested_at" is null)
+        or
+        ("deep_search_jobs"."status" = 'interrupted' and "deep_search_jobs"."completed_at" is not null and "deep_search_jobs"."error" is not null)
       ))
 );
 --> statement-breakpoint
@@ -182,6 +186,7 @@ CREATE TABLE `debate_jobs` (
 	`stage` text DEFAULT 'ideas' NOT NULL,
 	`status` text DEFAULT 'running' NOT NULL,
 	`error` text,
+	`cancel_requested_at` integer,
 	`created_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
 	`completed_at` integer,
 	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,
@@ -192,9 +197,11 @@ CREATE TABLE `debate_jobs` (
 	CONSTRAINT "debate_jobs_terminal_fields_check" CHECK((
         ("debate_jobs"."status" = 'running' and "debate_jobs"."completed_at" is null and "debate_jobs"."error" is null)
         or
-        ("debate_jobs"."status" = 'completed' and "debate_jobs"."stage" = 'final' and "debate_jobs"."completed_at" is not null and "debate_jobs"."error" is null)
+        ("debate_jobs"."status" = 'completed' and "debate_jobs"."stage" = 'final' and "debate_jobs"."completed_at" is not null and "debate_jobs"."error" is null and "debate_jobs"."cancel_requested_at" is null)
         or
-        ("debate_jobs"."status" in ('failed', 'interrupted') and "debate_jobs"."completed_at" is not null and "debate_jobs"."error" is not null)
+        ("debate_jobs"."status" = 'failed' and "debate_jobs"."completed_at" is not null and "debate_jobs"."error" is not null and "debate_jobs"."cancel_requested_at" is null)
+        or
+        ("debate_jobs"."status" = 'interrupted' and "debate_jobs"."completed_at" is not null and "debate_jobs"."error" is not null)
       ))
 );
 --> statement-breakpoint
@@ -269,6 +276,7 @@ CREATE TABLE `idea_jobs` (
 	`selection_generation_id` text,
 	`status` text DEFAULT 'running' NOT NULL,
 	`error` text,
+	`cancel_requested_at` integer,
 	`created_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
 	`completed_at` integer,
 	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,
@@ -280,13 +288,16 @@ CREATE TABLE `idea_jobs` (
 	CONSTRAINT "idea_jobs_limits_check" CHECK("idea_jobs"."number_of_ideas" > 0 and "idea_jobs"."deep_search_count" > 0),
 	CONSTRAINT "idea_jobs_stage_check" CHECK("idea_jobs"."stage" in ('planning', 'research', 'summary', 'ideas')),
 	CONSTRAINT "idea_jobs_status_check" CHECK("idea_jobs"."status" in ('running', 'completed', 'failed', 'interrupted')),
+	CONSTRAINT "idea_jobs_cancel_root_check" CHECK("idea_jobs"."cancel_requested_at" is null or "idea_jobs"."debate_job_id" is null),
 	CONSTRAINT "idea_jobs_prompt_content_check" CHECK(length(trim("idea_jobs"."prompt")) > 0),
 	CONSTRAINT "idea_jobs_terminal_fields_check" CHECK((
         ("idea_jobs"."status" = 'running' and "idea_jobs"."completed_at" is null and "idea_jobs"."error" is null)
         or
-        ("idea_jobs"."status" = 'completed' and "idea_jobs"."stage" = 'ideas' and "idea_jobs"."completed_at" is not null and "idea_jobs"."error" is null and "idea_jobs"."research_prompt_generation_id" is not null and "idea_jobs"."research_summary_generation_id" is not null and "idea_jobs"."idea_generation_id" is not null)
+        ("idea_jobs"."status" = 'completed' and "idea_jobs"."stage" = 'ideas' and "idea_jobs"."completed_at" is not null and "idea_jobs"."error" is null and "idea_jobs"."cancel_requested_at" is null and "idea_jobs"."research_prompt_generation_id" is not null and "idea_jobs"."research_summary_generation_id" is not null and "idea_jobs"."idea_generation_id" is not null)
         or
-        ("idea_jobs"."status" in ('failed', 'interrupted') and "idea_jobs"."completed_at" is not null and "idea_jobs"."error" is not null)
+        ("idea_jobs"."status" = 'failed' and "idea_jobs"."completed_at" is not null and "idea_jobs"."error" is not null and "idea_jobs"."cancel_requested_at" is null)
+        or
+        ("idea_jobs"."status" = 'interrupted' and "idea_jobs"."completed_at" is not null and "idea_jobs"."error" is not null)
       ))
 );
 --> statement-breakpoint

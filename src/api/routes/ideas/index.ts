@@ -18,11 +18,15 @@ import {
 } from "./schemas.ts"
 import type { AppEnv } from "../../types/auth.ts"
 import { ideaJobReadScope } from "../readAccess.ts"
+import { stopRequestAppliesToJob } from "../researchCancellation.ts"
 
 export type { IdeaJobEvent } from "./schemas.ts"
 
-const { userId: _ideaJobOwnerId, ...publicIdeaJobColumns } =
-  getTableColumns(ideaJobsTable)
+const {
+  userId: _ideaJobOwnerId,
+  cancelRequestedAt: _cancelRequestedAt,
+  ...publicIdeaJobColumns
+} = getTableColumns(ideaJobsTable)
 
 async function writeEvents(
   output: { writeln(value: string): Promise<unknown> },
@@ -64,6 +68,9 @@ export function ideaJobReads(app: Hono<AppEnv>, manager: IdeaJobManager) {
       const job = db
         .select({
           ...publicIdeaJobColumns,
+          ownerUserId: ideaJobsTable.userId,
+          directCancelRequestedAt: ideaJobsTable.cancelRequestedAt,
+          debateCancelRequestedAt: debateJobsTable.cancelRequestedAt,
           debateStatus: debateJobsTable.status,
           isPublic: debateJobsTable.isPublic,
         })
@@ -80,11 +87,30 @@ export function ideaJobReads(app: Hono<AppEnv>, manager: IdeaJobManager) {
         )
         .get()
       if (!job) return c.json({ error: "Idea job not found" }, 404)
-      const { debateStatus, isPublic: inheritedIsPublic, ...ideaJob } = job
+      const {
+        ownerUserId,
+        directCancelRequestedAt,
+        debateCancelRequestedAt,
+        debateStatus,
+        isPublic: inheritedIsPublic,
+        ...ideaJob
+      } = job
       const isPublic = inheritedIsPublic ?? false
+      const stopRequested = stopRequestAppliesToJob({
+        status: ideaJob.status,
+        completedAt: ideaJob.completedAt,
+        cancelRequestedAt:
+          debateCancelRequestedAt ?? directCancelRequestedAt,
+      })
       return c.json({
         ideaJob: {
           ...ideaJob,
+          stopRequested,
+          canStop:
+            c.get("viewerUserId") === ownerUserId &&
+            ideaJob.debateJobId === null &&
+            ideaJob.status === "running" &&
+            !stopRequested,
           isIndexable: isPublic && debateStatus === "completed",
           isPublic,
         },
@@ -95,6 +121,40 @@ export function ideaJobReads(app: Hono<AppEnv>, manager: IdeaJobManager) {
 
 /** Registers authenticated idea creation and readable history. */
 export function ideaJobs(app: Hono<AppEnv>, manager: IdeaJobManager) {
+  app.post(
+    "/idea-jobs/:ideaJobId/cancel",
+    zValidator("param", ideaJobEventParamsSchema),
+    (c) => {
+      const { ideaJobId } = c.req.valid("param")
+      const result = manager.stop(c.get("userId"), ideaJobId)
+      switch (result.kind) {
+        case "requested":
+          return c.json(
+            {
+              status: "cancellation-requested" as const,
+              cancelRequestedAt: result.cancelRequestedAt,
+            },
+            202,
+          )
+        case "already-interrupted":
+          return c.json(
+            {
+              status: "interrupted" as const,
+              cancelRequestedAt: result.cancelRequestedAt,
+              completedAt: result.completedAt,
+            },
+            200,
+          )
+        case "not-found":
+          return c.json({ error: "Idea job not found" }, 404)
+        case "not-root":
+          return c.json({ error: "Only root idea jobs can be stopped" }, 409)
+        case "not-cancellable":
+          return c.json({ error: `Idea job is ${result.status}` }, 409)
+      }
+    },
+  )
+
   app.post(
     "/idea-jobs",
     zValidator("json", createIdeaJobInputSchema),
@@ -119,8 +179,16 @@ export function ideaJobs(app: Hono<AppEnv>, manager: IdeaJobManager) {
     (c) => {
       const { limit } = c.req.valid("query")
       const jobs = db
-        .select(publicIdeaJobColumns)
+        .select({
+          job: publicIdeaJobColumns,
+          directCancelRequestedAt: ideaJobsTable.cancelRequestedAt,
+          debateCancelRequestedAt: debateJobsTable.cancelRequestedAt,
+        })
         .from(ideaJobsTable)
+        .leftJoin(
+          debateJobsTable,
+          eq(debateJobsTable.debateJobId, ideaJobsTable.debateJobId),
+        )
         .where(eq(ideaJobsTable.userId, c.get("userId")))
         .orderBy(
           desc(ideaJobsTable.createdAt),
@@ -128,7 +196,19 @@ export function ideaJobs(app: Hono<AppEnv>, manager: IdeaJobManager) {
         )
         .limit(limit)
         .all()
-      return c.json({ ideaJobs: jobs })
+      return c.json({
+        ideaJobs: jobs.map(
+          ({ job, directCancelRequestedAt, debateCancelRequestedAt }) => ({
+            ...job,
+            stopRequested: stopRequestAppliesToJob({
+              status: job.status,
+              completedAt: job.completedAt,
+              cancelRequestedAt:
+                debateCancelRequestedAt ?? directCancelRequestedAt,
+            }),
+          }),
+        ),
+      })
     },
   )
 }

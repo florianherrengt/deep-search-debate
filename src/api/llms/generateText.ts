@@ -4,6 +4,7 @@ import PQueue from "p-queue"
 import z from "zod"
 import { config } from "../config.ts"
 import { requirePositiveCreditBalance } from "../credits.ts"
+import { addAbortableQueueTask } from "../helpers/addAbortableQueueTask.ts"
 import { calculateLlmCredits } from "./costs/index.ts"
 import { PromptName, loadPrompt } from "./prompts.ts"
 import { llm, type LlmCallReasoning } from "./provider.ts"
@@ -28,6 +29,7 @@ type GenerateStreamInput = {
   model?: string
   temperature?: number
   maxOutputTokens?: number
+  workflowSignal?: AbortSignal
 }
 
 const streamTimeout = {
@@ -54,14 +56,18 @@ function boundedOutputTokens(requested?: number): number {
 
 function enqueueStreamingGeneration<T extends GenerationHandle>(
   start: () => T | Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
   const ready = Promise.withResolvers<T>()
-  void llmGenerationQueue
-    .add(async () => {
+  void addAbortableQueueTask(
+    llmGenerationQueue,
+    async () => {
       const generation = await start()
       ready.resolve(generation)
       await generation.completion
-    })
+    },
+    signal,
+  )
     .catch((error: unknown) =>
       ready.reject(asError(error, "LLM queue failed")),
     )
@@ -116,6 +122,8 @@ export async function generateTextStream(
       onRegistered: params.onRegistered,
       onCompleted: params.onCompleted,
       onFailed: params.onFailed,
+      onInterrupted: params.onInterrupted,
+      workflowSignal: params.workflowSignal,
       metadata: {
         modelId: model.modelId,
         promptName: params.promptName,
@@ -132,6 +140,7 @@ export async function generateTextStream(
         maxOutputTokens: boundedOutputTokens(params.maxOutputTokens),
         maxRetries: config.llmExecution.maxRetries,
         timeout: streamTimeout,
+        abortSignal: params.workflowSignal,
         onError: suppressProviderErrorLogging,
         ...llm.callOptions(params.reasoning),
       })
@@ -142,13 +151,14 @@ export async function generateTextStream(
     } catch (error) {
       return prepared.fail(error)
     }
-  })
+  }, params.workflowSignal)
 }
 
 /** Generates the immutable display title used before a durable job starts. */
 export async function generatePromptTitle(
   userId: string,
   prompt: string,
+  workflowSignal?: AbortSignal,
 ): Promise<string> {
   const generation = await generateObjectStream({
     userId,
@@ -157,6 +167,7 @@ export async function generatePromptTitle(
     promptName: PromptName.GeneratePromptTitle,
     maxOutputTokens: 50,
     schema: promptTitleSchema,
+    workflowSignal,
   })
   return (await awaitGenerationOutput(generation, generation.output)).title
 }
@@ -164,8 +175,7 @@ export async function generatePromptTitle(
 export async function generateArrayStream<Element>(
   params: GenerateStreamInput & {
     element: z.ZodType<Element>
-    onRegistered?: TextGenerationPersistenceCallbacks["onRegistered"]
-  },
+  } & TextGenerationPersistenceCallbacks,
 ): Promise<
   GenerationHandle & {
     output: Promise<Element[]>
@@ -184,6 +194,9 @@ export async function generateArrayStream<Element>(
           calculateLlmCredits(config.llm, model.modelId, usage),
       },
       onRegistered: params.onRegistered,
+      onInterrupted: params.onInterrupted,
+      onFailed: params.onFailed,
+      workflowSignal: params.workflowSignal,
       // Validate the persisted payload inside the terminal transaction. The AI
       // SDK exposes result.output on a separate promise, which can reject only
       // after stream consumption would otherwise mark the call billable.
@@ -200,6 +213,7 @@ export async function generateArrayStream<Element>(
         maxOutputTokens: boundedOutputTokens(params.maxOutputTokens),
         maxRetries: config.llmExecution.maxRetries,
         timeout: streamTimeout,
+        abortSignal: params.workflowSignal,
         onError: suppressProviderErrorLogging,
         ...llm.callOptions("disabled"),
         output: Output.array({ element: params.element }),
@@ -215,7 +229,7 @@ export async function generateArrayStream<Element>(
         output: rejectedOutput<Element[]>(error),
       }
     }
-  })
+  }, params.workflowSignal)
 }
 
 export async function generateObjectStream<Result>(
@@ -230,6 +244,8 @@ export async function generateObjectStream<Result>(
       id: string,
       transaction: TextStreamPersistenceTransaction,
     ) => void
+    onFailed?: TextGenerationPersistenceCallbacks["onFailed"]
+    onInterrupted?: TextGenerationPersistenceCallbacks["onInterrupted"]
   },
 ): Promise<GenerationHandle & { output: Promise<Result> }> {
   const model = llm.model(params.model)
@@ -244,6 +260,9 @@ export async function generateObjectStream<Result>(
           calculateLlmCredits(config.llm, model.modelId, usage),
       },
       onRegistered: params.onRegistered,
+      onFailed: params.onFailed,
+      onInterrupted: params.onInterrupted,
+      workflowSignal: params.workflowSignal,
       onCompleted: (completed, transaction) => {
         const output = parseStructuredText(params.schema, completed.text)
         params.onCompleted?.({ id: completed.id, output }, transaction)
@@ -258,6 +277,7 @@ export async function generateObjectStream<Result>(
         maxOutputTokens: boundedOutputTokens(params.maxOutputTokens),
         maxRetries: config.llmExecution.maxRetries,
         timeout: streamTimeout,
+        abortSignal: params.workflowSignal,
         onError: suppressProviderErrorLogging,
         ...llm.callOptions(params.reasoning ?? "disabled"),
         output: Output.object({ schema: params.schema }),
@@ -273,5 +293,5 @@ export async function generateObjectStream<Result>(
         output: rejectedOutput<Result>(error),
       }
     }
-  })
+  }, params.workflowSignal)
 }

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { eq } from "drizzle-orm"
 
 const mocks = vi.hoisted(() => ({
   completeDebateMatch: vi.fn(),
@@ -36,6 +37,7 @@ import {
   llmGenerations,
 } from "../../db/schema/index.ts"
 import { createReplayableEventLog } from "../../helpers/replayableEventLog.ts"
+import { workflowAbortReason } from "../../workflowRuntime.ts"
 import { runDebateJob } from "./run.ts"
 import type { DebateJobEvent } from "./schemas.ts"
 import {
@@ -54,6 +56,9 @@ async function collectEvents(
 function createRunFixture() {
   const ideaJobId = crypto.randomUUID()
   const debateJobId = crypto.randomUUID()
+  const pipelineGenerationIds = Array.from({ length: 4 }, () =>
+    crypto.randomUUID(),
+  )
   db.insert(debateJobs)
     .values({
       debateJobId,
@@ -88,8 +93,14 @@ function createRunFixture() {
   )
   db.insert(llmGenerations)
     .values(
-      ideaRows.flatMap(
-        ({ evaluationGenerationId, refinementGenerationId }) => [
+      [
+        ...pipelineGenerationIds.map((llmGenerationId) => ({
+          llmGenerationId,
+          userId: "test-user-id",
+          ideaJobId,
+        })),
+        ...ideaRows.flatMap(
+          ({ evaluationGenerationId, refinementGenerationId }) => [
           {
             llmGenerationId: evaluationGenerationId,
             userId: "test-user-id",
@@ -100,11 +111,24 @@ function createRunFixture() {
             userId: "test-user-id",
             ideaJobId,
           },
-        ],
-      ),
+          ],
+        ),
+      ],
     )
     .run()
   db.insert(ideas).values(ideaRows).run()
+  db.update(ideaJobs)
+    .set({
+      stage: "ideas",
+      status: "completed",
+      researchPromptGenerationId: pipelineGenerationIds[0],
+      researchSummaryGenerationId: pipelineGenerationIds[1],
+      ideaGenerationId: pipelineGenerationIds[2],
+      selectionGenerationId: pipelineGenerationIds[3],
+      completedAt: new Date(),
+    })
+    .where(eq(ideaJobs.ideaJobId, ideaJobId))
+    .run()
   mocks.loadDebateCandidateResearch.mockReturnValue(
     new Map(
       ideaRows.map(({ ideaId }, position) => [
@@ -528,5 +552,32 @@ describe("runDebateJob", () => {
     expect(mocks.completeDebateMatch).toHaveBeenCalledTimes(
       getTotalMatchCount(DEBATE_TOURNAMENT_FORMAT.minParticipantCount),
     )
+  })
+
+  it("persists user Stop as interruption without an ordinary error event", async () => {
+    const { debateJobId, ideaJobId, job, events } = createRunFixture()
+    db.update(debateJobs)
+      .set({ cancelRequestedAt: new Date() })
+      .where(eq(debateJobs.debateJobId, debateJobId))
+      .run()
+    const controller = new AbortController()
+    controller.abort(workflowAbortReason("user-stop"))
+
+    await runDebateJob({
+      debateJobId,
+      userId: "test-user-id",
+      ideaJobId,
+      randomSeed: 42,
+      ideaCompletion: Promise.resolve(),
+      job,
+      workflowSignal: controller.signal,
+    })
+
+    expect(db.select().from(debateJobs).get()).toMatchObject({
+      status: "interrupted",
+      error: "Workflow stopped by user",
+    })
+    expect(await events).toEqual([{ type: "updated" }, { type: "done" }])
+    expect(mocks.createDebateRound).not.toHaveBeenCalled()
   })
 })

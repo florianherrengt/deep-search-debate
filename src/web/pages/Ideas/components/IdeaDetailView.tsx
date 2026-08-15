@@ -4,6 +4,7 @@ import Accordion from "@mui/material/Accordion"
 import AccordionDetails from "@mui/material/AccordionDetails"
 import AccordionSummary from "@mui/material/AccordionSummary"
 import Alert from "@mui/material/Alert"
+import AlertTitle from "@mui/material/AlertTitle"
 import Button from "@mui/material/Button"
 import Card from "@mui/material/Card"
 import CardContent from "@mui/material/CardContent"
@@ -103,13 +104,17 @@ export function IdeaDetailView({
   jobTitle,
   numberOfIdeas,
   run,
+  stopRequested = false,
 }: {
   ideaId: string
   jobSlug: string
   jobTitle: string
   numberOfIdeas: number
   run: IdeaJobRunState & { subscriptionError?: string | null }
+  stopRequested?: boolean
 }) {
+  const status =
+    stopRequested && run.status === "running" ? "stopping" : run.status
   const location = useLocation()
   const position = run.ideas.findIndex((idea) => idea.ideaId === ideaId)
   const idea = run.ideas[position]
@@ -135,8 +140,10 @@ export function IdeaDetailView({
         jobSlug={jobSlug}
         terminal={
           run.ideas.length >= numberOfIdeas ||
-          run.status === "completed" ||
-          run.status === "failed"
+          status === "completed" ||
+          status === "failed" ||
+          status === "stopping" ||
+          status === "interrupted"
         }
       />
     )
@@ -148,13 +155,13 @@ export function IdeaDetailView({
   const processExpanded =
     manualProcessState?.ideaId === ideaId
       ? manualProcessState.expanded
-      : run.status !== "completed"
+      : status !== "completed"
   const selectionPresentation =
     idea.selection === "selected"
       ? { color: "primary" as const, label: "Selected" }
       : idea.selection === "rejected"
         ? { color: "default" as const, label: "Not selected" }
-        : run.status === "running"
+        : status === "running"
           ? { color: "default" as const, label: "Awaiting selection" }
           : { color: "error" as const, label: "Selection incomplete" }
 
@@ -189,7 +196,14 @@ export function IdeaDetailView({
         </Stack>
       </Stack>
 
-      {run.error && <Alert severity="error">{run.error}</Alert>}
+      {run.error && (
+        <Alert severity={status === "interrupted" ? "info" : "error"}>
+          {status === "interrupted" && (
+            <AlertTitle>{stopRequested ? "Stopped" : "Interrupted"}</AlertTitle>
+          )}
+          {run.error}
+        </Alert>
+      )}
       {run.subscriptionError && !run.error && (
         <Alert severity="warning">{run.subscriptionError}</Alert>
       )}
@@ -205,7 +219,7 @@ export function IdeaDetailView({
                 <Typography color="text.secondary">
                   {refinedIdea.description}
                 </Typography>
-              ) : run.status === "running" ? (
+              ) : status === "running" ? (
                 <WaitingStatus>
                   {run.refinementGenerationStreamIds[idea.ideaId]
                     ? "Improving this idea…"
@@ -244,7 +258,7 @@ export function IdeaDetailView({
                 <Typography component="h2" variant="h6">
                   Supporting research
                 </Typography>
-                {run.status === "running" ? (
+                {status === "running" ? (
                   <WaitingStatus>
                     Research starts after the improved idea is ready…
                   </WaitingStatus>
@@ -301,7 +315,7 @@ export function IdeaDetailView({
                 <Typography component="h3" variant="h6">
                   Assessment of original idea
                 </Typography>
-                {run.status === "running" ? (
+                {status === "running" ? (
                   <WaitingStatus>
                     Waiting for this idea’s assessment…
                   </WaitingStatus>
@@ -317,7 +331,7 @@ export function IdeaDetailView({
               <Typography component="h3" variant="h6">
                 Decision
               </Typography>
-              {idea.selection === "pending" && run.status === "running" ? (
+              {idea.selection === "pending" && status === "running" ? (
                 <WaitingStatus>
                   Selection starts after every idea has been evaluated…
                 </WaitingStatus>

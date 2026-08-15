@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   subscribeToDebateJob: vi.fn(),
   subscribeToTextStream: vi.fn(),
   updateDebateJob: vi.fn(),
+  requestResearchStop: vi.fn(),
 }))
 
 vi.mock("../../lib/debateJobs.ts", async (importOriginal) => ({
@@ -24,6 +25,10 @@ vi.mock("../../lib/debateJobs.ts", async (importOriginal) => ({
 
 vi.mock("../../lib/textStreams.ts", () => ({
   subscribeToTextStream: mocks.subscribeToTextStream,
+}))
+
+vi.mock("../../lib/researchCancellation.ts", () => ({
+  requestResearchStop: mocks.requestResearchStop,
 }))
 
 import { Debates } from "./index.tsx"
@@ -51,6 +56,8 @@ function tournament(
     prompt: "Design a better café",
     isPublic: false,
     isOwner: true,
+    stopRequested: false,
+    canStop: true,
     stage: "swiss",
     status: "running",
     expectedMatchCount: 33,
@@ -132,6 +139,10 @@ describe("Debates", () => {
     mocks.getDebateJob.mockResolvedValue(tournament())
     mocks.getDebateJobs.mockResolvedValue([])
     mocks.updateDebateJob.mockResolvedValue({ isPublic: true })
+    mocks.requestResearchStop.mockResolvedValue({
+      status: "cancellation-requested",
+      cancelRequestedAt: new Date("2026-08-15T00:00:00.000Z"),
+    })
     mocks.subscribeToDebateJob.mockImplementation(async function* (
       _id: string,
       signal?: AbortSignal,
@@ -361,7 +372,7 @@ describe("Debates", () => {
 
   it("does not show visibility controls to a public viewer", async () => {
     mocks.getDebateJob.mockResolvedValue(
-      tournament({ isOwner: false, isPublic: true }),
+      tournament({ isOwner: false, isPublic: true, canStop: false }),
     )
 
     renderDebates("/debates/debate-id")
@@ -372,6 +383,63 @@ describe("Debates", () => {
     ).not.toBeInTheDocument()
     expect(screen.queryByText("Public")).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Copy link" })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Stop workflow" }),
+    ).not.toBeInTheDocument()
+  })
+
+  it("requests Stop and immediately reconciles the running snapshot", async () => {
+    renderDebates("/debates/better-cafe-ideas")
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Stop workflow" }),
+    )
+    const dialog = screen.getByRole("dialog", { name: "Stop this workflow?" })
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Stop workflow" }),
+    )
+
+    await waitFor(() =>
+      expect(mocks.requestResearchStop).toHaveBeenCalledWith(
+        "debate",
+        "debate-id",
+      ),
+    )
+    expect(
+      await screen.findByRole("button", { name: "Stopping…" }),
+    ).toBeDisabled()
+  })
+
+  it("presents a directly stopped debate while retaining completed work", async () => {
+    const stopped = tournament({
+      status: "interrupted",
+      stopRequested: true,
+      canStop: false,
+      error: "Workflow stopped by user",
+    })
+    const retainedMatch = stopped.rounds[0].matches[0]
+    retainedMatch.status = "completed"
+    retainedMatch.winnerIdeaId = retainedMatch.firstIdea.ideaId
+    retainedMatch.messages[0].text = "A retained completed opening"
+    mocks.getDebateJob.mockResolvedValue(
+      stopped,
+    )
+
+    renderDebates("/debates/better-cafe-ideas")
+
+    expect((await screen.findAllByText("Stopped")).length).toBeGreaterThan(0)
+    expect(
+      screen.getByText(
+        "You stopped this debate. Completed matches and messages are kept.",
+      ),
+    ).toBeVisible()
+    fireEvent.click(screen.getByText("Round 1"))
+    fireEvent.click(
+      screen.getByRole("link", {
+        name: "Open First idea versus Second idea",
+      }),
+    )
+    expect(await screen.findByText("A retained completed opening")).toBeVisible()
   })
 
   it("restores a match directly from its URL with adjacent navigation", async () => {
@@ -454,7 +522,7 @@ describe("Debates", () => {
 
   it.each([
     ["failed", "Debate failed"],
-    ["interrupted", "Debate interrupted"],
+    ["interrupted", "Interrupted"],
   ] as const)(
     "explains a %s tournament from a direct match URL without exposing its internal error",
     async (status, statusLabel) => {
@@ -467,10 +535,12 @@ describe("Debates", () => {
 
       renderDebates("/debates/better-cafe-ideas/matches/match")
 
-      expect(await screen.findByText(statusLabel)).toBeVisible()
+      expect((await screen.findAllByText(statusLabel)).length).toBeGreaterThan(0)
       expect(
         screen.getByText(
-          "The debate stopped before it could finish. Review any completed matches, or start a new debate.",
+          status === "interrupted"
+            ? "The debate was interrupted before it could finish. Review any completed matches, or start a new debate."
+            : "The debate stopped before it could finish. Review any completed matches, or start a new debate.",
         ),
       ).toBeVisible()
       expect(
@@ -573,7 +643,7 @@ describe("Debates", () => {
 
     renderDebates("/debates/debate-id")
 
-    expect(await screen.findByText("Debate failed")).toBeVisible()
+    expect((await screen.findAllByText("Debate failed")).length).toBeGreaterThan(0)
     expect(
       screen.getByText(
         "The debate stopped before it could finish. Review any completed matches, or start a new debate.",

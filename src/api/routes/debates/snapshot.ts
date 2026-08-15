@@ -60,6 +60,8 @@ export type DebateJobSnapshot = {
   prompt: string
   isPublic: boolean
   isOwner: boolean
+  stopRequested: boolean
+  canStop: boolean
   stage: "ideas" | "swiss" | "semifinal" | "final"
   status: "running" | "completed" | "failed" | "interrupted"
   expectedMatchCount: number | null
@@ -96,6 +98,7 @@ export function getDebateJobSnapshot(
       stage: debateJobs.stage,
       status: debateJobs.status,
       error: debateJobs.error,
+      cancelRequestedAt: debateJobs.cancelRequestedAt,
       title: ideaJobs.title,
       slug: ideaJobs.slug,
       prompt: ideaJobs.prompt,
@@ -287,6 +290,11 @@ export function getDebateJobSnapshot(
     prompt: job.prompt,
     isPublic: job.isPublic,
     isOwner: job.userId === viewerUserId,
+    stopRequested: job.cancelRequestedAt !== null,
+    canStop:
+      job.userId === viewerUserId &&
+      job.status === "running" &&
+      job.cancelRequestedAt === null,
     stage: job.stage,
     status: job.status,
     expectedMatchCount:

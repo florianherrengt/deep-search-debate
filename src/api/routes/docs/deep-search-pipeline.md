@@ -45,9 +45,10 @@ durable summary rows.
 ```text
 HTTP routes
 `- routes/deepSearch/index.ts
-   `- manager.ts                 admission, title/slug, durable creation, queue, live log
-      `- run.ts                  terminal success/failure and final public events
-         `- pipeline.ts          rounds, stage order, deduplication, fallbacks
+   `- manager.ts                 admission, creation, queue, live log, root controller
+      |- cancellation.ts         owner/root stop compare-and-swap
+      `- run.ts                  terminal success/failure/interruption events
+         `- pipeline.ts          Effect-owned rounds, ordering, fan-outs, fallbacks
             |- agents/deep_search/*   prompts, provider calls, extraction, validation
             |- store.ts               transactional round/query/result/page writes
             `- jobLifecycle.ts        transactional job completion and fatal cleanup
@@ -62,15 +63,16 @@ Browser presentation
          `- web/pages/DeepSearch/*   history, detail route, and rendered progress
 ```
 
-- [index.ts](../deepSearch/index.ts) owns the authenticated creation/history
-  routes and the scoped detail/event reads.
+- [index.ts](../deepSearch/index.ts) owns authenticated creation, history, and
+  root Stop plus the scoped detail/event reads.
 - [manager.ts](../deepSearch/manager.ts) admits work, creates the durable job
-  before execution, retains its live event log, and schedules the runner.
-- [run.ts](../deepSearch/run.ts) surrounds the coordinator with fatal failure
-  persistence and the single terminal `done` event.
+  before execution, retains its live event log and root controller, and
+  schedules the runner.
+- [run.ts](../deepSearch/run.ts) surrounds the coordinator with failure or
+  interruption persistence and the single terminal `done` event.
 - [pipeline.ts](../deepSearch/pipeline.ts) is the only research-loop
-  coordinator. It decides what stage runs next and publishes progress only
-  after the owning database write commits.
+  coordinator. It uses Effect for orchestration, decides what stage runs next,
+  and publishes progress only after the owning database write commits.
 - Modules under [agents/deep_search](../../agents/deep_search/) format prompts,
   call models or extraction providers, validate outputs, and return handles or
   typed outcomes. They do not control the workflow or publish job events.
@@ -93,11 +95,12 @@ The client submits:
   "researchRequest": "What changed in the market?",
   "maxSearches": 3,
   "maxResultsPerSearch": 3,
-  "maxRounds": 3
+  "maxRounds": 2
 }
 ```
 
-All three limits default to `3`. Application configuration sets configurable
+Search count and results per search default to `3`; rounds default to `2`.
+Application configuration sets configurable
 ceilings and also limits `maxSearches * maxResultsPerSearch`, which bounds the
 maximum number of selected URLs in each round. `maxRounds` is an unconditional
 hard stop; the model cannot override it. The root workflow has a second
@@ -112,6 +115,18 @@ when the user already has the active root-workflow limit. Accepted pipelines
 wait in the process-wide deep-search queue when both execution slots are busy.
 Admission is reserved before title generation. Newly admitted roots take
 priority over queued children, while running work is never pre-empted.
+
+The owner may explicitly stop a running standalone root. The manager first
+persists the root stop timestamp, publishes `stop-requested`, then aborts queued
+or active work through its workflow controller. Child searches cannot be
+stopped directly; active children inherit their idea or debate root's signal
+and derive the root timestamp without copying it. The inherited signal
+publishes the same `stop-requested` event in each affected child's live feed,
+and durable replay derives that event from the effective root. A child already
+completed before the root timestamp stays completed and gains no Stop event.
+Already-started callbacks settle before the durable job becomes interrupted. See
+[Deep-search jobs](deep-search-jobs.md#post-apideep-search-jobsdeepsearchjobidcancel)
+for the HTTP and event contract.
 
 ## 2. Generate search queries
 
@@ -332,10 +347,14 @@ Implementation: [finalAnswer.ts](../../agents/deep_search/finalAnswer.ts)
 ## Ordering and concurrency
 
 The complete sequence below is owned by
-`routes/deepSearch/pipeline.ts`. Agent modules expose concrete generation,
-search, and extraction operations but do not publish job events or control the
-next workflow stage. `routes/deepSearch/run.ts` owns the surrounding durable job
-lifecycle.
+`routes/deepSearch/pipeline.ts` using `Effect.gen`, with one Promise-facing
+runtime boundary. Agent modules expose concrete generation, search, and
+extraction operations but do not publish job events or control the next
+workflow stage. `routes/deepSearch/run.ts` owns the surrounding durable job
+lifecycle. Concurrent web-search, page, and query-summary fan-outs use
+result-mode settling so every started operation finishes cleanup before an
+input-order-stable failure is selected. Existing process-wide queues continue
+to own provider backpressure.
 
 The pipeline deliberately mixes sequential and concurrent work:
 
@@ -362,6 +381,12 @@ the slow page work where possible.
 Pipeline-wide planning, search, selection, and synthesis failures are normally
 fatal. Failures while opening or summarizing an individual page are recoverable
 because its snippet remains available.
+
+An explicit root Stop or inherited parent Stop is interruption, not a pipeline
+failure. Work-start and normal terminal transactions reject a cancelled
+effective root, while cleanup remains allowed to settle nonterminal records.
+The terminal job feed emits `interrupted`, then `done`, without an ordinary
+`error` event. Provider deadlines remain ordinary failures.
 
 | Failure | Outcome |
 | --- | --- |
@@ -404,8 +429,11 @@ the pipeline raises the fatal error. Each candidate-answer generation is linked
 to its round before its stream is published. After that generation completes,
 promotion verifies every required query and the candidate output, then
 atomically links it as the final answer and completes the job. The runner
-returns that durable text directly. Fatal pipeline cleanup atomically fails all still-active query
-and page rows with the owning job before publishing the terminal error.
+returns that durable text directly. Fatal pipeline cleanup atomically fails all
+still-active query and page rows with the owning job before publishing the
+terminal error. Stop cleanup settles active generation, query, and page records
+before publishing the interrupted terminal suffix; interrupted generation
+attempts retain partial durable output and do not debit RethinkLoop credits.
 
 Live deltas stay in memory. Completed text, reasoning, status, and errors are
 stored in SQLite. Structural state—rounds, reviews, generated queries, executed

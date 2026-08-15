@@ -7,11 +7,13 @@ immutable title, a readable slug, and four durable stages: `planning`,
 are ordered subphases of `ideas`; each remains visible through completion events
 and failure stages in the event contract.
 
-Closing the page does not cancel the run. While it is running, another
-subscriber in the same API process replays the retained parent event log and
-follows new events. Terminal runs evict that log and reconstruct their events
-from normalized rows and persisted LLM output. A closed log is retained when
-terminal persistence fails.
+Closing the page does not cancel the run. The owner may explicitly stop a
+standalone root idea job; a debate-owned idea job inherits its debate root's
+Stop signal and cannot be stopped directly. While a job is running,
+another subscriber in the same API process replays the retained parent event
+log and follows new events. Terminal runs evict that log and reconstruct their
+events from normalized rows and persisted LLM output. A closed log is retained
+when terminal persistence fails.
 
 ## Pipeline
 
@@ -77,6 +79,14 @@ parent waits for all of it to finish even if one operation fails, so it never
 reports a terminal state while visible children or evaluation streams are still
 running.
 
+An explicit Stop is irreversible. The manager persists the standalone idea
+root's request before aborting queued or active work, and the signal propagates
+to every initial or refined-idea child search. Every started concurrent fan-out
+settles, including durable LLM and child-search cleanup, before the parent
+becomes interrupted; no later stage or child may start after the effective root
+is stopping. A user Stop and an inherited parent Stop are interruptions.
+Provider deadlines and ordinary provider failures remain failures.
+
 ## HTTP contract
 
 Creation and history require a Better Auth session. Creation records the
@@ -135,9 +145,11 @@ receive readable numeric suffixes.
 
 ### `GET /api/idea-jobs`
 
-Returns newest-first readable history as `{ "ideaJobs": [...] }`, including the
-viewer's private jobs and jobs belonging to public debates. The optional `limit`
-query parameter defaults to 100 and is capped at 200. Owner IDs are omitted.
+Returns the authenticated user's jobs newest-first as `{ "ideaJobs": [...] }`.
+Public debate descendants remain readable through their detail and event routes
+but do not appear in another user's history. Every item includes the derived
+`stopRequested` flag. The optional `limit` query parameter defaults to 100 and
+is capped at 200. Owner IDs are omitted.
 
 ### `GET /api/idea-jobs/:slug`
 
@@ -147,7 +159,36 @@ Detail responses add `isPublic`, which reports inherited public-debate
 visibility, and `isIndexable`, which is true only when that debate is both
 public and completed. Standalone and private owner-readable jobs report both
 fields as false. These projections are detail-only and do not change the
-history response. Unknown slugs return 404.
+history response. Detail also includes the derived `stopRequested` flag and
+`canStop`. `canStop` is true only for the authenticated owner of a standalone
+root whose status is `running` and which has no persisted stop request. It is
+false for debate-owned jobs, public viewers, terminal jobs, and roots already
+stopping. Unknown slugs return 404.
+
+### `POST /api/idea-jobs/:ideaJobId/cancel`
+
+Requests the irreversible stop of an authenticated user's standalone root idea
+job. The request timestamp commits before the manager aborts queued or active
+work. If the running job has no live controller, such as after a process
+restart, the route settles it durably as interrupted.
+
+- A new or repeated request for a running root returns `202 Accepted` with
+  `{ "status": "cancellation-requested", "cancelRequestedAt": "<timestamp>" }`.
+- A root already interrupted by its direct Stop returns `200 OK` with
+  `{ "status": "interrupted", "cancelRequestedAt": "<timestamp>",
+  "completedAt": "<timestamp>" }`.
+- An unknown or foreign job returns `404` without disclosing ownership.
+- A debate-owned idea job or incompatible terminal state returns `409`.
+
+The browser exposes this action only when detail `canStop` is true and requires
+confirmation. After the request persists, history and detail show disabled
+`Stopping…`, suppress active-work indicators, and retain completed output during
+cleanup and after reload. Any job interrupted under an effective Stop request is
+then labeled `Stopped`; a restart interruption without a Stop request remains
+`Interrupted`. Debate-owned jobs and public or foreign viewers never receive the
+control. Completed usage remains charged; stopped in-progress attempts do not
+debit RethinkLoop credits. This application credit guarantee is not a claim
+about how an upstream provider bills work it already received.
 
 ### `GET /api/idea-jobs/:ideaJobId/events`
 
@@ -174,27 +215,53 @@ The event sequence is:
     description.
 11. `idea-deep-search-started` once per refined idea, with the stable `ideaId`,
     child job ID, title, slug, and generated research request.
-12. On failure, one `error` with the failing stage and message. Evaluation,
-    selection, refinement, and selected-idea research use the event stages
-    `evaluation`, `selection`, `refinement`, and `idea-research`; all remain
-    durable subphases of the DB's `ideas` stage.
+12. On ordinary failure, one `error` with the failing stage and message.
+    Evaluation, selection, refinement, and selected-idea research use the event
+    stages `evaluation`, `selection`, `refinement`, and `idea-research`; all
+    remain durable subphases of the DB's `ideas` stage.
 13. Exactly one terminal `done`.
+
+A standalone root's explicit Stop or a debate-owned job's inherited Stop
+publishes `stop-requested` after the effective root's durable timestamp commits.
+Already-started result events may follow while cleanup settles, but no new
+stage starts. Live and database-reconstructed feeds both end with exactly one
+`interrupted`, then exactly one `done`, and do not publish an ordinary `error`
+for either Stop. A reconnect while the effective root is settling replays
+`stop-requested`; after terminal persistence it replays the same stop and
+terminal suffix. Debate-owned jobs do not store an idea-level stop timestamp.
+Restart interruption remains distinct: it publishes `interrupted`, then `done`,
+without `stop-requested`, and the browser renders it as `Interrupted`. Explicit
+or inherited Stop renders as `Stopped`. Genuine failures retain the ordinary
+`error`, then `done` sequence. If the idea job completed before its debate root
+was later stopped, it remains completed and gains neither `stopRequested` nor a
+Stop event suffix.
 
 Each stream ID is read through `GET /api/streams/:id`, which exposes reasoning
 and text progress independently from the parent feed. Deep-search progress is
 not duplicated in the parent; clients link to or subscribe to each existing
 `/api/deep-search-jobs/:id/events` feed.
 
-The server-side idea coordinator does not subscribe to these presentation
-streams. It awaits each generation's durable completion handle and structured
-result directly, so a validation failure cannot make the parent terminal while
-the same generation still has an unfinished database write.
+`routes/ideas/run.ts` is the single Effect-owned idea coordinator. One
+`runPromiseExit` bridge in the workflow runtime is its Promise-facing boundary.
+It uses `Effect.gen` for stage ordering and concurrent `Effect.all` result-mode
+fan-outs for initial child searches, evaluations, refinements, and selected-idea
+research. Every started item settles, while the first failure in input order is
+reported deterministically. Hono, Drizzle commands, AI SDK policy, and the
+existing process-wide queues remain outside Effect.
+
+The coordinator does not subscribe to presentation streams. It awaits each
+generation's durable completion handle and structured result directly, so a
+validation failure or Stop cannot make the parent terminal while the same
+generation still has unfinished durable cleanup.
 
 ## Persistence model
 
 - `idea_jobs` owns the generated title, slug, request, requested counts, current
   stage, lifecycle, timestamps, and four pipeline-level LLM generation links,
-  including comparative selection. The title and slug have no update route.
+  including comparative selection. A standalone root may also retain its
+  `cancel_requested_at` Stop timestamp. Debate-owned idea jobs derive that state
+  from the debate root and never copy its timestamp. The title and slug have no
+  update route.
 - A debate-created idea job points to its owning debate with `ON DELETE
   CASCADE`; standalone idea jobs leave that owner null. Deleting an idea job
   deletes its child searches and all generations owned by either level.
@@ -223,7 +290,16 @@ the same generation still has an unfinished database write.
   relationship; the idea does not store a redundant child-search ID.
 - Idea cards, evaluations, and selected or rejected presentation replay from
   `ideas` and their linked generations.
+- Every durable work-start and normal terminal transaction checks that the
+  effective idea or debate root is still running without a Stop request. A
+  completion race lost to cancellation becomes interruption rather than an
+  ordinary failure. Interrupted generations preserve partial output, run their
+  stage cleanup, and do not debit RethinkLoop credits.
 
-On API startup, orphaned running idea jobs become `interrupted` because their
-provider calls and child orchestration cannot resume. Completed and failed
-terminal runs remain replayable after restart.
+On API startup, persisted Stop requests are settled before ordinary restart
+recovery. A directly stopped standalone root retains its timestamp and user-Stop
+explanation; debate-owned idea jobs and their child searches derive the parent
+Stop without copying it. Other orphaned running idea jobs become `interrupted`
+with the distinct restart explanation because their provider calls and child
+orchestration cannot resume. Completed and failed terminal runs remain
+replayable after restart.

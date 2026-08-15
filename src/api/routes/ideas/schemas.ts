@@ -16,7 +16,7 @@ export const ideaSchema = z.object({
 
 export type Idea = z.infer<typeof ideaSchema>
 
-const ideaEvaluationPointSchema = z.string().trim().min(1).max(240)
+const ideaEvaluationPointSchema = z.string().trim().min(1).max(400)
 const ideaEvaluationPointsSchema = z
   .array(ideaEvaluationPointSchema)
   .min(2)
@@ -90,6 +90,8 @@ export type IdeaJobEvent =
       slug: string
       researchRequest: string
     }
+  | { type: "stop-requested" }
+  | { type: "interrupted"; message: string }
   | { type: "error"; message: string; stage: IdeaEventStage }
   | { type: "done" }
 

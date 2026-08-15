@@ -7,8 +7,11 @@ Swiss play and a top-four knockout. The
 selection agent consumes the structured evaluations, but tournament advocates
 and judges do not. Pros, cons, critiques, and the selection output remain
 available on the linked idea-job view.
-Closing or reloading the page does not cancel work. Live subscriptions replay
-retained events and terminal jobs rebuild their UI snapshot from SQLite.
+The authenticated owner may explicitly stop the root debate; public viewers
+cannot. The durable request propagates through its idea job, child searches,
+advocates, and judges. Closing or reloading the page does not cancel work. Live
+subscriptions replay retained events and terminal jobs rebuild their UI
+snapshot from SQLite.
 
 ## Tournament format
 
@@ -79,12 +82,39 @@ when it still points to the exact failed `other` attempt; concurrent or stale
 replacement fails closed. Failed judge attempts remain unlinked, and only the
 successful verdict transaction creates the judge message and match result.
 
+## Effect orchestration and interruption
+
+`routes/debates/run.ts` is the single Effect-owned tournament coordinator. One
+`runPromiseExit` bridge is its Promise-facing runtime boundary. `Effect.gen`
+sequences the idea pipeline, Swiss rounds, semifinals, final, and durable stage
+transitions. Concurrent advocate pairs and all matches in one round use
+`Effect.all` result mode with unbounded orchestration concurrency: every
+launched item settles, while failure selection remains deterministic in input
+order. The process-wide LLM queue remains the provider-concurrency authority
+outside Effect.
+
+Every durable stage, round, match, transcript message, generation attempt,
+retry replacement, judge verdict, and normal terminal write checks that the
+effective debate root is still running without a Stop request. A Stop that wins
+a completion race becomes interruption rather than failure. It prevents new
+rounds, messages, and provider attempts while retaining completed tournament
+facts. Already-started work finishes durable interruption cleanup before the
+parent becomes terminal. The debate-only `other` retry never treats workflow
+interruption as retryable.
+
+Stopping during the idea phase settles active child work descendant-first.
+Stopping during the tournament aborts active advocates or judges and then
+settles the debate. An interrupted in-progress generation preserves any partial
+output and does not debit RethinkLoop credits. This application guarantee does
+not promise that an upstream provider will waive its own charge. Descendant idea
+or search jobs that completed before the debate's Stop timestamp remain
+completed and do not acquire Stop presentation retroactively.
+
 ## HTTP contract
 
-Creation, history, and visibility changes require a Better Auth session.
+Creation, history, Stop, and visibility changes require a Better Auth session.
 Creation records the authenticated user on the debate and its atomic idea-job
-parent; history includes the viewer's private debates and every public debate.
-Debates are private by default.
+parent; history includes that user's debates. Debates are private by default.
 
 Creation accepts the same `deepSearchCount`, `maxSearches`,
 `maxResultsPerSearch`, and `maxRounds` controls as an idea job. Their debate
@@ -142,9 +172,9 @@ Anonymous access remains read-only and is limited to public debate aggregates.
 
 Returns newest-first history as `{ "debateJobs": [...] }`. Each summary contains
 `debateJobId`, `ideaJobId`, `title`, `slug`, `prompt`, `isPublic`, `stage`,
-`status`, `error`, `createdAt`, and `completedAt`. The optional `limit` query
-defaults to 100 and is capped at 200. The read scope includes owned private
-debates and public debates.
+`status`, `stopRequested`, `error`, `createdAt`, and `completedAt`. The optional
+`limit` query defaults to 100 and is capped at 200. The read scope includes the
+authenticated user's debates.
 
 ### `GET /api/debate-jobs/:slug`
 
@@ -153,15 +183,45 @@ round, match, transcript message, current derived Swiss standings, and expected
 match count. `expectedMatchCount` is null while idea selection is pending, then
 is derived from the selected field size. Transcript messages link to
 `/api/streams/:llmGenerationId` while live and contain terminal text after
-persistence. The final match's winner is the tournament winner. Unknown slugs
-return 404.
+persistence. The final match's winner is the tournament winner. Detail also
+includes `isOwner`, `stopRequested`, and `canStop`. `canStop` is true only for
+the owner while the root is running and has no persisted Stop request; it is
+false for public viewers, terminal jobs, and roots already stopping. Unknown
+slugs return 404.
+
+### `POST /api/debate-jobs/:debateJobId/cancel`
+
+Requests an irreversible Stop for the authenticated owner's root debate. The
+manager commits `cancelRequestedAt` before publishing the request update and
+aborting active work. If no live controller exists, the route settles the job
+durably as interrupted.
+
+- A new or repeated active request returns `202 Accepted` with
+  `{ "status": "cancellation-requested", "cancelRequestedAt": "<timestamp>" }`.
+- A debate already interrupted by its direct Stop returns `200 OK` with
+  `{ "status": "interrupted", "cancelRequestedAt": "<timestamp>",
+  "completedAt": "<timestamp>" }`.
+- Unknown and foreign UUIDs return 404. Incompatible terminal jobs return 409.
+
+The browser shows a confirmed Stop action only when detail `canStop` is true.
+After the request persists, history, detail, and match views show disabled
+`Stopping…`, suppress active-tournament indicators, and retain completed rounds,
+messages, and match results during cleanup and after reload. A directly stopped
+debate is then labeled `Stopped`; a restart interruption without a Stop request
+remains `Interrupted`. Public and foreign viewers never receive the control.
+Completed usage remains charged; stopped in-progress attempts do not debit
+RethinkLoop credits. This application guarantee does not promise that an
+upstream provider will waive its own charge.
 
 ### `GET /api/debate-jobs/:debateJobId/events`
 
 Returns replay-and-follow NDJSON. `updated` means clients should refresh the
-durable snapshot. A failed job emits `error` with its exact message. Every
-terminal stream ends with `done`. After restart, terminal events are synthesized
-from SQLite.
+durable snapshot. A Stop publishes `updated` after its durable request commits,
+then another `updated` after interruption becomes terminal, followed by `done`.
+It does not publish an ordinary `error`. A failed job still emits `error` with
+its exact message before `done`. After restart, running and terminal events are
+synthesized from SQLite, so refresh while stopping and terminal replay remain
+snapshot-driven.
 
 ### `PATCH /api/debate-jobs/:debateJobId`
 
@@ -205,6 +265,10 @@ resource return 404.
   appearances, dynamic stage match counts, prior-stage completion, and
   non-repeating Swiss opponents before inserting the complete round
   transactionally.
+- Root-aware compare-and-swap guards reject every new stage, round, match,
+  message, retry, verdict, and terminal write after a Stop request. Losing a
+  final-verdict completion race therefore interrupts the debate instead of
+  overwriting the request with completion.
 - The debate row is created first and its owned idea row is inserted in the same
   transaction before provider work starts, so a parent-row failure cannot leave
   an orphan idea run.
@@ -212,6 +276,7 @@ resource return 404.
 Provider work cannot resume after an API-process restart. Startup recovery marks
 orphaned running debate jobs and generations interrupted while preserving
 completed rounds, match results, and transcript text for replay. The exception
-is a running job whose final verdict and winner already committed atomically:
-recovery recognizes that completed final and closes the parent tournament as
-completed.
+is an uncancelled running job whose final verdict and winner already committed
+atomically: recovery recognizes that completed final and closes the parent
+tournament as completed. A persisted root stop request takes precedence over
+that crash-window repair and recovers the debate as interrupted.

@@ -2,7 +2,7 @@ import { AutoAwesomeRounded, LightbulbOutlined } from "@mui/icons-material"
 import { Button, Chip, Stack, Typography } from "@mui/material"
 import type { ReactNode } from "react"
 import { Link } from "react-router-dom"
-import { debateStatusPresentation } from "../debatePresentation.ts"
+import { getDebateStatusPresentation } from "../debatePresentation.ts"
 import {
   getClosestAlternative,
   getWinner,
@@ -22,7 +22,10 @@ export function DebateView({ ownerActions, tournament }: DebateViewProps) {
   const winner = getWinner(tournament)
   const closestAlternative = getClosestAlternative(tournament)
   const winnerReason = getWinnerReason(tournament)
-  const status = debateStatusPresentation[tournament.status]
+  const status = getDebateStatusPresentation(
+    tournament.status,
+    tournament.stopRequested,
+  )
 
   return (
     <Stack spacing={3}>
@@ -69,7 +72,12 @@ export function DebateView({ ownerActions, tournament }: DebateViewProps) {
         </Button>
       </Stack>
 
-      {tournament.error && <DebateStoppedAlert />}
+      {tournament.error && (
+        <DebateStoppedAlert
+          status={tournament.status === "failed" ? "failed" : "interrupted"}
+          userStopped={tournament.stopRequested}
+        />
+      )}
       {winner && (
         <WinnerIdeaCard
           closestAlternative={closestAlternative}

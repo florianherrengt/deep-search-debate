@@ -30,11 +30,15 @@ import {
 } from "./schemas.ts"
 import type { AppEnv } from "../../types/auth.ts"
 import { deepSearchJobReadScope } from "../readAccess.ts"
+import { stopRequestAppliesToJob } from "../researchCancellation.ts"
 
 export type { DeepSearchJobEvent } from "./schemas.ts"
 
-const { userId: _deepSearchJobOwnerId, ...publicDeepSearchJobColumns } =
-  getTableColumns(deepSearchJobsTable)
+const {
+  userId: _deepSearchJobOwnerId,
+  cancelRequestedAt: _cancelRequestedAt,
+  ...publicDeepSearchJobColumns
+} = getTableColumns(deepSearchJobsTable)
 
 type EventOutput = {
   writeln(value: string): Promise<unknown>
@@ -83,6 +87,10 @@ export function deepSearchJobReads(
       const deepSearchJob = db
         .select({
           ...publicDeepSearchJobColumns,
+          ownerUserId: deepSearchJobsTable.userId,
+          directCancelRequestedAt: deepSearchJobsTable.cancelRequestedAt,
+          ideaCancelRequestedAt: ideaJobsTable.cancelRequestedAt,
+          debateCancelRequestedAt: debateJobsTable.cancelRequestedAt,
           debateStatus: debateJobsTable.status,
           isPublic: debateJobsTable.isPublic,
         })
@@ -106,14 +114,32 @@ export function deepSearchJobReads(
         return c.json({ error: "Deep search job not found" }, 404)
       }
       const {
+        ownerUserId,
+        directCancelRequestedAt,
+        ideaCancelRequestedAt,
+        debateCancelRequestedAt,
         debateStatus,
         isPublic: inheritedIsPublic,
         ...publicDeepSearchJob
       } = deepSearchJob
       const isPublic = inheritedIsPublic ?? false
+      const stopRequested = stopRequestAppliesToJob({
+        status: publicDeepSearchJob.status,
+        completedAt: publicDeepSearchJob.completedAt,
+        cancelRequestedAt:
+          debateCancelRequestedAt ??
+          ideaCancelRequestedAt ??
+          directCancelRequestedAt,
+      })
       return c.json({
         deepSearchJob: {
           ...publicDeepSearchJob,
+          stopRequested,
+          canStop:
+            c.get("viewerUserId") === ownerUserId &&
+            publicDeepSearchJob.ideaJobId === null &&
+            publicDeepSearchJob.status === "running" &&
+            !stopRequested,
           isIndexable: isPublic && debateStatus === "completed",
           isPublic,
         },
@@ -132,16 +158,23 @@ function listDeepSearchJobs(
   const rows = db
     .select({
       job: publicDeepSearchJobColumns,
+      directCancelRequestedAt: deepSearchJobsTable.cancelRequestedAt,
       idea: {
         title: ideaJobsTable.title,
         slug: ideaJobsTable.slug,
         debateJobId: ideaJobsTable.debateJobId,
+        cancelRequestedAt: ideaJobsTable.cancelRequestedAt,
       },
+      debateCancelRequestedAt: debateJobsTable.cancelRequestedAt,
     })
     .from(deepSearchJobsTable)
     .leftJoin(
       ideaJobsTable,
       eq(deepSearchJobsTable.ideaJobId, ideaJobsTable.ideaJobId),
+    )
+    .leftJoin(
+      debateJobsTable,
+      eq(ideaJobsTable.debateJobId, debateJobsTable.debateJobId),
     )
     .where(
       and(
@@ -157,10 +190,20 @@ function listDeepSearchJobs(
     )
     .limit(limit)
     .all()
-  return rows.map(({ job, idea }) => ({
-    ...job,
-    origin: deepSearchJobOrigin(idea),
-  }))
+  return rows.map(
+    ({ job, directCancelRequestedAt, idea, debateCancelRequestedAt }) => ({
+      ...job,
+      stopRequested: stopRequestAppliesToJob({
+        status: job.status,
+        completedAt: job.completedAt,
+        cancelRequestedAt:
+          debateCancelRequestedAt ??
+          idea?.cancelRequestedAt ??
+          directCancelRequestedAt,
+      }),
+      origin: deepSearchJobOrigin(idea),
+    }),
+  )
 }
 
 function deepSearchJobOrigin(
@@ -168,6 +211,7 @@ function deepSearchJobOrigin(
     title: string | null
     slug: string | null
     debateJobId: string | null
+    cancelRequestedAt: Date | null
   } | null,
 ): { kind: "idea" | "debate"; title: string; slug: string } | null {
   if (!idea?.title || !idea.slug) {
@@ -187,6 +231,43 @@ export function deepSearchJobs(
   app: Hono<AppEnv>,
   manager: DeepSearchJobManager = createDeepSearchJobManager(),
 ) {
+  app.post(
+    "/deep-search-jobs/:deepSearchJobId/cancel",
+    zValidator("param", deepSearchJobEventParamsSchema),
+    (c) => {
+      const { deepSearchJobId } = c.req.valid("param")
+      const result = manager.stop(c.get("userId"), deepSearchJobId)
+      switch (result.kind) {
+        case "requested":
+          return c.json(
+            {
+              status: "cancellation-requested" as const,
+              cancelRequestedAt: result.cancelRequestedAt,
+            },
+            202,
+          )
+        case "already-interrupted":
+          return c.json(
+            {
+              status: "interrupted" as const,
+              cancelRequestedAt: result.cancelRequestedAt,
+              completedAt: result.completedAt,
+            },
+            200,
+          )
+        case "not-found":
+          return c.json({ error: "Deep search job not found" }, 404)
+        case "not-root":
+          return c.json({ error: "Only root deep searches can be stopped" }, 409)
+        case "not-cancellable":
+          return c.json(
+            { error: `Deep search job is ${result.status}` },
+            409,
+          )
+      }
+    },
+  )
+
   app.post(
     "/deep-search-jobs",
     zValidator("json", createDeepSearchJobInputSchema),

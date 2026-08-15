@@ -71,6 +71,9 @@ const researchBriefing =
 const deepSearchAnswers = [
   "London renters face insulation, heating-control, and landlord-permission constraints. Removable heating controls and draught-proofing are practical renter-friendly interventions.",
 ]
+const deepSearchStopMarker = "[E2E_STOP_DEEP_SEARCH]"
+const ideaStopMarker = "[E2E_STOP_IDEA]"
+const debateStopMarker = "[E2E_STOP_DEBATE]"
 const debateFailureMarker = "[E2E_FAIL_DEBATE_OPENING:"
 const debateFailureMessage = "Injected debate opening failure"
 const debateFailureCandidateOrdinal = 8
@@ -327,7 +330,7 @@ function debateIdeaOrdinal(text, slot) {
 }
 
 function debateAgentOutput(system, user) {
-  const { candidateOrdinal: ordinal, isRebuttal } = assertDebateAgentInput(
+  const { context, candidateOrdinal: ordinal, isRebuttal } = assertDebateAgentInput(
     system,
     user,
   )
@@ -339,7 +342,9 @@ function debateAgentOutput(system, user) {
       ? `${title} answers the opposing case: its measurable, renter-friendly workflow produces value without hardware or extra management overhead.`
       : `${title} makes the stronger opening case because it turns the research constraints into a practical, measurable product with no installation burden.`,
     delayMs: 20,
-    secondTextDelayMs: 350,
+    secondTextDelayMs: context.userRequest.includes(debateStopMarker)
+      ? 2_000
+      : 350,
   }
 }
 
@@ -428,6 +433,7 @@ function deepSeekOutput(body) {
 
   if (system.includes("You plan research that will help another model")) {
     const isDebate = user.includes(debatePrompt)
+    const isStoppedIdea = user.includes(ideaStopMarker)
     const expectedCount = isDebate ? 1 : 2
     if (!user.includes(`Generate exactly ${expectedCount} deep-search prompts.`)) {
       throw new Error(
@@ -437,7 +443,14 @@ function deepSeekOutput(body) {
     return {
       reasoning: "Split the request into constraints and proven interventions.",
       text: JSON.stringify({
-        elements: isDebate ? debateResearchPrompts : ideaResearchPrompts,
+        elements: isDebate
+          ? debateResearchPrompts
+          : isStoppedIdea
+            ? ideaResearchPrompts.map((researchPrompt) => ({
+                ...researchPrompt,
+                prompt: `${ideaStopMarker} ${researchPrompt.prompt}`,
+              }))
+            : ideaResearchPrompts,
       }),
     }
   }
@@ -448,6 +461,9 @@ function deepSeekOutput(body) {
       text: JSON.stringify({
         elements: [`London renter household energy ${angle} evidence`],
       }),
+      ...(user.includes(deepSearchStopMarker) || user.includes(ideaStopMarker)
+        ? { delayMs: 20, secondTextDelayMs: 2_000 }
+        : {}),
     }
   }
   if (system.includes("You are a search-result selection agent")) {

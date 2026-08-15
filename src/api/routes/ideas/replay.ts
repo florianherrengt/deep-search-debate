@@ -12,6 +12,10 @@ import {
   type IdeaEvaluation,
   type IdeaJobEvent,
 } from "./schemas.ts"
+import {
+  resolveEffectiveResearchRoot,
+  stopRequestAppliesToJob,
+} from "../researchCancellation.ts"
 
 function parseIdeaEvaluation(text: string | null): IdeaEvaluation | undefined {
   if (text === null) return
@@ -203,6 +207,17 @@ export function reconstructIdeaJobEvents(
     .where(and(eq(ideaJobs.ideaJobId, ideaJobId), readScope))
     .get()
   if (!job) return
+  const effectiveRoot = db.transaction((transaction) =>
+    resolveEffectiveResearchRoot(transaction, {
+      kind: "idea",
+      jobId: ideaJobId,
+    }),
+  )
+  const stopRequested = stopRequestAppliesToJob({
+    status: job.status,
+    completedAt: job.completedAt,
+    cancelRequestedAt: effectiveRoot?.cancelRequestedAt ?? null,
+  })
 
   // The parent stores no duplicated child progress. It only re-emits the child
   // IDs; each nested deep-search subscription reconstructs its detailed events.
@@ -276,14 +291,22 @@ export function reconstructIdeaJobEvents(
       : []),
     ...normalizedIdeas.refinementEvents,
     ...normalizedIdeas.researchEvents,
+    ...(stopRequested ? [{ type: "stop-requested" as const }] : []),
     ...(job.status === "running"
       ? []
       : [
-          ...(job.error
+          ...(job.status === "interrupted"
+            ? [
+                {
+                  type: "interrupted" as const,
+                  message: job.error!,
+                },
+              ]
+            : job.status === "failed"
             ? [
                 {
                   type: "error" as const,
-                  message: job.error,
+                  message: job.error!,
                   stage:
                     job.stage === "ideas" && normalizedIdeas.hasIdeas
                       ? !normalizedIdeas.allEvaluationsCompleted

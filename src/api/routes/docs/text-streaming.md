@@ -1,9 +1,12 @@
 # Text streaming
 
-An LLM invocation has one UUID for its complete lifecycle. The adapter first
-creates an `llm_generations` row with null `text` and `reasoning` and commits any
-owning-stage registration hook. Only then may it construct the provider stream,
-consume deltas in memory, and return a handle containing the UUID.
+An admitted LLM invocation has one UUID for its complete lifecycle. Calls still
+waiting in the process-wide queue have no generation row; an internal workflow
+interruption can remove that queued work without registering an invocation. Once
+admitted, the adapter first creates an `llm_generations` row with null `text` and
+`reasoning` and commits any owning-stage registration hook. Only then may it
+construct the provider stream, consume deltas in memory, and return a handle
+containing the UUID.
 
 Deltas are not written to SQLite. At the terminal boundary, the consumer performs one database update with the accumulated text, accumulated reasoning, status, error, and completion time. This keeps writes conservative while making completed output durable.
 
@@ -48,12 +51,14 @@ database row.
 
 Internal registration returns `{ id, completion }`. The ID is available as
 soon as the initial `llm_generations` row and any registration hook commit.
-`completion` resolves to a typed completed or failed outcome only after the
-terminal generation transaction commits. Provider errors and empty output are
-durable failed outcomes; a failure to commit terminal persistence rejects the
-promise. Text, array, and object generation adapters all expose this same
-handle, so workflow code can await durable completion without subscribing to
-the public event stream.
+`completion` resolves to a typed completed, failed, or interrupted outcome only
+after the terminal generation transaction commits. Provider errors, provider
+deadlines, ordinary abort-like errors, and empty output are durable failed
+outcomes. Only the tagged signal owned by a workflow manager produces an
+interrupted outcome, classified internally as `user-stop` or `parent-stop`.
+A failure to commit terminal persistence rejects the promise. Text, array, and
+object generation adapters all expose this same handle, so workflow code can
+await durable completion without subscribing to the public event stream.
 
 Text generations may register transactional lifecycle hooks. Registration
 hooks link a newly inserted generation to its owning stage before provider
@@ -64,6 +69,15 @@ candidate answers are linked to their round at registration; after completion,
 a separate promotion transaction verifies the required query rows, links that
 same generation as the final answer, and completes the job. A hook or terminal-write failure rejects
 `completion`; it is not converted into an ordinary provider failure.
+
+An active manager interruption preserves accumulated text and reasoning, writes
+`interrupted`, its stop explanation, and the completion timestamp, and runs the
+stage's interruption hook in that same terminal transaction. Interrupted
+generations do not debit RethinkLoop credits. This accounting guarantee does not
+imply that the upstream provider will waive billing for work it already
+performed. An interruption-hook or terminal-write failure fails closed and
+rejects `completion`; the queue permit remains held until that durable cleanup
+settles.
 
 After that terminal update succeeds, the in-memory delta log is evicted and late readers reconstruct the output from SQLite. If terminal persistence fails, the closed live log is retained because it is the only available copy of the terminal error and `done` events.
 
@@ -94,7 +108,10 @@ owner-only and return 404 to every other viewer.
 | ----------- | --------------- | ------------------------------- |
 | `reasoning` | `{ text }`      | Reasoning delta or full replay  |
 | `text`      | `{ text }`      | Answer delta or full replay     |
-| `error`     | `{ message }`   | Generation failed               |
-| `done`      | none            | No more events will be produced |
+| `error`     | `{ message }`   | Generation failed or interrupted |
+| `done`      | none            | No more events will be produced  |
 
-A server restart marks orphaned `running` generations as `interrupted`; provider streams themselves are not resumable.
+An interrupted durable row replays any accumulated reasoning and text, followed
+by its persisted `error` and `done`; there is no separate public text-stream
+event type for interruption. A server restart marks orphaned `running`
+generations as `interrupted`; provider streams themselves are not resumable.

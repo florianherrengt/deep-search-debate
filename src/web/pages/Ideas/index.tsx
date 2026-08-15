@@ -7,6 +7,8 @@ import { JobHistory } from "../../components/JobHistory.tsx"
 import { JobStatusBadge } from "../../components/JobStatusBadge.tsx"
 import { PromptForm } from "../../components/PromptForm.tsx"
 import { RequestError } from "../../components/RequestError.tsx"
+import { StopWorkflowControl } from "../../components/StopWorkflowControl.tsx"
+import { requestResearchStop } from "../../lib/researchCancellation.ts"
 import { truncateDescription, useSeo } from "../../lib/seo.ts"
 import {
   createIdeaJob,
@@ -30,7 +32,10 @@ function IdeaHistory() {
   const creation = useMutation({
     mutationFn: (prompt: string) => createIdeaJob({ prompt }),
     onSuccess: ({ slug }) => {
-      void queryClient.invalidateQueries({ queryKey: ideaJobsQueryKey })
+      void queryClient.invalidateQueries({
+        queryKey: ideaJobsQueryKey,
+        exact: true,
+      })
       void navigate(`/ideas/${slug}`)
     },
   })
@@ -76,7 +81,12 @@ function IdeaHistory() {
           id: job.ideaJobId,
           label: job.title,
           prompt: job.prompt,
-          status: <JobStatusBadge status={job.status} />,
+          status: (
+            <JobStatusBadge
+              status={job.status}
+              stopRequested={job.stopRequested}
+            />
+          ),
           to: `/ideas/${job.slug}`,
         }))}
         onRetry={() => void history.refetch()}
@@ -88,9 +98,15 @@ function IdeaHistory() {
 function IdeaJobContent({
   ideaId,
   job,
+  onStop,
+  stopError,
+  stopPending,
 }: {
   ideaId?: string
   job: IdeaJobDetail
+  onStop: () => void
+  stopError: Error | null
+  stopPending: boolean
 }) {
   const run = useIdeaJob(job.ideaJobId)
   const idea = ideaId
@@ -102,7 +118,9 @@ function IdeaJobContent({
     idea === undefined &&
     run.ideas.length < job.numberOfIdeas &&
     run.status !== "completed" &&
-    run.status !== "failed"
+    run.status !== "failed" &&
+    run.status !== "interrupted" &&
+    run.status !== "stopping"
   const indexable = job.isIndexable
   const pageKey = `/ideas/${encodeURIComponent(job.slug)}${
     ideaId === undefined ? "" : `/${encodeURIComponent(ideaId)}`
@@ -164,21 +182,54 @@ function IdeaJobContent({
       jobTitle={job.title}
       numberOfIdeas={job.numberOfIdeas}
       run={run}
+      stopRequested={job.stopRequested}
     />
   ) : (
     <IdeaJobView
       jobSlug={job.slug}
       prompt={job.prompt}
       run={run}
+      stopControl={
+        <StopWorkflowControl
+          canStop={job.canStop && run.status === "running"}
+          pending={stopPending}
+          stopping={
+            job.stopRequested &&
+            !job.isPublic &&
+            (run.status === "running" || run.status === "stopping")
+          }
+          onConfirm={onStop}
+        />
+      }
+      stopError={stopError}
+      stopRequested={job.stopRequested}
       title={job.title}
     />
   )
 }
 
 function IdeaRun({ ideaId, slug }: { ideaId?: string; slug: string }) {
+  const queryClient = useQueryClient()
   const job = useQuery({
     queryKey: [...ideaJobsQueryKey, slug],
     queryFn: ({ signal }) => getIdeaJob(slug, signal),
+  })
+  const stop = useMutation({
+    mutationFn: (ideaJobId: string) =>
+      requestResearchStop("idea", ideaJobId),
+    onSuccess: () => {
+      queryClient.setQueryData<IdeaJobDetail>(
+        [...ideaJobsQueryKey, slug],
+        (current) =>
+          current
+            ? { ...current, canStop: false, stopRequested: true }
+            : current,
+      )
+      void queryClient.invalidateQueries({
+        queryKey: ideaJobsQueryKey,
+        exact: true,
+      })
+    },
   })
   const pageKey = `/ideas/${encodeURIComponent(slug)}${
     ideaId === undefined ? "" : `/${encodeURIComponent(ideaId)}`
@@ -205,7 +256,15 @@ function IdeaRun({ ideaId, slug }: { ideaId?: string; slug: string }) {
       </>
     )
   }
-  return <IdeaJobContent ideaId={ideaId} job={job.data} />
+  return (
+    <IdeaJobContent
+      ideaId={ideaId}
+      job={job.data}
+      onStop={() => stop.mutate(job.data.ideaJobId)}
+      stopError={stop.error}
+      stopPending={stop.isPending}
+    />
+  )
 }
 
 function IdeaRunPendingSeo({ pageKey }: { pageKey: string }) {

@@ -2,6 +2,7 @@ import {
   validateUrl,
 } from "deep-search-core/search-extract"
 import PQueue from "p-queue"
+import { addAbortableQueueTask } from "../helpers/addAbortableQueueTask.ts"
 import z from "zod"
 
 const scrapingAntEndpoint = "https://api.scrapingant.com/v2/general"
@@ -276,15 +277,15 @@ export function createScrapingAntClient(
         params.signal,
         config.queueWaitTimeoutMs,
       )
-      return scrapingAntRequestQueue
-        .add(
-          () => {
-            queuedSignal.signal.throwIfAborted()
-            queuedSignal.cleanup()
-            return fetchPage(params)
-          },
-          { signal: queuedSignal.signal },
-        )
+      return addAbortableQueueTask(
+        scrapingAntRequestQueue,
+        () => {
+          queuedSignal.signal.throwIfAborted()
+          queuedSignal.cleanup()
+          return fetchPage(params)
+        },
+        queuedSignal.signal,
+      )
         .catch((error: unknown) => {
           if (queuedSignal.timedOut()) {
             throw new ScrapingAntRequestError(

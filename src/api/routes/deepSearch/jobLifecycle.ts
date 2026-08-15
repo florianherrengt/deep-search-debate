@@ -8,6 +8,101 @@ import {
   llmGenerations,
 } from "../../db/schema/index.ts"
 import type { TextStreamPersistenceTransaction } from "../../llms/streams.ts"
+import { assertEffectiveResearchRootRunning } from "../researchCancellation.ts"
+
+const stoppedMessage = "Workflow stopped by user"
+
+function assertDeepSearchActive(
+  transaction: TextStreamPersistenceTransaction,
+  jobId: string,
+): void {
+  assertEffectiveResearchRootRunning(transaction, {
+    kind: "deep-search",
+    jobId,
+  })
+}
+
+function settleActiveDeepSearchRecords(
+  transaction: TextStreamPersistenceTransaction,
+  jobId: string,
+  message: string,
+  completedAt: Date,
+): void {
+  transaction
+    .update(deepSearchRounds)
+    .set({ reviewError: message, reviewCompletedAt: completedAt })
+    .where(
+      and(
+        eq(deepSearchRounds.deepSearchJobId, jobId),
+        isNotNull(deepSearchRounds.reviewGenerationId),
+        isNull(deepSearchRounds.reviewCompletedAt),
+      ),
+    )
+    .run()
+
+  const queries = transaction
+    .select({
+      queryId: deepSearchQueries.deepSearchQueryId,
+      status: deepSearchQueries.status,
+    })
+    .from(deepSearchQueries)
+    .innerJoin(
+      deepSearchRounds,
+      eq(deepSearchQueries.deepSearchRoundId, deepSearchRounds.deepSearchRoundId),
+    )
+    .where(eq(deepSearchRounds.deepSearchJobId, jobId))
+    .all()
+  for (const query of queries) {
+    if (query.status === "completed" || query.status === "failed") continue
+    const errorStage =
+      query.status === "selecting"
+        ? "selection"
+        : query.status === "summarizing"
+          ? "summary"
+          : "search"
+    transaction
+      .update(deepSearchQueries)
+      .set({
+        status: "failed",
+        errorStage,
+        errorMessage: message,
+        completedAt,
+      })
+      .where(eq(deepSearchQueries.deepSearchQueryId, query.queryId))
+      .run()
+  }
+
+  transaction
+    .update(deepSearchWebPages)
+    .set({
+      status: "failed",
+      errorStage: "extraction",
+      errorMessage: message,
+      completedAt,
+    })
+    .where(
+      and(
+        eq(deepSearchWebPages.deepSearchJobId, jobId),
+        inArray(deepSearchWebPages.status, ["pending", "extracting"]),
+      ),
+    )
+    .run()
+  transaction
+    .update(deepSearchWebPages)
+    .set({
+      status: "failed",
+      errorStage: "summary",
+      errorMessage: message,
+      completedAt,
+    })
+    .where(
+      and(
+        eq(deepSearchWebPages.deepSearchJobId, jobId),
+        eq(deepSearchWebPages.status, "summarizing"),
+      ),
+    )
+    .run()
+}
 
 /**
  * Completes a job inside the final generation's terminal transaction.
@@ -18,6 +113,7 @@ export function completeDeepSearchJob(
   transaction: TextStreamPersistenceTransaction,
   input: { jobId: string; generationId: string },
 ): void {
+  assertDeepSearchActive(transaction, input.jobId)
   const job = transaction
     .select({
       status: deepSearchJobs.status,
@@ -95,6 +191,7 @@ export function promoteRoundAnswer(input: {
   generationId: string
 }): void {
   db.transaction((transaction) => {
+    assertDeepSearchActive(transaction, input.jobId)
     const round = transaction
       .select({
         deepSearchJobId: deepSearchRounds.deepSearchJobId,
@@ -136,84 +233,50 @@ export function promoteRoundAnswer(input: {
 export function failDeepSearchJob(jobId: string, message: string): void {
   const completedAt = new Date()
   db.transaction((transaction) => {
-    transaction
-      .update(deepSearchRounds)
-      .set({ reviewError: message, reviewCompletedAt: completedAt })
-      .where(
-        and(
-          eq(deepSearchRounds.deepSearchJobId, jobId),
-          isNotNull(deepSearchRounds.reviewGenerationId),
-          isNull(deepSearchRounds.reviewCompletedAt),
-        ),
-      )
-      .run()
-
-    const queries = transaction
-      .select({
-        queryId: deepSearchQueries.deepSearchQueryId,
-        status: deepSearchQueries.status,
-      })
-      .from(deepSearchQueries)
-      .innerJoin(
-        deepSearchRounds,
-        eq(deepSearchQueries.deepSearchRoundId, deepSearchRounds.deepSearchRoundId),
-      )
-      .where(eq(deepSearchRounds.deepSearchJobId, jobId))
-      .all()
-    for (const query of queries) {
-      if (query.status === "completed" || query.status === "failed") continue
-      const errorStage =
-        query.status === "selecting"
-          ? "selection"
-          : query.status === "summarizing"
-            ? "summary"
-            : "search"
-      transaction
-        .update(deepSearchQueries)
-        .set({
-          status: "failed",
-          errorStage,
-          errorMessage: message,
-          completedAt,
-        })
-        .where(eq(deepSearchQueries.deepSearchQueryId, query.queryId))
-        .run()
-    }
-
-    transaction
-      .update(deepSearchWebPages)
-      .set({
-        status: "failed",
-        errorStage: "extraction",
-        errorMessage: message,
-        completedAt,
-      })
-      .where(
-        and(
-          eq(deepSearchWebPages.deepSearchJobId, jobId),
-          inArray(deepSearchWebPages.status, ["pending", "extracting"]),
-        ),
-      )
-      .run()
-    transaction
-      .update(deepSearchWebPages)
-      .set({
-        status: "failed",
-        errorStage: "summary",
-        errorMessage: message,
-        completedAt,
-      })
-      .where(
-        and(
-          eq(deepSearchWebPages.deepSearchJobId, jobId),
-          eq(deepSearchWebPages.status, "summarizing"),
-        ),
-      )
-      .run()
+    assertDeepSearchActive(transaction, jobId)
+    settleActiveDeepSearchRecords(transaction, jobId, message, completedAt)
 
     const result = transaction
       .update(deepSearchJobs)
       .set({ status: "failed", error: message, completedAt })
+      .where(
+        and(
+          eq(deepSearchJobs.deepSearchJobId, jobId),
+          eq(deepSearchJobs.status, "running"),
+        ),
+      )
+      .run()
+    if (result.changes !== 1) {
+      throw new Error("Running deep-search job was not found")
+    }
+  })
+}
+
+/**
+ * Settles every still-active deep-search record after Stop made the root
+ * inactive. This intentionally does not use the normal active-root guard.
+ */
+export function interruptDeepSearchJob(
+  jobId: string,
+  message = stoppedMessage,
+): void {
+  const completedAt = new Date()
+  db.transaction((transaction) => {
+    settleActiveDeepSearchRecords(transaction, jobId, message, completedAt)
+
+    const job = transaction
+      .select({ status: deepSearchJobs.status })
+      .from(deepSearchJobs)
+      .where(eq(deepSearchJobs.deepSearchJobId, jobId))
+      .get()
+    if (!job) throw new Error("Deep-search job was not found")
+    if (job.status === "interrupted") return
+    if (job.status !== "running") {
+      throw new Error("Deep-search job is already terminal")
+    }
+    const result = transaction
+      .update(deepSearchJobs)
+      .set({ status: "interrupted", error: message, completedAt })
       .where(
         and(
           eq(deepSearchJobs.deepSearchJobId, jobId),

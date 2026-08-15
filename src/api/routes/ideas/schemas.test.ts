@@ -38,5 +38,18 @@ describe("idea evaluation schema", () => {
         cons: ["Only one point"],
       }).success,
     ).toBe(false)
+
+    expect(
+      ideaEvaluationSchema.safeParse({
+        ...validEvaluation,
+        pros: ["p".repeat(304), "Still concise enough for a detailed evaluation"],
+      }).success,
+    ).toBe(true)
+    expect(
+      ideaEvaluationSchema.safeParse({
+        ...validEvaluation,
+        pros: ["p".repeat(401), "Too long"],
+      }).success,
+    ).toBe(false)
   })
 })

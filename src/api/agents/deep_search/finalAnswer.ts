@@ -18,6 +18,7 @@ type AnswerResearchRequestInput = TextGenerationPersistenceCallbacks & {
   deepSearchJobId: string
   researchRequest: string
   searchSummaries: SearchSummary[]
+  workflowSignal?: AbortSignal
 }
 
 export type FinalAnswerGeneration = {
@@ -47,10 +48,14 @@ export async function answerResearchRequest(
     promptName: PromptName.AnswerResearchRequest,
     // Final synthesis must always leave budget for user-visible text.
     reasoning: "disabled",
-    maxOutputTokens: 4_096,
+    maxOutputTokens: 8_192,
+    workflowSignal: params.workflowSignal,
     ...(params.onRegistered ? { onRegistered: params.onRegistered } : {}),
     ...(params.onCompleted ? { onCompleted: params.onCompleted } : {}),
     ...(params.onFailed ? { onFailed: params.onFailed } : {}),
+    ...(params.onInterrupted
+      ? { onInterrupted: params.onInterrupted }
+      : {}),
   })
   return {
     streamId: generation.id,

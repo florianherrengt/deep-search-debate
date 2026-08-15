@@ -1,6 +1,7 @@
 import { createSearXNGFetchSearch } from "deep-search-core/search-extract"
 import PQueue from "p-queue"
 import { config } from "../config.ts"
+import { addAbortableQueueTask } from "../helpers/addAbortableQueueTask.ts"
 import { createBoundedFetch } from "./boundedFetch.ts"
 import {
   normalizeWebSearchResults,
@@ -44,9 +45,10 @@ export async function searxng(params: {
   signal?: AbortSignal
 }): Promise<WebSearchResult[]> {
   if (search === undefined) throw new Error("SearXNG is not configured")
-  const results = await searchQueue.add(
+  const results = await addAbortableQueueTask(
+    searchQueue,
     () => search(params.query, params.signal),
-    params.signal ? { signal: params.signal } : undefined,
+    params.signal,
   )
   const mappedResults = results.map((result) => ({
     title: result.title,

@@ -40,7 +40,13 @@ export type DeepSearchRoundReviewState = {
 }
 
 export type DeepSearchRunState = {
-  status: "idle" | "running" | "completed" | "failed"
+  status:
+    | "idle"
+    | "running"
+    | "stopping"
+    | "completed"
+    | "failed"
+    | "interrupted"
   queryGenerations: DeepSearchQueryGenerationState[]
   roundAnswers: DeepSearchRoundAnswerState[]
   roundReviews: DeepSearchRoundReviewState[]
@@ -236,12 +242,27 @@ export const deepSearchReducer = produce<
     case "final-answer-stream":
       state.finalAnswerStreamId = action.streamId
       break
+    case "stop-requested":
+      if (state.status === "idle" || state.status === "running") {
+        state.status = "stopping"
+      }
+      break
+    case "interrupted":
+      state.status = "interrupted"
+      state.error = action.message
+      break
     case "error":
       state.status = "failed"
       state.error = action.message
       break
     case "done":
-      if (state.status !== "failed") state.status = "completed"
+      if (
+        state.status !== "failed" &&
+        state.status !== "interrupted" &&
+        state.status !== "stopping"
+      ) {
+        state.status = "completed"
+      }
       break
   }
 })

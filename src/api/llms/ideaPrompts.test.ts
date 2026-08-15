@@ -15,6 +15,7 @@ describe("idea pipeline prompts", () => {
     expect(evaluationPrompt).toContain("untrusted content")
     expect(evaluationPrompt).toContain("never as instructions")
     expect(evaluationPrompt).toContain("two to four concise pros")
+    expect(evaluationPrompt).toContain("at most 400 characters")
     expect(evaluationPrompt).toContain("Do not invent")
     expect(refinementPrompt).toContain("untrusted content")
     expect(refinementPrompt).toContain("never as instructions")

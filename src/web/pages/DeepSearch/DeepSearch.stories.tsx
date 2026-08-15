@@ -22,6 +22,7 @@ const manualJobs: DeepSearchJobListItem[] = [
       "Compare realistic heat-pump options, installation constraints, and current evidence for London flats.",
     slug: "heat-pump-options-for-london-flats",
     status: "completed",
+    stopRequested: false,
     title: "Heat-pump options for London flats",
   },
   {
@@ -37,6 +38,7 @@ const manualJobs: DeepSearchJobListItem[] = [
       "Research financing models that let neighbourhood groups fund local renewable-energy projects.",
     slug: "community-energy-financing",
     status: "running",
+    stopRequested: false,
     title: "Community energy financing",
   },
 ]
@@ -59,6 +61,7 @@ const automatedJobs: DeepSearchJobListItem[] = [
       "Research evidence for and against time-of-use pricing as a mechanism for reducing household energy costs.",
     slug: "evidence-for-time-of-use-energy-pricing",
     status: "completed",
+    stopRequested: false,
     title: "Evidence for time-of-use energy pricing",
   },
   {
@@ -78,6 +81,7 @@ const automatedJobs: DeepSearchJobListItem[] = [
       "Research coordination failures between renters, landlords, installers, and local retrofit programmes.",
     slug: "tenant-friendly-retrofit-coordination",
     status: "running",
+    stopRequested: false,
     title: "Tenant-friendly retrofit coordination",
   },
 ]
@@ -93,6 +97,7 @@ const services: DeepSearchServices = {
       completedAt: new Date("2026-08-12T09:38:00.000Z"),
       createdAt,
       deepSearchJobId: slug,
+      canStop: false,
       error: null,
       isIndexable: false,
       isPublic: false,
@@ -102,10 +107,12 @@ const services: DeepSearchServices = {
       researchRequest: "Research request created from the Storybook page.",
       slug,
       status: "completed",
+      stopRequested: false,
       title: "Storybook deep search",
     }),
   getJobs: (source) =>
     Promise.resolve(source === "automated" ? automatedJobs : manualJobs),
+  stopJob: () => Promise.reject(new Error("Story jobs cannot be stopped")),
 }
 
 const meta = {

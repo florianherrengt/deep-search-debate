@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { and, eq } from "drizzle-orm"
+import { and, eq, isNull } from "drizzle-orm"
 
 import { db } from "../../db/index.ts"
 import {
@@ -12,6 +12,7 @@ import {
   llmGenerations,
 } from "../../db/schema/index.ts"
 import type { TextStreamPersistenceTransaction } from "../../llms/streams.ts"
+import { assertEffectiveResearchRootRunning } from "../researchCancellation.ts"
 import {
   DEBATE_TOURNAMENT_FORMAT,
   getMatchesPerSwissRound,
@@ -25,6 +26,16 @@ type CreatedMatch = {
   position: number
   firstIdeaId: string
   secondIdeaId: string
+}
+
+function assertDebateActive(
+  transaction: TextStreamPersistenceTransaction,
+  debateJobId: string,
+): void {
+  assertEffectiveResearchRootRunning(transaction, {
+    kind: "debate",
+    jobId: debateJobId,
+  })
 }
 
 function canonicalPair(firstIdeaId: string, secondIdeaId: string): string {
@@ -61,6 +72,28 @@ function assertGenerationOwnedByMatch(
   }
 }
 
+function requireActiveMatch(
+  transaction: TextStreamPersistenceTransaction,
+  debateMatchId: string,
+) {
+  const match = transaction
+    .select({
+      debateJobId: debateRounds.debateJobId,
+      firstIdeaId: debateMatches.firstIdeaId,
+      secondIdeaId: debateMatches.secondIdeaId,
+    })
+    .from(debateMatches)
+    .innerJoin(
+      debateRounds,
+      eq(debateMatches.debateRoundId, debateRounds.debateRoundId),
+    )
+    .where(eq(debateMatches.debateMatchId, debateMatchId))
+    .get()
+  if (!match) throw new Error("Debate match was not found")
+  assertDebateActive(transaction, match.debateJobId)
+  return match
+}
+
 function expectedMatchCount(
   stage: DebateRoundStage,
   participantCount: number,
@@ -75,12 +108,13 @@ function expectedMatchCount(
 }
 
 function validatePriorRounds(
+  transaction: TextStreamPersistenceTransaction,
   debateJobId: string,
   stage: DebateRoundStage,
   stageRoundNumber: number,
   matchesPerSwissRound: number,
 ): void {
-  const rounds = db
+  const rounds = transaction
     .select({
       stage: debateRounds.stage,
       stageRoundNumber: debateRounds.stageRoundNumber,
@@ -168,97 +202,98 @@ export function createDebateRound(input: {
   stageRoundNumber: number
   pairs: IdeaPair[]
 }): CreatedMatch[] {
-  const job = db
-    .select({
-      ideaJobId: ideaJobs.ideaJobId,
-      stage: debateJobs.stage,
-      status: debateJobs.status,
-    })
-    .from(debateJobs)
-    .innerJoin(ideaJobs, eq(ideaJobs.debateJobId, debateJobs.debateJobId))
-    .where(eq(debateJobs.debateJobId, input.debateJobId))
-    .get()
-  if (!job) throw new Error("Debate job was not found")
-  if (job.status !== "running" || job.stage !== input.stage) {
-    throw new Error(`Debate job is not running the ${input.stage} stage`)
-  }
-  const admittedIdeas = new Set(
-    db
-      .select({ ideaId: ideas.ideaId })
-      .from(ideas)
-      .where(
-        and(
-          eq(ideas.ideaJobId, job.ideaJobId),
-          eq(ideas.selected, true),
-        ),
-      )
-      .all()
-      .map((idea) => idea.ideaId),
-  )
-  const matchesPerSwissRound = getMatchesPerSwissRound(admittedIdeas.size)
-  if (
-    input.pairs.length !==
-    expectedMatchCount(input.stage, admittedIdeas.size)
-  ) {
-    throw new Error(`Incorrect number of ${input.stage} matches`)
-  }
-
-  const participantIds = input.pairs.flatMap((pair) => [...pair])
-  if (new Set(participantIds).size !== participantIds.length) {
-    throw new Error("An idea cannot appear more than once in a round")
-  }
-  if (participantIds.some((ideaId) => !admittedIdeas.has(ideaId))) {
-    throw new Error("Every match idea must be selected for this debate")
-  }
-
-  validatePriorRounds(
-    input.debateJobId,
-    input.stage,
-    input.stageRoundNumber,
-    matchesPerSwissRound,
-  )
-
-  if (input.stage === "swiss") {
-    const previousPairs = new Set(
-      db
-        .select({
-          firstIdeaId: debateMatches.firstIdeaId,
-          secondIdeaId: debateMatches.secondIdeaId,
-        })
-        .from(debateMatches)
-        .innerJoin(
-          debateRounds,
-          eq(debateMatches.debateRoundId, debateRounds.debateRoundId),
-        )
+  return db.transaction((transaction) => {
+    assertDebateActive(transaction, input.debateJobId)
+    const job = transaction
+      .select({
+        ideaJobId: ideaJobs.ideaJobId,
+        stage: debateJobs.stage,
+        status: debateJobs.status,
+      })
+      .from(debateJobs)
+      .innerJoin(ideaJobs, eq(ideaJobs.debateJobId, debateJobs.debateJobId))
+      .where(eq(debateJobs.debateJobId, input.debateJobId))
+      .get()
+    if (!job) throw new Error("Debate job was not found")
+    if (job.status !== "running" || job.stage !== input.stage) {
+      throw new Error(`Debate job is not running the ${input.stage} stage`)
+    }
+    const admittedIdeas = new Set(
+      transaction
+        .select({ ideaId: ideas.ideaId })
+        .from(ideas)
         .where(
           and(
-            eq(debateRounds.debateJobId, input.debateJobId),
-            eq(debateRounds.stage, "swiss"),
+            eq(ideas.ideaJobId, job.ideaJobId),
+            eq(ideas.selected, true),
           ),
         )
         .all()
-        .map((match) =>
-          canonicalPair(match.firstIdeaId, match.secondIdeaId),
-        ),
+        .map((idea) => idea.ideaId),
     )
+    const matchesPerSwissRound = getMatchesPerSwissRound(admittedIdeas.size)
     if (
-      input.pairs.some((pair) => previousPairs.has(canonicalPair(...pair)))
+      input.pairs.length !==
+      expectedMatchCount(input.stage, admittedIdeas.size)
     ) {
-      throw new Error("Swiss matchups cannot repeat")
+      throw new Error(`Incorrect number of ${input.stage} matches`)
     }
-  }
 
-  const debateRoundId = randomUUID()
-  const matches = input.pairs.map(
-    ([firstIdeaId, secondIdeaId], position): CreatedMatch => ({
-      debateMatchId: randomUUID(),
-      position,
-      firstIdeaId,
-      secondIdeaId,
-    }),
-  )
+    const participantIds = input.pairs.flatMap((pair) => [...pair])
+    if (new Set(participantIds).size !== participantIds.length) {
+      throw new Error("An idea cannot appear more than once in a round")
+    }
+    if (participantIds.some((ideaId) => !admittedIdeas.has(ideaId))) {
+      throw new Error("Every match idea must be selected for this debate")
+    }
 
-  db.transaction((transaction) => {
+    validatePriorRounds(
+      transaction,
+      input.debateJobId,
+      input.stage,
+      input.stageRoundNumber,
+      matchesPerSwissRound,
+    )
+
+    if (input.stage === "swiss") {
+      const previousPairs = new Set(
+        transaction
+          .select({
+            firstIdeaId: debateMatches.firstIdeaId,
+            secondIdeaId: debateMatches.secondIdeaId,
+          })
+          .from(debateMatches)
+          .innerJoin(
+            debateRounds,
+            eq(debateMatches.debateRoundId, debateRounds.debateRoundId),
+          )
+          .where(
+            and(
+              eq(debateRounds.debateJobId, input.debateJobId),
+              eq(debateRounds.stage, "swiss"),
+            ),
+          )
+          .all()
+          .map((match) =>
+            canonicalPair(match.firstIdeaId, match.secondIdeaId),
+          ),
+      )
+      if (
+        input.pairs.some((pair) => previousPairs.has(canonicalPair(...pair)))
+      ) {
+        throw new Error("Swiss matchups cannot repeat")
+      }
+    }
+
+    const debateRoundId = randomUUID()
+    const matches = input.pairs.map(
+      ([firstIdeaId, secondIdeaId], position): CreatedMatch => ({
+        debateMatchId: randomUUID(),
+        position,
+        firstIdeaId,
+        secondIdeaId,
+      }),
+    )
     transaction
       .insert(debateRounds)
       .values({
@@ -277,9 +312,8 @@ export function createDebateRound(input: {
         })),
       )
       .run()
+    return matches
   })
-
-  return matches
 }
 
 export function createAgentMessage(input: {
@@ -288,6 +322,7 @@ export function createAgentMessage(input: {
   speakerSlot: 0 | 1
   llmGenerationId: string
 }, transaction: TextStreamPersistenceTransaction): void {
+  requireActiveMatch(transaction, input.debateMatchId)
   assertGenerationOwnedByMatch(
     transaction,
     input.debateMatchId,
@@ -306,6 +341,7 @@ export function replaceFailedAgentMessageGeneration(input: {
   failedGenerationId: string
   retryGenerationId: string
 }, transaction: TextStreamPersistenceTransaction): void {
+  requireActiveMatch(transaction, input.debateMatchId)
   assertGenerationOwnedByMatch(
     transaction,
     input.debateMatchId,
@@ -347,6 +383,13 @@ export function completeDebateMatch(input: {
   winnerIdeaId: string
   judgeGenerationId: string
 }, transaction: TextStreamPersistenceTransaction): void {
+  const match = requireActiveMatch(transaction, input.debateMatchId)
+  if (
+    input.winnerIdeaId !== match.firstIdeaId &&
+    input.winnerIdeaId !== match.secondIdeaId
+  ) {
+    throw new Error("Debate winner must belong to the match")
+  }
   assertGenerationOwnedByMatch(
     transaction,
     input.debateMatchId,
@@ -362,9 +405,17 @@ export function completeDebateMatch(input: {
       llmGenerationId: input.judgeGenerationId,
     })
     .run()
-  transaction
+  const completion = transaction
     .update(debateMatches)
     .set({ winnerIdeaId: input.winnerIdeaId, completedAt: new Date() })
-    .where(eq(debateMatches.debateMatchId, input.debateMatchId))
+    .where(
+      and(
+        eq(debateMatches.debateMatchId, input.debateMatchId),
+        isNull(debateMatches.winnerIdeaId),
+      ),
+    )
     .run()
+  if (completion.changes !== 1) {
+    throw new Error("Debate match was already completed")
+  }
 }

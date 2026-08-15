@@ -1,8 +1,8 @@
-import { and, eq } from "drizzle-orm"
+import { and, eq, isNull } from "drizzle-orm"
+import { Effect, Result } from "effect"
 import z from "zod"
 import { config } from "../../config.ts"
-import { db } from "../../db/index.ts"
-import { ideaJobs, ideas as ideaRecords } from "../../db/schema/index.ts"
+import { ideas as ideaRecords } from "../../db/schema/index.ts"
 import {
   allocateFairly,
   formatBoundedTextEntries,
@@ -22,6 +22,9 @@ import {
   type TextStreamPersistenceTransaction,
 } from "../../llms/streams.ts"
 import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
+import {
+  EffectiveResearchRootInactiveError,
+} from "../researchCancellation.ts"
 import { deepSearchResearchRequestSchema } from "../deepSearch/resourceLimits.ts"
 import {
   ideaSchema,
@@ -35,6 +38,21 @@ import {
   type IdeaJobStage,
   type LiveIdeaJob,
 } from "./schemas.ts"
+import {
+  completeIdeaJob,
+  failIdeaJob,
+  insertIdeaBatch,
+  interruptIdeaJob,
+  setIdeaJobGeneration,
+  setIdeaJobStage,
+  type PersistedIdea,
+} from "./jobLifecycle.ts"
+import {
+  getWorkflowStopReason,
+  runWorkflowEffect,
+  WorkflowFailure,
+  WorkflowInterruptedError,
+} from "../../workflowRuntime.ts"
 
 type RunIdeaJobInput = {
   ideaJobId: string
@@ -47,6 +65,7 @@ type RunIdeaJobInput = {
   maxRounds?: number
   job: LiveIdeaJob
   deepSearchManager: DeepSearchJobManager
+  workflowSignal?: AbortSignal
 }
 
 const researchPromptSchema = z.object({
@@ -282,12 +301,11 @@ function setGenerationId(
     | "selectionGenerationId",
   id: string,
 ): void {
-  const result = transaction
-    .update(ideaJobs)
-    .set({ [field]: id })
-    .where(eq(ideaJobs.ideaJobId, ideaJobId))
-    .run()
-  if (result.changes !== 1) throw new Error("Idea job was not found")
+  setIdeaJobGeneration(transaction, {
+    ideaJobId,
+    field,
+    generationId: id,
+  })
 }
 
 async function publishStartedGeneration(
@@ -302,11 +320,44 @@ async function publishStartedGeneration(
   }
 }
 
-function setStage(ideaJobId: string, stage: IdeaJobStage): void {
-  db.update(ideaJobs)
-    .set({ stage })
-    .where(eq(ideaJobs.ideaJobId, ideaJobId))
-    .run()
+function workflowEffect<Value>(
+  run: () => Value | PromiseLike<Value>,
+  fallback = "Idea workflow work failed",
+): Effect.Effect<Value, WorkflowFailure> {
+  return Effect.uninterruptible(
+    Effect.tryPromise({
+      try: () => Promise.resolve().then(run),
+      catch: (cause) =>
+        cause instanceof WorkflowFailure
+          ? cause
+          : new WorkflowFailure({
+              message: getErrorMessage(cause, fallback),
+              cause,
+            }),
+    }),
+  )
+}
+
+function settleEffects<Value>(
+  effects: readonly Effect.Effect<Value, WorkflowFailure>[],
+) {
+  return Effect.all(effects, {
+    concurrency: "unbounded",
+    mode: "result",
+  })
+}
+
+function unwrapSettled<Value>(
+  settled: readonly Result.Result<Value, WorkflowFailure>[],
+): Effect.Effect<Value[], WorkflowFailure> {
+  return Effect.gen(function*() {
+    const firstFailure = settled.find(Result.isFailure)
+    if (firstFailure) yield* Effect.fail(firstFailure.failure)
+    return settled.map((result) => {
+      if (Result.isFailure(result)) throw result.failure
+      return result.success
+    })
+  })
 }
 
 async function generateResearchPrompts(
@@ -319,6 +370,7 @@ async function generateResearchPrompts(
     promptName: PromptName.GenerateIdeaResearchPrompts,
     element: researchPromptSchema,
     maxOutputTokens: 4_096,
+    workflowSignal: input.workflowSignal,
     onRegistered: (generationId, transaction) => {
       setGenerationId(
         transaction,
@@ -347,77 +399,75 @@ async function generateResearchPrompts(
   return prompts
 }
 
-async function runResearch(
+function runResearchEffect(
   input: RunIdeaJobInput,
   prompts: ResearchPrompt[],
-): Promise<string[]> {
-  // start() launches immediately. Mapping every prompt before awaiting any
-  // completion is what makes these durable child jobs run in parallel.
-  const starts = await Promise.allSettled(
-    prompts.map(({ title, prompt: researchRequest }, ideaJobPosition) =>
-      input.deepSearchManager.start(input.userId, {
-        title,
-        researchRequest,
-        maxSearches: input.maxSearches,
-        maxResultsPerSearch: input.maxResultsPerSearch,
-        maxRounds: input.maxRounds ?? 3,
-        ideaJobId: input.ideaJobId,
-        ideaJobPosition,
-      }),
-    ),
-  )
-  const publicationErrors = starts.flatMap((started, index): unknown[] => {
-    if (started.status === "rejected") return []
-    const search = started.value
-    try {
-      input.job.publish({
-        type: "deep-search-started",
-        deepSearchJobId: search.deepSearchJobId,
-        title: search.title,
-        slug: search.slug,
-        researchRequest: prompts[index].prompt,
-      })
-      return []
-    } catch (error) {
-      return [error]
-    }
-  })
-
-  // Wait for every launched child even after one fails. No later pipeline stage
-  // runs when a rejection exists, but the parent does not terminate while its
-  // remaining visible child searches are still active.
-  const settled = await Promise.all(
-    starts.map(
-      async (started): Promise<PromiseSettledResult<string>> => {
-        if (started.status === "rejected") return started
-        try {
-          const value = await started.value.completion
-          input.deepSearchManager.requireParentQualityAcceptance(
-            started.value.deepSearchJobId,
-          )
-          return {
-            status: "fulfilled",
-            value,
+): Effect.Effect<string[], WorkflowFailure> {
+  return Effect.gen(function*() {
+    // All child rows are launched before any completion is awaited. Result
+    // mode then keeps every successfully launched child joined to the parent.
+    const starts = yield* settleEffects(
+      prompts.map(({ title, prompt: researchRequest }, ideaJobPosition) =>
+        workflowEffect(() => {
+          const childInput = {
+            title,
+            researchRequest,
+            maxSearches: input.maxSearches,
+            maxResultsPerSearch: input.maxResultsPerSearch,
+            maxRounds: input.maxRounds ?? 3,
+            ideaJobId: input.ideaJobId,
+            ideaJobPosition,
           }
-        } catch (reason) {
-          return { status: "rejected", reason }
-        }
-      },
-    ),
-  )
-  const failed = settled.find(
-    (result): result is PromiseRejectedResult => result.status === "rejected",
-  )
-  if (publicationErrors.length > 0) {
-    const [publicationError] = publicationErrors
-    throw publicationError instanceof Error
-      ? publicationError
-      : new Error("Publishing a child search event failed")
-  }
-  if (failed) throw failed.reason
-  return settled.map((result) => {
-    if (result.status === "rejected") throw result.reason
-    return result.value
+          return input.workflowSignal
+            ? input.deepSearchManager.start(input.userId, childInput, {
+                workflowSignal: input.workflowSignal,
+              })
+            : input.deepSearchManager.start(input.userId, childInput)
+        }, "Starting idea research failed"),
+      ),
+    )
+    const publicationErrors: unknown[] = []
+    starts.forEach((started, index) => {
+      if (Result.isFailure(started)) return
+      const search = started.success
+      try {
+        input.job.publish({
+          type: "deep-search-started",
+          deepSearchJobId: search.deepSearchJobId,
+          title: search.title,
+          slug: search.slug,
+          researchRequest: prompts[index].prompt,
+        })
+      } catch (error) {
+        publicationErrors.push(error)
+      }
+    })
+    const completions = yield* settleEffects(
+      starts.map((started) =>
+        Result.isFailure(started)
+          ? Effect.fail(started.failure)
+          : workflowEffect(async () => {
+              const value = await started.success.completion
+              input.deepSearchManager.requireParentQualityAcceptance(
+                started.success.deepSearchJobId,
+              )
+              return value
+            }, "Idea research failed"),
+      ),
+    )
+    if (publicationErrors.length > 0) {
+      const publicationError = publicationErrors[0]
+      return yield* Effect.fail(
+        new WorkflowFailure({
+          message: getErrorMessage(
+            publicationError,
+            "Publishing a child search event failed",
+          ),
+          cause: publicationError,
+        }),
+      )
+    }
+    return yield* unwrapSettled(completions)
   })
 }
 
@@ -434,6 +484,7 @@ async function summarizeResearch(
     promptName: PromptName.SummarizeIdeaResearch,
     reasoning: "disabled",
     maxOutputTokens: 4_096,
+    workflowSignal: input.workflowSignal,
     onRegistered: (generationId, transaction) => {
       setGenerationId(
         transaction,
@@ -467,6 +518,7 @@ async function generateIdeas(
     promptName: PromptName.GenerateIdeas,
     element: ideaSchema,
     maxOutputTokens: 8_192,
+    workflowSignal: input.workflowSignal,
     onRegistered: (generationId, transaction) => {
       setGenerationId(
         transaction,
@@ -495,16 +547,8 @@ async function generateIdeas(
   return ideas
 }
 
-type PersistedIdea = Idea & { ideaId: string; position: number }
-
 function persistIdeas(input: RunIdeaJobInput, ideas: Idea[]): PersistedIdea[] {
-  const persistedIdeas = ideas.map((idea, position) => ({
-    ideaId: crypto.randomUUID(),
-    ideaJobId: input.ideaJobId,
-    position,
-    ...idea,
-  }))
-  db.insert(ideaRecords).values(persistedIdeas).run()
+  const persistedIdeas = insertIdeaBatch(input.ideaJobId, ideas)
   for (const idea of persistedIdeas) {
     input.job.publish({
       type: "idea",
@@ -532,6 +576,7 @@ async function evaluateIdea(
     schema: ideaEvaluationSchema,
     reasoning: "disabled",
     maxOutputTokens: 1_024,
+    workflowSignal: input.workflowSignal,
     onRegistered: (generationId, transaction) => {
       const result = transaction
         .update(ideaRecords)
@@ -540,6 +585,7 @@ async function evaluateIdea(
           and(
             eq(ideaRecords.ideaId, idea.ideaId),
             eq(ideaRecords.ideaJobId, input.ideaJobId),
+            isNull(ideaRecords.evaluationGenerationId),
           ),
         )
         .run()
@@ -558,23 +604,21 @@ async function evaluateIdea(
   return { ...idea, ...evaluation }
 }
 
-async function evaluateIdeas(
+function evaluateIdeasEffect(
   input: RunIdeaJobInput,
   researchSummary: string,
   ideas: PersistedIdea[],
-): Promise<EvaluatedIdea[]> {
-  // Start every independent evaluation immediately, but do not fail the parent
-  // until all started generations have reached a terminal state.
-  const settled = await Promise.allSettled(
-    ideas.map((idea) => evaluateIdea(input, researchSummary, idea)),
-  )
-  const failed = settled.find(
-    (result): result is PromiseRejectedResult => result.status === "rejected",
-  )
-  if (failed) throw failed.reason
-  return settled.map((result) => {
-    if (result.status === "rejected") throw result.reason
-    return result.value
+): Effect.Effect<EvaluatedIdea[], WorkflowFailure> {
+  return Effect.gen(function*() {
+    const settled = yield* settleEffects(
+      ideas.map((idea) =>
+        workflowEffect(
+          () => evaluateIdea(input, researchSummary, idea),
+          "Idea evaluation failed",
+        ),
+      ),
+    )
+    return yield* unwrapSettled(settled)
   })
 }
 
@@ -594,6 +638,7 @@ async function selectIdeas(
     // DeepSeek emits the required JSON.
     reasoning: "disabled",
     maxOutputTokens: 1_024,
+    workflowSignal: input.workflowSignal,
     onRegistered: (generationId, transaction) => {
       setGenerationId(
         transaction,
@@ -613,6 +658,7 @@ async function selectIdeas(
             and(
               eq(ideaRecords.ideaId, ideaId),
               eq(ideaRecords.ideaJobId, input.ideaJobId),
+              isNull(ideaRecords.selected),
             ),
           )
           .run()
@@ -651,6 +697,7 @@ async function refineIdea(
     promptName: PromptName.RefineIdea,
     schema: ideaSchema,
     maxOutputTokens: 2_048,
+    workflowSignal: input.workflowSignal,
     onRegistered: (generationId, transaction) => {
       const result = transaction
         .update(ideaRecords)
@@ -660,6 +707,7 @@ async function refineIdea(
             eq(ideaRecords.ideaId, idea.ideaId),
             eq(ideaRecords.ideaJobId, input.ideaJobId),
             eq(ideaRecords.selected, true),
+            isNull(ideaRecords.refinementGenerationId),
           ),
         )
         .run()
@@ -677,6 +725,8 @@ async function refineIdea(
             eq(ideaRecords.ideaId, idea.ideaId),
             eq(ideaRecords.ideaJobId, input.ideaJobId),
             eq(ideaRecords.refinementGenerationId, id),
+            isNull(ideaRecords.refinedTitle),
+            isNull(ideaRecords.refinedDescription),
           ),
         )
         .run()
@@ -706,30 +756,30 @@ async function refineIdea(
   }
 }
 
-async function refineIdeas(
+function refineIdeasEffect(
   input: RunIdeaJobInput,
   researchSummary: string,
   ideas: EvaluatedIdea[],
-): Promise<RefinedIdea[]> {
-  const settled = await Promise.allSettled(
-    ideas.map((idea) => refineIdea(input, researchSummary, idea)),
-  )
-  const failed = settled.find(
-    (result): result is PromiseRejectedResult => result.status === "rejected",
-  )
-  if (failed) throw failed.reason
-  return settled.map((result) => {
-    if (result.status === "rejected") throw result.reason
-    return result.value
+): Effect.Effect<RefinedIdea[], WorkflowFailure> {
+  return Effect.gen(function*() {
+    const settled = yield* settleEffects(
+      ideas.map((idea) =>
+        workflowEffect(
+          () => refineIdea(input, researchSummary, idea),
+          "Idea refinement failed",
+        ),
+      ),
+    )
+    return yield* unwrapSettled(settled)
   })
 }
 
-async function researchRefinedIdea(
+async function startRefinedIdeaResearch(
   input: RunIdeaJobInput,
   idea: RefinedIdea,
-): Promise<void> {
+): ReturnType<DeepSearchJobManager["start"]> {
   const researchRequest = buildRefinedIdeaResearchRequest(input.prompt, idea)
-  const search = await input.deepSearchManager.start(input.userId, {
+  const childInput = {
     title: idea.refinedTitle,
     researchRequest,
     maxSearches: input.maxSearches,
@@ -737,7 +787,12 @@ async function researchRefinedIdea(
     maxRounds: input.maxRounds ?? 3,
     ideaJobId: input.ideaJobId,
     ideaJobPosition: input.deepSearchCount + idea.position,
-  })
+  }
+  const search = await (input.workflowSignal
+    ? input.deepSearchManager.start(input.userId, childInput, {
+        workflowSignal: input.workflowSignal,
+      })
+    : input.deepSearchManager.start(input.userId, childInput))
   try {
     input.job.publish({
       type: "idea-deep-search-started",
@@ -751,85 +806,145 @@ async function researchRefinedIdea(
     await search.completion.catch(() => undefined)
     throw error
   }
-  await search.completion
-  input.deepSearchManager.requireParentQualityAcceptance(
-    search.deepSearchJobId,
-  )
+  return search
 }
 
-async function researchRefinedIdeas(
+function researchRefinedIdeasEffect(
   input: RunIdeaJobInput,
   ideas: RefinedIdea[],
-): Promise<void> {
-  const settled = await Promise.allSettled(
-    ideas.map((idea) => researchRefinedIdea(input, idea)),
-  )
-  const failed = settled.find(
-    (result): result is PromiseRejectedResult => result.status === "rejected",
-  )
-  if (failed) throw failed.reason
+): Effect.Effect<void, WorkflowFailure> {
+  return Effect.gen(function*() {
+    const starts = yield* settleEffects(
+      ideas.map((idea) =>
+        workflowEffect(
+          () => startRefinedIdeaResearch(input, idea),
+          "Starting selected-idea research failed",
+        ),
+      ),
+    )
+    const completions = yield* settleEffects(
+      starts.map((started) =>
+        Result.isFailure(started)
+          ? Effect.fail(started.failure)
+          : workflowEffect(async () => {
+              await started.success.completion
+              input.deepSearchManager.requireParentQualityAcceptance(
+                started.success.deepSearchJobId,
+              )
+            }, "Selected-idea research failed"),
+      ),
+    )
+    yield* unwrapSettled(completions)
+  })
 }
 
-/** Runs the durable idea pipeline and publishes parent progress. */
+function ideaPipelineEffect(
+  input: RunIdeaJobInput,
+  setEventStage: (stage: IdeaEventStage) => void,
+): Effect.Effect<void, WorkflowFailure> {
+  return Effect.gen(function*() {
+    const prompts = yield* workflowEffect(() => generateResearchPrompts(input))
+
+    setEventStage("research")
+    yield* workflowEffect(() => setIdeaJobStage(input.ideaJobId, "research"))
+    const research = yield* runResearchEffect(input, prompts)
+
+    setEventStage("summary")
+    yield* workflowEffect(() => setIdeaJobStage(input.ideaJobId, "summary"))
+    const summary = yield* workflowEffect(() => summarizeResearch(input, research))
+
+    setEventStage("ideas")
+    yield* workflowEffect(() => setIdeaJobStage(input.ideaJobId, "ideas"))
+    const generatedIdeas = yield* workflowEffect(() =>
+      generateIdeas(input, summary),
+    )
+    const persistedIdeas = yield* workflowEffect(() =>
+      persistIdeas(input, generatedIdeas),
+    )
+
+    setEventStage("evaluation")
+    const evaluatedIdeas = yield* evaluateIdeasEffect(
+      input,
+      summary,
+      persistedIdeas,
+    )
+
+    setEventStage("selection")
+    const selectedIdeas = yield* workflowEffect(() =>
+      selectIdeas(input, summary, evaluatedIdeas),
+    )
+
+    setEventStage("refinement")
+    const refinedIdeas = yield* refineIdeasEffect(input, summary, selectedIdeas)
+
+    setEventStage("idea-research")
+    yield* researchRefinedIdeasEffect(input, refinedIdeas)
+
+    yield* workflowEffect(() => completeIdeaJob(input.ideaJobId))
+  })
+}
+
+function getCancellationReason(
+  error: unknown,
+  signal: AbortSignal | undefined,
+): "user-stop" | "parent-stop" | undefined {
+  const signalReason = getWorkflowStopReason(signal)
+  if (signalReason) return signalReason
+  if (error instanceof WorkflowInterruptedError) return error.reason
+  if (error instanceof WorkflowFailure && error.cause !== undefined) {
+    return getCancellationReason(error.cause, signal)
+  }
+  if (
+    error instanceof EffectiveResearchRootInactiveError &&
+    error.reason === "stop-requested"
+  ) {
+    return error.root?.kind === "idea" ? "user-stop" : "parent-stop"
+  }
+}
+
+function durableIdeaStage(stage: IdeaEventStage): IdeaJobStage {
+  return stage === "evaluation" ||
+    stage === "selection" ||
+    stage === "refinement" ||
+    stage === "idea-research"
+    ? "ideas"
+    : stage
+}
+
+/** Runs the Effect-owned pipeline and owns the exact terminal event suffix. */
 export async function runIdeaJob(input: RunIdeaJobInput): Promise<void> {
   let stage: IdeaEventStage = "planning"
   try {
-    const prompts = await generateResearchPrompts(input)
-
-    stage = "research"
-    setStage(input.ideaJobId, stage)
-    const research = await runResearch(input, prompts)
-
-    stage = "summary"
-    setStage(input.ideaJobId, stage)
-    const summary = await summarizeResearch(input, research)
-
-    stage = "ideas"
-    setStage(input.ideaJobId, stage)
-    const generatedIdeas = await generateIdeas(input, summary)
-    const persistedIdeas = persistIdeas(input, generatedIdeas)
-
-    stage = "evaluation"
-    const evaluatedIdeas = await evaluateIdeas(input, summary, persistedIdeas)
-
-    stage = "selection"
-    const selectedIdeas = await selectIdeas(input, summary, evaluatedIdeas)
-
-    stage = "refinement"
-    const refinedIdeas = await refineIdeas(input, summary, selectedIdeas)
-
-    stage = "idea-research"
-    await researchRefinedIdeas(input, refinedIdeas)
-
-    db.update(ideaJobs)
-      .set({ status: "completed", completedAt: new Date() })
-      .where(eq(ideaJobs.ideaJobId, input.ideaJobId))
-      .run()
+    await runWorkflowEffect(
+      ideaPipelineEffect(input, (nextStage) => {
+        stage = nextStage
+      }),
+      input.workflowSignal,
+    )
   } catch (error) {
+    let cancellationReason = getCancellationReason(error, input.workflowSignal)
     const message = getErrorMessage(error, "Idea generation failed")
-    try {
-      db.update(ideaJobs)
-        .set({
-          // Per-idea work remains an event subphase of the durable ideas stage.
-          // Linked generations and searches preserve its detailed progress.
-          stage:
-            stage === "evaluation" ||
-            stage === "selection" ||
-            stage === "refinement" ||
-            stage === "idea-research"
-              ? "ideas"
-              : stage,
-          status: "failed",
-          error: message,
-          completedAt: new Date(),
-        })
-        .where(eq(ideaJobs.ideaJobId, input.ideaJobId))
-        .run()
-    } catch (persistenceError) {
-      console.error(
-        `Failed to persist idea job ${input.ideaJobId} failure`,
-        persistenceError,
-      )
+    if (!cancellationReason) {
+      try {
+        failIdeaJob(input.ideaJobId, durableIdeaStage(stage), message)
+      } catch (persistenceError) {
+        cancellationReason = getCancellationReason(
+          persistenceError,
+          input.workflowSignal,
+        )
+        if (!cancellationReason) {
+          console.error(
+            `Failed to persist idea job ${input.ideaJobId} failure`,
+            persistenceError,
+          )
+        }
+      }
+    }
+    if (cancellationReason) {
+      const interrupted = new WorkflowInterruptedError(cancellationReason)
+      interruptIdeaJob(input.ideaJobId, interrupted.message)
+      input.job.publish({ type: "interrupted", message: interrupted.message })
+      return
     }
     input.job.publish({ type: "error", message, stage })
   } finally {

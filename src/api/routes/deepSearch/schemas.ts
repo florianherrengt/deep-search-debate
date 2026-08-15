@@ -5,6 +5,8 @@ import { deepSearchExecutionInputSchema } from "./resourceLimits.ts"
 
 export type DeepSearchJobEvent =
   | DeepSearchEvent
+  | { type: "stop-requested" }
+  | { type: "interrupted"; message: string }
   | { type: "error"; message: string }
   | { type: "done" }
 export type LiveDeepSearchJob = ReplayableEventLog<DeepSearchJobEvent>

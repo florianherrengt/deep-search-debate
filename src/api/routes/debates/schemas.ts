@@ -57,6 +57,8 @@ export type CreateDebateJobRequest = z.input<
   typeof createDebateJobInputSchema
 >
 
+export type DebateJobStage = (typeof debateJobStages)[number]
+
 export const debateJobEventParamsSchema = z.object({ debateJobId: z.uuid() })
 
 export const debateJobParamsSchema = z.object({
@@ -86,6 +88,7 @@ const debateJobSummarySchema = z.object({
   isPublic: z.boolean(),
   stage: z.enum(debateJobStages),
   status: z.enum(jobStatuses),
+  stopRequested: z.boolean(),
   error: z.string().nullable(),
   createdAt: z.iso.datetime(),
   completedAt: z.iso.datetime().nullable(),

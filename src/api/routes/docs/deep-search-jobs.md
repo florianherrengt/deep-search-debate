@@ -11,7 +11,13 @@ For a conceptual walkthrough of query generation, result selection, page
 extraction, layered summarization, candidate review, and answer promotion, see
 [How deep search works](deep-search-pipeline.md).
 
-Closing a browser tab does not stop a job. While it is running, reopening its URL in the same API process replays the exact retained live feed. Jobs with a durable terminal state evict that in-memory log and reconstruct reducer-compatible state from normalized rows and persisted LLM output. A closed log is retained when terminal persistence fails.
+Closing a browser tab does not stop a job. An owner may explicitly stop a
+standalone root search; child searches inherit cancellation from their owning
+idea or debate and cannot be stopped directly. While a job is running,
+reopening its URL in the same API process replays the exact retained live feed.
+Jobs with a durable terminal state evict that in-memory log and reconstruct
+reducer-compatible state from normalized rows and persisted LLM output. A
+closed log is retained when terminal persistence fails.
 
 ## HTTP contract
 
@@ -77,17 +83,23 @@ pre-empted.
 Returns newest-first job history as `{ "deepSearchJobs": [...] }`. The `source`
 query parameter splits the history into searches started manually by the user
 (`manual`) and searches started by the system (`automated`) as child searches of
-the idea pipeline. The read scope is applied before the source filter; because
-manual jobs have no public-debate ancestor, that collection contains the
-viewer's own jobs, while the automated collection also includes children of
-public debates. The optional `limit` query parameter defaults to 100 and is
-capped at 200. Owner IDs are omitted.
+the idea pipeline. History is owner-only and applies the source filter after
+ownership. Public debate descendants remain readable through their detail and
+event routes but do not appear in another user's history. The optional `limit`
+query parameter defaults to 100 and is capped at 200. Owner IDs are omitted.
 
 Automated items carry an `origin` object: `{ "kind": "idea", ... }` when the
 owning idea job is standalone, or `{ "kind": "debate", ... }` when that idea job
 belongs to a debate. A debate has no title of its own, so both kinds report the
 owning idea job's title and slug, which address the debate route for
 debate-owned searches. Manual items carry `"origin": null`.
+
+Every history item includes `stopRequested`. Standalone roots derive it from
+their own persisted stop timestamp; automated children derive it from the
+effective idea or debate root without storing a duplicate timestamp. The
+derived flag is true only while the child is running or when it was interrupted
+at or after that root request. A child completed before a later ancestor Stop
+keeps `stopRequested: false` and its completed presentation.
 
 ### `GET /api/deep-search-jobs/:slug`
 
@@ -96,7 +108,37 @@ timestamps as `{ "deepSearchJob": ... }`. The detail projection also includes
 `isPublic` for inherited public-debate visibility and `isIndexable`, which is
 true only when the owning debate is both public and completed. Standalone and
 private owner-readable jobs report both fields as false. These fields are not
-part of the standalone history response.
+part of the standalone history response. Detail also includes the derived
+`stopRequested` flag and `canStop`. `canStop` is true only for the authenticated
+owner of a standalone root whose status is `running` and which has no persisted
+stop request. It is false for children, public viewers, terminal jobs, and roots
+already stopping.
+
+### `POST /api/deep-search-jobs/:deepSearchJobId/cancel`
+
+Requests the irreversible stop of an authenticated user's standalone root
+search. The request is persisted before the manager aborts queued or active
+work. It is valid for the active job to have no live controller—for example,
+after a process restart—in which case the route settles it durably as
+interrupted.
+
+- A new or repeated request for a running root returns `202 Accepted` with
+  `{ "status": "cancellation-requested", "cancelRequestedAt": "<timestamp>" }`.
+- A root already interrupted by that direct request returns `200 OK` with
+  `{ "status": "interrupted", "cancelRequestedAt": "<timestamp>",
+  "completedAt": "<timestamp>" }`.
+- An unknown or foreign job returns `404` without disclosing ownership.
+- A child search or incompatible terminal state returns `409`.
+
+The browser exposes this action only when detail `canStop` is true and requires
+confirmation. After the request persists, history and detail show disabled
+`Stopping…`, suppress active-work indicators, and retain completed output during
+cleanup and after reload. Any job interrupted under an effective Stop request is
+then labeled `Stopped`; a restart interruption without a Stop request remains
+`Interrupted`. Children and public or foreign viewers never receive the control.
+Completed usage remains charged; stopped in-progress attempts do not debit
+RethinkLoop credits. This is an application credit guarantee, not a claim about
+how an upstream provider bills work it already received.
 
 ### `GET /api/deep-search-jobs/:deepSearchJobId/events`
 
@@ -117,11 +159,25 @@ Each non-empty completed search round emits:
 
 `continue` starts the next numbered round using the previous candidate and
 review reason as additional planning context. `stop`, review failure, or the
-hard round limit promotes the current candidate. The terminal sequence is:
+hard round limit promotes the current candidate. Normal completion publishes
+`final-answer-stream`, referencing the same stream ID as the promoted
+`round-answer-stream`, followed by `done`. Ordinary failure publishes `error`,
+then `done`; it may already have published a final-answer stream if terminal
+persistence was the failing boundary. A durable restart interruption publishes
+`interrupted`, then `done`, without `stop-requested`.
 
-1. `final-answer-stream` referencing the same stream ID as the promoted
-   `round-answer-stream`.
-2. Optional job-level `error`, then `done`.
+A standalone root's explicit Stop or an active child's inherited idea/debate
+Stop publishes `stop-requested` after the effective root's durable timestamp commits.
+The child does not copy that timestamp. Already-started result events may follow
+while cleanup settles, but no new stage may start. Live and
+database-reconstructed feeds both end with exactly one `interrupted`, then
+exactly one `done`, and do not publish an ordinary `error` for either Stop. A
+reconnect while the effective root is still settling replays `stop-requested`;
+after terminal persistence it replays the same stop and terminal suffix.
+Restart interruption remains distinct: it has no stop timestamp, publishes no
+`stop-requested`, and the browser renders it as `Interrupted`; explicit or
+inherited Stop renders as `Stopped`. A child that completed before the root
+request keeps its normal completed replay without either Stop event.
 
 Each candidate-answer call receives the original research request and a bounded
 in-memory projection of every completed query-level summary from every round.
@@ -145,15 +201,22 @@ becomes durable before review; a later transaction promotes that already
 completed generation and marks the job completed. The runner returns the same
 candidate text without a second model call or copied output.
 
-`routes/deepSearch/pipeline.ts` is the single workflow coordinator: it owns the
-bounded round loop, stage ordering, fallback decisions, URL deduplication, and
-public event sequence. It calls stable-ID store commands before publishing each
-event. Modules under `agents/deep_search` only format prompts, start model or
-extraction operations, validate their output, and return handles or typed
-outcomes. They do not publish job events or mutate deep-search tables. `run.ts`
-surrounds the pipeline with failure persistence and the terminal public event
+`routes/deepSearch/pipeline.ts` is the single Effect-owned workflow coordinator:
+it owns the bounded round loop, stage ordering, fallback decisions, URL
+deduplication, and public event sequence. One `runPromiseExit` bridge in the
+workflow runtime is its Promise-facing boundary. The coordinator uses
+`Effect.gen` for sequencing and concurrent `Effect.all` result-mode fan-outs to
+settle all started work while retaining deterministic input-order failure
+selection. Hono, Drizzle commands, AI SDK policy, and the existing process-wide
+queues remain outside Effect.
+
+The coordinator calls stable-ID store commands before publishing each event.
+Modules under `agents/deep_search` only format prompts, start model or extraction
+operations, validate their output, and return handles or typed outcomes. They
+do not publish job events or mutate deep-search tables. `run.ts` surrounds the
+pipeline with failure or interruption persistence and the terminal public event
 sequence. Its promise resolves with the persisted final text or rejects with
-the error stored by the failure transaction.
+the error stored by the terminal transaction.
 
 Each round starts its server-bounded web-search batch concurrently, then settles
 every started request before either persisting results or exposing a fatal
@@ -263,9 +326,16 @@ have a summary generation, and selected results to have a page. Active and
 terminal timestamp/error fields cannot be mixed. Page-summary and query-summary
 generation registration, success, and failure update both sides of each
 relationship transactionally. Candidate promotion and successful job
-completion are one transaction after that generation completes. Fatal cleanup marks every nonterminal query and
-page plus the job failed using one root error and one completion timestamp in a
-separate transaction.
+completion are one transaction after that generation completes. Every durable
+work-start transaction, plus normal success, failure, and credit transitions,
+asserts that the effective root is still running and has no stop request. A
+completion race lost to cancellation becomes interruption rather than ordinary
+failure. Stop cleanup is allowed to settle every nonterminal query and page
+before marking the job interrupted; an interrupted model attempt persists its
+partial output, runs its stage cleanup, and does not debit RethinkLoop credits.
+Fatal cleanup uses the existing failed query/page states and marks every
+nonterminal record plus the job failed with one root error and completion
+timestamp.
 
 On API startup, orphaned running jobs, LLM generations, round reviews, queries,
 and web pages are converted to typed interrupted or failed terminal states

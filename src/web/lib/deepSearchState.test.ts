@@ -155,4 +155,23 @@ describe("deep-search state", () => {
       },
     ])
   })
+
+  it("keeps Stop idempotent and preserves the interrupted terminal state", () => {
+    const events = [
+      { type: "opened" as const },
+      { type: "stop-requested" as const },
+      { type: "stop-requested" as const },
+      {
+        type: "interrupted" as const,
+        message: "Workflow stopped by user",
+      },
+      { type: "done" as const },
+      { type: "done" as const },
+    ]
+
+    const state = events.reduce(deepSearchReducer, initialDeepSearchState)
+
+    expect(state.status).toBe("interrupted")
+    expect(state.error).toBe("Workflow stopped by user")
+  })
 })

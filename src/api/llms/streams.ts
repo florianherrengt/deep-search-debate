@@ -6,6 +6,15 @@ import { db } from "../db/index.ts"
 import { llmGenerations } from "../db/schema/index.ts"
 import { getErrorMessage } from "../helpers/getErrorMessage.ts"
 import {
+  getWorkflowStopReason,
+  type WorkflowStopReason,
+  WorkflowInterruptedError,
+} from "../workflowRuntime.ts"
+import {
+  assertEffectiveResearchRootRunning,
+  EffectiveResearchRootInactiveError,
+} from "../routes/researchCancellation.ts"
+import {
   createReplayableEventLog,
   type ReplayableEventLog,
 } from "../helpers/replayableEventLog.ts"
@@ -44,6 +53,14 @@ export type GenerationOutcome =
       failureKind: GenerationFailureKind
       finishReason?: FinishReason
     }
+  | {
+      status: "interrupted"
+      text: string
+      reasoning: string
+      error: string
+      reason: WorkflowStopReason
+      finishReason?: FinishReason
+    }
 
 export type GenerationHandle = {
   id: string
@@ -57,6 +74,9 @@ export async function awaitGenerationText(
 ): Promise<string> {
   const outcome = await generation.completion
   if (outcome.status === "failed") throw new Error(outcome.error)
+  if (outcome.status === "interrupted") {
+    throw new WorkflowInterruptedError(outcome.reason)
+  }
   return outcome.text
 }
 
@@ -76,6 +96,9 @@ export async function awaitGenerationOutput<Output>(
   if (completionResult.status === "rejected") throw completionResult.reason
   if (completionResult.value.status === "failed") {
     throw new Error(completionResult.value.error)
+  }
+  if (completionResult.value.status === "interrupted") {
+    throw new WorkflowInterruptedError(completionResult.value.reason)
   }
   if (outputResult.status === "rejected") throw outputResult.reason
   return outputResult.value
@@ -113,6 +136,10 @@ type FailedTextGeneration = CompletedTextGeneration & {
   error: string
 }
 
+type InterruptedTextGeneration = FailedTextGeneration & {
+  reason: WorkflowStopReason
+}
+
 export type TextGenerationPersistenceCallbacks = {
   /** Runs atomically after generation insertion and before consumption starts. */
   onRegistered?: (
@@ -127,6 +154,11 @@ export type TextGenerationPersistenceCallbacks = {
   /** Runs inside the same transaction as a failed generation's terminal write. */
   onFailed?: (
     failed: FailedTextGeneration,
+    transaction: TextStreamPersistenceTransaction,
+  ) => void
+  /** Runs inside the interrupted generation's terminal transaction. */
+  onInterrupted?: (
+    interrupted: InterruptedTextGeneration,
     transaction: TextStreamPersistenceTransaction,
   ) => void
 }
@@ -147,10 +179,12 @@ type TextGenerationMetadata = TextGenerationRegistrationMetadata &
 
 type RegisterTextStreamOptions = TextGenerationPersistenceCallbacks & {
   metadata?: TextGenerationMetadata
+  workflowSignal?: AbortSignal
 }
 
 type PrepareTextGenerationOptions = TextGenerationPersistenceCallbacks & {
   metadata?: TextGenerationRegistrationMetadata
+  workflowSignal?: AbortSignal
 }
 
 export type PreparedTextGeneration = {
@@ -182,6 +216,66 @@ function getUnsuccessfulFinishReasonMessage(
 }
 
 const streams = new Map<string, TextStream>()
+
+function assertWorkflowGenerationActive(
+  transaction: TextStreamPersistenceTransaction,
+  owner: LlmGenerationOwner,
+): void {
+  const debateJobId = "debateJobId" in owner
+    ? owner.debateJobId
+    : undefined
+  if (debateJobId !== undefined) {
+    assertEffectiveResearchRootRunning(transaction, {
+      kind: "debate",
+      jobId: debateJobId,
+    })
+    return
+  }
+  const deepSearchJobId = "deepSearchJobId" in owner
+    ? owner.deepSearchJobId
+    : undefined
+  if (deepSearchJobId !== undefined) {
+    assertEffectiveResearchRootRunning(transaction, {
+      kind: "deep-search",
+      jobId: deepSearchJobId,
+    })
+    return
+  }
+  const ideaJobId = "ideaJobId" in owner ? owner.ideaJobId : undefined
+  if (ideaJobId !== undefined) {
+    assertEffectiveResearchRootRunning(transaction, {
+      kind: "idea",
+      jobId: ideaJobId,
+    })
+  }
+}
+
+function getPersistedStopReason(
+  error: unknown,
+  owner: LlmGenerationOwner,
+): WorkflowStopReason | undefined {
+  if (
+    !(error instanceof EffectiveResearchRootInactiveError) ||
+    error.reason !== "stop-requested" ||
+    ("standalone" in owner) ||
+    !error.root
+  ) {
+    return undefined
+  }
+  const ownerKind = "debateJobId" in owner
+    ? "debate"
+    : "deepSearchJobId" in owner
+      ? "deep-search"
+      : "idea"
+  const ownerJobId = "debateJobId" in owner
+    ? owner.debateJobId
+    : "deepSearchJobId" in owner
+      ? owner.deepSearchJobId
+      : owner.ideaJobId
+  return error.root.kind === ownerKind && error.root.jobId === ownerJobId
+    ? "user-stop"
+    : "parent-stop"
+}
 
 /**
  * Translates provider deltas into public events and always terminates the retained
@@ -228,7 +322,8 @@ async function consume(
   }
 
   const terminalMetadata = await terminalMetadataPromise
-  if (!errorMessage && options.metadata) {
+  let interruptionReason = getWorkflowStopReason(options.workflowSignal)
+  if (!interruptionReason && !errorMessage && options.metadata) {
     errorMessage = getUnsuccessfulFinishReasonMessage(
       terminalMetadata.finishReasonResolved
         ? terminalMetadata.finishReason
@@ -239,33 +334,50 @@ async function consume(
       stream.publish({ type: "error", message: errorMessage })
     }
   }
-  if (!errorMessage && !text.trim()) {
+  if (!interruptionReason && !errorMessage && !text.trim()) {
     errorMessage = "Text generation returned no content"
     failureKind = "empty-output"
     stream.publish({ type: "error", message: errorMessage })
   }
   const completedAt = new Date()
+  let terminalStatus: "completed" | "failed" | "interrupted" =
+    interruptionReason ? "interrupted" : errorMessage ? "failed" : "completed"
 
   try {
     // Product policy: users are not charged when a generation fails, even when
     // the provider reports billable token usage for the failed attempt.
-    const creditsUsed = errorMessage
-      ? null
-      : options.metadata?.calculateCredits
-        ? options.metadata.calculateCredits(
-            terminalMetadata.usage ?? (() => {
-              throw new Error("LLM generation did not report usage")
-            })(),
-          )
-        : 0
     db.transaction((transaction) => {
+      if (!interruptionReason) {
+        try {
+          assertWorkflowGenerationActive(transaction, owner)
+        } catch (error) {
+          interruptionReason = getPersistedStopReason(error, owner)
+          if (!interruptionReason) throw error
+        }
+      }
+      terminalStatus = interruptionReason
+        ? "interrupted"
+        : errorMessage
+          ? "failed"
+          : "completed"
+      const creditsUsed = errorMessage || interruptionReason
+        ? null
+        : options.metadata?.calculateCredits
+          ? options.metadata.calculateCredits(
+              terminalMetadata.usage ?? (() => {
+                throw new Error("LLM generation did not report usage")
+              })(),
+            )
+          : 0
       const terminalWrite = transaction
         .update(llmGenerations)
         .set({
-          status: errorMessage ? "failed" : "completed",
+          status: terminalStatus,
           text,
           reasoning,
-          error: errorMessage ?? null,
+          error: interruptionReason
+            ? new WorkflowInterruptedError(interruptionReason).message
+            : (errorMessage ?? null),
           finishReason: terminalMetadata.finishReason ?? null,
           inputTokens: terminalMetadata.inputTokens ?? null,
           outputTokens: terminalMetadata.outputTokens ?? null,
@@ -279,7 +391,18 @@ async function consume(
         throw new Error(`Text generation ${id} was not found`)
       }
 
-      if (errorMessage) {
+      if (interruptionReason) {
+        options.onInterrupted?.(
+          {
+            id,
+            text,
+            reasoning,
+            error: new WorkflowInterruptedError(interruptionReason).message,
+            reason: interruptionReason,
+          },
+          transaction,
+        )
+      } else if (errorMessage) {
         options.onFailed?.(
           { id, text, reasoning, error: errorMessage },
           transaction,
@@ -294,7 +417,7 @@ async function consume(
       owner,
       startedAt,
       completedAt,
-      status: errorMessage ? "failed" : "completed",
+      status: terminalStatus,
       metadata: options.metadata,
       terminalMetadata,
     })
@@ -349,7 +472,16 @@ async function consume(
   const finishReason = terminalMetadata.finishReason
     ? { finishReason: terminalMetadata.finishReason }
     : {}
-  return errorMessage
+  return interruptionReason
+    ? {
+        status: "interrupted",
+        text,
+        reasoning,
+        error: new WorkflowInterruptedError(interruptionReason).message,
+        reason: interruptionReason,
+        ...finishReason,
+      }
+    : errorMessage
     ? {
         status: "failed",
         text,
@@ -390,7 +522,7 @@ function logTerminalGeneration(input: {
   owner: LlmGenerationOwner
   startedAt: Date
   completedAt: Date
-  status: "completed" | "failed"
+  status: "completed" | "failed" | "interrupted"
   metadata: TextGenerationMetadata | undefined
   terminalMetadata: TerminalGenerationMetadata
 }): void {
@@ -431,6 +563,8 @@ export function registerTextStream(
     onRegistered: options.onRegistered,
     onCompleted: options.onCompleted,
     onFailed: options.onFailed,
+    onInterrupted: options.onInterrupted,
+    workflowSignal: options.workflowSignal,
     metadata: options.metadata
       ? {
           modelId: options.metadata.modelId,
@@ -465,6 +599,7 @@ export function prepareTextGeneration(
   const startedAt = new Date()
 
   db.transaction((transaction) => {
+    assertWorkflowGenerationActive(transaction, owner)
     transaction
       .insert(llmGenerations)
       .values({
@@ -491,6 +626,8 @@ export function prepareTextGeneration(
       onRegistered: options.onRegistered,
       onCompleted: options.onCompleted,
       onFailed: options.onFailed,
+      onInterrupted: options.onInterrupted,
+      workflowSignal: options.workflowSignal,
       metadata: options.metadata
         ? { ...options.metadata, ...terminalMetadata }
         : undefined,

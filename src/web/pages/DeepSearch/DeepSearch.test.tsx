@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   createDeepSearchJob: vi.fn(),
   getDeepSearchJob: vi.fn(),
   getDeepSearchJobs: vi.fn(),
+  requestResearchStop: vi.fn(),
   subscribeToDeepSearchJob: vi.fn(),
   subscribeToTextStream: vi.fn(),
 }))
@@ -28,6 +29,10 @@ vi.mock("../../lib/deepSearchJobs.ts", () => ({
 
 vi.mock("../../lib/textStreams.ts", () => ({
   subscribeToTextStream: mocks.subscribeToTextStream,
+}))
+
+vi.mock("../../lib/researchCancellation.ts", () => ({
+  requestResearchStop: mocks.requestResearchStop,
 }))
 
 import { DeepSearch } from "./index.tsx"
@@ -66,7 +71,9 @@ function deepSearchJob() {
     maxRounds: 3,
     isIndexable: false,
     isPublic: false,
+    canStop: false,
     status: "completed" as const,
+    stopRequested: false,
     error: null,
     createdAt: new Date(),
     completedAt: new Date(),
@@ -78,6 +85,10 @@ describe("DeepSearch", () => {
     vi.clearAllMocks()
     mocks.getDeepSearchJobs.mockResolvedValue([])
     mocks.getDeepSearchJob.mockResolvedValue(deepSearchJob())
+    mocks.requestResearchStop.mockResolvedValue({
+      status: "cancellation-requested",
+      cancelRequestedAt: new Date(),
+    })
     mocks.subscribeToDeepSearchJob.mockImplementation(async function* () {
       await Promise.resolve()
       yield { type: "done" as const }
@@ -96,6 +107,86 @@ describe("DeepSearch", () => {
 
     expect(submit).toBeEnabled()
   })
+
+  it("stops an owned root and removes the duplicate action after acceptance", async () => {
+    mocks.getDeepSearchJob.mockResolvedValue({
+      ...deepSearchJob(),
+      canStop: true,
+      completedAt: null,
+      status: "running",
+    })
+    mocks.subscribeToDeepSearchJob.mockImplementation(async function* (
+      _jobId: string,
+      signal: AbortSignal,
+    ) {
+      yield {
+        type: "query-stream" as const,
+        round: 0,
+        streamId: "pending-query",
+      }
+      await new Promise<void>((resolve) =>
+        signal.addEventListener("abort", () => resolve(), { once: true }),
+      )
+    })
+    renderDeepSearch("/deep-search/research-this")
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Stop workflow" }),
+    )
+    const dialog = screen.getByRole("dialog", { name: "Stop this workflow?" })
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Stop workflow" }),
+    )
+
+    await waitFor(() =>
+      expect(mocks.requestResearchStop).toHaveBeenCalledWith(
+        "deep-search",
+        "job-id",
+        undefined,
+      ),
+    )
+    expect(
+      await screen.findByRole("button", { name: "Stopping…" }),
+    ).toBeDisabled()
+  })
+
+  it.each([
+    [false, true],
+    [true, false],
+  ] as const)(
+    "restores durable stopping for isPublic=%s with ownerControl=%s",
+    async (isPublic, ownerControl) => {
+      mocks.getDeepSearchJob.mockResolvedValue({
+        ...deepSearchJob(),
+        canStop: false,
+        completedAt: null,
+        isPublic,
+        status: "running",
+        stopRequested: true,
+      })
+      mocks.subscribeToDeepSearchJob.mockImplementation(async function* (
+        _jobId: string,
+        signal: AbortSignal,
+      ) {
+        yield { type: "stop-requested" as const }
+        await new Promise<void>((resolve) => {
+          if (signal.aborted) resolve()
+          else signal.addEventListener("abort", () => resolve(), { once: true })
+        })
+      })
+
+      renderDeepSearch("/deep-search/research-this")
+
+      expect(await screen.findByText(/Stopping research/)).toBeVisible()
+      const stoppingControls = screen.queryAllByRole("button", {
+        name: "Stopping…",
+      })
+      expect(stoppingControls).toHaveLength(ownerControl ? 1 : 0)
+      expect(
+        stoppingControls.every((control) => control.hasAttribute("disabled")),
+      ).toBe(true)
+    },
+  )
 
   it("creates a job, subscribes, and displays search results", async () => {
     async function* events() {

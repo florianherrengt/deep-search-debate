@@ -35,6 +35,75 @@ async function readTextStream(
 // External HTTP responses are deterministic; the API, persistence, streaming,
 // extraction pipeline, and browser behavior remain real.
 test.describe("Ideas", () => {
+  test("stops an active root and cascades to its child searches", async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(30_000)
+    await page.goto("/ideas")
+    const prompt =
+      "[E2E_STOP_IDEA] Generate practical product ideas for London renters."
+    const createdResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname === "/api/idea-jobs",
+    )
+    await page.getByLabel("Question, goal, or constraints").fill(prompt)
+    await page.getByRole("button", { name: "Generate options" }).click()
+    const created = await createdResponse
+    const { ideaJobId, slug } = (await created.json()) as {
+      ideaJobId: string
+      slug: string
+    }
+
+    await expect(page.locator('a[href^="/deep-search/"]').first()).toBeVisible()
+    await page.getByRole("button", { name: "Stop workflow" }).click()
+    const dialog = page.getByRole("dialog", { name: "Stop this workflow?" })
+    const cancellationResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname ===
+          `/api/idea-jobs/${ideaJobId}/cancel`,
+    )
+    await dialog.getByRole("button", { name: "Stop workflow" }).click()
+    expect((await cancellationResponse).status()).toBe(202)
+
+    await expect(page.getByText("Workflow stopped by user")).toBeVisible()
+    await expect(page.getByText("Stopped").first()).toBeVisible()
+    await expect(page.getByRole("button", { name: "Stop workflow" })).toHaveCount(0)
+    await expect(page.getByRole("progressbar")).toHaveCount(0)
+
+    const replay = await request.get(`/api/idea-jobs/${ideaJobId}/events`)
+    const events = parseEvents<IdeaJobEvent>(await replay.text())
+    expect(events.slice(-3)).toEqual([
+      { type: "stop-requested" },
+      { type: "interrupted", message: "Workflow stopped by user" },
+      { type: "done" },
+    ])
+    expect(events.some((event) => event.type === "error")).toBe(false)
+    const children = events.filter(
+      (event): event is Extract<IdeaJobEvent, { type: "deep-search-started" }> =>
+        event.type === "deep-search-started",
+    )
+    expect(children).toHaveLength(2)
+    for (const child of children) {
+      const response = await request.get(`/api/deep-search-jobs/${child.slug}`)
+      await expect(response.json()).resolves.toMatchObject({
+        deepSearchJob: {
+          status: "interrupted",
+          stopRequested: true,
+          canStop: false,
+        },
+      })
+    }
+
+    await page.reload()
+    await expect(page).toHaveURL(new RegExp(`/ideas/${slug}$`))
+    await expect(page.getByText("Workflow stopped by user")).toBeVisible()
+    await expect(page.getByText("Stopped").first()).toBeVisible()
+    await expect(page.getByRole("button", { name: "Stop workflow" })).toHaveCount(0)
+  })
+
   test("runs, persists, and replays the complete researched-idea pipeline", async ({
     page,
     request,

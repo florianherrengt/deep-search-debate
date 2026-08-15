@@ -259,4 +259,107 @@ describe("restart recovery", () => {
     })
     expect(incompleteJob?.completedAt).toBeInstanceOf(Date)
   })
+
+  it("terminalizes a cancel-requested debate tree before ordinary recovery", () => {
+    const debateJobId = crypto.randomUUID()
+    const ideaJobId = crypto.randomUUID()
+    const deepSearchJobId = crypto.randomUUID()
+    const generationId = crypto.randomUUID()
+
+    db.insert(debateJobs)
+      .values({
+        debateJobId,
+        userId: "test-user-id",
+        randomSeed: 42,
+        cancelRequestedAt: new Date(),
+      })
+      .run()
+    db.insert(ideaJobs)
+      .values({
+        ideaJobId,
+        debateJobId,
+        userId: "test-user-id",
+        slug: `idea-${ideaJobId}`,
+        prompt: "Generate ideas for cancellation recovery",
+        numberOfIdeas: 6,
+        deepSearchCount: 1,
+      })
+      .run()
+    db.insert(deepSearchJobs)
+      .values({
+        deepSearchJobId,
+        ideaJobId,
+        ideaJobPosition: 0,
+        userId: "test-user-id",
+        slug: `search-${deepSearchJobId}`,
+        researchRequest: "Research cancellation recovery",
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+      })
+      .run()
+    db.insert(llmGenerations)
+      .values({
+        llmGenerationId: generationId,
+        userId: "test-user-id",
+        deepSearchJobId,
+      })
+      .run()
+
+    recoverInterruptedWork()
+
+    const recoveredDebate = db.select({
+        status: debateJobs.status,
+        error: debateJobs.error,
+        cancelRequestedAt: debateJobs.cancelRequestedAt,
+      })
+        .from(debateJobs)
+        .where(eq(debateJobs.debateJobId, debateJobId))
+        .get()
+    expect(recoveredDebate).toMatchObject({
+      status: "interrupted",
+      error: "Stopped by user",
+    })
+    expect(recoveredDebate?.cancelRequestedAt).toBeInstanceOf(Date)
+    expect(
+      db.select({ status: ideaJobs.status, error: ideaJobs.error })
+        .from(ideaJobs)
+        .where(eq(ideaJobs.ideaJobId, ideaJobId))
+        .get(),
+    ).toEqual({
+      status: "interrupted",
+      error: "Interrupted because the parent workflow was stopped",
+    })
+    expect(
+      db.select({ status: deepSearchJobs.status, error: deepSearchJobs.error })
+        .from(deepSearchJobs)
+        .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+        .get(),
+    ).toEqual({
+      status: "interrupted",
+      error: "Interrupted because the parent workflow was stopped",
+    })
+    expect(
+      db.select({ status: llmGenerations.status })
+        .from(llmGenerations)
+        .where(eq(llmGenerations.llmGenerationId, generationId))
+        .get(),
+    ).toEqual({ status: "interrupted" })
+  })
+
+  it("does not repair a cancel-requested final-verdict debate as completed", () => {
+    const debateJobId = createFinalStageJob(true)
+    db.update(debateJobs)
+      .set({ cancelRequestedAt: new Date() })
+      .where(eq(debateJobs.debateJobId, debateJobId))
+      .run()
+
+    recoverInterruptedWork()
+
+    expect(
+      db.select({ status: debateJobs.status, error: debateJobs.error })
+        .from(debateJobs)
+        .where(eq(debateJobs.debateJobId, debateJobId))
+        .get(),
+    ).toEqual({ status: "interrupted", error: "Stopped by user" })
+  })
 })

@@ -137,6 +137,32 @@ describe("deep-search store", () => {
     db.delete(llmGenerations).run()
   })
 
+  it("rejects new durable work after the effective root requests Stop", () => {
+    const deepSearchJobId = crypto.randomUUID()
+    const queryGenerationId = crypto.randomUUID()
+    insertJob(deepSearchJobId)
+    insertGenerations(deepSearchJobId, [queryGenerationId])
+    db.update(deepSearchJobs)
+      .set({ cancelRequestedAt: new Date() })
+      .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+      .run()
+
+    expect(() =>
+      createSearchRound({
+        jobId: deepSearchJobId,
+        position: 0,
+        generationId: queryGenerationId,
+      }),
+    ).toThrow("stop-requested")
+    expect(
+      db
+        .select()
+        .from(deepSearchRounds)
+        .where(eq(deepSearchRounds.deepSearchJobId, deepSearchJobId))
+        .all(),
+    ).toEqual([])
+  })
+
   it("persists a stage chain using stable returned IDs", () => {
     const deepSearchJobId = crypto.randomUUID()
     const queryGenerationId = crypto.randomUUID()

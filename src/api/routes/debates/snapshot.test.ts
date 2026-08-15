@@ -139,6 +139,8 @@ describe("debate job snapshot", () => {
       prompt: "Choose an energy-saving product",
       isPublic: false,
       isOwner: true,
+      stopRequested: false,
+      canStop: true,
       expectedMatchCount: DEBATE_TOURNAMENT_FORMAT.totalMatchCount,
       stage: "swiss",
       status: "running",
@@ -185,6 +187,42 @@ describe("debate job snapshot", () => {
       stage: "ideas",
       rounds: [],
       standings: [],
+    })
+  })
+
+  it("derives Stop controls without exposing an owner control publicly", () => {
+    const ideaJobId = crypto.randomUUID()
+    const debateJobId = crypto.randomUUID()
+    db.insert(debateJobs)
+      .values({
+        debateJobId,
+        userId: "test-user-id",
+        randomSeed: 9,
+        isPublic: true,
+        cancelRequestedAt: new Date(),
+      })
+      .run()
+    db.insert(ideaJobs)
+      .values({
+        userId: "test-user-id",
+        ideaJobId,
+        debateJobId,
+        slug: `stopping-${ideaJobId}`,
+        prompt: "Stop this debate",
+        numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
+        deepSearchCount: 1,
+      })
+      .run()
+
+    expect(getDebateJobSnapshot(debateJobId, "test-user-id")).toMatchObject({
+      isOwner: true,
+      stopRequested: true,
+      canStop: false,
+    })
+    expect(getDebateJobSnapshot(debateJobId, null)).toMatchObject({
+      isOwner: false,
+      stopRequested: true,
+      canStop: false,
     })
   })
 })

@@ -26,6 +26,7 @@
     "deep-search-core": "https://github.com/florianherrengt/deep-search-core/releases/download/core-0.3.0/deep-search-core-0.3.0.tgz",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
+    "effect": "4.0.0-rc.109",
     "hono": "^4.12.34",
     "p-queue": "^9.3.3",
     "zod": "^4.4.3"

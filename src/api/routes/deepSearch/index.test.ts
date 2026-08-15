@@ -460,11 +460,11 @@ function expectDurableProgress(
   ])
 }
 
-function createApp(): Hono<AppEnv> {
+function createApp(userId = "test-user-id"): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
   app.use("*", async (c, next) => {
-    c.set("userId", "test-user-id")
-    c.set("viewerUserId", "test-user-id")
+    c.set("userId", userId)
+    c.set("viewerUserId", userId)
     await next()
   })
   const manager = createDeepSearchJobManager()
@@ -568,6 +568,127 @@ describe("deep search job routes", () => {
     db.delete(llmGenerations).run()
     db.delete(ideaJobs).run()
     db.delete(debateJobs).run()
+  })
+
+  it("stops only an owned root and replays the cancellation terminal suffix", async () => {
+    const rootId = "00000000-0000-4000-8000-000000000001"
+    db.insert(deepSearchJobsTable)
+      .values({
+        deepSearchJobId: rootId,
+        userId: "test-user-id",
+        title: "Stoppable search",
+        slug: "stoppable-search",
+        researchRequest: "Research this",
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+      })
+      .run()
+    const app = createApp()
+
+    const detailBefore = await app.request("/deep-search-jobs/stoppable-search")
+    await expect(detailBefore.json()).resolves.toMatchObject({
+      deepSearchJob: { canStop: true, stopRequested: false },
+    })
+
+    const requested = await app.request(`/deep-search-jobs/${rootId}/cancel`, {
+      method: "POST",
+    })
+    expect(requested.status).toBe(202)
+    await expect(requested.json()).resolves.toMatchObject({
+      status: "cancellation-requested",
+    })
+
+    const repeated = await app.request(`/deep-search-jobs/${rootId}/cancel`, {
+      method: "POST",
+    })
+    expect(repeated.status).toBe(200)
+
+    const alreadyStopped = await app.request(
+      `/deep-search-jobs/${rootId}/cancel`,
+      { method: "POST" },
+    )
+    expect(alreadyStopped.status).toBe(200)
+    await expect(alreadyStopped.json()).resolves.toMatchObject({
+      status: "interrupted",
+    })
+
+    const events = await app.request(`/deep-search-jobs/${rootId}/events`)
+    await expect(readEvents(events)).resolves.toEqual([
+      { type: "stop-requested" },
+      { type: "interrupted", message: "Workflow stopped by user" },
+      { type: "done" },
+    ])
+    const detailAfter = await app.request("/deep-search-jobs/stoppable-search")
+    await expect(detailAfter.json()).resolves.toMatchObject({
+      deepSearchJob: {
+        canStop: false,
+        status: "interrupted",
+        stopRequested: true,
+      },
+    })
+  })
+
+  it("returns 404 for unknown or foreign Stop targets and 409 for incompatible jobs", async () => {
+    const unknownId = "00000000-0000-4000-8000-000000000099"
+    const app = createApp()
+    const missing = await app.request(
+      `/deep-search-jobs/${unknownId}/cancel`,
+      { method: "POST" },
+    )
+    expect(missing.status).toBe(404)
+
+    db.insert(ideaJobs)
+      .values({
+        ideaJobId: "child-owner",
+        userId: "test-user-id",
+        prompt: "Ideas",
+        numberOfIdeas: 1,
+        deepSearchCount: 1,
+      })
+      .run()
+    const childId = "00000000-0000-4000-8000-000000000002"
+    db.insert(deepSearchJobsTable)
+      .values({
+        deepSearchJobId: childId,
+        userId: "test-user-id",
+        ideaJobId: "child-owner",
+        ideaJobPosition: 0,
+        title: "Child",
+        slug: "child",
+        researchRequest: "Research this",
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+      })
+      .run()
+    const child = await app.request(`/deep-search-jobs/${childId}/cancel`, {
+      method: "POST",
+    })
+    expect(child.status).toBe(409)
+    const foreign = await createApp("foreign-user").request(
+      `/deep-search-jobs/${childId}/cancel`,
+      { method: "POST" },
+    )
+    expect(foreign.status).toBe(404)
+
+    const failedId = "00000000-0000-4000-8000-000000000003"
+    db.insert(deepSearchJobsTable)
+      .values({
+        deepSearchJobId: failedId,
+        userId: "test-user-id",
+        title: "Failed",
+        slug: "failed-stop-target",
+        researchRequest: "Research this",
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+        status: "failed",
+        error: "Provider failed",
+        completedAt: new Date(),
+      })
+      .run()
+    const failed = await app.request(`/deep-search-jobs/${failedId}/cancel`, {
+      method: "POST",
+    })
+    expect(failed.status).toBe(409)
   })
 
   it("returns a durable job ID and retains all published events", async () => {

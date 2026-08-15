@@ -51,6 +51,21 @@ describe("fresh database migration", () => {
             (column as { name?: unknown }).name === "answer_generation_id",
         ),
     ).toBe(true)
+    for (const tableName of [
+      "deep_search_jobs",
+      "idea_jobs",
+      "debate_jobs",
+    ]) {
+      expect(
+        sqlite
+          .prepare(`PRAGMA table_info('${tableName}')`)
+          .all()
+          .some(
+            (column) =>
+              (column as { name?: unknown }).name === "cancel_requested_at",
+          ),
+      ).toBe(true)
+    }
     expect(sqlite.pragma("foreign_key_check")).toEqual([])
     expect(sqlite.pragma("integrity_check", { simple: true })).toBe("ok")
 

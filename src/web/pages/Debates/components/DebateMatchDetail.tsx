@@ -7,7 +7,7 @@ import { Button, Chip, Stack, Typography } from "@mui/material"
 import { Link } from "react-router-dom"
 import {
   debateStageLabels,
-  debateStatusPresentation,
+  getDebateStatusPresentation,
 } from "../debatePresentation.ts"
 import { getAdjacentMatches } from "../debateSelectors.ts"
 import type { DebateMatch, DebateTournament } from "../debateUiTypes.ts"
@@ -42,7 +42,10 @@ export function DebateMatchDetail({
     ),
   )
   const debatePath = `/debates/${encodeURIComponent(tournament.slug)}`
-  const live = tournament.status === "running" && match.status === "running"
+  const live =
+    tournament.status === "running" &&
+    !tournament.stopRequested &&
+    match.status === "running"
   const roundLabel =
     round?.stage === "swiss"
       ? `Round ${round.stageRoundNumber}`
@@ -54,12 +57,14 @@ export function DebateMatchDetail({
       ? { label: "Decision made", color: "success" as const }
       : live
         ? { label: "Live now", color: "primary" as const }
-        : tournament.status === "failed" ||
-            tournament.status === "interrupted"
-          ? debateStatusPresentation[tournament.status]
-          : tournament.status === "running"
-            ? { label: "Not started", color: "default" as const }
-            : { label: "Stopped", color: "default" as const }
+        : tournament.status === "running" && !tournament.stopRequested
+          ? { label: "Not started", color: "default" as const }
+          : tournament.status === "completed"
+            ? { label: "Stopped", color: "default" as const }
+            : getDebateStatusPresentation(
+                tournament.status,
+                tournament.stopRequested,
+              )
 
   return (
     <Stack spacing={3}>
@@ -101,7 +106,12 @@ export function DebateMatchDetail({
         </Typography>
       </Stack>
 
-      {tournament.error && <DebateStoppedAlert />}
+      {tournament.error && (
+        <DebateStoppedAlert
+          status={tournament.status === "failed" ? "failed" : "interrupted"}
+          userStopped={tournament.stopRequested}
+        />
+      )}
 
       <DebateTranscript fullPage live={live} match={match} />
 

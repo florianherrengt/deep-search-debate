@@ -20,6 +20,7 @@ type SelectWebSearchResultsInput = {
   searchQuery: string
   results: IndexedSearchResult[]
   maxResultsToExplore?: number
+  workflowSignal?: AbortSignal
 }
 
 export type SelectionGeneration = {
@@ -56,6 +57,7 @@ export async function selectWebSearchResults(
     promptName: PromptName.SelectWebSearchResults,
     element: z.string(),
     maxOutputTokens: 1_024,
+    workflowSignal: params.workflowSignal,
   })
   const knownIds = new Set(params.results.map(({ id }) => id))
 

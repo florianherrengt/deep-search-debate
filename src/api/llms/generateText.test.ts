@@ -102,6 +102,26 @@ function mockPreparedGeneration(
 describe("generateTextStream", () => {
   beforeEach(() => vi.clearAllMocks())
 
+  it("does not register a generation aborted while queued", async () => {
+    const controller = new AbortController()
+    controller.abort({ _tag: "WorkflowAbortReason", reason: "user-stop" })
+    mocks.loadPrompt.mockResolvedValue("System prompt")
+
+    await expect(
+      generateTextStream({
+        userId: "test-user-id",
+        owner: { standalone: true },
+        prompt: "Hello",
+        promptName: "default",
+        reasoning: "enabled",
+        workflowSignal: controller.signal,
+      }),
+    ).rejects.toThrow()
+
+    expect(mocks.prepareTextGeneration).not.toHaveBeenCalled()
+    expect(mocks.streamText).not.toHaveBeenCalled()
+  })
+
   it("registers and returns every provider stream", async () => {
     const stream = { id: "raw-stream" }
     const finishReason = Promise.resolve("stop" as const)

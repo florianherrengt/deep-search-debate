@@ -4,6 +4,7 @@ import { PromptName } from "../../llms/prompts.ts"
 import {
   awaitGenerationOutput,
   type GenerationOutcome,
+  type TextGenerationPersistenceCallbacks,
   type TextStreamPersistenceTransaction,
 } from "../../llms/streams.ts"
 import { formatSearchSummaryContext } from "./searchSummaryContext.ts"
@@ -29,6 +30,7 @@ type StartRoundReviewInput = {
   completedRound: number
   maxRounds: number
   searchSummaries: SearchSummary[]
+  workflowSignal?: AbortSignal
   onCompleted?: (
     completed: { id: string; output: RoundReview },
     transaction: TextStreamPersistenceTransaction,
@@ -37,6 +39,7 @@ type StartRoundReviewInput = {
     streamId: string,
     transaction: TextStreamPersistenceTransaction,
   ) => void
+  onInterrupted?: TextGenerationPersistenceCallbacks["onInterrupted"]
 }
 
 export type StartedRoundReview = {
@@ -70,8 +73,10 @@ export async function startRoundReview(
     schema: roundReviewSchema,
     reasoning: "enabled",
     maxOutputTokens: 1_024,
+    workflowSignal: input.workflowSignal,
     onCompleted: input.onCompleted,
     onRegistered: input.onRegistered,
+    onInterrupted: input.onInterrupted,
   })
 
   return {

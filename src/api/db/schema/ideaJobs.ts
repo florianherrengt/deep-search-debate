@@ -46,6 +46,8 @@ export const ideaJobs = sqliteTable(
       .notNull()
       .default("running"),
     error: text("error"),
+    /** Set only on a standalone root when its owner requests an irreversible stop. */
+    cancelRequestedAt: integer("cancel_requested_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
@@ -111,6 +113,10 @@ export const ideaJobs = sqliteTable(
       sql`${table.status} in ('running', 'completed', 'failed', 'interrupted')`,
     ),
     check(
+      "idea_jobs_cancel_root_check",
+      sql`${table.cancelRequestedAt} is null or ${table.debateJobId} is null`,
+    ),
+    check(
       "idea_jobs_prompt_content_check",
       sql`length(trim(${table.prompt})) > 0`,
     ),
@@ -119,9 +125,11 @@ export const ideaJobs = sqliteTable(
       sql`(
         (${table.status} = 'running' and ${table.completedAt} is null and ${table.error} is null)
         or
-        (${table.status} = 'completed' and ${table.stage} = 'ideas' and ${table.completedAt} is not null and ${table.error} is null and ${table.researchPromptGenerationId} is not null and ${table.researchSummaryGenerationId} is not null and ${table.ideaGenerationId} is not null)
+        (${table.status} = 'completed' and ${table.stage} = 'ideas' and ${table.completedAt} is not null and ${table.error} is null and ${table.cancelRequestedAt} is null and ${table.researchPromptGenerationId} is not null and ${table.researchSummaryGenerationId} is not null and ${table.ideaGenerationId} is not null)
         or
-        (${table.status} in ('failed', 'interrupted') and ${table.completedAt} is not null and ${table.error} is not null)
+        (${table.status} = 'failed' and ${table.completedAt} is not null and ${table.error} is not null and ${table.cancelRequestedAt} is null)
+        or
+        (${table.status} = 'interrupted' and ${table.completedAt} is not null and ${table.error} is not null)
       )`,
     ),
   ],

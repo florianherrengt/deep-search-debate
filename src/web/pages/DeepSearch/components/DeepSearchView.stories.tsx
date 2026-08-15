@@ -98,3 +98,35 @@ export const WithReviewFailureFallback: Story = {
     run: reviewFailureRun,
   },
 }
+
+export const Stopping: Story = {
+  args: {
+    ...WithSearchResults.args,
+    run: reviewingEvidenceRun,
+    stopRequested: true,
+  },
+}
+
+export const Stopped: Story = {
+  args: {
+    ...WithSearchResults.args,
+    run: {
+      ...reviewingEvidenceRun,
+      status: "interrupted",
+      error: "Workflow stopped by user",
+    },
+    stopRequested: true,
+  },
+}
+
+export const Interrupted: Story = {
+  args: {
+    ...WithSearchResults.args,
+    run: {
+      ...reviewingEvidenceRun,
+      status: "interrupted",
+      error: "Workflow interrupted during restart recovery",
+    },
+    stopRequested: false,
+  },
+}

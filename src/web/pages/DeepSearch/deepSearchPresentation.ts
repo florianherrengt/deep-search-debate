@@ -38,6 +38,12 @@ export function getDeepSearchRoundStatus(
   roundNumbers = getDeepSearchRoundNumbers(run),
 ): DeepSearchRoundStatus {
   if (isRoundFinished(run, round, roundNumbers)) return "complete"
-  if (run.status === "failed") return "stopped"
+  if (
+    run.status === "failed" ||
+    run.status === "stopping" ||
+    run.status === "interrupted"
+  ) {
+    return "stopped"
+  }
   return "in-progress"
 }

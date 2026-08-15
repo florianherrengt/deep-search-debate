@@ -208,6 +208,50 @@ describe("debate round persistence", () => {
     ).toEqual([])
   })
 
+  it("rejects new rounds and messages after the debate root requests Stop", () => {
+    const fixture = createFixture()
+    const [match] = createDebateRound({
+      debateJobId: fixture.debateJobId,
+      stage: "swiss",
+      stageRoundNumber: 1,
+      pairs: sequentialPairs(fixture.ideaIds),
+    })
+    const llmGenerationId = crypto.randomUUID()
+    db.insert(llmGenerations)
+      .values({
+        llmGenerationId,
+        userId: "test-user-id",
+        debateJobId: fixture.debateJobId,
+      })
+      .run()
+    db.update(debateJobs)
+      .set({ cancelRequestedAt: new Date() })
+      .where(eq(debateJobs.debateJobId, fixture.debateJobId))
+      .run()
+
+    expect(() =>
+      createDebateRound({
+        debateJobId: fixture.debateJobId,
+        stage: "swiss",
+        stageRoundNumber: 2,
+        pairs: sequentialPairs(fixture.ideaIds),
+      }),
+    ).toThrow("Effective research root is stop-requested")
+    expect(() =>
+      db.transaction((transaction) =>
+        createAgentMessage(
+          {
+            debateMatchId: match.debateMatchId,
+            position: 0,
+            speakerSlot: 0,
+            llmGenerationId,
+          },
+          transaction,
+        ),
+      ),
+    ).toThrow("Effective research root is stop-requested")
+  })
+
   it("rejects a transcript generation owned by another debate", () => {
     const fixture = createFixture()
     const [match] = createDebateRound({

@@ -27,6 +27,7 @@ table debate_jobs {
   stage text [not null, default: 'ideas']
   status text [not null, default: 'running']
   error text
+  cancel_requested_at integer
   created_at integer [not null, default: `(cast(unixepoch('subsecond') * 1000 as integer))`]
   completed_at integer
 
@@ -105,6 +106,7 @@ table deep_search_jobs {
   final_answer_generation_id text [unique]
   status text [not null, default: 'running']
   error text
+  cancel_requested_at integer
   created_at integer [not null, default: `(cast(unixepoch('subsecond') * 1000 as integer))`]
   completed_at integer
 
@@ -113,6 +115,7 @@ table deep_search_jobs {
     slug [name: 'deep_search_jobs_slug_idx', unique]
     (deep_search_job_id, user_id) [name: 'deep_search_jobs_id_user_id_idx', unique]
     (idea_job_id, idea_job_position) [name: 'deep_search_jobs_idea_job_position_idx', unique]
+
 
 
 
@@ -228,6 +231,7 @@ table idea_jobs {
   selection_generation_id text [unique]
   status text [not null, default: 'running']
   error text
+  cancel_requested_at integer
   created_at integer [not null, default: `(cast(unixepoch('subsecond') * 1000 as integer))`]
   completed_at integer
 
@@ -235,6 +239,7 @@ table idea_jobs {
     (user_id, created_at, idea_job_id) [name: 'idea_jobs_user_created_at_idx']
     slug [name: 'idea_jobs_slug_idx', unique]
     (idea_job_id, user_id) [name: 'idea_jobs_id_user_id_idx', unique]
+
 
 
 

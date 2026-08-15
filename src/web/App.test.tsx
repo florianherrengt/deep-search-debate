@@ -227,6 +227,7 @@ describe("App", () => {
       Response.json({
         deepSearchJob: {
           completedAt: "2026-01-01T00:01:00.000Z",
+          canStop: false,
           createdAt: "2026-01-01T00:00:00.000Z",
           deepSearchJobId: "loaded-job-id",
           error: null,
@@ -238,6 +239,7 @@ describe("App", () => {
           researchRequest: "A completed research request",
           slug: "loaded-research",
           status: "completed",
+          stopRequested: false,
           title: "Loaded research",
         },
       }),

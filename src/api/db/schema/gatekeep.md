@@ -27,5 +27,5 @@ Use this checklist for recurring Drizzle schema, relational-model, migration, an
 - Comment deliberate omissions and non-obvious constraints or deletion policies; do not narrate obvious column definitions.
 - Generate and review a Drizzle migration for every schema change, apply it to the development database, and regenerate `schema.dbml`.
 - Treat DBML as documentation rather than the source of truth. Preserve comments for checks, partial indexes, or other SQLite behavior DBML cannot represent.
-- Test migrations from the prior schema, not only fresh database creation, and validate SQLite foreign keys and integrity afterward.
+- When existing databases must be preserved, test migrations from the prior schema rather than only fresh creation. For an explicitly approved destructive baseline reset, test the complete fresh baseline instead. In both cases, validate SQLite foreign keys and integrity afterward.
 - Keep automated tests on the in-memory database and real migration chain; do not let tests mutate the committed development database.

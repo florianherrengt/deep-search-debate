@@ -10,6 +10,49 @@ The API runs TypeScript directly via `node --experimental-strip-types`. Conseque
 - Do **not** strip extensions, add path alias rewrites, or introduce a compile/build step.
 - Requires Node 26+ (the `--experimental-strip-types` flag).
 
+## Workflow runtime boundary
+
+The API pins `effect` to exactly `4.0.0-rc.109`. Do not float this prerelease
+dependency: the small boundary in `workflowRuntime.ts` depends on its current
+`Effect.runPromiseExit` and cause APIs. That boundary converts successful exits,
+the tagged `WorkflowFailure`, Effect interruption, and defects into
+Promise-facing results and errors. Hono, Drizzle, Zod, AI SDK provider policy,
+and all process-wide `PQueue` scheduling remain outside Effect.
+
+Each research-workflow manager owns the `AbortController`, completion promise,
+and retained live event log for each active job entry. Debate cancellation
+propagates through its idea job into child deep searches; an idea-root signal
+likewise propagates into its child searches. These signals are internal workflow
+signals, never Hono request signals, so disconnecting or closing the browser
+does not cancel provider work. A tagged manager signal is classified as
+`user-stop` or `parent-stop`; provider deadlines and ordinary abort-like
+failures remain failures. Deep-search, idea, and debate workflows expose
+owner-only root Stop routes. For either a direct root Stop or an inherited
+parent Stop, deep-search and idea feeds publish `stop-requested`; already-started
+result events may follow while cleanup settles, then the feeds end with
+`interrupted` and `done`. The snapshot-driven debate feed publishes `updated`
+after the request and terminalization, then `done`. Neither Stop path publishes
+an ordinary error event. A Stop command persists the root's request before
+aborting its manager-owned controller; descendants inherit the signal and event
+presentation without storing their own stop timestamp. That presentation is
+causal: a descendant that reached a terminal state before the root timestamp
+does not gain `stopRequested` or a Stop event suffix after the fact.
+
+`routes/deepSearch/pipeline.ts`, `routes/ideas/run.ts`, and
+`routes/debates/run.ts` are the Effect-owned coordinators. Each has one
+Promise-facing runtime boundary, sequences durable stages with `Effect.gen`,
+and uses settle-all result-mode fan-outs where it launches concurrent work.
+Debate rounds remain sequential, while each advocate pair and all matches in a
+round settle concurrently in input order. The existing deterministic tournament
+pairing, Elo, prompt-isolation, and bounded retry rules remain outside the
+runtime bridge.
+
+The same signal is forwarded through the existing LLM, web-search, extraction,
+and queue boundaries. Waiting queue tasks are removed on interruption, while an
+active task keeps its process-wide permit until its signal-aware cleanup settles.
+The existing queue instances, concurrency, priority, SDK retry policy, and
+provider timeout policy remain authoritative.
+
 ## Configuration validation at import time
 
 `src/api/config.ts` reads and validates environment configuration before any
@@ -135,6 +178,10 @@ CSRF boundary around job creation. Non-browser API clients may omit `Origin`.
 SQLite database files are ignored. Drizzle migrations are the schema source of
 truth. Both `npm run dev` and `npm run start` apply pending migrations through
 their API workspace lifecycle scripts before the server imports the database.
+The current migration history is a deliberately replaced fresh baseline, not an
+upgrade from the superseded history. Any database created from that old history
+must be discarded and recreated before startup; the application does not
+preserve or migrate its data.
 
 ## Search providers by environment
 
@@ -197,9 +244,12 @@ before it starts; there is no reservation, so concurrent calls may all pass and
 overspend. After a successful call, the resource row and user debit commit
 together and the balance may become negative. Failed provider calls are
 deliberately not charged. Development-only Zen calls are also excluded from
-product-credit accounting. Successful ScrapingAnt extractions accumulate every
-reported `ant-credits-cost` across both retrieval modes. Its $19 / 100,000
-provider-credit plan is converted with `ceil(providerCredits * 19 / 100)`.
+product-credit accounting. Completed usage remains charged; stopped in-progress
+attempts do not debit RethinkLoop credits. This application guarantee does not
+promise that an upstream provider will waive its own charge. Successful
+ScrapingAnt extractions accumulate every reported `ant-credits-cost` across both
+retrieval modes. Its $19 / 100,000 provider-credit plan is converted with
+`ceil(providerCredits * 19 / 100)`.
 
 DeepSeek Flash V4 generation cost uses the AI SDK's cache-hit, cache-miss, and
 output token counts with the model-specific pricing function. The resulting

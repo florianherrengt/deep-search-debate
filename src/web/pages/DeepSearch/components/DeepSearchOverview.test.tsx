@@ -32,13 +32,17 @@ const baseRun: DeepSearchRunState = {
   error: null,
 }
 
-function renderOverview(run: DeepSearchRunState = baseRun) {
+function renderOverview(
+  run: DeepSearchRunState = baseRun,
+  stopRequested = false,
+) {
   return render(
     <MemoryRouter>
       <DeepSearchOverview
         jobSlug="research-this"
         researchRequest="Research this carefully"
         run={run}
+        stopRequested={stopRequested}
         title="Research this"
       />
     </MemoryRouter>,
@@ -138,4 +142,34 @@ describe("DeepSearchOverview", () => {
     ).not.toBeInTheDocument()
     expect(screen.getByText("Starting deep search…")).toBeVisible()
   })
+
+  it("ceases active presentation as soon as a durable Stop is requested", () => {
+    renderOverview(baseRun, true)
+
+    expect(
+      screen.getByText("Stopping research after in-progress work settles."),
+    ).toBeVisible()
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument()
+    expect(
+      within(screen.getByRole("link", { name: /Round 1/ })).getByText(
+        "Stopped",
+      ),
+    ).toBeVisible()
+  })
+
+  it.each([
+    [true, "Stopped", "Research was stopped before completion. Available work has been kept."],
+    [false, "Interrupted", "Research was interrupted before completion. Available work has been kept."],
+  ] as const)(
+    "distinguishes stopped=%s from restart interruption",
+    (stopRequested, label, description) => {
+      renderOverview(
+        { ...baseRun, status: "interrupted", error: "Workflow ended" },
+        stopRequested,
+      )
+
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0)
+      expect(screen.getByText(description)).toBeVisible()
+    },
+  )
 })

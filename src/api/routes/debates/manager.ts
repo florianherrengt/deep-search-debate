@@ -5,7 +5,17 @@ import { db } from "../../db/index.ts"
 import { debateJobs } from "../../db/schema/index.ts"
 import { createReplayableEventLog } from "../../helpers/replayableEventLog.ts"
 import type { IdeaJobManager } from "../ideas/manager.ts"
+import {
+  createWorkflowController,
+  WorkflowInterruptedError,
+  workflowAbortReason,
+} from "../../workflowRuntime.ts"
+import {
+  requestDebateStop,
+  type DebateStopRequestResult,
+} from "./cancellation.ts"
 import { runDebateJob } from "./run.ts"
+import { interruptDebateJob } from "./jobLifecycle.ts"
 import {
   createDebateJobInputSchema,
   type CreateDebateJobRequest,
@@ -25,6 +35,7 @@ export type DebateJobManager = {
     userId: string,
     input: CreateDebateJobRequest,
   ): Promise<StartedDebateJob>
+  stop(userId: string, debateJobId: string): DebateStopRequestResult
   getLiveJob(debateJobId: string): LiveDebateJob | undefined
 }
 
@@ -61,7 +72,14 @@ function hasDurableTerminalState(debateJobId: string): boolean {
 export function createDebateJobManager(
   ideaJobManager: IdeaJobManager,
 ): DebateJobManager {
-  const liveJobs = new Map<string, LiveDebateJob>()
+  const liveJobs = new Map<
+    string,
+    {
+      job: LiveDebateJob
+      controller: AbortController
+      completion: Promise<void>
+    }
+  >()
 
   return {
     async start(userId, input) {
@@ -77,6 +95,7 @@ export function createDebateJobManager(
       const debateJobId = randomUUID()
       const randomSeed = getRandomSeed()
       const job = createReplayableEventLog<DebateJobEvent>()
+      const controller = createWorkflowController()
       const ideaJob = await ideaJobManager.start(
         userId,
         {
@@ -88,6 +107,7 @@ export function createDebateJobManager(
           maxRounds,
         },
         {
+          workflowSignal: controller.signal,
           createParent: (transaction) => {
             transaction
               .insert(debateJobs)
@@ -97,8 +117,6 @@ export function createDebateJobManager(
           },
         },
       )
-      liveJobs.set(debateJobId, job)
-
       const completion = runDebateJob({
         debateJobId,
         userId,
@@ -106,6 +124,7 @@ export function createDebateJobManager(
         randomSeed,
         ideaCompletion: ideaJob.completion,
         job,
+        workflowSignal: controller.signal,
       })
         .then(() => requireCompletedDebateJob(debateJobId))
         .finally(() => {
@@ -113,6 +132,7 @@ export function createDebateJobManager(
             liveJobs.delete(debateJobId)
           }
         })
+      liveJobs.set(debateJobId, { job, controller, completion })
 
       return {
         debateJobId,
@@ -121,8 +141,30 @@ export function createDebateJobManager(
         completion,
       }
     },
+    stop(userId, debateJobId) {
+      const result = requestDebateStop(userId, debateJobId)
+      if (result.kind === "requested") {
+        const active = liveJobs.get(debateJobId)
+        if (result.newlyRequested) {
+          try {
+            active?.job.publish({ type: "updated" })
+          } catch {
+            // Durable replay remains authoritative if the retained log closed.
+          }
+        }
+        if (active) {
+          active.controller.abort(workflowAbortReason("user-stop"))
+        } else {
+          interruptDebateJob(
+            debateJobId,
+            new WorkflowInterruptedError("user-stop").message,
+          )
+        }
+      }
+      return result
+    },
     getLiveJob(debateJobId) {
-      return liveJobs.get(debateJobId)
+      return liveJobs.get(debateJobId)?.job
     },
   }
 }

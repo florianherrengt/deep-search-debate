@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "86b6e56d-c865-41ec-9f1f-8e03b999786f",
+  "id": "12530eea-a181-40a7-a582-f4f1a17b2cc8",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "deep_search_jobs": {
@@ -98,6 +98,13 @@
         "error": {
           "name": "error",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cancel_requested_at": {
+          "name": "cancel_requested_at",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -225,9 +232,13 @@
           "name": "deep_search_jobs_status_check",
           "value": "\"deep_search_jobs\".\"status\" in ('running', 'completed', 'failed', 'interrupted')"
         },
+        "deep_search_jobs_cancel_root_check": {
+          "name": "deep_search_jobs_cancel_root_check",
+          "value": "\"deep_search_jobs\".\"cancel_requested_at\" is null or \"deep_search_jobs\".\"idea_job_id\" is null"
+        },
         "deep_search_jobs_terminal_fields_check": {
           "name": "deep_search_jobs_terminal_fields_check",
-          "value": "(\n        (\"deep_search_jobs\".\"status\" = 'running' and \"deep_search_jobs\".\"completed_at\" is null and \"deep_search_jobs\".\"error\" is null)\n        or\n        (\"deep_search_jobs\".\"status\" = 'completed' and \"deep_search_jobs\".\"final_answer_generation_id\" is not null and \"deep_search_jobs\".\"completed_at\" is not null and \"deep_search_jobs\".\"error\" is null)\n        or\n        (\"deep_search_jobs\".\"status\" in ('failed', 'interrupted') and \"deep_search_jobs\".\"completed_at\" is not null and \"deep_search_jobs\".\"error\" is not null)\n      )"
+          "value": "(\n        (\"deep_search_jobs\".\"status\" = 'running' and \"deep_search_jobs\".\"completed_at\" is null and \"deep_search_jobs\".\"error\" is null)\n        or\n        (\"deep_search_jobs\".\"status\" = 'completed' and \"deep_search_jobs\".\"final_answer_generation_id\" is not null and \"deep_search_jobs\".\"completed_at\" is not null and \"deep_search_jobs\".\"error\" is null and \"deep_search_jobs\".\"cancel_requested_at\" is null)\n        or\n        (\"deep_search_jobs\".\"status\" = 'failed' and \"deep_search_jobs\".\"completed_at\" is not null and \"deep_search_jobs\".\"error\" is not null and \"deep_search_jobs\".\"cancel_requested_at\" is null)\n        or\n        (\"deep_search_jobs\".\"status\" = 'interrupted' and \"deep_search_jobs\".\"completed_at\" is not null and \"deep_search_jobs\".\"error\" is not null)\n      )"
         }
       }
     },
@@ -920,6 +931,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "cancel_requested_at": {
+          "name": "cancel_requested_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -991,7 +1009,7 @@
         },
         "debate_jobs_terminal_fields_check": {
           "name": "debate_jobs_terminal_fields_check",
-          "value": "(\n        (\"debate_jobs\".\"status\" = 'running' and \"debate_jobs\".\"completed_at\" is null and \"debate_jobs\".\"error\" is null)\n        or\n        (\"debate_jobs\".\"status\" = 'completed' and \"debate_jobs\".\"stage\" = 'final' and \"debate_jobs\".\"completed_at\" is not null and \"debate_jobs\".\"error\" is null)\n        or\n        (\"debate_jobs\".\"status\" in ('failed', 'interrupted') and \"debate_jobs\".\"completed_at\" is not null and \"debate_jobs\".\"error\" is not null)\n      )"
+          "value": "(\n        (\"debate_jobs\".\"status\" = 'running' and \"debate_jobs\".\"completed_at\" is null and \"debate_jobs\".\"error\" is null)\n        or\n        (\"debate_jobs\".\"status\" = 'completed' and \"debate_jobs\".\"stage\" = 'final' and \"debate_jobs\".\"completed_at\" is not null and \"debate_jobs\".\"error\" is null and \"debate_jobs\".\"cancel_requested_at\" is null)\n        or\n        (\"debate_jobs\".\"status\" = 'failed' and \"debate_jobs\".\"completed_at\" is not null and \"debate_jobs\".\"error\" is not null and \"debate_jobs\".\"cancel_requested_at\" is null)\n        or\n        (\"debate_jobs\".\"status\" = 'interrupted' and \"debate_jobs\".\"completed_at\" is not null and \"debate_jobs\".\"error\" is not null)\n      )"
         }
       }
     },
@@ -1458,6 +1476,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "cancel_requested_at": {
+          "name": "cancel_requested_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -1648,13 +1673,17 @@
           "name": "idea_jobs_status_check",
           "value": "\"idea_jobs\".\"status\" in ('running', 'completed', 'failed', 'interrupted')"
         },
+        "idea_jobs_cancel_root_check": {
+          "name": "idea_jobs_cancel_root_check",
+          "value": "\"idea_jobs\".\"cancel_requested_at\" is null or \"idea_jobs\".\"debate_job_id\" is null"
+        },
         "idea_jobs_prompt_content_check": {
           "name": "idea_jobs_prompt_content_check",
           "value": "length(trim(\"idea_jobs\".\"prompt\")) > 0"
         },
         "idea_jobs_terminal_fields_check": {
           "name": "idea_jobs_terminal_fields_check",
-          "value": "(\n        (\"idea_jobs\".\"status\" = 'running' and \"idea_jobs\".\"completed_at\" is null and \"idea_jobs\".\"error\" is null)\n        or\n        (\"idea_jobs\".\"status\" = 'completed' and \"idea_jobs\".\"stage\" = 'ideas' and \"idea_jobs\".\"completed_at\" is not null and \"idea_jobs\".\"error\" is null and \"idea_jobs\".\"research_prompt_generation_id\" is not null and \"idea_jobs\".\"research_summary_generation_id\" is not null and \"idea_jobs\".\"idea_generation_id\" is not null)\n        or\n        (\"idea_jobs\".\"status\" in ('failed', 'interrupted') and \"idea_jobs\".\"completed_at\" is not null and \"idea_jobs\".\"error\" is not null)\n      )"
+          "value": "(\n        (\"idea_jobs\".\"status\" = 'running' and \"idea_jobs\".\"completed_at\" is null and \"idea_jobs\".\"error\" is null)\n        or\n        (\"idea_jobs\".\"status\" = 'completed' and \"idea_jobs\".\"stage\" = 'ideas' and \"idea_jobs\".\"completed_at\" is not null and \"idea_jobs\".\"error\" is null and \"idea_jobs\".\"cancel_requested_at\" is null and \"idea_jobs\".\"research_prompt_generation_id\" is not null and \"idea_jobs\".\"research_summary_generation_id\" is not null and \"idea_jobs\".\"idea_generation_id\" is not null)\n        or\n        (\"idea_jobs\".\"status\" = 'failed' and \"idea_jobs\".\"completed_at\" is not null and \"idea_jobs\".\"error\" is not null and \"idea_jobs\".\"cancel_requested_at\" is null)\n        or\n        (\"idea_jobs\".\"status\" = 'interrupted' and \"idea_jobs\".\"completed_at\" is not null and \"idea_jobs\".\"error\" is not null)\n      )"
         }
       }
     },

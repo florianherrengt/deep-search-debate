@@ -13,6 +13,7 @@ import {
 } from "../../db/schema/index.ts"
 import type { TextStreamPersistenceTransaction } from "../../llms/streams.ts"
 import { debitCredits } from "../../credits.ts"
+import { assertEffectiveResearchRootRunning } from "../researchCancellation.ts"
 import type {
   ExecutedQuery,
   PlannedQuery,
@@ -22,6 +23,16 @@ import type {
 } from "./records.ts"
 
 type SearchResultInput = DeepSearchSearch["results"][number]
+
+function assertDeepSearchActive(
+  transaction: TextStreamPersistenceTransaction,
+  jobId: string,
+): void {
+  assertEffectiveResearchRootRunning(transaction, {
+    kind: "deep-search",
+    jobId,
+  })
+}
 
 function assertGenerationOwnedByJob(
   transaction: TextStreamPersistenceTransaction,
@@ -94,6 +105,7 @@ export function createSearchRound(input: {
 }): SearchRound {
   const roundId = randomUUID()
   db.transaction((transaction) => {
+    assertDeepSearchActive(transaction, input.jobId)
     assertGenerationOwnedByJob(
       transaction,
       input.jobId,
@@ -127,6 +139,7 @@ export function savePlannedQueries(input: {
     query,
   }))
   db.transaction((transaction) => {
+    assertDeepSearchActive(transaction, input.jobId)
     assertRoundOwnedByJob(
       transaction,
       input.jobId,
@@ -173,6 +186,7 @@ export function saveSearchResults(input: {
   }))
 
   db.transaction((transaction) => {
+    assertDeepSearchActive(transaction, input.jobId)
     assertRoundOwnedByJob(
       transaction,
       input.jobId,
@@ -250,6 +264,7 @@ export function attachSelectionGeneration(input: {
   generationId: string
 }): void {
   db.transaction((transaction) => {
+    assertDeepSearchActive(transaction, input.jobId)
     assertGenerationOwnedByJob(
       transaction,
       input.jobId,
@@ -286,6 +301,7 @@ export function saveSelectedResults(input: {
   selectedResultIds: string[]
 }): SelectedPage[] {
   return db.transaction((transaction) => {
+    assertDeepSearchActive(transaction, input.jobId)
     assertQueryOwnedByJob(
       transaction,
       input.jobId,
@@ -392,6 +408,7 @@ export function completeEmptySearchQuery(input: {
   queryId: string
 }): void {
   db.transaction((transaction) => {
+    assertDeepSearchActive(transaction, input.jobId)
     assertQueryOwnedByJob(transaction, input.jobId, input.queryId)
     const persistedResult = transaction
       .select({ id: deepSearchResults.deepSearchResultId })
@@ -427,6 +444,7 @@ export function attachPageSummaryGeneration(
     generationId: string
   },
 ): void {
+  assertDeepSearchActive(transaction, input.jobId)
   assertGenerationOwnedByJob(
     transaction,
     input.jobId,
@@ -455,6 +473,7 @@ export function settlePageExtractionCredits(input: {
   creditsUsed: number
 }): void {
   db.transaction((transaction) => {
+    assertDeepSearchActive(transaction, input.jobId)
     assertPageOwnedByJob(transaction, input.jobId, input.pageId)
     const owner = transaction
       .select({ userId: deepSearchJobs.userId })
@@ -490,6 +509,7 @@ export function completePageSummaryGeneration(
     generationId: string
   },
 ): void {
+  assertDeepSearchActive(transaction, input.jobId)
   assertPageOwnedByJob(transaction, input.jobId, input.pageId)
   const result = transaction
     .update(deepSearchWebPages)
@@ -512,6 +532,38 @@ export function completePageSummaryGeneration(
 }
 
 export function failPageSummaryGeneration(
+  transaction: TextStreamPersistenceTransaction,
+  input: {
+    jobId: string
+    pageId: string
+    generationId: string
+    message: string
+  },
+): void {
+  assertDeepSearchActive(transaction, input.jobId)
+  assertPageOwnedByJob(transaction, input.jobId, input.pageId)
+  const result = transaction
+    .update(deepSearchWebPages)
+    .set({
+      status: "failed",
+      errorStage: "summary",
+      errorMessage: input.message,
+      completedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(deepSearchWebPages.deepSearchWebPageId, input.pageId),
+        eq(deepSearchWebPages.summaryGenerationId, input.generationId),
+      ),
+    )
+    .run()
+  if (result.changes !== 1) {
+    throw new Error("Page summary generation was not registered")
+  }
+}
+
+/** Cancellation cleanup runs after the effective root has become inactive. */
+export function interruptPageSummaryGeneration(
   transaction: TextStreamPersistenceTransaction,
   input: {
     jobId: string
@@ -548,6 +600,7 @@ export function savePageFailure(input: {
   message: string
 }): void {
   db.transaction((transaction) => {
+    assertDeepSearchActive(transaction, input.jobId)
     assertPageOwnedByJob(
       transaction,
       input.jobId,
@@ -575,6 +628,7 @@ export function attachQuerySummaryGeneration(
     generationId: string
   },
 ): void {
+  assertDeepSearchActive(transaction, input.jobId)
   assertGenerationOwnedByJob(
     transaction,
     input.jobId,
@@ -604,6 +658,7 @@ export function completeQuerySummaryGeneration(
     generationId: string
   },
 ): void {
+  assertDeepSearchActive(transaction, input.jobId)
   assertQueryOwnedByJob(transaction, input.jobId, input.queryId)
   const result = transaction
     .update(deepSearchQueries)
@@ -626,6 +681,38 @@ export function completeQuerySummaryGeneration(
 }
 
 export function failQuerySummaryGeneration(
+  transaction: TextStreamPersistenceTransaction,
+  input: {
+    jobId: string
+    queryId: string
+    generationId: string
+    message: string
+  },
+): void {
+  assertDeepSearchActive(transaction, input.jobId)
+  assertQueryOwnedByJob(transaction, input.jobId, input.queryId)
+  const result = transaction
+    .update(deepSearchQueries)
+    .set({
+      status: "failed",
+      errorStage: "summary",
+      errorMessage: input.message,
+      completedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(deepSearchQueries.deepSearchQueryId, input.queryId),
+        eq(deepSearchQueries.summaryGenerationId, input.generationId),
+      ),
+    )
+    .run()
+  if (result.changes !== 1) {
+    throw new Error("Query summary generation was not registered")
+  }
+}
+
+/** Cancellation cleanup runs after the effective root has become inactive. */
+export function interruptQuerySummaryGeneration(
   transaction: TextStreamPersistenceTransaction,
   input: {
     jobId: string
@@ -663,6 +750,7 @@ export function attachRoundReviewGeneration(
     generationId: string
   },
 ): void {
+  assertDeepSearchActive(transaction, input.jobId)
   assertGenerationOwnedByJob(
     transaction,
     input.jobId,
@@ -706,6 +794,7 @@ export function attachRoundAnswerGeneration(
     generationId: string
   },
 ): void {
+  assertDeepSearchActive(transaction, input.jobId)
   assertGenerationOwnedByJob(
     transaction,
     input.jobId,
@@ -745,6 +834,7 @@ export function saveRoundReviewCompletion(
     review: RoundReview
   },
 ): void {
+  assertDeepSearchActive(transaction, input.jobId)
   assertRoundOwnedByJob(
     transaction,
     input.jobId,
@@ -775,12 +865,18 @@ export function saveRoundReviewCompletion(
   }
 }
 
-export function saveRoundReviewFailure(input: {
-  jobId: string
-  roundId: string
-  message: string
-}): void {
-  const result = db
+/** Records an interrupted review without requiring an active root. */
+export function interruptRoundReviewGeneration(
+  transaction: TextStreamPersistenceTransaction,
+  input: {
+    jobId: string
+    roundId: string
+    generationId: string
+    message: string
+  },
+): void {
+  assertRoundOwnedByJob(transaction, input.jobId, input.roundId)
+  const result = transaction
     .update(deepSearchRounds)
     .set({
       reviewDecision: null,
@@ -790,15 +886,42 @@ export function saveRoundReviewFailure(input: {
     })
     .where(
       and(
-        eq(
-          deepSearchRounds.deepSearchRoundId,
-          input.roundId,
-        ),
-        eq(deepSearchRounds.deepSearchJobId, input.jobId),
+        eq(deepSearchRounds.deepSearchRoundId, input.roundId),
+        eq(deepSearchRounds.reviewGenerationId, input.generationId),
       ),
     )
     .run()
-  if (result.changes !== 1) throw new Error("Deep-search round was not persisted")
+  if (result.changes !== 1) {
+    throw new Error("Deep-search round review was not registered")
+  }
+}
+
+export function saveRoundReviewFailure(input: {
+  jobId: string
+  roundId: string
+  message: string
+}): void {
+  db.transaction((transaction) => {
+    assertDeepSearchActive(transaction, input.jobId)
+    const result = transaction
+      .update(deepSearchRounds)
+      .set({
+        reviewDecision: null,
+        reviewReason: null,
+        reviewError: input.message,
+        reviewCompletedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(deepSearchRounds.deepSearchRoundId, input.roundId),
+          eq(deepSearchRounds.deepSearchJobId, input.jobId),
+        ),
+      )
+      .run()
+    if (result.changes !== 1) {
+      throw new Error("Deep-search round was not persisted")
+    }
+  })
 }
 
 export function attachFinalAnswerGeneration(
@@ -808,6 +931,7 @@ export function attachFinalAnswerGeneration(
     generationId: string
   },
 ): void {
+  assertDeepSearchActive(transaction, input.jobId)
   assertGenerationOwnedByJob(
     transaction,
     input.jobId,
