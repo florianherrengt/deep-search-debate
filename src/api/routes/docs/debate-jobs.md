@@ -1,11 +1,12 @@
 # Debate jobs
 
 Debate jobs are durable automatic tournaments. A fresh user prompt first runs
-the existing researched, evaluated, selected, refined, and individually
-researched idea pipeline, then admits only its selected normalized ideas to
+the existing researched, selected, refined, individually researched, and
+finally evaluated idea pipeline, then admits only its selected normalized ideas to
 Swiss play and a top-four knockout. The
-selection agent consumes the structured evaluations, but tournament advocates
-and judges do not. Pros, cons, critiques, and the selection output remain
+selection agent compares the generated candidates before refinement. Tournament
+advocates and judges do not consume the final structured evaluations. Pros,
+cons, critiques, and the selection output remain
 available on the linked idea-job view.
 The authenticated owner may explicitly stop the root debate; public viewers
 cannot. The durable request propagates through its idea job, child searches,

@@ -1,11 +1,12 @@
 # Idea jobs
 
 Idea jobs are durable pipelines that turn a user prompt into research-backed,
-evaluated, selected, refined, and individually researched ideas. Each run has an internal UUID, an LLM-generated
+selected, refined, individually researched, and finally evaluated ideas. Each
+run has an internal UUID, an LLM-generated
 immutable title, a readable slug, and four durable stages: `planning`,
-`research`, `summary`, and `ideas`. Per-idea evaluation and comparative selection
-are ordered subphases of `ideas`; each remains visible through completion events
-and failure stages in the event contract.
+`research`, `summary`, and `ideas`. Comparative selection and final per-idea
+evaluation are ordered subphases of `ideas`; each remains visible through
+completion events and failure stages in the event contract.
 
 Closing the page does not cancel the run. The owner may explicitly stop a
 standalone root idea job; a debate-owned idea job inherits its debate root's
@@ -37,39 +38,37 @@ when terminal persistence fails.
    research briefing, and `numberOfIdeas`. After the complete array passes
    validation, every `{ title, description }` is persisted and published in
    generation order with a stable ID and no evaluation link yet.
-6. One fresh structured evaluation generation starts for each persisted idea. Each call
-   receives only the original user prompt, research briefing, and that one idea.
-   It returns two to four pros, two to four cons, and one concise critique. The
-   prompt limits the complete evaluation to 400 words and the stage caps output
-   at 1,024 tokens; the downstream selector needs a concise comparison, not six
-   essays. The calls run concurrently. As each call starts, its generation ID
-   is attached to that idea before the stream event is published. Validated
-   points and critique text commit atomically with generation completion. The
-   parent waits for every evaluation to settle before selection starts.
-7. One fresh structured selection generation receives the original user prompt,
+6. One fresh structured selection generation receives the original user prompt,
    the final research briefing passed into idea generation, and every generated
-   idea paired with its complete evaluation. Evaluation reasoning is deliberately
-   excluded. Hidden selection reasoning is disabled so the bounded output is
-   reserved for the required JSON. The output is an unordered array of unique idea IDs containing an
-   even number of ideas from 6 through 12. Every ID must belong to this job.
+   idea. Hidden selection reasoning is disabled so the bounded output is
+   reserved for the required JSON. The output is an unordered array of unique
+   idea IDs containing an even number of ideas from 6 through 12. Every ID must
+   belong to this job.
    The selected ideas become `selected = true` and every other generated idea
    becomes `selected = false` in the same transaction as the selection
    generation's terminal output.
-8. One fresh structured refinement generation starts concurrently for each
+7. One fresh structured refinement generation starts concurrently for each
    selected idea. It receives the original request, shared research briefing,
-   original idea, and that idea's evaluation. Its generation link is attached
-   before publication; validated refined title and description commit together.
-9. One deep-search job is then created for each refined idea. These
+   and original idea. Its generation link is attached before publication;
+   validated refined title and description commit together.
+8. One deep-search job is then created for each refined idea. These
    searches reuse the request's existing `maxSearches`,
    `maxResultsPerSearch`, and `maxRounds`. Each search's parent-scoped position is
-   `deepSearchCount + idea.position`. The parent completes only after every
-   selected-idea search completes.
+   `deepSearchCount + idea.position`. The parent waits for every selected-idea
+   search to complete and pass the parent quality gate.
+9. One fresh structured evaluation generation starts for each researched,
+   refined idea. Each call receives the original request, shared research
+   briefing, improved idea, and that idea's supporting-research answer. It
+   returns two to four pros, two to four cons, and one concise critique of the
+   final version. The calls run concurrently and attach their generation IDs
+   to the selected ideas. Raw rejected candidates are not evaluated, so every
+   displayed assessment describes the improved idea the user is reading.
 
-Any planning, child-search, summary, idea-generation, evaluation-generation,
-selection-generation, refinement-generation, or selected-idea-search failure
+Any planning, child-search, summary, idea-generation, selection-generation,
+refinement-generation, selected-idea-search, or final-evaluation failure
 fails the parent. An invalid selection count,
-duplicate ID, or foreign ID is a selection failure. An evaluation or selection
-failure does not erase already-valid ideas or completed evaluations; selection remains null
+duplicate ID, or foreign ID is a selection failure. A final-evaluation failure
+does not erase completed improvements or assessments. Selection remains null
 when the selection transaction does not complete. Individual page-extraction
 failures inside a child search are non-fatal when the search-result description
 can be used as a fallback. A page-summary failure may likewise produce a
@@ -204,17 +203,16 @@ The event sequence is:
 3. `research-summary-stream` with the briefing LLM stream ID.
 4. `idea-generation-stream` with the structured-output LLM stream ID.
 5. `idea` once per validated object, including its stable `ideaId`.
-6. `idea-evaluated` once per completed evaluation, with the stable `ideaId`,
-   ordered `pros`, ordered `cons`, and explanatory `critique`.
-7. `idea-selection-stream` with the structured selector LLM stream ID after all
-   evaluations complete.
-8. `selected-ideas` with the unordered `selectedIdeaIds` array after the
+6. `idea-selection-stream` with the structured selector LLM stream ID.
+7. `selected-ideas` with the unordered `selectedIdeaIds` array after the
    selector output and every selected flag commit atomically.
-9. `idea-refinement-stream` once per selected idea, keyed by stable `ideaId`.
-10. `refined-idea` once per completed refinement, with its improved title and
+8. `idea-refinement-stream` once per selected idea, keyed by stable `ideaId`.
+9. `refined-idea` once per completed refinement, with its improved title and
     description.
-11. `idea-deep-search-started` once per refined idea, with the stable `ideaId`,
+10. `idea-deep-search-started` once per refined idea, with the stable `ideaId`,
     child job ID, title, slug, and generated research request.
+11. `idea-evaluated` once per completed final evaluation, with the stable
+    `ideaId`, ordered `pros`, ordered `cons`, and explanatory `critique`.
 12. On ordinary failure, one `error` with the failing stage and message.
     Evaluation, selection, refinement, and selected-idea research use the event
     stages `evaluation`, `selection`, `refinement`, and `idea-research`; all
@@ -244,10 +242,10 @@ not duplicated in the parent; clients link to or subscribe to each existing
 `routes/ideas/run.ts` is the single Effect-owned idea coordinator. One
 `runPromiseExit` bridge in the workflow runtime is its Promise-facing boundary.
 It uses `Effect.gen` for stage ordering and concurrent `Effect.all` result-mode
-fan-outs for initial child searches, evaluations, refinements, and selected-idea
-research. Every started item settles, while the first failure in input order is
-reported deterministically. Hono, Drizzle commands, AI SDK policy, and the
-existing process-wide queues remain outside Effect.
+fan-outs for initial child searches, refinements, selected-idea research, and
+final evaluations. Every started item settles, while the first failure in input
+order is reported deterministically. Hono, Drizzle commands, AI SDK policy, and
+the existing process-wide queues remain outside Effect.
 
 The coordinator does not subscribe to presentation streams. It awaits each
 generation's durable completion handle and structured result directly, so a
@@ -275,14 +273,13 @@ generation still has unfinished durable cleanup.
   and selection stay event subphases rather than adding durable DB stages.
 - `ideas` is the canonical representation of the validated idea set,
   with stable IDs and generation order. The complete batch is inserted before
-  evaluation fan-out. Each nullable evaluation link attaches once when its call
-  starts. The nullable selected flag then transitions once from pending to true
-  or false when selection commits. Selected rows additionally own a one-time
-  refinement generation link and refined title/description pair. No extra
-  refinement or join table is used.
-- New jobs complete only after every idea has a terminal structured evaluation, the
-  selection generation is terminal, every selected flag has resolved, and all
-  selected ideas have completed refinement and attached deep research.
+  selection. The nullable selected flag then transitions once from pending to
+  true or false when selection commits. Selected rows additionally own a one-time
+  refinement generation link, refined title/description pair, and one final
+  evaluation link. No extra refinement or join table is used.
+- New jobs complete only after selection is terminal, every selected flag has
+  resolved, and all selected ideas have completed refinement, attached deep
+  research, and a terminal structured evaluation of the improved version.
 - Child `deep_search_jobs` reference the parent with a matching owner and retain
   both their planning order and complete normalized research state. Initial
   research uses positions below `deepSearchCount`; selected-idea research uses

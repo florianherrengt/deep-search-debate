@@ -1,8 +1,4 @@
 import ArrowBack from "@mui/icons-material/ArrowBack"
-import ExpandMore from "@mui/icons-material/ExpandMore"
-import Accordion from "@mui/material/Accordion"
-import AccordionDetails from "@mui/material/AccordionDetails"
-import AccordionSummary from "@mui/material/AccordionSummary"
 import Alert from "@mui/material/Alert"
 import AlertTitle from "@mui/material/AlertTitle"
 import Button from "@mui/material/Button"
@@ -12,7 +8,7 @@ import Chip from "@mui/material/Chip"
 import CircularProgress from "@mui/material/CircularProgress"
 import Stack from "@mui/material/Stack"
 import Typography from "@mui/material/Typography"
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 import { Link, useLocation } from "react-router-dom"
 import type { IdeaJobRunState, IdeaResearchState } from "../ideaJobState.ts"
 import { IdeaAssessment } from "./IdeaAssessment.tsx"
@@ -119,10 +115,6 @@ export function IdeaDetailView({
   const position = run.ideas.findIndex((idea) => idea.ideaId === ideaId)
   const idea = run.ideas[position]
   const refinedIdea = idea ? run.refinedIdeas[idea.ideaId] : undefined
-  const [manualProcessState, setManualProcessState] = useState<{
-    ideaId: string
-    expanded: boolean
-  } | null>(null)
 
   useEffect(() => {
     if (location.hash !== "#improved-idea" || !refinedIdea) return
@@ -152,10 +144,6 @@ export function IdeaDetailView({
   const evaluation = run.ideaEvaluations[idea.ideaId]
   const research = run.refinedIdeaResearch[idea.ideaId]
   const displayTitle = refinedIdea?.title ?? idea.title
-  const processExpanded =
-    manualProcessState?.ideaId === ideaId
-      ? manualProcessState.expanded
-      : status !== "completed"
   const selectionPresentation =
     idea.selection === "selected"
       ? { color: "primary" as const, label: "Selected" }
@@ -272,84 +260,66 @@ export function IdeaDetailView({
           </Card>
         ))}
 
-      <Accordion
-        disableGutters
-        elevation={0}
-        expanded={processExpanded}
-        onChange={(_event, expanded) =>
-          setManualProcessState({ ideaId, expanded })
-        }
-        slotProps={{ transition: { unmountOnExit: false } }}
-        slots={{ heading: "h2" }}
-        variant="outlined"
-      >
-        <AccordionSummary expandIcon={<ExpandMore />}>
-          <Typography component="span" variant="subtitle1">
-            How this idea was developed
-          </Typography>
-        </AccordionSummary>
-        <AccordionDetails>
-          <Stack spacing={3}>
-            {idea.selection === "selected" && (
-              <Stack component="section" spacing={1}>
-                <Typography component="h3" variant="h6">
-                  Original idea
-                </Typography>
-                <Typography component="h4" variant="subtitle1">
-                  {idea.title}
-                </Typography>
-                <Typography color="text.secondary">
-                  {idea.description}
-                </Typography>
-              </Stack>
-            )}
-
-            {evaluation ? (
-              <IdeaAssessment
-                evaluation={evaluation}
-                headingComponent="h3"
-                position={position}
-              />
-            ) : (
-              <Stack component="section" spacing={1}>
-                <Typography component="h3" variant="h6">
-                  Assessment of original idea
+      {idea.selection === "selected" &&
+        (evaluation ? (
+          <IdeaAssessment evaluation={evaluation} position={position} />
+        ) : (
+          <Card component="section" variant="outlined">
+            <CardContent>
+              <Stack spacing={1}>
+                <Typography component="h2" variant="h6">
+                  Assessment of improved idea
                 </Typography>
                 {status === "running" ? (
                   <WaitingStatus>
-                    Waiting for this idea’s assessment…
+                    Assessment starts after supporting research completes…
                   </WaitingStatus>
                 ) : (
                   <Typography color="error" variant="body2">
-                    Assessment did not complete for this idea.
+                    Assessment did not complete for this improved idea.
                   </Typography>
                 )}
               </Stack>
-            )}
+            </CardContent>
+          </Card>
+        ))}
 
-            <Stack component="section" spacing={1}>
-              <Typography component="h3" variant="h6">
-                Decision
+      {idea.selection === "selected" && (
+        <Card component="section" variant="outlined">
+          <CardContent>
+            <Stack spacing={1}>
+              <Typography component="h2" variant="h6">
+                Original candidate
               </Typography>
-              {idea.selection === "pending" && status === "running" ? (
-                <WaitingStatus>
-                  Selection starts after every idea has been evaluated…
-                </WaitingStatus>
-              ) : idea.selection === "pending" ? (
-                <Typography color="error" variant="body2">
-                  Selection did not complete for this idea.
-                </Typography>
-              ) : (
-                <Typography color="text.secondary">
-                  {idea.selection === "selected"
-                    ? "This idea was selected for improvement and deeper research."
-                    : "This idea was not selected for further improvement or research."}
-                </Typography>
-              )}
+              <Typography component="h3" variant="subtitle1">
+                {idea.title}
+              </Typography>
+              <Typography color="text.secondary">
+                {idea.description}
+              </Typography>
             </Stack>
-          </Stack>
-        </AccordionDetails>
-      </Accordion>
+          </CardContent>
+        </Card>
+      )}
+
+      <Stack component="section" spacing={1}>
+        <Typography component="h2" variant="h6">
+          Decision
+        </Typography>
+        {idea.selection === "pending" && status === "running" ? (
+          <WaitingStatus>Comparing this candidate with the others…</WaitingStatus>
+        ) : idea.selection === "pending" ? (
+          <Typography color="error" variant="body2">
+            Selection did not complete for this idea.
+          </Typography>
+        ) : (
+          <Typography color="text.secondary">
+            {idea.selection === "selected"
+              ? "This candidate was selected for improvement, deeper research, and final assessment."
+              : "This candidate was not selected for further improvement or research."}
+          </Typography>
+        )}
+      </Stack>
     </Stack>
   )
 }

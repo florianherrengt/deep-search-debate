@@ -175,6 +175,7 @@ export function TournamentBoard({ tournament }: TournamentBoardProps) {
           </Stack>
           <StandingsTable
             advancedIdeaIds={advancedIdeaIds}
+            ideaJobSlug={tournament.slug}
             standings={tournament.standings}
           />
         </Stack>

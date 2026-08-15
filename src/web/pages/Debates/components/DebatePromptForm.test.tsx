@@ -19,17 +19,22 @@ function renderForm(
 describe("DebatePromptForm", () => {
   it("keeps secondary setup hidden and starts a private-by-default flow", () => {
     const onSubmit = renderForm()
+    const advancedOptions = screen.getByRole("button", {
+      name: "Advanced options",
+    })
+    const startDebate = screen.getByRole("button", { name: "Start a debate" })
 
     expect(
       screen.queryByRole("switch", { name: /public/i }),
     ).not.toBeInTheDocument()
     expect(screen.queryByLabelText("Candidate ideas")).not.toBeInTheDocument()
-    expect(screen.getByText(/Private by default/i)).toBeVisible()
+    expect(screen.queryByText(/Private by default/i)).not.toBeInTheDocument()
+    expect(advancedOptions.parentElement).toBe(startDebate.parentElement)
 
     fireEvent.change(screen.getByLabelText("What should the ideas solve?"), {
       target: { value: "  Reduce food waste  " },
     })
-    fireEvent.click(screen.getByRole("button", { name: "Start a debate" }))
+    fireEvent.click(startDebate)
 
     expect(onSubmit).toHaveBeenCalledWith({
       numberOfIdeas: 8,

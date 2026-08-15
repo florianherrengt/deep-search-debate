@@ -8,15 +8,19 @@ import {
   TableHead,
   TableRow,
   Typography,
+  Link as MuiLink,
 } from "@mui/material"
 import { alpha } from "@mui/material/styles"
+import { Link } from "react-router-dom"
 import type { DebateStanding } from "../debateUiTypes.ts"
 
 export function StandingsTable({
   advancedIdeaIds = new Set<string>(),
+  ideaJobSlug,
   standings,
 }: {
   advancedIdeaIds?: ReadonlySet<string>
+  ideaJobSlug: string
   standings: DebateStanding[]
 }) {
   return (
@@ -53,9 +57,14 @@ export function StandingsTable({
                   </Typography>
                 </TableCell>
                 <TableCell>
-                  <Typography sx={{ fontWeight: 600 }} variant="body2">
+                  <MuiLink
+                    component={Link}
+                    sx={{ fontWeight: 600, overflowWrap: "anywhere" }}
+                    to={`/ideas/${encodeURIComponent(ideaJobSlug)}/${encodeURIComponent(standing.idea.ideaId)}#improved-idea`}
+                    variant="body2"
+                  >
                     {standing.idea.title}
-                  </Typography>
+                  </MuiLink>
                   {advanced && (
                     <Chip
                       color="success"

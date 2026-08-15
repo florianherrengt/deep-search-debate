@@ -14,7 +14,7 @@ describe("Storybook preview", () => {
     render(<ReadyStory />)
 
     expect(
-      screen.getByRole("link", { name: "Only generate options" }),
-    ).toHaveAttribute("href", "/ideas")
+      screen.queryByRole("link", { name: "Only generate options" }),
+    ).not.toBeInTheDocument()
   })
 })

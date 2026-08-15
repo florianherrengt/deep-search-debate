@@ -3,7 +3,7 @@ import AlertTitle from "@mui/material/AlertTitle"
 import CircularProgress from "@mui/material/CircularProgress"
 import Stack from "@mui/material/Stack"
 import Typography from "@mui/material/Typography"
-import { useState, type ReactNode } from "react"
+import type { ReactNode } from "react"
 import { GenerationOutput } from "../../../components/streaming/GenerationOutput.tsx"
 import type { IdeaJobRunState } from "../ideaJobState.ts"
 import { IdeaList } from "./IdeaList.tsx"
@@ -44,14 +44,14 @@ const progressStageOrder = {
 type ProgressStage = keyof typeof progressStageOrder
 type FailedStage = NonNullable<IdeaJobRunState["failedStage"]>
 
-// Evaluation and selection are subphases of the visible idea stage, while
-// refinement and per-idea research share one downstream progress card.
+// Selection is part of candidate generation. Refinement, supporting research,
+// and final evaluation share one downstream progress card.
 const failedStageToProgressStage: Record<FailedStage, ProgressStage> = {
   planning: "planning",
   research: "research",
   summary: "summary",
   ideas: "ideas",
-  evaluation: "ideas",
+  evaluation: "improvement",
   selection: "ideas",
   refinement: "improvement",
   "idea-research": "improvement",
@@ -98,7 +98,7 @@ function IdeaResults({
         >
           <CircularProgress aria-hidden="true" size={20} />
           <Typography color="text.secondary">
-            Improving and researching the selected ideas…
+            Improving, researching, and assessing the selected ideas…
           </Typography>
         </Stack>
       )}
@@ -129,8 +129,6 @@ export function IdeaJobView({
   stopError?: Error | null
   stopRequested?: boolean
 }) {
-  const [improvementStageHasFocus, setImprovementStageHasFocus] =
-    useState(false)
   const status =
     stopRequested && run.status === "running" ? "stopping" : run.status
   const presentationRun: IdeaJobRunState =
@@ -162,6 +160,9 @@ export function IdeaJobView({
   ).length
   const researchedIdeaCount = selectedIdeas.filter(
     ({ ideaId }) => run.refinedIdeaResearch[ideaId] !== undefined,
+  ).length
+  const evaluatedIdeaCount = selectedIdeas.filter(
+    ({ ideaId }) => run.ideaEvaluations[ideaId] !== undefined,
   ).length
   const planningStatus = getProgressStatus({
     failed: failedStage === "planning",
@@ -195,9 +196,7 @@ export function IdeaJobView({
   })
   const ideaStatus = getProgressStatus({
     failed:
-      failedStage === "ideas" ||
-      failedStage === "evaluation" ||
-      failedStage === "selection",
+      failedStage === "ideas" || failedStage === "selection",
     notRun: notRunAfterFailure("ideas"),
     running:
       status === "running" &&
@@ -220,7 +219,10 @@ export function IdeaJobView({
     stopped: status === "stopping" || status === "interrupted",
   })
   const improvementStatus = getProgressStatus({
-    failed: failedStage === "refinement" || failedStage === "idea-research",
+    failed:
+      failedStage === "refinement" ||
+      failedStage === "idea-research" ||
+      failedStage === "evaluation",
     notRun: notRunAfterFailure("improvement"),
     running:
       status === "running" &&
@@ -236,8 +238,8 @@ export function IdeaJobView({
     selectedIdeaCount > 0 &&
     (selectionCompleted ||
       failedStage === "refinement" ||
-      failedStage === "idea-research") &&
-    (status !== "completed" || improvementStageHasFocus)
+      failedStage === "idea-research" ||
+      failedStage === "evaluation")
   return (
     <Stack spacing={3}>
       <Stack spacing={1}>
@@ -271,6 +273,24 @@ export function IdeaJobView({
         <Alert severity="warning">{run.subscriptionError}</Alert>
       )}
 
+      {status === "completed" && run.research.length > 0 && (
+        <Stack
+          component="section"
+          spacing={1.5}
+          aria-labelledby="initial-idea-research"
+        >
+          <Stack spacing={0.5}>
+            <Typography component="h2" id="initial-idea-research" variant="h5">
+              Initial deep research
+            </Typography>
+            <Typography color="text.secondary">
+              Open the source research that informed these ideas.
+            </Typography>
+          </Stack>
+          <ResearchProgress research={run.research} />
+        </Stack>
+      )}
+
       {hasIdeas && (
         <IdeaResults
           ideas={run.ideas}
@@ -282,22 +302,19 @@ export function IdeaJobView({
         />
       )}
 
-      <Stack
-        component="section"
-        key="idea-process"
-        spacing={2}
-        aria-labelledby="idea-process"
-      >
-        <Stack spacing={0.5}>
-          <Typography component="h2" id="idea-process" variant="h5">
-            {status === "completed"
-              ? "How these ideas were developed"
-              : "Progress"}
-          </Typography>
-          <Typography color="text.secondary">
-            {status === "completed"
-              ? "Review the research, candidate ideas, and decisions behind the results."
-              : status === "failed"
+      {status !== "completed" && (
+        <Stack
+          component="section"
+          key="idea-process"
+          spacing={2}
+          aria-labelledby="idea-process"
+        >
+          <Stack spacing={0.5}>
+            <Typography component="h2" id="idea-process" variant="h5">
+              Progress
+            </Typography>
+            <Typography color="text.secondary">
+              {status === "failed"
                 ? "Review what completed before the run stopped."
                 : status === "interrupted"
                   ? stopRequested
@@ -305,9 +322,9 @@ export function IdeaJobView({
                     : "This run was interrupted. Completed work remains available below."
                   : status === "stopping"
                     ? "Stopping queued and active work…"
-                : "Follow the current stage or expand an earlier stage for details."}
-          </Typography>
-        </Stack>
+                    : "Follow the current stage or expand an earlier stage for details."}
+            </Typography>
+          </Stack>
 
         <Stack
           aria-label="Idea generation stages"
@@ -362,7 +379,7 @@ export function IdeaJobView({
 
           <ProgressCard
             autoExpandStatuses={["running", "failed"]}
-            title="Generate and assess ideas"
+            title="Generate and select ideas"
             status={ideaStatus}
           >
             <Stack spacing={2}>
@@ -385,11 +402,6 @@ export function IdeaJobView({
                   Idea generation stopped before producing a complete set.
                 </Typography>
               )}
-              {failedStage === "evaluation" && (
-                <Typography color="error" variant="body2">
-                  Idea evaluation did not complete.
-                </Typography>
-              )}
               {selectionStatus === "waiting" &&
                 hasIdeas &&
                 status === "running" && (
@@ -402,8 +414,7 @@ export function IdeaJobView({
                   >
                     <CircularProgress aria-hidden="true" size={20} />
                     <Typography color="text.secondary">
-                      Evaluating ideas… Selection starts when every evaluation is
-                      ready.
+                      Comparing the generated ideas…
                     </Typography>
                   </Stack>
                 )}
@@ -439,17 +450,7 @@ export function IdeaJobView({
           {showImprovementStage && (
             <ProgressCard
               autoExpandStatuses={["running", "failed"]}
-              onBlurCapture={(event) => {
-                const nextTarget = event.relatedTarget
-                if (
-                  !(nextTarget instanceof Node) ||
-                  !event.currentTarget.contains(nextTarget)
-                ) {
-                  setImprovementStageHasFocus(false)
-                }
-              }}
-              onFocusCapture={() => setImprovementStageHasFocus(true)}
-              title="Improve and research selected ideas"
+              title="Improve, research, and assess selected ideas"
               status={improvementStatus}
             >
               <Stack spacing={1}>
@@ -463,16 +464,23 @@ export function IdeaJobView({
                     Supporting research did not complete for every selected idea.
                   </Typography>
                 )}
+                {failedStage === "evaluation" && (
+                  <Typography color="error" variant="body2">
+                    One or more improved ideas could not be assessed.
+                  </Typography>
+                )}
                 <Typography color="text.secondary">
                   {refinedIdeaCount} of {selectedIdeaCount} improved ·{" "}
                   {researchedIdeaCount} of {selectedIdeaCount} supporting research{" "}
-                  {researchedIdeaCount === 1 ? "job" : "jobs"} started
+                  {researchedIdeaCount === 1 ? "job" : "jobs"} started ·{" "}
+                  {evaluatedIdeaCount} of {selectedIdeaCount} assessed
                 </Typography>
               </Stack>
             </ProgressCard>
           )}
+          </Stack>
         </Stack>
-      </Stack>
+      )}
     </Stack>
   )
 }

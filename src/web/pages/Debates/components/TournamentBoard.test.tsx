@@ -173,4 +173,16 @@ describe("TournamentBoard", () => {
     expect(screen.getByText("1578")).toBeVisible()
     expect(screen.queryByText("1578.402416378157")).not.toBeInTheDocument()
   })
+
+  it("links standings back to each generated idea detail", () => {
+    renderBoard(completedTournament)
+
+    const firstStanding = completedTournament.standings[0]
+    expect(
+      screen.getByRole("link", { name: firstStanding.idea.title }),
+    ).toHaveAttribute(
+      "href",
+      `/ideas/${completedTournament.slug}/${firstStanding.idea.ideaId}#improved-idea`,
+    )
+  })
 })

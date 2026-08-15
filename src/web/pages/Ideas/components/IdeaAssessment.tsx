@@ -69,10 +69,11 @@ export function IdeaAssessment({
         <Stack spacing={2}>
           <Stack spacing={0.5}>
             <Typography component={headingComponent} variant="h6">
-              Assessment of original idea
+              Assessment of improved idea
             </Typography>
             <Typography color="text.secondary" variant="body2">
-              Based on the shared research briefing used to evaluate every idea.
+              Based on the initial briefing and the research gathered for this
+              improved version.
             </Typography>
           </Stack>
           <Box

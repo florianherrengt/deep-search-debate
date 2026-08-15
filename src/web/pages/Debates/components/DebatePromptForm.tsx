@@ -1,11 +1,11 @@
 import {
   AutoAwesomeRounded,
   ExpandMoreRounded,
-  LightbulbOutlined,
   TuneRounded,
 } from "@mui/icons-material"
 import {
   Alert,
+  Box,
   Button,
   Card,
   CardContent,
@@ -16,7 +16,6 @@ import {
   Typography,
 } from "@mui/material"
 import { useState, type SyntheticEvent } from "react"
-import { Link } from "react-router-dom"
 
 export type DebatePromptFormProps = {
   onSubmit: (input: {
@@ -85,54 +84,34 @@ export function DebatePromptForm({
               placeholder="Create a product that helps independent cafés reduce food waste."
               value={prompt}
             />
-            <Button
-              aria-expanded={advancedOptionsOpen}
-              color="inherit"
-              disabled={isStarting}
-              endIcon={
-                <ExpandMoreRounded
-                  sx={{
-                    transform: advancedOptionsOpen ? "rotate(180deg)" : undefined,
-                  }}
-                />
-              }
-              onClick={() => setAdvancedOptionsOpen((current) => !current)}
-              startIcon={<TuneRounded />}
-              sx={{ alignSelf: "flex-start", px: 0.5 }}
+            <Box
+              sx={{
+                alignItems: "center",
+                columnGap: 1,
+                display: "grid",
+                gridTemplateColumns: "minmax(0, 1fr) auto",
+                rowGap: advancedOptionsOpen ? 1.5 : 0,
+              }}
             >
-              Advanced options
-            </Button>
-            <Collapse in={advancedOptionsOpen} unmountOnExit>
-              <TextField
+              <Button
+                aria-expanded={advancedOptionsOpen}
+                color="inherit"
                 disabled={isStarting}
-                error={!ideaCountIsValid}
-                fullWidth
-                helperText="Choose how many candidate ideas enter the tournament."
-                label="Candidate ideas"
-                onChange={(event) => setNumberOfIdeas(Number(event.target.value))}
-                select
-                size="small"
-                value={numberOfIdeas}
+                endIcon={
+                  <ExpandMoreRounded
+                    sx={{
+                      transform: advancedOptionsOpen
+                        ? "rotate(180deg)"
+                        : undefined,
+                    }}
+                  />
+                }
+                onClick={() => setAdvancedOptionsOpen((current) => !current)}
+                startIcon={<TuneRounded />}
+                sx={{ justifySelf: "flex-start", px: 0.5 }}
               >
-                {ideaCountOptions.map((option) => (
-                  <MenuItem key={option} value={option}>
-                    {option} ideas
-                  </MenuItem>
-                ))}
-              </TextField>
-            </Collapse>
-            <Stack
-              direction={{ xs: "column", sm: "row" }}
-              spacing={1}
-              sx={{ alignItems: { sm: "center" } }}
-            >
-              <Typography
-                color="text.secondary"
-                sx={{ flexGrow: 1 }}
-                variant="body2"
-              >
-                Private by default. You can share it after it starts.
-              </Typography>
+                Advanced options
+              </Button>
               <Button
                 disabled={isStarting || !prompt.trim() || !ideaCountIsValid}
                 loading={isStarting}
@@ -142,19 +121,35 @@ export function DebatePromptForm({
               >
                 Start a debate
               </Button>
-            </Stack>
+              <Collapse
+                in={advancedOptionsOpen}
+                sx={{ gridColumn: "1 / -1" }}
+                unmountOnExit
+              >
+                <TextField
+                  disabled={isStarting}
+                  error={!ideaCountIsValid}
+                  fullWidth
+                  helperText="Choose how many candidate ideas enter the tournament."
+                  label="Candidate ideas"
+                  onChange={(event) =>
+                    setNumberOfIdeas(Number(event.target.value))
+                  }
+                  select
+                  size="small"
+                  value={numberOfIdeas}
+                >
+                  {ideaCountOptions.map((option) => (
+                    <MenuItem key={option} value={option}>
+                      {option} ideas
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Collapse>
+            </Box>
           </Stack>
         </CardContent>
       </Card>
-
-      <Button
-        component={Link}
-        startIcon={<LightbulbOutlined />}
-        sx={{ alignSelf: "flex-start" }}
-        to="/ideas"
-      >
-        Only generate options
-      </Button>
     </Stack>
   )
 }

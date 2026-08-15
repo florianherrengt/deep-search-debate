@@ -200,6 +200,18 @@ describe("Debates", () => {
       "href",
       "/debates/better-cafe-ideas",
     )
+    expect(screen.getByRole("link", { name: "First idea" })).toHaveAttribute(
+      "href",
+      "/ideas/better-cafe-ideas/first#improved-idea",
+    )
+    expect(screen.getByRole("link", { name: "First idea" })).toHaveAttribute(
+      "target",
+      "_blank",
+    )
+    expect(screen.getByRole("link", { name: "Second idea" })).toHaveAttribute(
+      "href",
+      "/ideas/better-cafe-ideas/second#improved-idea",
+    )
     expect(mocks.createDebateJob).toHaveBeenCalledWith({
       prompt: "Design a better café",
       isPublic: false,
@@ -221,6 +233,29 @@ describe("Debates", () => {
     )
   })
 
+  it("makes ongoing idea generation explicit when a debate is opened", async () => {
+    mocks.getDebateJob.mockResolvedValue(
+      tournament({
+        stage: "ideas",
+        expectedMatchCount: null,
+        rounds: [],
+        standings: [],
+      }),
+    )
+
+    renderDebates("/debates/better-cafe-ideas")
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Generating and improving debate ideas…",
+      }),
+    ).toBeVisible()
+    expect(screen.getByRole("status")).toBeVisible()
+    expect(
+      screen.getByText(/debate rounds will start automatically/i),
+    ).toBeVisible()
+  })
+
   it("prefills a question handed off from the landing page", () => {
     renderDebates("/debates?prompt=Should%20we%20enter%20this%20market%3F")
 
@@ -235,7 +270,7 @@ describe("Debates", () => {
     expect(
       screen.queryByRole("switch", { name: /public/i }),
     ).not.toBeInTheDocument()
-    expect(screen.getByText(/Private by default/)).toBeVisible()
+    expect(screen.queryByText(/Private by default/)).not.toBeInTheDocument()
   })
 
   it("lets the owner publish a debate and copy its canonical URL", async () => {
@@ -619,6 +654,18 @@ describe("Debates", () => {
         name: "View the underlying idea generation",
       }),
     ).toHaveAttribute("href", "/ideas/better-cafe-ideas")
+    expect(
+      screen.getByRole("link", { name: "View winning idea details" }),
+    ).toHaveAttribute(
+      "href",
+      "/ideas/better-cafe-ideas/first#improved-idea",
+    )
+    expect(
+      screen.getByRole("link", { name: "View alternative details" }),
+    ).toHaveAttribute(
+      "href",
+      "/ideas/better-cafe-ideas/second#improved-idea",
+    )
     await waitFor(() => expect(mocks.subscribeToDebateJob).not.toHaveBeenCalled())
     expect(mocks.subscribeToTextStream).not.toHaveBeenCalled()
   })
@@ -756,11 +803,11 @@ describe("Debates", () => {
     )
   })
 
-  it("links to the standalone idea generator", () => {
+  it("does not duplicate the option generator navigation", () => {
     renderDebates()
     expect(
-      screen.getByRole("link", { name: "Only generate options" }),
-    ).toHaveAttribute("href", "/ideas")
+      screen.queryByRole("link", { name: "Only generate options" }),
+    ).not.toBeInTheDocument()
   })
 
   it("links to durable previous tournaments", async () => {
@@ -782,9 +829,11 @@ describe("Debates", () => {
 
     renderDebates()
 
-    expect(
-      await screen.findByRole("link", { name: /Previous Tournament/ }),
-    ).toHaveAttribute("href", "/debates/previous-tournament")
+    const previousDebate = await screen.findByRole("link", {
+      name: /Previous Tournament/,
+    })
+    expect(previousDebate).toHaveAttribute("href", "/debates/previous-tournament")
+    expect(within(previousDebate).getByText(/2026/)).toBeVisible()
     expect(screen.getByText("Debate complete")).toBeVisible()
   })
 })

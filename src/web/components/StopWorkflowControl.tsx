@@ -29,6 +29,8 @@ export function StopWorkflowControl({
     <>
       <Button
         color="error"
+        size="small"
+        sx={{ height: 30, minHeight: 0, py: 0 }}
         variant="outlined"
         disabled={busy}
         onClick={() => setOpen(true)}

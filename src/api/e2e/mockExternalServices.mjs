@@ -391,7 +391,7 @@ function assertThinkingMode(body, system) {
     "You decide whether a deep-research job",
   )
   const budgetSensitiveTextSkipsReasoning =
-    system.includes("Evaluate the generated idea against") ||
+    system.includes("Evaluate the improved idea against") ||
     system.includes("Combine the supplied research texts") ||
     system.includes("You summarize an extracted web page") ||
     system.includes("You summarize the results returned for one web search") ||
@@ -548,14 +548,18 @@ function deepSeekOutput(body) {
       text: JSON.stringify({ elements: ideas }),
     }
   }
-  if (system.includes("Evaluate the generated idea against")) {
-    const generatedIdea = parseTaggedJson(user, "generated_idea")
-    const position = ideas.findIndex(
-      (idea) => JSON.stringify(idea) === JSON.stringify(generatedIdea),
+  if (system.includes("Evaluate the improved idea against")) {
+    const improvedIdea = parseTaggedJson(user, "improved_idea")
+    const supportingResearch = taggedText(user, "supporting_research")
+    const position = refinedIdeas.findIndex(
+      (idea) => JSON.stringify(idea) === JSON.stringify(improvedIdea),
     )
     if (
       !user.includes("<research_briefing>") ||
-      position === -1
+      position === -1 ||
+      !supportingResearch.includes(
+        `Improved Renter Energy Idea ${position + 1}`,
+      )
     ) {
       throw new Error("Idea evaluation request did not include its complete context")
     }
@@ -578,10 +582,10 @@ function deepSeekOutput(body) {
   }
   if (system.includes("Select the strongest generated ideas")) {
     const candidates = [...user.matchAll(
-      /<evaluated_idea>\s*([\s\S]*?)\s*<\/evaluated_idea>/g,
+      /<candidate_idea>\s*([\s\S]*?)\s*<\/candidate_idea>/g,
     )].map((match) => JSON.parse(match[1]))
     if (candidates.length !== ideas.length) {
-      throw new Error("Idea selection request omitted evaluated ideas")
+      throw new Error("Idea selection request omitted generated ideas")
     }
     return {
       reasoning: "Select all eight distinct mock candidates for the tournament.",
@@ -590,22 +594,16 @@ function deepSeekOutput(body) {
       }),
     }
   }
-  if (system.includes("Improve the selected idea using its evaluation")) {
+  if (system.includes("Improve the selected idea using the supplied research")) {
     const originalIdea = parseTaggedJson(user, "original_idea")
-    const evaluation = parseTaggedJson(user, "evaluation")
     const position = ideas.findIndex(
       (idea) => JSON.stringify(idea) === JSON.stringify(originalIdea),
     )
-    if (
-      position === -1 ||
-      !evaluation.pros.includes(
-        `Idea ${position + 1} has a clear renter-friendly mechanism.`,
-      )
-    ) {
-      throw new Error("Idea refinement request omitted its evaluation or original")
+    if (position === -1 || !user.includes("<research_briefing>")) {
+      throw new Error("Idea refinement request omitted its research or original")
     }
     return {
-      reasoning: `Apply the evaluation to mock idea ${position + 1}.`,
+      reasoning: `Improve mock idea ${position + 1} using the shared research.`,
       text: JSON.stringify(refinedIdeas[position]),
     }
   }

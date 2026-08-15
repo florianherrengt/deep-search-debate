@@ -66,7 +66,16 @@ test.describe("Debate tournament", () => {
     ).toBeVisible()
     await expect(
       page.getByRole("link", { name: "Only generate options" }),
-    ).toHaveAttribute("href", "/ideas")
+    ).toHaveCount(0)
+    const formActionTops = await Promise.all(
+      [
+        page.getByRole("button", { name: "Advanced options" }),
+        page.getByRole("button", { name: "Start a debate" }),
+      ].map((control) =>
+        control.evaluate((element) => element.getBoundingClientRect().top),
+      ),
+    )
+    expect(formActionTops[0]).toBe(formActionTops[1])
 
     const prompt = debatePrompt
     const createdResponse = page.waitForResponse(
@@ -114,6 +123,17 @@ test.describe("Debate tournament", () => {
     expect(live.headers()["content-type"]).toContain("application/x-ndjson")
     await expect(page.getByText("Debate in progress")).toBeVisible()
     await expect(page.getByText(/\d+\/23 matches/)).toBeVisible()
+    const runningHeaderControlHeights = await Promise.all(
+      [
+        page.locator(".MuiChip-root").filter({ hasText: "Debate in progress" }),
+        page.locator(".MuiChip-root").filter({ hasText: "Private" }),
+        page.getByRole("button", { name: "Stop workflow" }),
+        page.getByRole("button", { name: "Share" }),
+      ].map((control) =>
+        control.evaluate((element) => element.getBoundingClientRect().height),
+      ),
+    )
+    expect(runningHeaderControlHeights).toEqual([30, 30, 30, 30])
 
     const debateUrl = page.url()
     const liveMatchLink = page
@@ -234,9 +254,9 @@ test.describe("Debate tournament", () => {
       }),
     ).toBeVisible()
     await expect(anonymousPage.getByText(prompt, { exact: true })).toBeVisible()
-    await anonymousPage
-      .getByRole("button", { name: /Deep research/ })
-      .click()
+    await expect(
+      anonymousPage.getByRole("heading", { name: "Initial deep research" }),
+    ).toBeVisible()
     const publicResearchLink = anonymousPage
       .locator('a[href^="/deep-search/"]')
       .first()
@@ -262,6 +282,16 @@ test.describe("Debate tournament", () => {
     await expect(page.getByText("Debate complete")).toBeVisible({
       timeout: 60_000,
     })
+    const headerControlHeights = await Promise.all(
+      [
+        page.locator(".MuiChip-root").filter({ hasText: "Debate complete" }),
+        page.locator(".MuiChip-root").filter({ hasText: "Public" }),
+        page.getByRole("button", { name: "Share" }),
+      ].map((control) =>
+        control.evaluate((element) => element.getBoundingClientRect().height),
+      ),
+    )
+    expect(headerControlHeights).toEqual([30, 30, 30])
     await expect(page.getByText("23/23 matches", { exact: true })).toBeVisible()
     await expect(page.getByText("Winning idea", { exact: true })).toBeVisible()
     await expect(page.getByText("Why it won", { exact: true })).toBeVisible()

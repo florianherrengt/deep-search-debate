@@ -17,9 +17,10 @@ import {
  * One stable idea produced by an idea-generation job. Ideas are normalized so
  * tournament rows reference durable IDs instead of brittle JSON array offsets.
  * position preserves generation order as metadata, not identity. Idea rows are
- * immutable after insertion except for its one-time evaluation link and
- * selection decision, so replay sees exactly what debate agents saw. Nullable
- * fields represent the valid intervals before those pipeline stages finish.
+ * immutable after insertion except for its one-time selection, refinement, and
+ * final-evaluation fields, so replay sees exactly what debate agents saw.
+ * Nullable fields represent the valid intervals before those pipeline stages
+ * finish; rejected ideas never receive refinement or evaluation links.
  */
 export const ideas = sqliteTable(
   "ideas",
@@ -31,7 +32,8 @@ export const ideas = sqliteTable(
     position: integer("position").notNull(),
     title: text("title").notNull(),
     description: text("description").notNull(),
-    // Nullable until evaluation starts. The one-time SQL guard intentionally does
+    // Nullable for rejected ideas and until a selected, refined, researched
+    // idea's final evaluation starts. The one-time SQL guard intentionally does
     // not couple this attachment to the parent job's terminal status.
     evaluationGenerationId: text("evaluation_generation_id").unique(),
     // Null means selection has not completed. Every idea is atomically resolved

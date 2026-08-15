@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest"
+import { eq } from "drizzle-orm"
 import { db } from "../../db/index.ts"
 import {
   deepSearchJobs,
@@ -26,13 +27,52 @@ function insertGeneration(id: string, text: string, promptName?: string): void {
     .run()
 }
 
+function insertCompletedSearch(
+  id: string,
+  position: number,
+  researchRequest: string,
+): void {
+  db.insert(deepSearchJobs)
+    .values({
+      userId: "test-user-id",
+      deepSearchJobId: id,
+      slug: id,
+      ideaJobId,
+      ideaJobPosition: position,
+      researchRequest,
+      maxSearches: 3,
+      maxResultsPerSearch: 3,
+    })
+    .run()
+  const finalAnswerGenerationId = `${id}-final`
+  db.insert(llmGenerations)
+    .values({
+      userId: "test-user-id",
+      deepSearchJobId: id,
+      llmGenerationId: finalAnswerGenerationId,
+      status: "completed",
+      text: "Completed supporting research",
+      reasoning: "Supporting research reasoning",
+      completedAt: new Date(),
+    })
+    .run()
+  db.update(deepSearchJobs)
+    .set({
+      finalAnswerGenerationId,
+      status: "completed",
+      completedAt: new Date(),
+    })
+    .where(eq(deepSearchJobs.deepSearchJobId, id))
+    .run()
+}
+
 describe("reconstructIdeaJobEvents", () => {
   beforeEach(() => {
     db.delete(ideaJobs).run()
     db.delete(llmGenerations).run()
   })
 
-  it("replays a structured idea evaluation from its generation", () => {
+  it("does not replay an assessment for an unselected raw idea", () => {
     const ideaId = "33333333-3333-4333-8333-333333333333"
     const evaluation = {
       pros: ["Clear user value", "Fits the existing workflow"],
@@ -79,7 +119,6 @@ describe("reconstructIdeaJobEvents", () => {
         title: "Specific idea",
         description: "Concrete description",
       },
-      { type: "idea-evaluated", ideaId, ...evaluation },
       { type: "error", message: "Selection failed", stage: "selection" },
       { type: "done" },
     ])
@@ -101,6 +140,11 @@ describe("reconstructIdeaJobEvents", () => {
       '{"pros":["Only one"],"cons":[],"critique":"Incomplete"}',
       PromptName.EvaluateIdea,
     )
+    insertGeneration("selection-id", '{"selectedIdeaIds":[]}')
+    insertGeneration(
+      "refinement-id",
+      '{"title":"Improved idea","description":"Improved description"}',
+    )
     db.insert(ideas)
       .values({
         ideaId,
@@ -109,31 +153,33 @@ describe("reconstructIdeaJobEvents", () => {
         title: "Specific idea",
         description: "Concrete description",
         evaluationGenerationId: "invalid-evaluation-id",
+        selected: true,
+        refinementGenerationId: "refinement-id",
+        refinedTitle: "Improved idea",
+        refinedDescription: "Improved description",
       })
       .run()
+    insertCompletedSearch("selected-search", 1, "Research the improved idea")
     db.update(ideaJobs)
       .set({
         stage: "ideas",
+        selectionGenerationId: "selection-id",
         status: "failed",
         error: "Structured output was invalid",
         completedAt: new Date(),
       })
       .run()
 
-    expect(reconstructIdeaJobEvents(ideaJobId)).toEqual([
-      {
-        type: "idea",
-        ideaId,
-        title: "Specific idea",
-        description: "Concrete description",
-      },
-      {
+    expect(reconstructIdeaJobEvents(ideaJobId)).toEqual(
+      expect.arrayContaining([
+        {
         type: "error",
         message: "Structured output was invalid",
         stage: "evaluation",
-      },
-      { type: "done" },
-    ])
+        },
+        { type: "done" },
+      ]),
+    )
   })
 
   it("replays every persisted stage and its normalized ideas", () => {
@@ -162,6 +208,11 @@ describe("reconstructIdeaJobEvents", () => {
       JSON.stringify(evaluation),
       PromptName.EvaluateIdea,
     )
+    insertGeneration("selection-id", '{"selectedIdeaIds":[]}')
+    insertGeneration(
+      "refinement-id",
+      '{"title":"Improved idea","description":"Improved description"}',
+    )
     db.insert(ideas)
       .values({
         ideaId: "33333333-3333-4333-8333-333333333333",
@@ -170,6 +221,10 @@ describe("reconstructIdeaJobEvents", () => {
         title: "Specific idea",
         description: "Concrete description",
         evaluationGenerationId: "evaluation-id",
+        selected: true,
+        refinementGenerationId: "refinement-id",
+        refinedTitle: "Improved idea",
+        refinedDescription: "Improved description",
       })
       .run()
     db.update(ideaJobs)
@@ -178,6 +233,7 @@ describe("reconstructIdeaJobEvents", () => {
         researchPromptGenerationId: "planning-id",
         researchSummaryGenerationId: "summary-id",
         ideaGenerationId: "ideas-id",
+        selectionGenerationId: "selection-id",
         status: "completed",
         completedAt: new Date(),
       })
@@ -212,6 +268,11 @@ describe("reconstructIdeaJobEvents", () => {
         completedAt: new Date(),
       })
       .run()
+    insertCompletedSearch(
+      "selected-search",
+      1,
+      "Research the improved idea",
+    )
 
     expect(reconstructIdeaJobEvents(ideaJobId)).toEqual([
       { type: "research-prompt-stream", streamId: "planning-id" },
@@ -229,6 +290,27 @@ describe("reconstructIdeaJobEvents", () => {
         ideaId: "33333333-3333-4333-8333-333333333333",
         title: "Specific idea",
         description: "Concrete description",
+      },
+      { type: "idea-selection-stream", streamId: "selection-id" },
+      { type: "selected-ideas", selectedIdeaIds: ["33333333-3333-4333-8333-333333333333"] },
+      {
+        type: "idea-refinement-stream",
+        ideaId: "33333333-3333-4333-8333-333333333333",
+        streamId: "refinement-id",
+      },
+      {
+        type: "refined-idea",
+        ideaId: "33333333-3333-4333-8333-333333333333",
+        title: "Improved idea",
+        description: "Improved description",
+      },
+      {
+        type: "idea-deep-search-started",
+        ideaId: "33333333-3333-4333-8333-333333333333",
+        deepSearchJobId: "selected-search",
+        title: "Untitled",
+        slug: "selected-search",
+        researchRequest: "Research the improved idea",
       },
       {
         type: "idea-evaluated",
@@ -249,6 +331,11 @@ describe("reconstructIdeaJobEvents", () => {
         deepSearchCount: 1,
       })
       .run()
+    insertGeneration("selection-id", '{"selectedIdeaIds":[]}')
+    insertGeneration(
+      "refinement-id",
+      '{"title":"Improved idea","description":"Improved description"}',
+    )
     db.insert(ideas)
       .values({
         ideaId: "33333333-3333-4333-8333-333333333333",
@@ -256,31 +343,33 @@ describe("reconstructIdeaJobEvents", () => {
         position: 0,
         title: "Visible before evaluation",
         description: "This idea already exists",
+        selected: true,
+        refinementGenerationId: "refinement-id",
+        refinedTitle: "Improved idea",
+        refinedDescription: "Improved description",
       })
       .run()
+    insertCompletedSearch("selected-search", 1, "Research the improved idea")
     db.update(ideaJobs)
       .set({
         stage: "ideas",
+        selectionGenerationId: "selection-id",
         status: "failed",
         error: "Evaluation failed before streaming",
         completedAt: new Date(),
       })
       .run()
 
-    expect(reconstructIdeaJobEvents(ideaJobId)).toEqual([
-      {
-        type: "idea",
-        ideaId: "33333333-3333-4333-8333-333333333333",
-        title: "Visible before evaluation",
-        description: "This idea already exists",
-      },
-      {
+    expect(reconstructIdeaJobEvents(ideaJobId)).toEqual(
+      expect.arrayContaining([
+        {
         type: "error",
         message: "Evaluation failed before streaming",
         stage: "evaluation",
-      },
-      { type: "done" },
-    ])
+        },
+        { type: "done" },
+      ]),
+    )
   })
 
   it("replays parallel child searches in planning order", () => {

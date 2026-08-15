@@ -38,6 +38,7 @@ function replayNormalizedIdeas(ideaJobId: string, deepSearchCount: number): {
   allEvaluationsCompleted: boolean
   selectionResolved: boolean
   allRefinementsCompleted: boolean
+  allSelectedResearchCompleted: boolean
   selectedIdeaIds: string[]
 } {
   const evaluationGenerations = aliasedTable(
@@ -61,6 +62,7 @@ function replayNormalizedIdeas(ideaJobId: string, deepSearchCount: number): {
       refinedTitle: ideas.refinedTitle,
       refinedDescription: ideas.refinedDescription,
       deepSearchJobId: deepSearchJobs.deepSearchJobId,
+      deepSearchStatus: deepSearchJobs.status,
       deepSearchTitle: deepSearchJobs.title,
       deepSearchSlug: deepSearchJobs.slug,
       deepSearchResearchRequest: deepSearchJobs.researchRequest,
@@ -96,7 +98,7 @@ function replayNormalizedIdeas(ideaJobId: string, deepSearchCount: number): {
   const selectedIdeas = persistedIdeas.filter(
     ({ selected }) => selected === true,
   )
-  const evaluationReplays = persistedIdeas.map(
+  const evaluationReplays = selectedIdeas.map(
     (idea): { completed: boolean; events: IdeaJobEvent[] } => {
       const evaluation =
         idea.evaluationStatus === "completed"
@@ -192,6 +194,11 @@ function replayNormalizedIdeas(ideaJobId: string, deepSearchCount: number): {
           Boolean(refinedTitle) &&
           Boolean(refinedDescription),
       ),
+    allSelectedResearchCompleted:
+      selectedIdeas.length > 0 &&
+      selectedIdeas.every(
+        ({ deepSearchStatus }) => deepSearchStatus === "completed",
+      ),
     selectedIdeaIds,
   }
 }
@@ -272,7 +279,6 @@ export function reconstructIdeaJobEvents(
         ]
       : []),
     ...normalizedIdeas.ideaEvents,
-    ...normalizedIdeas.evaluationEvents,
     ...(job.selectionGenerationId
       ? [
           {
@@ -291,6 +297,7 @@ export function reconstructIdeaJobEvents(
       : []),
     ...normalizedIdeas.refinementEvents,
     ...normalizedIdeas.researchEvents,
+    ...normalizedIdeas.evaluationEvents,
     ...(stopRequested ? [{ type: "stop-requested" as const }] : []),
     ...(job.status === "running"
       ? []
@@ -309,13 +316,15 @@ export function reconstructIdeaJobEvents(
                   message: job.error!,
                   stage:
                     job.stage === "ideas" && normalizedIdeas.hasIdeas
-                      ? !normalizedIdeas.allEvaluationsCompleted
-                        ? ("evaluation" as const)
-                        : !normalizedIdeas.selectionResolved
+                      ? !normalizedIdeas.selectionResolved
                           ? ("selection" as const)
                           : !normalizedIdeas.allRefinementsCompleted
                             ? ("refinement" as const)
-                            : ("idea-research" as const)
+                            : !normalizedIdeas.allSelectedResearchCompleted
+                              ? ("idea-research" as const)
+                              : !normalizedIdeas.allEvaluationsCompleted
+                                ? ("evaluation" as const)
+                                : ("idea-research" as const)
                       : job.stage,
                 },
               ]

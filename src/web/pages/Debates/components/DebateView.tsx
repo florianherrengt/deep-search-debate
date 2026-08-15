@@ -1,5 +1,13 @@
 import { AutoAwesomeRounded, LightbulbOutlined } from "@mui/icons-material"
-import { Button, Chip, Stack, Typography } from "@mui/material"
+import {
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  CircularProgress,
+  Stack,
+  Typography,
+} from "@mui/material"
 import type { ReactNode } from "react"
 import { Link } from "react-router-dom"
 import { getDebateStatusPresentation } from "../debatePresentation.ts"
@@ -26,6 +34,10 @@ export function DebateView({ ownerActions, tournament }: DebateViewProps) {
     tournament.status,
     tournament.stopRequested,
   )
+  const preparingIdeas =
+    tournament.status === "running" &&
+    tournament.stage === "ideas" &&
+    !tournament.stopRequested
 
   return (
     <Stack spacing={3}>
@@ -50,6 +62,7 @@ export function DebateView({ ownerActions, tournament }: DebateViewProps) {
               color={status.color}
               label={status.label}
               size="small"
+              sx={{ height: 30 }}
               variant="outlined"
             />
             {ownerActions}
@@ -78,10 +91,33 @@ export function DebateView({ ownerActions, tournament }: DebateViewProps) {
           userStopped={tournament.stopRequested}
         />
       )}
+      {preparingIdeas && (
+        <Card component="section" role="status" variant="outlined">
+          <CardContent>
+            <Stack
+              direction="row"
+              spacing={2}
+              sx={{ alignItems: "flex-start" }}
+            >
+              <CircularProgress aria-hidden="true" size={24} sx={{ mt: 0.25 }} />
+              <Stack spacing={0.5}>
+                <Typography component="h2" variant="h6">
+                  Generating and improving debate ideas…
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  Research and idea preparation are still running. The debate
+                  rounds will start automatically when the candidates are ready.
+                </Typography>
+              </Stack>
+            </Stack>
+          </CardContent>
+        </Card>
+      )}
       {winner && (
         <WinnerIdeaCard
           closestAlternative={closestAlternative}
           idea={winner}
+          ideaJobSlug={tournament.slug}
           reason={winnerReason}
         />
       )}

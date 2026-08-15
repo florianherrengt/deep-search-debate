@@ -2,6 +2,7 @@ import {
   ArrowBackRounded,
   ArrowForwardRounded,
   NavigateBeforeRounded,
+  OpenInNew,
 } from "@mui/icons-material"
 import { Button, Chip, Stack, Typography } from "@mui/material"
 import { Link } from "react-router-dom"
@@ -104,6 +105,27 @@ export function DebateMatchDetail({
         <Typography color="text.secondary" variant="body2">
           From {tournament.title}
         </Typography>
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={1}
+          sx={{ alignItems: "flex-start" }}
+        >
+          {[match.firstIdea, match.secondIdea].map((idea) => (
+            <Button
+              component={Link}
+              endIcon={<OpenInNew />}
+              key={idea.ideaId}
+              rel="noopener noreferrer"
+              size="small"
+              sx={{ overflowWrap: "anywhere", textAlign: "left" }}
+              target="_blank"
+              to={`/ideas/${encodeURIComponent(tournament.slug)}/${encodeURIComponent(idea.ideaId)}#improved-idea`}
+              variant="outlined"
+            >
+              {idea.title}
+            </Button>
+          ))}
+        </Stack>
       </Stack>
 
       {tournament.error && (

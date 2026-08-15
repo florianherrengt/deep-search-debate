@@ -120,12 +120,14 @@ ignores this one documented peer-resolution shim.
 
 ### Known application-enforced integrity boundaries
 
-- `ideas.evaluation_generation_id` is null during the valid interval between idea
-  persistence and that idea's evaluation call starting. A trigger permits only the
-  one-time null-to-generation transition. Its foreign key and unique index
+- `ideas.evaluation_generation_id` remains null for rejected ideas and during
+  the valid interval before a selected, refined, and researched idea's final
+  evaluation starts. A trigger permits only the one-time null-to-generation
+  transition. Its foreign key and unique index
   prevent nonexistent or reused generations, while a composite foreign key
   enforces same-job ownership without duplicating `user_id` on every idea row.
-  Application orchestration requires every link before job completion. The
+  Application orchestration requires a link for every selected idea before job
+  completion. The
   linked generation stores the validated evaluation; replay parses that payload
   instead of duplicating it on `ideas`.
 - `ideas.selected` is null from insertion until comparative selection commits.
@@ -184,12 +186,12 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
   links. A debate-created idea job points to its owning debate; a standalone
   idea job leaves that FK null.
 - `ideas` stores validated, ordered idea output with stable IDs as soon as idea
-  generation completes. Its evaluation-generation link is initially null and is
-  attached when that idea's evaluation starts. Its selected flag remains null
-  until the comparative selector atomically marks every idea selected or
-  rejected. Structured evaluations remain in their `llm_generations` rows. A selected
-  row then stores its one-time refinement generation and improved title and
-  description. The job's idea- and
+  generation completes. Its selected flag remains null until the comparative
+  selector atomically marks every idea selected or rejected. A selected row then
+  stores its one-time refinement generation, improved title and description,
+  and the final evaluation-generation link created after its supporting research
+  completes. Rejected rows retain no evaluation. Structured evaluations remain
+  in their `llm_generations` rows. The job's idea- and
   selection-generation links separately retain raw structured output and
   selector reasoning for inspection and debugging.
 - `debate_jobs` owns its generated idea pipeline as well as

@@ -70,12 +70,14 @@ export function DebateVisibilityControls({
           icon={isPublic ? <PublicRounded /> : <LockOutlined />}
           label={isPublic ? "Public" : "Private"}
           size="small"
+          sx={{ height: 30 }}
           variant="outlined"
         />
         <Button
           onClick={() => setOpen(true)}
           size="small"
           startIcon={<ShareRounded />}
+          sx={{ height: 30, minHeight: 0, py: 0 }}
           variant="outlined"
         >
           Share

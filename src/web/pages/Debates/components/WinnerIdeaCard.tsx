@@ -1,15 +1,18 @@
-import { EmojiEventsRounded } from "@mui/icons-material"
-import { Card, CardContent, Chip, Stack, Typography } from "@mui/material"
+import { EmojiEventsRounded, LightbulbOutlined } from "@mui/icons-material"
+import { Button, Card, CardContent, Chip, Stack, Typography } from "@mui/material"
 import { useId } from "react"
+import { Link } from "react-router-dom"
 import type { DebateIdea } from "../debateUiTypes.ts"
 
 export function WinnerIdeaCard({
   closestAlternative,
   idea,
+  ideaJobSlug,
   reason,
 }: {
   closestAlternative?: DebateIdea
   idea: DebateIdea
+  ideaJobSlug: string
   reason?: string
 }) {
   const explanationId = useId()
@@ -45,6 +48,15 @@ export function WinnerIdeaCard({
             <Typography color="text.secondary" variant="body2">
               {idea.description}
             </Typography>
+            <Button
+              component={Link}
+              size="small"
+              startIcon={<LightbulbOutlined />}
+              sx={{ alignSelf: "flex-start" }}
+              to={`/ideas/${encodeURIComponent(ideaJobSlug)}/${encodeURIComponent(idea.ideaId)}#improved-idea`}
+            >
+              View winning idea details
+            </Button>
             {showExplanation && (
               <Stack
                 aria-labelledby={`${explanationId}-heading`}
@@ -88,6 +100,14 @@ export function WinnerIdeaCard({
                     <Typography color="text.secondary" variant="body2">
                       {closestAlternative.description}
                     </Typography>
+                    <Button
+                      component={Link}
+                      size="small"
+                      sx={{ alignSelf: "flex-start", px: 0 }}
+                      to={`/ideas/${encodeURIComponent(ideaJobSlug)}/${encodeURIComponent(closestAlternative.ideaId)}#improved-idea`}
+                    >
+                      View alternative details
+                    </Button>
                   </Stack>
                 )}
               </Stack>

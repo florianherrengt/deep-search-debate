@@ -130,13 +130,20 @@ function expectedRefinedIdeaResearchRequest(position: number): string {
 
 function ideaPositionFromPrompt(
   prompt: string,
-  element: "generated_idea" | "original_idea",
+  element: "improved_idea" | "original_idea",
 ): number {
-  const position = generatedIdeas.findIndex((idea) =>
-    prompt.includes(
-      `<${element}>\n${JSON.stringify(idea)}\n</${element}>`,
-    ),
-  )
+  const position = generatedIdeas.findIndex((idea) => {
+    const value =
+      element === "improved_idea"
+        ? {
+            title: `Improved ${idea.title}`,
+            description: `Improved ${idea.description}`,
+          }
+        : idea
+    return prompt.includes(
+      `<${element}>\n${JSON.stringify(value)}\n</${element}>`,
+    )
+  })
   if (position < 0) throw new Error(`Prompt did not contain a known ${element}`)
   return position
 }
@@ -169,6 +176,7 @@ function completedGeneration(text: string) {
 }
 
 function setupGenerations(options?: {
+  evaluationFailureAt?: number
   refinementFailureAt?: number
   selectionCount?: number
 }): void {
@@ -224,13 +232,18 @@ function setupGenerations(options?: {
         | SelectionMockInput
         | RefinementMockInput,
     ) => {
-      if (rawInput.prompt.includes("<generated_idea>")) {
+      if (rawInput.prompt.includes("<improved_idea>")) {
         const { onCompleted, onRegistered, schema } =
           rawInput as EvaluationMockInput
         const position = ideaPositionFromPrompt(
           rawInput.prompt,
-          "generated_idea",
+          "improved_idea",
         )
+        if (position === options?.evaluationFailureAt) {
+          return Promise.reject(
+            new Error("Evaluation failed before streaming"),
+          )
+        }
         const id = evaluationGenerationIds[position]
         registerGeneration({ onRegistered }, id)
         const output = schema.parse(generatedEvaluations[position])
@@ -503,7 +516,7 @@ describe("runIdeaJob", () => {
     ])
   })
 
-  it("runs research, evaluates every idea, and selects an admitted set", async () => {
+  it("selects, improves, researches, and then evaluates the admitted ideas", async () => {
     const { input, events } = createInput()
     setupGenerations()
     mocks.startDeepSearch.mockImplementation(
@@ -552,8 +565,29 @@ describe("runIdeaJob", () => {
     const ideaInput = z.object({ prompt: z.string() }).parse(
       mocks.generateArrayStream.mock.calls[1]?.[0] as unknown,
     )
+    const selectionInput = z.object({ prompt: z.string() }).parse(
+      mocks.generateObjectStream.mock.calls[0]?.[0] as unknown,
+    )
+    expect(selectionInput.prompt).toContain("<research_briefing>")
+    for (const idea of generatedIdeas) {
+      expect(selectionInput.prompt).toContain(idea.title)
+    }
+    expect(selectionInput.prompt).not.toContain("Critique 1")
+    const refinementInputs = mocks.generateObjectStream.mock.calls
+      .slice(1, 7)
+      .map(([value]) =>
+        z.object({ prompt: z.string() }).parse(value as unknown),
+      )
+    expect(refinementInputs).toHaveLength(6)
+    for (const [position, refinementInput] of refinementInputs.entries()) {
+      expect(refinementInput.prompt).toContain("<research_briefing>")
+      expect(refinementInput.prompt).not.toContain("<evaluation>")
+      expect(refinementInput.prompt).toContain(
+        `<original_idea>\n${JSON.stringify(generatedIdeas[position])}\n</original_idea>`,
+      )
+    }
     const evaluationInputs = mocks.generateObjectStream.mock.calls
-      .slice(0, generatedIdeas.length)
+      .slice(7)
       .map(([value]) =>
         z
           .object({
@@ -565,11 +599,18 @@ describe("runIdeaJob", () => {
       )
     expect(summaryInput.prompt).toContain("<research_text index=")
     expect(ideaInput.prompt).toContain("<research_briefing>")
-    expect(evaluationInputs).toHaveLength(generatedIdeas.length)
+    expect(evaluationInputs).toHaveLength(6)
     for (const [position, evaluationInput] of evaluationInputs.entries()) {
       expect(evaluationInput.prompt).toContain("<research_briefing>")
       expect(evaluationInput.prompt).toContain(
-        `<generated_idea>\n${JSON.stringify(generatedIdeas[position])}\n</generated_idea>`,
+        `<improved_idea>\n${JSON.stringify({
+          title: `Improved ${generatedIdeas[position].title}`,
+          description: `Improved ${generatedIdeas[position].description}`,
+        })}\n</improved_idea>`,
+      )
+      expect(evaluationInput.prompt).toContain("<supporting_research>")
+      expect(evaluationInput.prompt).toContain(
+        `Research answer for Improved ${generatedIdeas[position].title}`,
       )
     }
     expect(mocks.generateObjectStream).toHaveBeenCalledWith(
@@ -577,30 +618,7 @@ describe("runIdeaJob", () => {
         reasoning: "disabled",
       }),
     )
-    expect(mocks.generateObjectStream).toHaveBeenCalledTimes(15)
-    const selectionInput = z.object({ prompt: z.string() }).parse(
-      mocks.generateObjectStream.mock.calls[generatedIdeas.length]?.[0] as unknown,
-    )
-    expect(selectionInput.prompt).toContain("<research_briefing>")
-    for (let position = 0; position < generatedIdeas.length; position += 1) {
-      expect(selectionInput.prompt).toContain(`Critique ${position + 1}`)
-    }
-    const refinementInputs = mocks.generateObjectStream.mock.calls
-      .slice(generatedIdeas.length + 1)
-      .map(([value]) =>
-        z.object({ prompt: z.string() }).parse(value as unknown),
-      )
-    expect(refinementInputs).toHaveLength(6)
-    for (const [position, refinementInput] of refinementInputs.entries()) {
-      expect(refinementInput.prompt).toContain("<research_briefing>")
-      expect(refinementInput.prompt).toContain(`Critique ${position + 1}`)
-      expect(refinementInput.prompt).toContain(
-        `Research-backed strength ${position + 1}`,
-      )
-      expect(refinementInput.prompt).toContain(
-        `<original_idea>\n${JSON.stringify(generatedIdeas[position])}\n</original_idea>`,
-      )
-    }
+    expect(mocks.generateObjectStream).toHaveBeenCalledTimes(13)
     const persistedIdeas = db.select().from(ideas).orderBy(ideas.position).all()
     const selectedIdeas = persistedIdeas.slice(0, 6)
     for (const [position, idea] of selectedIdeas.entries()) {
@@ -646,11 +664,6 @@ describe("runIdeaJob", () => {
         title,
         description,
       })),
-      ...persistedIdeas.map(({ ideaId }, position) => ({
-        type: "idea-evaluated" as const,
-        ideaId,
-        ...generatedEvaluations[position],
-      })),
       { type: "idea-selection-stream", streamId: "selection-id" },
       {
         type: "selected-ideas",
@@ -675,6 +688,11 @@ describe("runIdeaJob", () => {
         slug: `idea-search-${position + 2}`,
         researchRequest: expectedRefinedIdeaResearchRequest(position),
       })),
+      ...selectedIdeas.map(({ ideaId }, position) => ({
+        type: "idea-evaluated" as const,
+        ideaId,
+        ...generatedEvaluations[position],
+      })),
       { type: "done" },
     ])
     expect(db.select().from(ideaJobs).get()).toMatchObject({
@@ -686,7 +704,8 @@ describe("runIdeaJob", () => {
     expect(persistedIdeas).toMatchObject(
       generatedIdeas.map((idea, position) => ({
         ...idea,
-        evaluationGenerationId: evaluationGenerationIds[position],
+        evaluationGenerationId:
+          position < 6 ? evaluationGenerationIds[position] : null,
         selected: position < 6,
         refinementGenerationId:
           position < 6 ? refinementGenerationIds[position] : null,
@@ -980,70 +999,20 @@ describe("runIdeaJob", () => {
 
   it("retains generated ideas when one evaluation cannot start", async () => {
     const { input, events } = createInput()
-    insertGeneration("planning-id", JSON.stringify(researchPrompts))
-    insertGeneration("summary-id", "Combined research briefing")
-    insertGeneration("ideas-id", JSON.stringify(generatedIdeas))
-    for (const [position, id] of evaluationGenerationIds.slice(1).entries()) {
-      insertGeneration(
-        id,
-        JSON.stringify(generatedEvaluations[position + 1]),
-        PromptName.EvaluateIdea,
-      )
-    }
-    mocks.generateArrayStream
-      .mockResolvedValueOnce({
-        id: "planning-id",
-        output: Promise.resolve(researchPrompts),
-        completion: completedGeneration(JSON.stringify(researchPrompts)),
-      })
-      .mockResolvedValueOnce({
-        id: "ideas-id",
-        output: Promise.resolve(generatedIdeas),
-        completion: completedGeneration(JSON.stringify(generatedIdeas)),
-      })
-    mocks.generateTextStream
-      .mockImplementationOnce((input: GenerationMockInput) => {
-        registerGeneration(input, "summary-id")
-        return Promise.resolve({
-          id: "summary-id",
-          completion: completedGeneration("Combined research briefing"),
-        })
-      })
-    mocks.generateObjectStream.mockRejectedValueOnce(
-      new Error("Evaluation failed before streaming"),
+    setupGenerations({ evaluationFailureAt: 0 })
+    mocks.startDeepSearch.mockImplementation(
+      (_userId: string, searchInput: StartSearchInput) => {
+        const position = searchInput.ideaJobPosition ?? 0
+        return Promise.resolve(
+          persistCompletedSearch(`evaluation-search-${position}`, searchInput),
+        )
+      },
     )
-    for (const [position, id] of evaluationGenerationIds.slice(1).entries()) {
-      mocks.generateObjectStream.mockImplementationOnce(
-        (rawInput: EvaluationMockInput) => {
-          const { onCompleted, onRegistered, schema } = rawInput
-          registerGeneration({ onRegistered }, id)
-          const output = schema.parse(generatedEvaluations[position + 1])
-          db.transaction((transaction) => {
-            onCompleted?.({ id, output }, transaction)
-          })
-          return Promise.resolve({
-            id,
-            output: Promise.resolve(output),
-            completion: completedGeneration(JSON.stringify(output)),
-          })
-        })
-    }
-    mocks.startDeepSearch
-      .mockReturnValueOnce({
-        deepSearchJobId: "search-one",
-        completion: Promise.resolve("First research result"),
-      })
-      .mockReturnValueOnce({
-        deepSearchJobId: "search-two",
-        completion: Promise.resolve("Second research result"),
-      })
 
     await runIdeaJob(input)
 
     expect(mocks.generateTextStream).toHaveBeenCalledOnce()
-    expect(mocks.generateObjectStream).toHaveBeenCalledTimes(
-      generatedIdeas.length,
-    )
+    expect(mocks.generateObjectStream).toHaveBeenCalledTimes(13)
     await expect(events).resolves.toContainEqual({
       type: "error",
       message: "Evaluation failed before streaming",
@@ -1063,7 +1032,9 @@ describe("runIdeaJob", () => {
       generatedIdeas.map((idea, position) => ({
         ...idea,
         evaluationGenerationId:
-          position === 0 ? null : evaluationGenerationIds[position],
+          position === 0 || position >= 6
+            ? null
+            : evaluationGenerationIds[position],
       })),
     )
   })

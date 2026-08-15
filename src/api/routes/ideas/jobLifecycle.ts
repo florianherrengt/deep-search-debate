@@ -139,17 +139,20 @@ export function completeIdeaJob(ideaJobId: string): void {
       .all()
     if (
       persistedIdeas.length !== job.numberOfIdeas ||
-      persistedIdeas.some(
-        ({ evaluationGenerationId, selected }) =>
-          evaluationGenerationId === null || selected === null,
-      )
+      persistedIdeas.some(({ selected }) => selected === null)
     ) {
-      throw new Error("Every generated idea must be evaluated and selected")
+      throw new Error("Every generated idea must be selected or rejected")
     }
     const selectedIdeas = persistedIdeas.filter(({ selected }) => selected)
     if (
       selectedIdeas.some(
-        ({ refinementGenerationId, refinedTitle, refinedDescription }) =>
+        ({
+          evaluationGenerationId,
+          refinementGenerationId,
+          refinedTitle,
+          refinedDescription,
+        }) =>
+          evaluationGenerationId === null ||
           refinementGenerationId === null ||
           refinedTitle === null ||
           refinedDescription === null,
@@ -159,7 +162,7 @@ export function completeIdeaJob(ideaJobId: string): void {
     }
     const generationIds = [
       ...pipelineGenerationIds,
-      ...persistedIdeas.map(({ evaluationGenerationId }) =>
+      ...selectedIdeas.map(({ evaluationGenerationId }) =>
         evaluationGenerationId,
       ),
       ...selectedIdeas.map(({ refinementGenerationId }) =>

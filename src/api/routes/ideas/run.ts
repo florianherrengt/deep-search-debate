@@ -118,7 +118,8 @@ function buildIdeaPrompt(
 function buildEvaluationPrompt(
   prompt: string,
   researchSummary: string,
-  idea: Idea,
+  idea: RefinedIdea,
+  supportingResearch: string,
 ): string {
   return [
     "<user_request>",
@@ -127,17 +128,23 @@ function buildEvaluationPrompt(
     "<research_briefing>",
     researchSummary,
     "</research_briefing>",
-    "<generated_idea>",
-    JSON.stringify(idea),
-    "</generated_idea>",
+    "<improved_idea>",
+    JSON.stringify({
+      title: idea.refinedTitle,
+      description: idea.refinedDescription,
+    }),
+    "</improved_idea>",
+    "<supporting_research>",
+    supportingResearch,
+    "</supporting_research>",
   ].join("\n")
 }
 
-type EvaluatedIdea = PersistedIdea & IdeaEvaluation
-type RefinedIdea = EvaluatedIdea & {
+type RefinedIdea = PersistedIdea & {
   refinedTitle: string
   refinedDescription: string
 }
+type ResearchedRefinedIdea = RefinedIdea & { supportingResearch: string }
 
 const ideaSelectionProposalSchema = z.object({
   // The provider proposes IDs, but the server owns the tournament invariant.
@@ -181,7 +188,7 @@ export function normalizeIdeaSelection(
 function buildRefinementPrompt(
   prompt: string,
   researchSummary: string,
-  idea: EvaluatedIdea,
+  idea: PersistedIdea,
 ): string {
   return [
     "<user_request>",
@@ -193,13 +200,6 @@ function buildRefinementPrompt(
     "<original_idea>",
     JSON.stringify({ title: idea.title, description: idea.description }),
     "</original_idea>",
-    "<evaluation>",
-    JSON.stringify({
-      pros: idea.pros,
-      cons: idea.cons,
-      critique: idea.critique,
-    }),
-    "</evaluation>",
   ].join("\n")
 }
 
@@ -257,24 +257,21 @@ function buildRefinedIdeaResearchRequest(
 function buildSelectionPrompt(
   prompt: string,
   researchSummary: string,
-  ideas: EvaluatedIdea[],
+  ideas: PersistedIdea[],
 ): string {
   const briefing = truncateMiddle(
     researchSummary,
     Math.floor(config.deepSearch.maxSummaryContextChars * 0.2),
   )
-  const evaluatedIdeas = formatBoundedTextEntries(
+  const generatedIdeas = formatBoundedTextEntries(
     ideas.map((idea) => ({
-      opening: "<evaluated_idea>\n",
+      opening: "<candidate_idea>\n",
       text: JSON.stringify({
         ideaId: idea.ideaId,
         title: idea.title,
         description: idea.description,
-        pros: idea.pros,
-        cons: idea.cons,
-        critique: idea.critique,
       }),
-      closing: "\n</evaluated_idea>",
+      closing: "\n</candidate_idea>",
     })),
     config.deepSearch.maxSummaryContextChars - briefing.length,
   )
@@ -285,9 +282,9 @@ function buildSelectionPrompt(
     "<research_briefing>",
     briefing,
     "</research_briefing>",
-    "<evaluated_ideas>",
-    evaluatedIdeas,
-    "</evaluated_ideas>",
+    "<generated_ideas>",
+    generatedIdeas,
+    "</generated_ideas>",
   ].join("\n")
 }
 
@@ -563,15 +560,17 @@ function persistIdeas(input: RunIdeaJobInput, ideas: Idea[]): PersistedIdea[] {
 async function evaluateIdea(
   input: RunIdeaJobInput,
   researchSummary: string,
-  idea: PersistedIdea,
-): Promise<EvaluatedIdea> {
+  idea: ResearchedRefinedIdea,
+): Promise<IdeaEvaluation> {
   const generation = await generateObjectStream({
     userId: input.userId,
     owner: { ideaJobId: input.ideaJobId },
-    prompt: buildEvaluationPrompt(input.prompt, researchSummary, {
-      title: idea.title,
-      description: idea.description,
-    }),
+    prompt: buildEvaluationPrompt(
+      input.prompt,
+      researchSummary,
+      idea,
+      idea.supportingResearch,
+    ),
     promptName: PromptName.EvaluateIdea,
     schema: ideaEvaluationSchema,
     reasoning: "disabled",
@@ -601,14 +600,14 @@ async function evaluateIdea(
     ideaId: idea.ideaId,
     ...evaluation,
   })
-  return { ...idea, ...evaluation }
+  return evaluation
 }
 
 function evaluateIdeasEffect(
   input: RunIdeaJobInput,
   researchSummary: string,
-  ideas: PersistedIdea[],
-): Effect.Effect<EvaluatedIdea[], WorkflowFailure> {
+  ideas: ResearchedRefinedIdea[],
+): Effect.Effect<IdeaEvaluation[], WorkflowFailure> {
   return Effect.gen(function*() {
     const settled = yield* settleEffects(
       ideas.map((idea) =>
@@ -625,8 +624,8 @@ function evaluateIdeasEffect(
 async function selectIdeas(
   input: RunIdeaJobInput,
   researchSummary: string,
-  ideas: EvaluatedIdea[],
-): Promise<EvaluatedIdea[]> {
+  ideas: PersistedIdea[],
+): Promise<PersistedIdea[]> {
   const generation = await generateObjectStream({
     userId: input.userId,
     owner: { ideaJobId: input.ideaJobId },
@@ -688,7 +687,7 @@ async function selectIdeas(
 async function refineIdea(
   input: RunIdeaJobInput,
   researchSummary: string,
-  idea: EvaluatedIdea,
+  idea: PersistedIdea,
 ): Promise<RefinedIdea> {
   const generation = await generateObjectStream({
     userId: input.userId,
@@ -759,7 +758,7 @@ async function refineIdea(
 function refineIdeasEffect(
   input: RunIdeaJobInput,
   researchSummary: string,
-  ideas: EvaluatedIdea[],
+  ideas: PersistedIdea[],
 ): Effect.Effect<RefinedIdea[], WorkflowFailure> {
   return Effect.gen(function*() {
     const settled = yield* settleEffects(
@@ -812,7 +811,7 @@ async function startRefinedIdeaResearch(
 function researchRefinedIdeasEffect(
   input: RunIdeaJobInput,
   ideas: RefinedIdea[],
-): Effect.Effect<void, WorkflowFailure> {
+): Effect.Effect<ResearchedRefinedIdea[], WorkflowFailure> {
   return Effect.gen(function*() {
     const starts = yield* settleEffects(
       ideas.map((idea) =>
@@ -823,18 +822,19 @@ function researchRefinedIdeasEffect(
       ),
     )
     const completions = yield* settleEffects(
-      starts.map((started) =>
+      starts.map((started, index) =>
         Result.isFailure(started)
           ? Effect.fail(started.failure)
           : workflowEffect(async () => {
-              await started.success.completion
+              const supportingResearch = await started.success.completion
               input.deepSearchManager.requireParentQualityAcceptance(
                 started.success.deepSearchJobId,
               )
+              return { ...ideas[index], supportingResearch }
             }, "Selected-idea research failed"),
       ),
     )
-    yield* unwrapSettled(completions)
+    return yield* unwrapSettled(completions)
   })
 }
 
@@ -862,23 +862,22 @@ function ideaPipelineEffect(
       persistIdeas(input, generatedIdeas),
     )
 
-    setEventStage("evaluation")
-    const evaluatedIdeas = yield* evaluateIdeasEffect(
-      input,
-      summary,
-      persistedIdeas,
-    )
-
     setEventStage("selection")
     const selectedIdeas = yield* workflowEffect(() =>
-      selectIdeas(input, summary, evaluatedIdeas),
+      selectIdeas(input, summary, persistedIdeas),
     )
 
     setEventStage("refinement")
     const refinedIdeas = yield* refineIdeasEffect(input, summary, selectedIdeas)
 
     setEventStage("idea-research")
-    yield* researchRefinedIdeasEffect(input, refinedIdeas)
+    const researchedIdeas = yield* researchRefinedIdeasEffect(
+      input,
+      refinedIdeas,
+    )
+
+    setEventStage("evaluation")
+    yield* evaluateIdeasEffect(input, summary, researchedIdeas)
 
     yield* workflowEffect(() => completeIdeaJob(input.ideaJobId))
   })
