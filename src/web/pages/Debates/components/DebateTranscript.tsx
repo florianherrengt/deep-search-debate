@@ -14,7 +14,7 @@ import {
   Typography,
 } from "@mui/material"
 import { alpha } from "@mui/material/styles"
-import { useEffect, useRef } from "react"
+import { FormattedStreamText } from "../../../components/streaming/FormattedStreamText.tsx"
 import { useTextStream } from "../../../components/streaming/useTextStream.ts"
 import type {
   DebateMatch,
@@ -34,15 +34,18 @@ function TranscriptMessage({
   match,
   message,
   streaming,
-  onStreamUpdate,
 }: {
   match: DebateMatch
   message: DebateTranscriptMessage
   streaming: boolean
-  onStreamUpdate: () => void
 }) {
   const isJudge = message.speakerSlot === 2
   const isSecondSpeaker = message.speakerSlot === 1
+  const alignment = isJudge
+    ? "center"
+    : isSecondSpeaker
+      ? "flex-end"
+      : "flex-start"
   // Judge streams contain structured JSON. The API exposes only the parsed
   // explanation after judging completes, so raw judge output is never shown.
   const stream = useTextStream(
@@ -52,63 +55,73 @@ function TranscriptMessage({
   )
   const text = message.text || stream.text
 
-  useEffect(() => {
-    if (stream.text) onStreamUpdate()
-  }, [onStreamUpdate, stream.text])
-
   return (
     <Box
       component="article"
       sx={{
-        bgcolor: isJudge ? "action.hover" : "transparent",
-        borderBottom: 1,
-        borderColor: "divider",
-        mx: { xs: -1.5, sm: -2.5 },
-        px: { xs: 1.5, sm: 2.5 },
-        py: 2,
-        "&:last-child": { borderBottom: 0 },
+        display: "flex",
+        justifyContent: alignment,
+        width: "100%",
       }}
     >
       <Stack
-        direction="row"
-        spacing={1.5}
+        direction={isSecondSpeaker ? "row-reverse" : "row"}
+        spacing={1}
         sx={{
           alignItems: "flex-start",
-          borderLeft: "2px solid",
-          borderLeftColor: isJudge
-            ? "warning.main"
-            : isSecondSpeaker
-              ? "secondary.main"
-              : "primary.main",
-          pl: 1.5,
+          maxWidth: { xs: "94%", sm: isJudge ? "82%" : "78%" },
+          minWidth: 0,
         }}
       >
         <Avatar
-          variant="rounded"
           sx={(theme) => ({
-            bgcolor: isJudge
-              ? alpha(theme.palette.warning.main, 0.14)
-              : isSecondSpeaker
-                ? alpha(theme.palette.secondary.main, 0.14)
-                : alpha(theme.palette.primary.main, 0.14),
+            bgcolor: alpha(
+              isJudge
+                ? theme.palette.warning.main
+                : isSecondSpeaker
+                  ? theme.palette.secondary.main
+                  : theme.palette.primary.main,
+              0.18,
+            ),
             color: isJudge
-              ? "warning.light"
+              ? "warning.main"
               : isSecondSpeaker
-                ? "secondary.light"
-                : "primary.light",
+                ? "secondary.main"
+                : "primary.main",
             fontSize: "0.75rem",
             fontWeight: 700,
-            height: 28,
-            width: 28,
+            height: 32,
+            width: 32,
           })}
         >
           {isJudge ? "J" : message.speakerSlot === 0 ? "A" : "B"}
         </Avatar>
         <Box
-          sx={{
-            flexGrow: 1,
+          sx={(theme) => ({
+            bgcolor: alpha(
+              isJudge
+                ? theme.palette.warning.main
+                : isSecondSpeaker
+                  ? theme.palette.secondary.main
+                  : theme.palette.primary.main,
+              isJudge ? 0.1 : 0.13,
+            ),
+            border: 1,
+            borderColor: isJudge
+              ? "warning.dark"
+              : isSecondSpeaker
+                ? "secondary.dark"
+                : "primary.dark",
+            borderRadius: 2,
+            borderTopLeftRadius:
+              !isJudge && !isSecondSpeaker ? 0.5 : undefined,
+            borderTopRightRadius:
+              !isJudge && isSecondSpeaker ? 0.5 : undefined,
+            boxShadow: 1,
             minWidth: 0,
-          }}
+            px: { xs: 1.25, sm: 1.5 },
+            py: 1.25,
+          })}
         >
           <Stack
             direction="row"
@@ -126,7 +139,7 @@ function TranscriptMessage({
             )}
             <Typography
               color="text.secondary"
-              sx={{ ml: "auto" }}
+              sx={{ ml: "auto", whiteSpace: "nowrap" }}
               variant="caption"
             >
               {message.createdAt.toLocaleTimeString([], {
@@ -135,18 +148,11 @@ function TranscriptMessage({
               })}
             </Typography>
           </Stack>
-          <Typography
-            component="div"
-            sx={{
-              lineHeight: 1.7,
-              maxWidth: "85ch",
-              overflowWrap: "anywhere",
-              whiteSpace: "pre-wrap",
-            }}
-            variant="body2"
-          >
-            {text}
-          </Typography>
+          <FormattedStreamText
+            format="markdown"
+            testId={`debate-message-${message.debateMessageId}`}
+            text={text}
+          />
           {(stream.status === "error" || stream.status === "reconnecting") && (
             <Typography
               color={stream.status === "error" ? "error" : "warning.main"}
@@ -164,69 +170,28 @@ function TranscriptMessage({
 function TranscriptMessages({
   match,
   live,
-  fullPage,
 }: {
   match: DebateMatch
   live: boolean
-  fullPage: boolean
 }) {
-  const viewportRef = useRef<HTMLDivElement>(null)
-  const followOutputRef = useRef(true)
-  const previousMatchIdRef = useRef(match.debateMatchId)
   const messages = [...match.messages].sort(
     (first, second) =>
       first.position - second.position ||
       first.debateMessageId.localeCompare(second.debateMessageId),
   )
-  const latestMessage = messages.at(-1)
-
-  useEffect(() => {
-    const viewport = viewportRef.current
-    if (!viewport) return
-
-    if (previousMatchIdRef.current !== match.debateMatchId) {
-      previousMatchIdRef.current = match.debateMatchId
-      followOutputRef.current = true
-    }
-    if (followOutputRef.current) viewport.scrollTop = viewport.scrollHeight
-  }, [match.debateMatchId, latestMessage?.debateMessageId, latestMessage?.text])
-
-  function handleScroll() {
-    const viewport = viewportRef.current
-    if (!viewport) return
-
-    const distanceFromBottom =
-      viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
-    followOutputRef.current = distanceFromBottom <= 48
-  }
-
-  function followStreamOutput() {
-    const viewport = viewportRef.current
-    if (viewport && followOutputRef.current) {
-      viewport.scrollTop = viewport.scrollHeight
-    }
-  }
-
   return (
     <Box
-      ref={viewportRef}
       aria-label="Debate messages"
       aria-live="polite"
-      onScroll={handleScroll}
       role="log"
       sx={(theme) => ({
-        maxHeight: fullPage ? "min(520px, 60vh)" : 520,
-        minHeight: fullPage ? 0 : 360,
-        overflowY: "auto",
-        px: 1.5,
-        [theme.breakpoints.up("sm")]: {
-          px: 2.5,
-        },
-        [theme.breakpoints.up("lg")]: {
-          maxHeight: fullPage
-            ? "min(520px, 60vh)"
-            : "calc(100vh - 290px)",
-        },
+        backgroundColor: alpha(theme.palette.primary.main, 0.03),
+        display: "flex",
+        flexDirection: "column",
+        gap: { xs: 2, sm: 2.5 },
+        overflow: "visible",
+        px: { xs: 1.5, sm: 3 },
+        py: { xs: 2, sm: 3 },
       })}
     >
       {messages.map((message) => (
@@ -234,7 +199,6 @@ function TranscriptMessages({
           key={message.debateMessageId}
           match={match}
           message={message}
-          onStreamUpdate={followStreamOutput}
           streaming={live && !message.text}
         />
       ))}
@@ -245,11 +209,9 @@ function TranscriptMessages({
 export function DebateTranscript({
   match,
   live = match.status === "running",
-  fullPage = false,
 }: {
   match: DebateMatch
   live?: boolean
-  fullPage?: boolean
 }) {
   return (
     <Card variant="outlined">
@@ -263,7 +225,7 @@ export function DebateTranscript({
             <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
               <RecordVoiceOverRounded color="primary" />
               <Typography component="h2" variant="h6">
-                Debate transcript
+                Debate conversation
               </Typography>
             </Stack>
             {live && <Chip color="primary" label="Streaming" size="small" />}
@@ -297,7 +259,7 @@ export function DebateTranscript({
       </CardContent>
       <Divider />
       {match.messages.length > 0 ? (
-        <TranscriptMessages fullPage={fullPage} live={live} match={match} />
+        <TranscriptMessages live={live} match={match} />
       ) : (
         <Stack
           spacing={1}

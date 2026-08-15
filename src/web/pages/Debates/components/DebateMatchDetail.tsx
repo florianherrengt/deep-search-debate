@@ -69,14 +69,44 @@ export function DebateMatchDetail({
 
   return (
     <Stack spacing={3}>
-      <Button
-        component={Link}
-        startIcon={<ArrowBackRounded />}
-        sx={{ alignSelf: "flex-start" }}
-        to={debatePath}
+      <Stack
+        direction="row"
+        spacing={1}
+        useFlexGap
+        sx={{ alignItems: "center", flexWrap: "wrap" }}
       >
-        Back to debate
-      </Button>
+        <Button
+          component={Link}
+          startIcon={<ArrowBackRounded />}
+          to={debatePath}
+        >
+          Back to debate
+        </Button>
+        <Stack direction="row" spacing={1} sx={{ ml: "auto" }}>
+          {previous ? (
+            <Button
+              aria-label={`Previous: ${matchName(previous)}`}
+              component={Link}
+              startIcon={<NavigateBeforeRounded />}
+              to={matchPath(tournament, previous)}
+              variant="outlined"
+            >
+              Previous
+            </Button>
+          ) : null}
+          {next ? (
+            <Button
+              aria-label={`Next: ${matchName(next)}`}
+              component={Link}
+              endIcon={<ArrowForwardRounded />}
+              to={matchPath(tournament, next)}
+              variant="outlined"
+            >
+              Next
+            </Button>
+          ) : null}
+        </Stack>
+      </Stack>
 
       <Stack spacing={1}>
         <Typography color="text.secondary" variant="overline">
@@ -135,49 +165,7 @@ export function DebateMatchDetail({
         />
       )}
 
-      <DebateTranscript fullPage live={live} match={match} />
-
-      <Stack
-        direction={{ xs: "column", sm: "row" }}
-        spacing={1.5}
-        sx={{ justifyContent: "space-between" }}
-      >
-        {previous ? (
-          <Button
-            component={Link}
-            startIcon={<NavigateBeforeRounded />}
-            sx={{
-              justifyContent: "flex-start",
-              minWidth: 0,
-              overflowWrap: "anywhere",
-              textAlign: "left",
-              width: { xs: "100%", sm: "auto" },
-            }}
-            to={matchPath(tournament, previous)}
-            variant="outlined"
-          >
-            Previous: {matchName(previous)}
-          </Button>
-        ) : null}
-        {next && (
-          <Button
-            component={Link}
-            endIcon={<ArrowForwardRounded />}
-            sx={{
-              justifyContent: "flex-end",
-              minWidth: 0,
-              ml: { sm: "auto" },
-              overflowWrap: "anywhere",
-              textAlign: "right",
-              width: { xs: "100%", sm: "auto" },
-            }}
-            to={matchPath(tournament, next)}
-            variant="outlined"
-          >
-            Next: {matchName(next)}
-          </Button>
-        )}
-      </Stack>
+      <DebateTranscript live={live} match={match} />
     </Stack>
   )
 }

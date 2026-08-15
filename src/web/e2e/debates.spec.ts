@@ -180,9 +180,11 @@ test.describe("Debate tournament", () => {
     const nextMatchPath = await nextMatchLink.getAttribute("href")
     expect(nextMatchPath).toMatch(/^\/debates\/[^/]+\/matches\/[^/]+$/)
     await page.setViewportSize({ width: 667, height: 375 })
-    const landscapeTranscriptBox = await transcript.boundingBox()
-    expect(landscapeTranscriptBox).not.toBeNull()
-    expect(landscapeTranscriptBox?.height).toBeLessThanOrEqual(230)
+    expect(
+      await transcript.evaluate((element) =>
+        window.getComputedStyle(element).overflowY,
+      ),
+    ).toBe("visible")
     await page.setViewportSize({ width: 375, height: 667 })
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
     expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0)

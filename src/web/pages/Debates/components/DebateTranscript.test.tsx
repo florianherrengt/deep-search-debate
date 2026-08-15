@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import type { DebateMatch } from "../debateUiTypes.ts"
@@ -34,22 +34,6 @@ const match: DebateMatch = {
   ],
 }
 
-function setViewportGeometry(viewport: HTMLElement, scrollTop: number) {
-  Object.defineProperties(viewport, {
-    clientHeight: { configurable: true, value: 200 },
-    scrollHeight: { configurable: true, value: 1_000 },
-  })
-  viewport.scrollTop = scrollTop
-  fireEvent.scroll(viewport)
-}
-
-function withStreamedText(text: string): DebateMatch {
-  return {
-    ...match,
-    messages: [{ ...match.messages[0], text }],
-  }
-}
-
 describe("DebateTranscript", () => {
   it("shows a status beside the transcript heading only while live", () => {
     const completedMatch: DebateMatch = {
@@ -61,7 +45,7 @@ describe("DebateTranscript", () => {
     )
 
     expect(
-      screen.getByRole("heading", { name: "Debate transcript" }),
+      screen.getByRole("heading", { name: "Debate conversation" }),
     ).toBeVisible()
     expect(screen.queryByText("Transcript", { exact: true })).toBeNull()
 
@@ -70,52 +54,38 @@ describe("DebateTranscript", () => {
     expect(screen.getByText("Streaming", { exact: true })).toBeVisible()
   })
 
-  it("keeps a full-page mobile transcript scrollable without overriding manual reading", () => {
-    const { rerender } = render(<DebateTranscript fullPage match={match} />)
-    const viewport = screen.getByRole("log")
+  it("renders the whole conversation in normal page flow", () => {
+    const conversationMatch: DebateMatch = {
+      ...match,
+      status: "completed",
+      messages: [
+        match.messages[0],
+        {
+          ...match.messages[0],
+          debateMessageId: "second-message",
+          position: 1,
+          speakerSlot: 1,
+          text: "Second response",
+        },
+        {
+          ...match.messages[0],
+          debateMessageId: "judge-message",
+          position: 2,
+          speakerSlot: 2,
+          text: "Final decision",
+        },
+      ],
+    }
 
-    expect(viewport).toHaveStyle({
-      maxHeight: "min(520px, 60vh)",
-      minHeight: "0",
-    })
+    render(<DebateTranscript match={conversationMatch} />)
 
-    setViewportGeometry(viewport, 100)
-    rerender(
-      <DebateTranscript
-        fullPage
-        match={withStreamedText("Updated argument")}
-      />,
-    )
-    expect(viewport.scrollTop).toBe(100)
-
-    setViewportGeometry(viewport, 790)
-    rerender(
-      <DebateTranscript
-        fullPage
-        match={withStreamedText("Another updated argument")}
-      />,
-    )
-    expect(viewport.scrollTop).toBe(1_000)
-  })
-
-  it("does not override manual scrolling while text streams", () => {
-    const { rerender } = render(<DebateTranscript match={match} />)
-    const viewport = screen.getByRole("log")
-    setViewportGeometry(viewport, 100)
-
-    rerender(<DebateTranscript match={withStreamedText("Updated argument")} />)
-
-    expect(viewport.scrollTop).toBe(100)
-  })
-
-  it("continues following streamed text when already near the bottom", () => {
-    const { rerender } = render(<DebateTranscript match={match} />)
-    const viewport = screen.getByRole("log")
-    setViewportGeometry(viewport, 790)
-
-    rerender(<DebateTranscript match={withStreamedText("Updated argument")} />)
-
-    expect(viewport.scrollTop).toBe(1_000)
+    const conversation = screen.getByRole("log", { name: "Debate messages" })
+    expect(conversation).toHaveStyle({ overflow: "visible" })
+    const messages = within(conversation).getAllByRole("article")
+    expect(messages).toHaveLength(3)
+    expect(messages[0]).toHaveStyle({ justifyContent: "flex-start" })
+    expect(messages[1]).toHaveStyle({ justifyContent: "flex-end" })
+    expect(messages[2]).toHaveStyle({ justifyContent: "center" })
   })
 
   it("shows one visible role label for a judge message", () => {

@@ -516,6 +516,17 @@ describe("Debates", () => {
       "href",
       "/debates/better-cafe-ideas/matches/match",
     )
+    expect(
+      screen
+        .getByRole("link", {
+          name: "Previous: First idea versus Second idea",
+        })
+        .compareDocumentPosition(
+          screen.getByRole("heading", {
+            name: "Third idea vs Second idea",
+          }),
+        ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
     expect(screen.getByRole("link", { name: "Back to debate" })).toHaveAttribute(
       "href",
       "/debates/better-cafe-ideas",
@@ -540,7 +551,7 @@ describe("Debates", () => {
       "/debates/better-cafe-ideas",
     )
     expect(
-      screen.queryByRole("heading", { name: "Debate transcript" }),
+      screen.queryByRole("heading", { name: "Debate conversation" }),
     ).not.toBeInTheDocument()
     await waitFor(() =>
       expect(document.title).toBe("Match not found — RethinkLoop"),
