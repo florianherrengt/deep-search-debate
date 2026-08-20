@@ -56,16 +56,59 @@ describe("fresh database migration", () => {
       "idea_jobs",
       "debate_jobs",
     ]) {
+      const columnNames = sqlite
+        .prepare(`PRAGMA table_info('${tableName}')`)
+        .all()
+        .map((column) => (column as { name: string }).name)
       expect(
-        sqlite
-          .prepare(`PRAGMA table_info('${tableName}')`)
-          .all()
-          .some(
-            (column) =>
-              (column as { name?: unknown }).name === "cancel_requested_at",
-          ),
-      ).toBe(true)
+        columnNames,
+      ).toEqual(expect.arrayContaining([
+        "cancel_requested_at",
+        "feedback_rating",
+        "feedback_text",
+      ]))
     }
+    expect(
+      sqlite
+        .prepare("PRAGMA table_info('deep_search_jobs')")
+        .all()
+        .some(
+          (column) =>
+            (column as { name?: unknown }).name ===
+            "research_analysis_generation_id",
+        ),
+    ).toBe(true)
+    const researchAnalysisForeignKey = sqlite
+      .prepare("PRAGMA foreign_key_list('deep_search_jobs')")
+      .all()
+      .find(
+        (row) =>
+          (row as { from?: unknown }).from ===
+          "research_analysis_generation_id",
+      ) as { id: number }
+    expect(
+      sqlite
+        .prepare("PRAGMA foreign_key_list('deep_search_jobs')")
+        .all()
+        .filter((row) => (row as { id: number }).id === researchAnalysisForeignKey.id)
+        .map((row) => ({
+          from: (row as { from: string }).from,
+          table: (row as { table: string }).table,
+          to: (row as { to: string }).to,
+        })),
+    ).toEqual([
+      {
+        from: "research_analysis_generation_id",
+        table: "llm_generations",
+        to: "llm_generation_id",
+      },
+      { from: "user_id", table: "llm_generations", to: "user_id" },
+      {
+        from: "deep_search_job_id",
+        table: "llm_generations",
+        to: "deep_search_job_id",
+      },
+    ])
     expect(sqlite.pragma("foreign_key_check")).toEqual([])
     expect(sqlite.pragma("integrity_check", { simple: true })).toBe("ok")
 
@@ -90,5 +133,4 @@ describe("fresh database migration", () => {
     )
     sqlite.close()
   })
-
 })

@@ -15,6 +15,7 @@ import {
 } from "./jobLifecycle.ts"
 import {
   attachFinalAnswerGeneration,
+  attachResearchAnalysisGeneration,
   createSearchRound,
   attachQuerySummaryGeneration,
   attachRoundAnswerGeneration,
@@ -236,11 +237,22 @@ describe("deep-search job lifecycle", () => {
     const jobId = crypto.randomUUID()
     const queryGenerationId = crypto.randomUUID()
     const answerGenerationId = crypto.randomUUID()
+    const researchAnalysisGenerationId = crypto.randomUUID()
     insertJob(jobId)
     insertGeneration(jobId, queryGenerationId)
     insertGeneration(jobId, answerGenerationId)
+    insertGeneration(jobId, researchAnalysisGenerationId)
     completeGeneration(queryGenerationId, '["stable query"]')
     completeGeneration(answerGenerationId, "Candidate answer")
+    completeGeneration(
+      researchAnalysisGenerationId,
+      JSON.stringify({
+        facts: [],
+        disagreements: [],
+        gaps: [],
+        assumptions: [],
+      }),
+    )
     const round = createSearchRound({
       jobId,
       position: 0,
@@ -252,12 +264,17 @@ describe("deep-search job lifecycle", () => {
         roundId: round.roundId,
         generationId: answerGenerationId,
       })
+      attachResearchAnalysisGeneration(transaction, {
+        jobId,
+        generationId: researchAnalysisGenerationId,
+      })
     })
 
     promoteRoundAnswer({
       jobId,
       roundId: round.roundId,
       generationId: answerGenerationId,
+      researchAnalysisGenerationId,
     })
 
     expect(
@@ -265,6 +282,8 @@ describe("deep-search job lifecycle", () => {
         .select({
           status: deepSearchJobs.status,
           finalAnswerGenerationId: deepSearchJobs.finalAnswerGenerationId,
+          researchAnalysisGenerationId:
+            deepSearchJobs.researchAnalysisGenerationId,
         })
         .from(deepSearchJobs)
         .where(eq(deepSearchJobs.deepSearchJobId, jobId))
@@ -272,6 +291,7 @@ describe("deep-search job lifecycle", () => {
     ).toEqual({
       status: "completed",
       finalAnswerGenerationId: answerGenerationId,
+      researchAnalysisGenerationId,
     })
     expect(
       db

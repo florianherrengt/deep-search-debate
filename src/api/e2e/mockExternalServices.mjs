@@ -396,6 +396,7 @@ function assertThinkingMode(body, system) {
     system.includes("You summarize an extracted web page") ||
     system.includes("You summarize the results returned for one web search") ||
     system.includes("You write the current candidate answer for a deep research run") ||
+    system.includes("You analyse a completed deep-research answer") ||
     /debate|opening argument|rebuttal/i.test(system)
   // These bounded prose stages deliberately bypass Flash thinking because it
   // can consume the entire output budget without emitting the required text.
@@ -521,6 +522,30 @@ function deepSeekOutput(body) {
     return {
       reasoning: "Answer only from the deterministic query summary.",
       text,
+    }
+  }
+  if (system.includes("You analyse a completed deep-research answer")) {
+    return {
+      reasoning: "",
+      text: JSON.stringify({
+        facts: [
+          {
+            title: "The supplied evidence supports the answer",
+            description:
+              "The completed search summary directly supports the answer's central finding.",
+            sources: [],
+          },
+        ],
+        disagreements: [],
+        gaps: [
+          {
+            title: "Long-term outcomes remain untested",
+            description:
+              "The supplied material does not establish long-term outcomes beyond the researched evidence.",
+          },
+        ],
+        assumptions: [],
+      }),
     }
   }
   if (system.includes("Combine the supplied research texts")) {

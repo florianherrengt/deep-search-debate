@@ -28,8 +28,10 @@ flowchart TD
   querySummary --> candidate["Write candidate answer from all query summaries"]
   candidate --> review{"Does this answer need more material research?"}
   review -- "continue and below maxRounds" --> queries
-  review -- "stop or failure" --> finalAnswer["Promote this candidate unchanged"]
-  candidate -- "hard round limit" --> finalAnswer
+  review -- "stop or failure" --> accepted["Accept this candidate unchanged"]
+  candidate -- "hard round limit" --> accepted
+  accepted --> analysis["Classify facts, disagreements, gaps, and assumptions"]
+  analysis --> finalAnswer["Promote the accepted candidate"]
 ```
 
 The important boundary is candidate generation: the answer model sees the
@@ -336,13 +338,39 @@ omitted by both the page and query summaries cannot be recovered in the final
 answer. The candidate stream is attached to its round before generation starts.
 
 When review returns `stop`, review fails, or the round hard limit is reached,
-the job atomically points `finalAnswerGenerationId` at that round's completed
-candidate generation and becomes terminal. No answer text is copied and no
-second final-answer model call runs.
+the accepted candidate is passed to the separate structured research-analysis
+stage described below. After that stage completes, the job atomically points
+`finalAnswerGenerationId` at the completed candidate generation and becomes
+terminal. No answer text is copied and no second final-answer model call runs.
 
 Prompt: [answer-research-request.md](../../llms/prompts/answer-research-request.md)
 
 Implementation: [finalAnswer.ts](../../agents/deep_search/finalAnswer.ts)
+
+## 10. Analyse the accepted answer
+
+One separate structured model call receives the original request, the accepted
+answer, and every accumulated query summary. It classifies the result into:
+
+- supported facts, with source URLs;
+- material disagreements, with source URLs;
+- unresolved gaps;
+- material assumptions, with source URLs.
+
+The output is constrained and parsed with Zod. Titles, descriptions, collection
+sizes, and source URLs are bounded. The model is instructed to cite only URLs
+present in the supplied answer or summaries and to return an empty array when a
+category has no defensible item. Hidden reasoning is disabled because this is an
+evidence-transformation stage with a bounded structured output.
+
+The structured JSON remains in its owned `llm_generations` row and the job stores
+only its generation link. Completed replay parses that validated JSON rather
+than copying the four collections into another table. The browser receives a
+typed `research-analysis` event, not the raw structured generation stream.
+
+Prompt: [analyze-research-answer.md](../../llms/prompts/analyze-research-answer.md)
+
+Implementation: [researchAnalysis.ts](../../agents/deep_search/researchAnalysis.ts)
 
 ## Ordering and concurrency
 
@@ -371,7 +399,10 @@ The pipeline deliberately mixes sequential and concurrent work:
 7. The round review starts only after the candidate answer completes.
 8. A `continue` decision repeats steps 1–7 with globally deduplicated queries
    and URLs plus the candidate and review reason as planning context.
-9. A stopped, failed-review, or final-round candidate is promoted unchanged.
+9. A stopped, failed-review, or final-round candidate receives the separate
+   structured research analysis.
+10. After that analysis completes, the candidate is promoted unchanged and the
+    job becomes terminal.
 
 This ordering preserves query priority in the UI and database while overlapping
 the slow page work where possible.
@@ -397,6 +428,7 @@ The terminal job feed emits `interrupted`, then `done`, without an ordinary
 | Page summary | Page fails; query synthesis uses its snippet |
 | Query summary | Job fails; candidate generation does not start |
 | Candidate answer | Job fails |
+| Structured research analysis | Job fails; the candidate is not promoted |
 | Round review | Exploration stops; the current candidate is promoted |
 
 See [Deep-search jobs](deep-search-jobs.md) for persistence details and the
@@ -413,6 +445,10 @@ typed `round-review` or `round-review-error` events. The client then reads the
 corresponding LLM streams to display reasoning and text while generation is
 running.
 
+The structured research-analysis call is not rendered as an LLM text stream.
+After it validates and the job completes, the feed publishes its typed
+`research-analysis` payload between `final-answer-stream` and `done`.
+
 The server-side pipeline does not subscribe to those public streams to recover
 its own results. Each model-backed stage returns the stream ID, a durable
 completion promise, and its typed result promise. The pipeline publishes the ID
@@ -427,9 +463,10 @@ outcome. Provider page-summary failures therefore enable snippet fallback
 without a later repair scan, while query-summary failures become durable before
 the pipeline raises the fatal error. Each candidate-answer generation is linked
 to its round before its stream is published. After that generation completes,
-promotion verifies every required query and the candidate output, then
-atomically links it as the final answer and completes the job. The runner
-returns that durable text directly. Fatal pipeline cleanup atomically fails all
+the structured analysis runs and stores its generation link. Promotion verifies
+every required query, the candidate output, and the completed schema-valid
+analysis, then atomically links the candidate as the final answer and completes
+the job. The runner returns that durable text directly. Fatal pipeline cleanup atomically fails all
 still-active query and page rows with the owning job before publishing the
 terminal error. Stop cleanup settles active generation, query, and page records
 before publishing the interrupted terminal suffix; interrupted generation

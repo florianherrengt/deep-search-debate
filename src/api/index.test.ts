@@ -111,6 +111,32 @@ describe("authentication", () => {
     }
   })
 
+  it("protects feedback mutations with session and trusted-origin middleware", async () => {
+    for (const path of [
+      "/api/deep-search-jobs/10000000-0000-4000-8000-000000000001/feedback",
+      "/api/idea-jobs/20000000-0000-4000-8000-000000000002/feedback",
+      "/api/debate-jobs/30000000-0000-4000-8000-000000000003/feedback",
+    ]) {
+      const anonymousResponse = await app.request(path, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "rating", rating: true }),
+      })
+      expect(anonymousResponse.status).toBe(401)
+
+      const crossOriginResponse = await app.request(path, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://attacker.example",
+          "Sec-Fetch-Site": "cross-site",
+        },
+        body: JSON.stringify({ type: "rating", rating: true }),
+      })
+      expect(crossOriginResponse.status).toBe(403)
+    }
+  })
+
   it("rejects untrusted debug sign-in requests", async () => {
     const response = await app.request("/api/auth/debug-sign-in", {
       method: "POST",

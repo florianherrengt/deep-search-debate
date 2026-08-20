@@ -10,7 +10,10 @@ CREATE TABLE `deep_search_jobs` (
 	`max_results_per_search` integer NOT NULL,
 	`max_rounds` integer DEFAULT 3 NOT NULL,
 	`final_answer_generation_id` text,
+	`research_analysis_generation_id` text,
 	`status` text DEFAULT 'running' NOT NULL,
+	`feedback_rating` integer,
+	`feedback_text` text,
 	`error` text,
 	`cancel_requested_at` integer,
 	`created_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
@@ -18,6 +21,7 @@ CREATE TABLE `deep_search_jobs` (
 	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`idea_job_id`,`user_id`) REFERENCES `idea_jobs`(`idea_job_id`,`user_id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`final_answer_generation_id`,`user_id`,`deep_search_job_id`) REFERENCES `llm_generations`(`llm_generation_id`,`user_id`,`deep_search_job_id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`research_analysis_generation_id`,`user_id`,`deep_search_job_id`) REFERENCES `llm_generations`(`llm_generation_id`,`user_id`,`deep_search_job_id`) ON UPDATE no action ON DELETE no action,
 	CONSTRAINT "deep_search_jobs_idea_job_position_check" CHECK((
         ("deep_search_jobs"."idea_job_id" is null and "deep_search_jobs"."idea_job_position" is null)
         or
@@ -26,6 +30,8 @@ CREATE TABLE `deep_search_jobs` (
 	CONSTRAINT "deep_search_jobs_limits_check" CHECK("deep_search_jobs"."max_searches" > 0 and "deep_search_jobs"."max_results_per_search" > 0 and "deep_search_jobs"."max_rounds" > 0),
 	CONSTRAINT "deep_search_jobs_research_request_content_check" CHECK(length(trim("deep_search_jobs"."research_request")) > 0),
 	CONSTRAINT "deep_search_jobs_status_check" CHECK("deep_search_jobs"."status" in ('running', 'completed', 'failed', 'interrupted')),
+	CONSTRAINT "deep_search_jobs_feedback_rating_check" CHECK("deep_search_jobs"."feedback_rating" is null or ("deep_search_jobs"."status" = 'completed' and "deep_search_jobs"."feedback_rating" in (0, 1))),
+	CONSTRAINT "deep_search_jobs_feedback_text_check" CHECK("deep_search_jobs"."feedback_text" is null or ("deep_search_jobs"."status" = 'completed' and "deep_search_jobs"."feedback_rating" is false and length("deep_search_jobs"."feedback_text") <= 5000 and length(trim("deep_search_jobs"."feedback_text")) > 0)),
 	CONSTRAINT "deep_search_jobs_cancel_root_check" CHECK("deep_search_jobs"."cancel_requested_at" is null or "deep_search_jobs"."idea_job_id" is null),
 	CONSTRAINT "deep_search_jobs_terminal_fields_check" CHECK((
         ("deep_search_jobs"."status" = 'running' and "deep_search_jobs"."completed_at" is null and "deep_search_jobs"."error" is null)
@@ -39,6 +45,7 @@ CREATE TABLE `deep_search_jobs` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `deep_search_jobs_final_answer_generation_id_unique` ON `deep_search_jobs` (`final_answer_generation_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `deep_search_jobs_research_analysis_generation_id_unique` ON `deep_search_jobs` (`research_analysis_generation_id`);--> statement-breakpoint
 CREATE INDEX `deep_search_jobs_user_created_at_idx` ON `deep_search_jobs` (`user_id`,`created_at`,`deep_search_job_id`);--> statement-breakpoint
 CREATE UNIQUE INDEX `deep_search_jobs_slug_idx` ON `deep_search_jobs` (`slug`);--> statement-breakpoint
 CREATE UNIQUE INDEX `deep_search_jobs_id_user_id_idx` ON `deep_search_jobs` (`deep_search_job_id`,`user_id`);--> statement-breakpoint
@@ -185,6 +192,8 @@ CREATE TABLE `debate_jobs` (
 	`is_public` integer DEFAULT false NOT NULL,
 	`stage` text DEFAULT 'ideas' NOT NULL,
 	`status` text DEFAULT 'running' NOT NULL,
+	`feedback_rating` integer,
+	`feedback_text` text,
 	`error` text,
 	`cancel_requested_at` integer,
 	`created_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
@@ -194,6 +203,8 @@ CREATE TABLE `debate_jobs` (
 	CONSTRAINT "debate_jobs_visibility_check" CHECK("debate_jobs"."is_public" in (0, 1)),
 	CONSTRAINT "debate_jobs_stage_check" CHECK("debate_jobs"."stage" in ('ideas', 'swiss', 'semifinal', 'final')),
 	CONSTRAINT "debate_jobs_status_check" CHECK("debate_jobs"."status" in ('running', 'completed', 'failed', 'interrupted')),
+	CONSTRAINT "debate_jobs_feedback_rating_check" CHECK("debate_jobs"."feedback_rating" is null or ("debate_jobs"."status" = 'completed' and "debate_jobs"."feedback_rating" in (0, 1))),
+	CONSTRAINT "debate_jobs_feedback_text_check" CHECK("debate_jobs"."feedback_text" is null or ("debate_jobs"."status" = 'completed' and "debate_jobs"."feedback_rating" is false and length("debate_jobs"."feedback_text") <= 5000 and length(trim("debate_jobs"."feedback_text")) > 0)),
 	CONSTRAINT "debate_jobs_terminal_fields_check" CHECK((
         ("debate_jobs"."status" = 'running' and "debate_jobs"."completed_at" is null and "debate_jobs"."error" is null)
         or
@@ -275,6 +286,8 @@ CREATE TABLE `idea_jobs` (
 	`idea_generation_id` text,
 	`selection_generation_id` text,
 	`status` text DEFAULT 'running' NOT NULL,
+	`feedback_rating` integer,
+	`feedback_text` text,
 	`error` text,
 	`cancel_requested_at` integer,
 	`created_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
@@ -288,6 +301,8 @@ CREATE TABLE `idea_jobs` (
 	CONSTRAINT "idea_jobs_limits_check" CHECK("idea_jobs"."number_of_ideas" > 0 and "idea_jobs"."deep_search_count" > 0),
 	CONSTRAINT "idea_jobs_stage_check" CHECK("idea_jobs"."stage" in ('planning', 'research', 'summary', 'ideas')),
 	CONSTRAINT "idea_jobs_status_check" CHECK("idea_jobs"."status" in ('running', 'completed', 'failed', 'interrupted')),
+	CONSTRAINT "idea_jobs_feedback_rating_check" CHECK("idea_jobs"."feedback_rating" is null or ("idea_jobs"."status" = 'completed' and "idea_jobs"."feedback_rating" in (0, 1))),
+	CONSTRAINT "idea_jobs_feedback_text_check" CHECK("idea_jobs"."feedback_text" is null or ("idea_jobs"."status" = 'completed' and "idea_jobs"."feedback_rating" is false and length("idea_jobs"."feedback_text") <= 5000 and length(trim("idea_jobs"."feedback_text")) > 0)),
 	CONSTRAINT "idea_jobs_cancel_root_check" CHECK("idea_jobs"."cancel_requested_at" is null or "idea_jobs"."debate_job_id" is null),
 	CONSTRAINT "idea_jobs_prompt_content_check" CHECK(length(trim("idea_jobs"."prompt")) > 0),
 	CONSTRAINT "idea_jobs_terminal_fields_check" CHECK((

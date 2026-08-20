@@ -13,6 +13,10 @@ import {
 import { judgeVerdictSchema } from "./schemas.ts"
 import { debateJobReadScope } from "../readAccess.ts"
 import {
+  resultFeedbackProjection,
+  type ResultFeedback,
+} from "../resultFeedback.ts"
+import {
   deriveSwissStandings,
   getMatchesPerSwissRound,
   getTotalMatchCount,
@@ -60,6 +64,7 @@ export type DebateJobSnapshot = {
   prompt: string
   isPublic: boolean
   isOwner: boolean
+  feedback: ResultFeedback | null
   stopRequested: boolean
   canStop: boolean
   stage: "ideas" | "swiss" | "semifinal" | "final"
@@ -98,6 +103,8 @@ export function getDebateJobSnapshot(
       stage: debateJobs.stage,
       status: debateJobs.status,
       error: debateJobs.error,
+      feedbackRating: debateJobs.feedbackRating,
+      feedbackText: debateJobs.feedbackText,
       cancelRequestedAt: debateJobs.cancelRequestedAt,
       title: ideaJobs.title,
       slug: ideaJobs.slug,
@@ -282,6 +289,7 @@ export function getDebateJobSnapshot(
           }),
         )
 
+  const isOwner = job.userId === viewerUserId
   return {
     debateJobId: job.debateJobId,
     ideaJobId: job.ideaJobId,
@@ -289,10 +297,13 @@ export function getDebateJobSnapshot(
     slug: job.slug,
     prompt: job.prompt,
     isPublic: job.isPublic,
-    isOwner: job.userId === viewerUserId,
+    isOwner,
+    feedback: isOwner
+      ? resultFeedbackProjection(job.feedbackRating, job.feedbackText)
+      : null,
     stopRequested: job.cancelRequestedAt !== null,
     canStop:
-      job.userId === viewerUserId &&
+      isOwner &&
       job.status === "running" &&
       job.cancelRequestedAt === null,
     stage: job.stage,

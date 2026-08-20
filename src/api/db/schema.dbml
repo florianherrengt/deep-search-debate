@@ -26,6 +26,8 @@ table debate_jobs {
   is_public integer [not null, default: 0]
   stage text [not null, default: 'ideas']
   status text [not null, default: 'running']
+  feedback_rating integer
+  feedback_text text
   error text
   cancel_requested_at integer
   created_at integer [not null, default: `(cast(unixepoch('subsecond') * 1000 as integer))`]
@@ -34,6 +36,8 @@ table debate_jobs {
   indexes {
     (user_id, created_at, debate_job_id) [name: 'debate_jobs_user_created_at_idx']
     (debate_job_id, user_id) [name: 'debate_jobs_id_user_id_idx', unique]
+
+
 
 
 
@@ -104,7 +108,10 @@ table deep_search_jobs {
   max_results_per_search integer [not null]
   max_rounds integer [not null, default: 3]
   final_answer_generation_id text [unique]
+  research_analysis_generation_id text [unique]
   status text [not null, default: 'running']
+  feedback_rating integer
+  feedback_text text
   error text
   cancel_requested_at integer
   created_at integer [not null, default: `(cast(unixepoch('subsecond') * 1000 as integer))`]
@@ -115,6 +122,9 @@ table deep_search_jobs {
     slug [name: 'deep_search_jobs_slug_idx', unique]
     (deep_search_job_id, user_id) [name: 'deep_search_jobs_id_user_id_idx', unique]
     (idea_job_id, idea_job_position) [name: 'deep_search_jobs_idea_job_position_idx', unique]
+
+
+
 
 
 
@@ -230,6 +240,8 @@ table idea_jobs {
   idea_generation_id text [unique]
   selection_generation_id text [unique]
   status text [not null, default: 'running']
+  feedback_rating integer
+  feedback_text text
   error text
   cancel_requested_at integer
   created_at integer [not null, default: `(cast(unixepoch('subsecond') * 1000 as integer))`]
@@ -239,6 +251,8 @@ table idea_jobs {
     (user_id, created_at, idea_job_id) [name: 'idea_jobs_user_created_at_idx']
     slug [name: 'idea_jobs_slug_idx', unique]
     (idea_job_id, user_id) [name: 'idea_jobs_id_user_id_idx', unique]
+
+
 
 
 
@@ -390,6 +404,8 @@ ref deep_search_jobs_user_id_user_id_fk: deep_search_jobs.user_id > user.id [del
 ref deep_search_jobs_idea_job_owner_fk: deep_search_jobs.(idea_job_id, user_id) > idea_jobs.(idea_job_id, user_id) [delete: cascade, update: no action]
 
 ref deep_search_jobs_final_answer_generation_owner_fk: deep_search_jobs.(final_answer_generation_id, user_id, deep_search_job_id) > llm_generations.(llm_generation_id, user_id, deep_search_job_id) [delete: no action, update: no action]
+
+ref deep_search_jobs_research_analysis_generation_owner_fk: deep_search_jobs.(research_analysis_generation_id, user_id, deep_search_job_id) > llm_generations.(llm_generation_id, user_id, deep_search_job_id) [delete: no action, update: no action]
 
 ref deep_search_queries_deep_search_round_id_deep_search_rounds_deep_search_round_id_fk: deep_search_queries.deep_search_round_id > deep_search_rounds.deep_search_round_id [delete: cascade, update: no action]
 

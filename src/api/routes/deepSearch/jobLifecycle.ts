@@ -1,4 +1,5 @@
 import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm"
+import { parseResearchAnalysisText } from "../../agents/deep_search/schemas.ts"
 import { db } from "../../db/index.ts"
 import {
   deepSearchJobs,
@@ -189,6 +190,7 @@ export function promoteRoundAnswer(input: {
   jobId: string
   roundId: string
   generationId: string
+  researchAnalysisGenerationId: string
 }): void {
   db.transaction((transaction) => {
     assertDeepSearchActive(transaction, input.jobId)
@@ -206,6 +208,41 @@ export function promoteRoundAnswer(input: {
     if (round.answerGenerationId !== input.generationId) {
       throw new Error("Round answer generation was not registered")
     }
+
+    const job = transaction
+      .select({
+        researchAnalysisGenerationId:
+          deepSearchJobs.researchAnalysisGenerationId,
+      })
+      .from(deepSearchJobs)
+      .where(eq(deepSearchJobs.deepSearchJobId, input.jobId))
+      .get()
+    if (
+      job?.researchAnalysisGenerationId !==
+      input.researchAnalysisGenerationId
+    ) {
+      throw new Error("Research analysis generation was not registered")
+    }
+    const researchAnalysisGeneration = transaction
+      .select({
+        status: llmGenerations.status,
+        text: llmGenerations.text,
+      })
+      .from(llmGenerations)
+      .where(
+        eq(
+          llmGenerations.llmGenerationId,
+          input.researchAnalysisGenerationId,
+        ),
+      )
+      .get()
+    if (
+      researchAnalysisGeneration?.status !== "completed" ||
+      researchAnalysisGeneration.text === null
+    ) {
+      throw new Error("Research analysis generation did not complete")
+    }
+    parseResearchAnalysisText(researchAnalysisGeneration.text)
 
     const registered = transaction
       .update(deepSearchJobs)

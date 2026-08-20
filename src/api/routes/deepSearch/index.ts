@@ -31,12 +31,19 @@ import {
 import type { AppEnv } from "../../types/auth.ts"
 import { deepSearchJobReadScope } from "../readAccess.ts"
 import { stopRequestAppliesToJob } from "../researchCancellation.ts"
+import {
+  resultFeedbackInputSchema,
+  resultFeedbackProjection,
+  updateResultFeedback,
+} from "../resultFeedback.ts"
 
 export type { DeepSearchJobEvent } from "./schemas.ts"
 
 const {
   userId: _deepSearchJobOwnerId,
   cancelRequestedAt: _cancelRequestedAt,
+  feedbackRating: _feedbackRating,
+  feedbackText: _feedbackText,
   ...publicDeepSearchJobColumns
 } = getTableColumns(deepSearchJobsTable)
 
@@ -88,6 +95,8 @@ export function deepSearchJobReads(
         .select({
           ...publicDeepSearchJobColumns,
           ownerUserId: deepSearchJobsTable.userId,
+          ownerFeedbackRating: deepSearchJobsTable.feedbackRating,
+          ownerFeedbackText: deepSearchJobsTable.feedbackText,
           directCancelRequestedAt: deepSearchJobsTable.cancelRequestedAt,
           ideaCancelRequestedAt: ideaJobsTable.cancelRequestedAt,
           debateCancelRequestedAt: debateJobsTable.cancelRequestedAt,
@@ -115,6 +124,8 @@ export function deepSearchJobReads(
       }
       const {
         ownerUserId,
+        ownerFeedbackRating,
+        ownerFeedbackText,
         directCancelRequestedAt,
         ideaCancelRequestedAt,
         debateCancelRequestedAt,
@@ -123,6 +134,7 @@ export function deepSearchJobReads(
         ...publicDeepSearchJob
       } = deepSearchJob
       const isPublic = inheritedIsPublic ?? false
+      const isOwner = c.get("viewerUserId") === ownerUserId
       const stopRequested = stopRequestAppliesToJob({
         status: publicDeepSearchJob.status,
         completedAt: publicDeepSearchJob.completedAt,
@@ -134,9 +146,15 @@ export function deepSearchJobReads(
       return c.json({
         deepSearchJob: {
           ...publicDeepSearchJob,
+          feedback: isOwner
+            ? resultFeedbackProjection(
+                ownerFeedbackRating,
+                ownerFeedbackText,
+              )
+            : null,
           stopRequested,
           canStop:
-            c.get("viewerUserId") === ownerUserId &&
+            isOwner &&
             publicDeepSearchJob.ideaJobId === null &&
             publicDeepSearchJob.status === "running" &&
             !stopRequested,
@@ -231,6 +249,81 @@ export function deepSearchJobs(
   app: Hono<AppEnv>,
   manager: DeepSearchJobManager = createDeepSearchJobManager(),
 ) {
+  app.patch(
+    "/deep-search-jobs/:deepSearchJobId/feedback",
+    zValidator("param", deepSearchJobEventParamsSchema),
+    zValidator("json", resultFeedbackInputSchema),
+    (c) => {
+      const { deepSearchJobId } = c.req.valid("param")
+      const result = updateResultFeedback(c.req.valid("json"), {
+        getOwnerStatus: () =>
+          db
+            .select({ status: deepSearchJobsTable.status })
+            .from(deepSearchJobsTable)
+            .where(
+              and(
+                eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId),
+                eq(deepSearchJobsTable.userId, c.get("userId")),
+              ),
+            )
+            .get()?.status,
+        updateRating: (rating) =>
+          db
+            .update(deepSearchJobsTable)
+            .set({
+              feedbackRating: rating,
+              ...(rating ? { feedbackText: null } : {}),
+            })
+            .where(
+              and(
+                eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId),
+                eq(deepSearchJobsTable.userId, c.get("userId")),
+                eq(deepSearchJobsTable.status, "completed"),
+              ),
+            )
+            .returning({
+              feedbackRating: deepSearchJobsTable.feedbackRating,
+              feedbackText: deepSearchJobsTable.feedbackText,
+            })
+            .get(),
+        updateText: (text) =>
+          db
+            .update(deepSearchJobsTable)
+            .set({ feedbackText: text })
+            .where(
+              and(
+                eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId),
+                eq(deepSearchJobsTable.userId, c.get("userId")),
+                eq(deepSearchJobsTable.status, "completed"),
+                eq(deepSearchJobsTable.feedbackRating, false),
+              ),
+            )
+            .returning({
+              feedbackRating: deepSearchJobsTable.feedbackRating,
+              feedbackText: deepSearchJobsTable.feedbackText,
+            })
+            .get(),
+      })
+
+      switch (result.kind) {
+        case "updated":
+          return c.json({ feedback: result.feedback })
+        case "not-found":
+          return c.json({ error: "Deep search job not found" }, 404)
+        case "not-completed":
+          return c.json(
+            { error: "Feedback requires a completed deep search job" },
+            409,
+          )
+        case "negative-rating-required":
+          return c.json(
+            { error: "Written feedback requires a negative rating" },
+            409,
+          )
+      }
+    },
+  )
+
   app.post(
     "/deep-search-jobs/:deepSearchJobId/cancel",
     zValidator("param", deepSearchJobEventParamsSchema),

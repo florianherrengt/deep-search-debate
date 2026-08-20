@@ -203,14 +203,18 @@ describe("user-owned routes", () => {
         `/debate-jobs/${foreignIdeaSlug}`,
       )
       expect(await debateResponse.json()).toMatchObject({
-        debateJob: { isOwner: false, isPublic: true },
+        debateJob: { isOwner: false, isPublic: true, feedback: null },
       })
       const ideaResponse = await app.request(`/idea-jobs/${foreignIdeaSlug}`)
-      expect(JSON.stringify(await ideaResponse.json())).not.toContain("userId")
+      const ideaBody: unknown = await ideaResponse.json()
+      expect(ideaBody).toMatchObject({ ideaJob: { feedback: null } })
+      expect(JSON.stringify(ideaBody)).not.toContain("userId")
       const searchResponse = await app.request(
         `/deep-search-jobs/${foreignDeepSearchSlug}`,
       )
-      expect(JSON.stringify(await searchResponse.json())).not.toContain("userId")
+      const searchBody: unknown = await searchResponse.json()
+      expect(searchBody).toMatchObject({ deepSearchJob: { feedback: null } })
+      expect(JSON.stringify(searchBody)).not.toContain("userId")
       expect((await app.request(`/streams/${foreignStreamId}`)).status).toBe(404)
     },
   )

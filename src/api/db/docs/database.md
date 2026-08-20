@@ -54,6 +54,13 @@ ignores this one documented peer-resolution shim.
   idea and deep-search jobs have no parent. Application writers create these
   ownership links once and never reparent them; under that contract, deleting a
   debate cascades through its complete generated pipeline.
+- Completed `deep_search_jobs`, `idea_jobs`, and `debate_jobs` store their
+  owner's mutable feedback directly on the root row. `feedback_rating` is a
+  nullable SQLite boolean (`0` negative, `1` positive); `feedback_text` is
+  optional only for a negative rating and is limited to 5,000 characters.
+  Positive feedback cannot retain negative feedback text. Application writes
+  authorize against the root owner and clear the text atomically when changing
+  a rating to positive.
 - Stop requests are stored only on workflow roots. `debate_jobs` may retain a
   `cancel_requested_at` timestamp; standalone `idea_jobs` and
   `deep_search_jobs` may retain one only while they have no parent. Nested jobs
@@ -111,14 +118,24 @@ ignores this one documented peer-resolution shim.
   ```
 - The API workspace's `predev` and `prestart` lifecycle scripts apply pending
   migrations before either development or production startup.
-- Migration history currently consists of one intentionally fresh
+- Migration history starts with the intentionally fresh
   `0000_fresh-baseline` migration. Databases created from the superseded history
   are unsupported and must be recreated; there is no data-preserving upgrade
-  path. `baselineMigration.test.ts` verifies fresh creation through the same
-  Drizzle migrator used by the application. Keep this current baseline
-  immutable once shared and add forward migrations for later schema changes.
+  path from that older history. Keep the baseline immutable and add forward
+  migrations for later schema changes. `baselineMigration.test.ts` verifies
+  fresh creation through the same Drizzle migrator used by the application.
 
 ### Known application-enforced integrity boundaries
+
+- Feedback checks limit ratings to completed jobs and permit non-empty feedback
+  text only alongside a completed negative rating. SQLite's one-argument
+  `trim()` removes ASCII spaces, not every Unicode whitespace character;
+  application validation is therefore authoritative for rejecting all
+  whitespace-only feedback.
+
+- `deep_search_jobs.research_analysis_generation_id` uses the same composite
+  generation-owner foreign key as the final answer, requiring the linked
+  generation to belong to the same user and deep-search job.
 
 - `ideas.evaluation_generation_id` remains null for rejected ideas and during
   the valid interval before a selected, refined, and researched idea's final
@@ -177,7 +194,9 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
   request and may belong to an `idea_jobs` parent. Child searches store their
   planning-generation position. Its normalized query, result, web-page, and
   generation rows preserve research progress without a JSON snapshot. Each
-  search round links its candidate-answer generation; completion promotes the
+  search round links its candidate-answer generation. A separate structured
+  generation stores facts, disagreements, gaps, and assumptions; the job links
+  that generation instead of duplicating its JSON. Completion promotes the
   accepted or final permitted candidate through the job's final-answer link
   without copying its text.
 - `idea_jobs` owns the LLM-generated title and slug used by both idea and debate

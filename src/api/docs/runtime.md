@@ -139,9 +139,9 @@ oversized structured responses. Provider-request failures use two SDK retries by
 configured through `LLM_MAX_RETRIES`, so dependency upgrades cannot silently
 change retry cost or latency. The short title generation retains its narrower
 per-call limit. Evidence-transformation and prose-only stages—including
-page/query/final research synthesis, idea briefing, idea evaluation, and debate
-advocacy—disable hidden reasoning so it cannot consume that budget without
-producing the required durable text. Web searches have a 30-second deadline
+page/query/final research synthesis, structured research analysis, idea
+briefing, idea evaluation, and debate advocacy—disable hidden reasoning so it
+cannot consume that budget without producing the required durable output. Web searches have a 30-second deadline
 configured by `WEB_SEARCH_TIMEOUT_MS` and charge the fixed product-credit amount
 configured by `WEB_SEARCH_CREDITS_COST` (default 1) after a successful provider
 response. Direct `POST /api/streams` calls reuse the research

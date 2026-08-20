@@ -33,9 +33,14 @@ export const deepSearchJobs = sqliteTable(
     maxResultsPerSearch: integer("max_results_per_search").notNull(),
     maxRounds: integer("max_rounds").notNull().default(3),
     finalAnswerGenerationId: text("final_answer_generation_id").unique(),
+    researchAnalysisGenerationId: text(
+      "research_analysis_generation_id",
+    ).unique(),
     status: text("status", { enum: jobStatuses })
       .notNull()
       .default("running"),
+    feedbackRating: integer("feedback_rating", { mode: "boolean" }),
+    feedbackText: text("feedback_text"),
     error: text("error"),
     /** Set only on a standalone root when its owner requests an irreversible stop. */
     cancelRequestedAt: integer("cancel_requested_at", { mode: "timestamp_ms" }),
@@ -73,6 +78,15 @@ export const deepSearchJobs = sqliteTable(
       ],
       foreignColumns: getLlmGenerationDeepSearchOwnerColumns(),
     }).onDelete("no action"),
+    foreignKey({
+      name: "deep_search_jobs_research_analysis_generation_owner_fk",
+      columns: [
+        table.researchAnalysisGenerationId,
+        table.userId,
+        table.deepSearchJobId,
+      ],
+      foreignColumns: getLlmGenerationDeepSearchOwnerColumns(),
+    }).onDelete("no action"),
     check(
       "deep_search_jobs_idea_job_position_check",
       sql`(
@@ -92,6 +106,14 @@ export const deepSearchJobs = sqliteTable(
     check(
       "deep_search_jobs_status_check",
       sql`${table.status} in ('running', 'completed', 'failed', 'interrupted')`,
+    ),
+    check(
+      "deep_search_jobs_feedback_rating_check",
+      sql`${table.feedbackRating} is null or (${table.status} = 'completed' and ${table.feedbackRating} in (0, 1))`,
+    ),
+    check(
+      "deep_search_jobs_feedback_text_check",
+      sql`${table.feedbackText} is null or (${table.status} = 'completed' and ${table.feedbackRating} is false and length(${table.feedbackText}) <= 5000 and length(trim(${table.feedbackText})) > 0)`,
     ),
     check(
       "deep_search_jobs_cancel_root_check",

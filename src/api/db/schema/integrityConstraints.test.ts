@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 
 import { db } from "../index.ts"
 import {
+  debateJobs,
   deepSearchJobs,
   deepSearchQueries,
   deepSearchRounds,
@@ -175,6 +176,26 @@ describe("aggregate integrity constraints", () => {
         .update(deepSearchJobs)
         .set({ finalAnswerGenerationId: deepSearchGenerationId })
         .where(sql`${deepSearchJobs.deepSearchJobId} = ${secondDeepSearchJobId}`)
+        .run(),
+    ).toThrow(/FOREIGN KEY constraint failed/)
+    expect(() =>
+      db
+        .update(deepSearchJobs)
+        .set({ researchAnalysisGenerationId: deepSearchGenerationId })
+        .where(sql`${deepSearchJobs.deepSearchJobId} = ${secondDeepSearchJobId}`)
+        .run(),
+    ).toThrow(/FOREIGN KEY constraint failed/)
+
+    db.update(deepSearchJobs)
+      .set({ researchAnalysisGenerationId: deepSearchGenerationId })
+      .where(sql`${deepSearchJobs.deepSearchJobId} = ${firstDeepSearchJobId}`)
+      .run()
+    expect(() =>
+      db
+        .delete(llmGenerations)
+        .where(
+          sql`${llmGenerations.llmGenerationId} = ${deepSearchGenerationId}`,
+        )
         .run(),
     ).toThrow(/FOREIGN KEY constraint failed/)
   })
@@ -645,6 +666,199 @@ describe("aggregate integrity constraints", () => {
         .where(sql`${deepSearchJobs.deepSearchJobId} = ${deepSearchJobId}`)
         .run(),
     ).toThrow(/deep_search_jobs_terminal_fields_check/)
+  })
+
+  it("constrains mutable feedback to completed jobs", () => {
+    const deepSearchJobId = insertDeepSearchJob()
+    const ideaJobId = insertIdeaJob()
+    const debateJobId = crypto.randomUUID()
+    db.insert(debateJobs)
+      .values({ debateJobId, userId, randomSeed: 1 })
+      .run()
+
+    expect(() =>
+      db
+        .update(deepSearchJobs)
+        .set({ feedbackRating: true })
+        .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+        .run(),
+    ).toThrow(/deep_search_jobs_feedback_rating_check/)
+    expect(() =>
+      db
+        .update(ideaJobs)
+        .set({ feedbackRating: false })
+        .where(eq(ideaJobs.ideaJobId, ideaJobId))
+        .run(),
+    ).toThrow(/idea_jobs_feedback_rating_check/)
+    expect(() =>
+      db
+        .update(debateJobs)
+        .set({ feedbackRating: true })
+        .where(eq(debateJobs.debateJobId, debateJobId))
+        .run(),
+    ).toThrow(/debate_jobs_feedback_rating_check/)
+
+    const deepSearchGenerationId = crypto.randomUUID()
+    db.insert(llmGenerations)
+      .values({
+        llmGenerationId: deepSearchGenerationId,
+        userId,
+        deepSearchJobId,
+      })
+      .run()
+    db.update(deepSearchJobs)
+      .set({
+        finalAnswerGenerationId: deepSearchGenerationId,
+        status: "completed",
+        completedAt: new Date(),
+      })
+      .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+      .run()
+
+    const ideaGenerationIds = Array.from(
+      { length: 3 },
+      () => crypto.randomUUID(),
+    )
+    db.insert(llmGenerations)
+      .values(
+        ideaGenerationIds.map((llmGenerationId) => ({
+          llmGenerationId,
+          userId,
+          ideaJobId,
+        })),
+      )
+      .run()
+    db.update(ideaJobs)
+      .set({
+        stage: "ideas",
+        researchPromptGenerationId: ideaGenerationIds[0],
+        researchSummaryGenerationId: ideaGenerationIds[1],
+        ideaGenerationId: ideaGenerationIds[2],
+        status: "completed",
+        completedAt: new Date(),
+      })
+      .where(eq(ideaJobs.ideaJobId, ideaJobId))
+      .run()
+
+    db.update(debateJobs)
+      .set({
+        stage: "final",
+        status: "completed",
+        completedAt: new Date(),
+      })
+      .where(eq(debateJobs.debateJobId, debateJobId))
+      .run()
+
+    expect(() =>
+      db
+        .update(deepSearchJobs)
+        .set({ feedbackText: "Missing rating" })
+        .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+        .run(),
+    ).toThrow(/deep_search_jobs_feedback_text_check/)
+    expect(() =>
+      db
+        .update(ideaJobs)
+        .set({ feedbackText: "Missing rating" })
+        .where(eq(ideaJobs.ideaJobId, ideaJobId))
+        .run(),
+    ).toThrow(/idea_jobs_feedback_text_check/)
+    expect(() =>
+      db
+        .update(debateJobs)
+        .set({ feedbackText: "Missing rating" })
+        .where(eq(debateJobs.debateJobId, debateJobId))
+        .run(),
+    ).toThrow(/debate_jobs_feedback_text_check/)
+
+    expect(() =>
+      db
+        .update(deepSearchJobs)
+        .set({ feedbackRating: sql<boolean>`2` })
+        .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+        .run(),
+    ).toThrow(/deep_search_jobs_feedback_rating_check/)
+
+    db.update(deepSearchJobs)
+      .set({ feedbackRating: false, feedbackText: "Missing sources" })
+      .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+      .run()
+    db.update(ideaJobs)
+      .set({ feedbackRating: false, feedbackText: "Needs more variety" })
+      .where(eq(ideaJobs.ideaJobId, ideaJobId))
+      .run()
+    db.update(debateJobs)
+      .set({ feedbackRating: false, feedbackText: "Weak final verdict" })
+      .where(eq(debateJobs.debateJobId, debateJobId))
+      .run()
+
+    expect(() =>
+      db
+        .update(deepSearchJobs)
+        .set({ feedbackRating: true })
+        .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+        .run(),
+    ).toThrow(/deep_search_jobs_feedback_text_check/)
+    expect(() =>
+      db
+        .update(ideaJobs)
+        .set({ feedbackRating: true })
+        .where(eq(ideaJobs.ideaJobId, ideaJobId))
+        .run(),
+    ).toThrow(/idea_jobs_feedback_text_check/)
+    expect(() =>
+      db
+        .update(debateJobs)
+        .set({ feedbackRating: true })
+        .where(eq(debateJobs.debateJobId, debateJobId))
+        .run(),
+    ).toThrow(/debate_jobs_feedback_text_check/)
+
+    for (const feedbackText of ["", "   ", "x".repeat(5001)]) {
+      expect(() =>
+        db
+          .update(deepSearchJobs)
+          .set({ feedbackText })
+          .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+          .run(),
+      ).toThrow(/deep_search_jobs_feedback_text_check/)
+    }
+
+    db.update(deepSearchJobs)
+      .set({ feedbackRating: true, feedbackText: null })
+      .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+      .run()
+    db.update(deepSearchJobs)
+      .set({ feedbackRating: false })
+      .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+      .run()
+
+    expect(
+      db
+        .select({
+          feedbackRating: deepSearchJobs.feedbackRating,
+          feedbackText: deepSearchJobs.feedbackText,
+        })
+        .from(deepSearchJobs)
+        .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+        .get(),
+    ).toEqual({ feedbackRating: false, feedbackText: null })
+
+    db.update(deepSearchJobs)
+      .set({ feedbackText: "Changed my mind" })
+      .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+      .run()
+
+    expect(
+      db
+        .select({
+          feedbackRating: deepSearchJobs.feedbackRating,
+          feedbackText: deepSearchJobs.feedbackText,
+        })
+        .from(deepSearchJobs)
+        .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+        .get(),
+    ).toEqual({ feedbackRating: false, feedbackText: "Changed my mind" })
   })
 
   it("rejects completed LLM generations without text content", () => {

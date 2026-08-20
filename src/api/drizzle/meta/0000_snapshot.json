@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "12530eea-a181-40a7-a582-f4f1a17b2cc8",
+  "id": "980a93c7-42f9-42f4-a0a8-be258753cabf",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "deep_search_jobs": {
@@ -87,6 +87,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "research_analysis_generation_id": {
+          "name": "research_analysis_generation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "status": {
           "name": "status",
           "type": "text",
@@ -94,6 +101,20 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'running'"
+        },
+        "feedback_rating": {
+          "name": "feedback_rating",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "feedback_text": {
+          "name": "feedback_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "error": {
           "name": "error",
@@ -130,6 +151,13 @@
           "name": "deep_search_jobs_final_answer_generation_id_unique",
           "columns": [
             "final_answer_generation_id"
+          ],
+          "isUnique": true
+        },
+        "deep_search_jobs_research_analysis_generation_id_unique": {
+          "name": "deep_search_jobs_research_analysis_generation_id_unique",
+          "columns": [
+            "research_analysis_generation_id"
           ],
           "isUnique": true
         },
@@ -211,6 +239,23 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
+        },
+        "deep_search_jobs_research_analysis_generation_owner_fk": {
+          "name": "deep_search_jobs_research_analysis_generation_owner_fk",
+          "tableFrom": "deep_search_jobs",
+          "tableTo": "llm_generations",
+          "columnsFrom": [
+            "research_analysis_generation_id",
+            "user_id",
+            "deep_search_job_id"
+          ],
+          "columnsTo": [
+            "llm_generation_id",
+            "user_id",
+            "deep_search_job_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -231,6 +276,14 @@
         "deep_search_jobs_status_check": {
           "name": "deep_search_jobs_status_check",
           "value": "\"deep_search_jobs\".\"status\" in ('running', 'completed', 'failed', 'interrupted')"
+        },
+        "deep_search_jobs_feedback_rating_check": {
+          "name": "deep_search_jobs_feedback_rating_check",
+          "value": "\"deep_search_jobs\".\"feedback_rating\" is null or (\"deep_search_jobs\".\"status\" = 'completed' and \"deep_search_jobs\".\"feedback_rating\" in (0, 1))"
+        },
+        "deep_search_jobs_feedback_text_check": {
+          "name": "deep_search_jobs_feedback_text_check",
+          "value": "\"deep_search_jobs\".\"feedback_text\" is null or (\"deep_search_jobs\".\"status\" = 'completed' and \"deep_search_jobs\".\"feedback_rating\" is false and length(\"deep_search_jobs\".\"feedback_text\") <= 5000 and length(trim(\"deep_search_jobs\".\"feedback_text\")) > 0)"
         },
         "deep_search_jobs_cancel_root_check": {
           "name": "deep_search_jobs_cancel_root_check",
@@ -924,6 +977,20 @@
           "autoincrement": false,
           "default": "'running'"
         },
+        "feedback_rating": {
+          "name": "feedback_rating",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "feedback_text": {
+          "name": "feedback_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "error": {
           "name": "error",
           "type": "text",
@@ -1006,6 +1073,14 @@
         "debate_jobs_status_check": {
           "name": "debate_jobs_status_check",
           "value": "\"debate_jobs\".\"status\" in ('running', 'completed', 'failed', 'interrupted')"
+        },
+        "debate_jobs_feedback_rating_check": {
+          "name": "debate_jobs_feedback_rating_check",
+          "value": "\"debate_jobs\".\"feedback_rating\" is null or (\"debate_jobs\".\"status\" = 'completed' and \"debate_jobs\".\"feedback_rating\" in (0, 1))"
+        },
+        "debate_jobs_feedback_text_check": {
+          "name": "debate_jobs_feedback_text_check",
+          "value": "\"debate_jobs\".\"feedback_text\" is null or (\"debate_jobs\".\"status\" = 'completed' and \"debate_jobs\".\"feedback_rating\" is false and length(\"debate_jobs\".\"feedback_text\") <= 5000 and length(trim(\"debate_jobs\".\"feedback_text\")) > 0)"
         },
         "debate_jobs_terminal_fields_check": {
           "name": "debate_jobs_terminal_fields_check",
@@ -1469,6 +1544,20 @@
           "autoincrement": false,
           "default": "'running'"
         },
+        "feedback_rating": {
+          "name": "feedback_rating",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "feedback_text": {
+          "name": "feedback_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "error": {
           "name": "error",
           "type": "text",
@@ -1672,6 +1761,14 @@
         "idea_jobs_status_check": {
           "name": "idea_jobs_status_check",
           "value": "\"idea_jobs\".\"status\" in ('running', 'completed', 'failed', 'interrupted')"
+        },
+        "idea_jobs_feedback_rating_check": {
+          "name": "idea_jobs_feedback_rating_check",
+          "value": "\"idea_jobs\".\"feedback_rating\" is null or (\"idea_jobs\".\"status\" = 'completed' and \"idea_jobs\".\"feedback_rating\" in (0, 1))"
+        },
+        "idea_jobs_feedback_text_check": {
+          "name": "idea_jobs_feedback_text_check",
+          "value": "\"idea_jobs\".\"feedback_text\" is null or (\"idea_jobs\".\"status\" = 'completed' and \"idea_jobs\".\"feedback_rating\" is false and length(\"idea_jobs\".\"feedback_text\") <= 5000 and length(trim(\"idea_jobs\".\"feedback_text\")) > 0)"
         },
         "idea_jobs_cancel_root_check": {
           "name": "idea_jobs_cancel_root_check",

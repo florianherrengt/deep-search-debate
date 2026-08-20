@@ -19,12 +19,19 @@ import {
 import type { AppEnv } from "../../types/auth.ts"
 import { ideaJobReadScope } from "../readAccess.ts"
 import { stopRequestAppliesToJob } from "../researchCancellation.ts"
+import {
+  resultFeedbackInputSchema,
+  resultFeedbackProjection,
+  updateResultFeedback,
+} from "../resultFeedback.ts"
 
 export type { IdeaJobEvent } from "./schemas.ts"
 
 const {
   userId: _ideaJobOwnerId,
   cancelRequestedAt: _cancelRequestedAt,
+  feedbackRating: _feedbackRating,
+  feedbackText: _feedbackText,
   ...publicIdeaJobColumns
 } = getTableColumns(ideaJobsTable)
 
@@ -69,6 +76,8 @@ export function ideaJobReads(app: Hono<AppEnv>, manager: IdeaJobManager) {
         .select({
           ...publicIdeaJobColumns,
           ownerUserId: ideaJobsTable.userId,
+          ownerFeedbackRating: ideaJobsTable.feedbackRating,
+          ownerFeedbackText: ideaJobsTable.feedbackText,
           directCancelRequestedAt: ideaJobsTable.cancelRequestedAt,
           debateCancelRequestedAt: debateJobsTable.cancelRequestedAt,
           debateStatus: debateJobsTable.status,
@@ -89,6 +98,8 @@ export function ideaJobReads(app: Hono<AppEnv>, manager: IdeaJobManager) {
       if (!job) return c.json({ error: "Idea job not found" }, 404)
       const {
         ownerUserId,
+        ownerFeedbackRating,
+        ownerFeedbackText,
         directCancelRequestedAt,
         debateCancelRequestedAt,
         debateStatus,
@@ -96,6 +107,7 @@ export function ideaJobReads(app: Hono<AppEnv>, manager: IdeaJobManager) {
         ...ideaJob
       } = job
       const isPublic = inheritedIsPublic ?? false
+      const isOwner = c.get("viewerUserId") === ownerUserId
       const stopRequested = stopRequestAppliesToJob({
         status: ideaJob.status,
         completedAt: ideaJob.completedAt,
@@ -105,9 +117,15 @@ export function ideaJobReads(app: Hono<AppEnv>, manager: IdeaJobManager) {
       return c.json({
         ideaJob: {
           ...ideaJob,
+          feedback: isOwner
+            ? resultFeedbackProjection(
+                ownerFeedbackRating,
+                ownerFeedbackText,
+              )
+            : null,
           stopRequested,
           canStop:
-            c.get("viewerUserId") === ownerUserId &&
+            isOwner &&
             ideaJob.debateJobId === null &&
             ideaJob.status === "running" &&
             !stopRequested,
@@ -121,6 +139,81 @@ export function ideaJobReads(app: Hono<AppEnv>, manager: IdeaJobManager) {
 
 /** Registers authenticated idea creation and readable history. */
 export function ideaJobs(app: Hono<AppEnv>, manager: IdeaJobManager) {
+  app.patch(
+    "/idea-jobs/:ideaJobId/feedback",
+    zValidator("param", ideaJobEventParamsSchema),
+    zValidator("json", resultFeedbackInputSchema),
+    (c) => {
+      const { ideaJobId } = c.req.valid("param")
+      const result = updateResultFeedback(c.req.valid("json"), {
+        getOwnerStatus: () =>
+          db
+            .select({ status: ideaJobsTable.status })
+            .from(ideaJobsTable)
+            .where(
+              and(
+                eq(ideaJobsTable.ideaJobId, ideaJobId),
+                eq(ideaJobsTable.userId, c.get("userId")),
+              ),
+            )
+            .get()?.status,
+        updateRating: (rating) =>
+          db
+            .update(ideaJobsTable)
+            .set({
+              feedbackRating: rating,
+              ...(rating ? { feedbackText: null } : {}),
+            })
+            .where(
+              and(
+                eq(ideaJobsTable.ideaJobId, ideaJobId),
+                eq(ideaJobsTable.userId, c.get("userId")),
+                eq(ideaJobsTable.status, "completed"),
+              ),
+            )
+            .returning({
+              feedbackRating: ideaJobsTable.feedbackRating,
+              feedbackText: ideaJobsTable.feedbackText,
+            })
+            .get(),
+        updateText: (text) =>
+          db
+            .update(ideaJobsTable)
+            .set({ feedbackText: text })
+            .where(
+              and(
+                eq(ideaJobsTable.ideaJobId, ideaJobId),
+                eq(ideaJobsTable.userId, c.get("userId")),
+                eq(ideaJobsTable.status, "completed"),
+                eq(ideaJobsTable.feedbackRating, false),
+              ),
+            )
+            .returning({
+              feedbackRating: ideaJobsTable.feedbackRating,
+              feedbackText: ideaJobsTable.feedbackText,
+            })
+            .get(),
+      })
+
+      switch (result.kind) {
+        case "updated":
+          return c.json({ feedback: result.feedback })
+        case "not-found":
+          return c.json({ error: "Idea job not found" }, 404)
+        case "not-completed":
+          return c.json(
+            { error: "Feedback requires a completed idea job" },
+            409,
+          )
+        case "negative-rating-required":
+          return c.json(
+            { error: "Written feedback requires a negative rating" },
+            409,
+          )
+      }
+    },
+  )
+
   app.post(
     "/idea-jobs/:ideaJobId/cancel",
     zValidator("param", ideaJobEventParamsSchema),

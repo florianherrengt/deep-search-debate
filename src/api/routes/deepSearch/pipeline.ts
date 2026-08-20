@@ -3,6 +3,7 @@ import { Effect, Result } from "effect"
 import { answerResearchRequest } from "../../agents/deep_search/finalAnswer.ts"
 import { generateWebSearchQueries } from "../../agents/deep_search/queries.ts"
 import { summarizeSearchQuery } from "../../agents/deep_search/querySummaries.ts"
+import { analyzeResearchAnswer } from "../../agents/deep_search/researchAnalysis.ts"
 import {
   startRoundReview,
   type RoundReview,
@@ -34,6 +35,7 @@ import {
   attachQuerySummaryGeneration,
   attachRoundAnswerGeneration,
   attachRoundReviewGeneration,
+  attachResearchAnalysisGeneration,
   attachSelectionGeneration,
   completePageSummaryGeneration,
   completeEmptySearchQuery,
@@ -283,17 +285,37 @@ async function reviewSearchRound(
   })
 }
 
-function promoteCandidateAnswer(
+async function promoteCandidateAnswer(
   params: DeepSearchPipelineInput,
   round: SearchRound,
   generationId: string,
-): void {
+  candidateAnswer: string,
+  searchSummaries: readonly SearchSummary[],
+): Promise<void> {
+  const researchAnalysisGeneration = await analyzeResearchAnswer({
+    userId: params.userId,
+    deepSearchJobId: params.deepSearchJobId,
+    researchRequest: params.researchRequest,
+    finalAnswer: candidateAnswer,
+    searchSummaries: [...searchSummaries],
+    workflowSignal: params.workflowSignal,
+    onRegistered: (analysisGenerationId, transaction) => {
+      attachResearchAnalysisGeneration(transaction, {
+        jobId: params.deepSearchJobId,
+        generationId: analysisGenerationId,
+      })
+    },
+  })
+  const analysis = await researchAnalysisGeneration.analysis
   promoteRoundAnswer({
     jobId: params.deepSearchJobId,
     roundId: round.roundId,
     generationId,
+    researchAnalysisGenerationId:
+      researchAnalysisGeneration.generationId,
   })
   params.publish({ type: "final-answer-stream", streamId: generationId })
+  params.publish({ type: "research-analysis", analysis })
 }
 
 /** Coordinates the complete deep-search workflow and persists each stage before publishing it. */
@@ -600,7 +622,13 @@ function deepSearchPipelineEffect(
 
       if (round + 1 >= maxRounds) {
         yield* workflowEffect(() =>
-          promoteCandidateAnswer(params, persistedRound, candidate.streamId),
+          promoteCandidateAnswer(
+            params,
+            persistedRound,
+            candidate.streamId,
+            candidateAnswer,
+            searchSummaries,
+          ),
         )
         return candidateAnswer
       }
@@ -616,7 +644,13 @@ function deepSearchPipelineEffect(
       )
       if (!decision) {
         yield* workflowEffect(() =>
-          promoteCandidateAnswer(params, persistedRound, candidate.streamId),
+          promoteCandidateAnswer(
+            params,
+            persistedRound,
+            candidate.streamId,
+            candidateAnswer,
+            searchSummaries,
+          ),
         )
         return candidateAnswer
       }
@@ -626,7 +660,13 @@ function deepSearchPipelineEffect(
       )
       if (decision.decision === "stop") {
         yield* workflowEffect(() =>
-          promoteCandidateAnswer(params, persistedRound, candidate.streamId),
+          promoteCandidateAnswer(
+            params,
+            persistedRound,
+            candidate.streamId,
+            candidateAnswer,
+            searchSummaries,
+          ),
         )
         return candidateAnswer
       }

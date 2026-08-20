@@ -188,7 +188,11 @@ persistence. The final match's winner is the tournament winner. Detail also
 includes `isOwner`, `stopRequested`, and `canStop`. `canStop` is true only for
 the owner while the root is running and has no persisted Stop request; it is
 false for public viewers, terminal jobs, and roots already stopping. Unknown
-slugs return 404.
+slugs return 404. Owners receive `feedback` in every lifecycle state with the
+current nullable boolean `rating` and derived `hasWrittenFeedback`; this keeps
+owner authority available when a snapshot fetched while running is later paired
+with replay-derived completion. Anonymous and authenticated public non-owners
+receive `feedback: null`. Written feedback is never returned.
 
 ### `POST /api/debate-jobs/:debateJobId/cancel`
 
@@ -213,6 +217,32 @@ remains `Interrupted`. Public and foreign viewers never receive the control.
 Completed usage remains charged; stopped in-progress attempts do not debit
 RethinkLoop credits. This application guarantee does not promise that an
 upstream provider will waive its own charge.
+
+### `PATCH /api/debate-jobs/:debateJobId/feedback`
+
+The authenticated owner may rate a completed debate. Foreign and unknown UUIDs
+return `404`, and non-completed owner rows return `409`. A rating may be changed
+or repeated:
+
+```json
+{ "type": "rating", "rating": false }
+```
+
+A positive rating atomically deletes any existing written feedback. A negative
+rating preserves existing written feedback, and while the current rating is
+negative the owner may add or replace a raw 5,000-character maximum,
+non-whitespace-only explanation:
+
+```json
+{ "type": "text", "text": "The final comparison missed the key trade-off." }
+```
+
+Text without a current negative rating returns `409`. Successful updates return
+only the derived state and never echo the text:
+
+```json
+{ "feedback": { "rating": false, "hasWrittenFeedback": true } }
+```
 
 ### `GET /api/debate-jobs/:debateJobId/events`
 
@@ -244,10 +274,11 @@ resource return 404.
 ## Persistence and recovery
 
 - `debate_jobs` owns one same-owner `idea_jobs` child and stores lifecycle,
-  stage, deterministic random seed, and public visibility. The child carries
-  the foreign key so deleting a debate cascades through its ideas, child
-  searches, normalized research rows, tournament rows, and every job-owned LLM
-  generation.
+  stage, deterministic random seed, public visibility, and owner feedback.
+  Feedback is nullable until completion; its text is valid only with a negative
+  rating. The child carries the foreign key so deleting a debate cascades
+  through its ideas, child searches, normalized research rows, tournament rows,
+  and every job-owned LLM generation.
 - The owned idea job also stores the debate's generated title and slug, avoiding
   a duplicate copy on `debate_jobs`.
 - Tournament membership is derived from the owned idea job's durable selected

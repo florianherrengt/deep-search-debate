@@ -66,6 +66,12 @@ export const deepSearchJobsRelations = relations(
     finalAnswerGeneration: one(llmGenerations, {
       fields: [deepSearchJobs.finalAnswerGenerationId],
       references: [llmGenerations.llmGenerationId],
+      relationName: "deepSearchFinalAnswerGeneration",
+    }),
+    researchAnalysisGeneration: one(llmGenerations, {
+      fields: [deepSearchJobs.researchAnalysisGenerationId],
+      references: [llmGenerations.llmGenerationId],
+      relationName: "deepSearchResearchAnalysisGeneration",
     }),
     ownedGenerations: many(llmGenerations, {
       relationName: "deepSearchJobOwnedGenerations",

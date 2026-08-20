@@ -21,6 +21,7 @@ describe("aggregate deletion", () => {
   it("deletes every generation owned by a standalone deep search", () => {
     const deepSearchJobId = crypto.randomUUID()
     const llmGenerationId = crypto.randomUUID()
+    const researchAnalysisGenerationId = crypto.randomUUID()
     db.insert(deepSearchJobs)
       .values({
         deepSearchJobId,
@@ -31,14 +32,24 @@ describe("aggregate deletion", () => {
       })
       .run()
     db.insert(llmGenerations)
-      .values({
-        llmGenerationId,
-        userId: "test-user-id",
-        deepSearchJobId,
-      })
+      .values([
+        {
+          llmGenerationId,
+          userId: "test-user-id",
+          deepSearchJobId,
+        },
+        {
+          llmGenerationId: researchAnalysisGenerationId,
+          userId: "test-user-id",
+          deepSearchJobId,
+        },
+      ])
       .run()
     db.update(deepSearchJobs)
-      .set({ finalAnswerGenerationId: llmGenerationId })
+      .set({
+        finalAnswerGenerationId: llmGenerationId,
+        researchAnalysisGenerationId,
+      })
       .run()
 
     db.delete(deepSearchJobs).run()

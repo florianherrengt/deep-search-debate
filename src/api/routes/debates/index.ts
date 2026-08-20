@@ -22,6 +22,10 @@ import {
 import { getDebateJobSnapshot } from "./snapshot.ts"
 import type { AppEnv } from "../../types/auth.ts"
 import { debateJobReadScope } from "../readAccess.ts"
+import {
+  resultFeedbackInputSchema,
+  updateResultFeedback,
+} from "../resultFeedback.ts"
 
 function reconstructDebateJobEvents(
   debateJobId: string,
@@ -119,6 +123,81 @@ export function debateJobReads(
 
 /** Registers authenticated debate creation, history, and owner mutations. */
 export function debateJobs(app: Hono<AppEnv>, manager: DebateJobManager): void {
+  app.patch(
+    "/debate-jobs/:debateJobId/feedback",
+    zValidator("param", debateJobEventParamsSchema),
+    zValidator("json", resultFeedbackInputSchema),
+    (c) => {
+      const { debateJobId } = c.req.valid("param")
+      const result = updateResultFeedback(c.req.valid("json"), {
+        getOwnerStatus: () =>
+          db
+            .select({ status: debateJobsTable.status })
+            .from(debateJobsTable)
+            .where(
+              and(
+                eq(debateJobsTable.debateJobId, debateJobId),
+                eq(debateJobsTable.userId, c.get("userId")),
+              ),
+            )
+            .get()?.status,
+        updateRating: (rating) =>
+          db
+            .update(debateJobsTable)
+            .set({
+              feedbackRating: rating,
+              ...(rating ? { feedbackText: null } : {}),
+            })
+            .where(
+              and(
+                eq(debateJobsTable.debateJobId, debateJobId),
+                eq(debateJobsTable.userId, c.get("userId")),
+                eq(debateJobsTable.status, "completed"),
+              ),
+            )
+            .returning({
+              feedbackRating: debateJobsTable.feedbackRating,
+              feedbackText: debateJobsTable.feedbackText,
+            })
+            .get(),
+        updateText: (text) =>
+          db
+            .update(debateJobsTable)
+            .set({ feedbackText: text })
+            .where(
+              and(
+                eq(debateJobsTable.debateJobId, debateJobId),
+                eq(debateJobsTable.userId, c.get("userId")),
+                eq(debateJobsTable.status, "completed"),
+                eq(debateJobsTable.feedbackRating, false),
+              ),
+            )
+            .returning({
+              feedbackRating: debateJobsTable.feedbackRating,
+              feedbackText: debateJobsTable.feedbackText,
+            })
+            .get(),
+      })
+
+      switch (result.kind) {
+        case "updated":
+          return c.json({ feedback: result.feedback })
+        case "not-found":
+          return c.json({ error: "Debate job not found" }, 404)
+        case "not-completed":
+          return c.json(
+            { error: "Feedback requires a completed debate job" },
+            409,
+          )
+        case "negative-rating-required":
+          return c.json(
+            { error: "Written feedback requires a negative rating" },
+            409,
+          )
+      }
+    },
+  )
+
   app.post(
     "/debate-jobs/:debateJobId/cancel",
     zValidator("param", debateJobEventParamsSchema),

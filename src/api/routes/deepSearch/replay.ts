@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, type SQL } from "drizzle-orm"
+import { parseResearchAnalysisText } from "../../agents/deep_search/schemas.ts"
 import { db } from "../../db/index.ts"
 import {
   deepSearchJobs as deepSearchJobsTable,
@@ -6,6 +7,7 @@ import {
   deepSearchRounds,
   deepSearchResults,
   deepSearchWebPages,
+  llmGenerations,
 } from "../../db/schema/index.ts"
 import type { DeepSearchJobEvent } from "./schemas.ts"
 import {
@@ -274,6 +276,40 @@ export function reconstructDeepSearchJobEvents(
         },
       ]
     : []
+  const researchAnalysisGeneration =
+    job.status === "completed" && job.researchAnalysisGenerationId
+      ? db
+          .select({
+            status: llmGenerations.status,
+            text: llmGenerations.text,
+          })
+          .from(llmGenerations)
+          .where(
+            eq(
+              llmGenerations.llmGenerationId,
+              job.researchAnalysisGenerationId,
+            ),
+          )
+          .get()
+      : undefined
+  let researchAnalysisEvents: DeepSearchJobEvent[] = []
+  if (
+    researchAnalysisGeneration?.status === "completed" &&
+    researchAnalysisGeneration.text !== null
+  ) {
+    try {
+      researchAnalysisEvents = [
+        {
+          type: "research-analysis",
+          analysis: parseResearchAnalysisText(
+            researchAnalysisGeneration.text,
+          ),
+        },
+      ]
+    } catch {
+      // Malformed legacy or manually edited structured output is omitted.
+    }
+  }
   const terminalEvents: DeepSearchJobEvent[] =
     job.status === "running"
       ? stopRequested
@@ -294,6 +330,7 @@ export function reconstructDeepSearchJobEvents(
     ...pageEvents,
     ...summaryAndReviewEvents,
     ...finalAnswerEvents,
+    ...researchAnalysisEvents,
     ...terminalEvents,
   ]
 }

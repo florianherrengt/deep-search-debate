@@ -162,7 +162,11 @@ history response. Detail also includes the derived `stopRequested` flag and
 `canStop`. `canStop` is true only for the authenticated owner of a standalone
 root whose status is `running` and which has no persisted stop request. It is
 false for debate-owned jobs, public viewers, terminal jobs, and roots already
-stopping. Unknown slugs return 404.
+stopping. Owners receive `feedback` in every lifecycle state with the current
+nullable boolean `rating` and derived `hasWrittenFeedback`; this keeps owner
+authority available when a snapshot fetched while running is later paired with
+replay-derived completion. Anonymous and authenticated public non-owners receive
+`feedback: null`. Written feedback is never returned. Unknown slugs return 404.
 
 ### `POST /api/idea-jobs/:ideaJobId/cancel`
 
@@ -188,6 +192,32 @@ then labeled `Stopped`; a restart interruption without a Stop request remains
 control. Completed usage remains charged; stopped in-progress attempts do not
 debit RethinkLoop credits. This application credit guarantee is not a claim
 about how an upstream provider bills work it already received.
+
+### `PATCH /api/idea-jobs/:ideaJobId/feedback`
+
+The authenticated owner may rate a completed standalone or debate-owned idea
+job. Foreign and unknown UUIDs return `404`, and non-completed owner rows return
+`409`. A rating may be changed or repeated:
+
+```json
+{ "type": "rating", "rating": false }
+```
+
+A positive rating atomically deletes any existing written feedback. A negative
+rating preserves existing written feedback, and while the current rating is
+negative the owner may add or replace a raw 5,000-character maximum,
+non-whitespace-only explanation:
+
+```json
+{ "type": "text", "text": "The selected ideas were too similar." }
+```
+
+Text without a current negative rating returns `409`. Successful updates return
+only the derived state and never echo the text:
+
+```json
+{ "feedback": { "rating": false, "hasWrittenFeedback": true } }
+```
 
 ### `GET /api/idea-jobs/:ideaJobId/events`
 
@@ -256,10 +286,11 @@ generation still has unfinished durable cleanup.
 
 - `idea_jobs` owns the generated title, slug, request, requested counts, current
   stage, lifecycle, timestamps, and four pipeline-level LLM generation links,
-  including comparative selection. A standalone root may also retain its
-  `cancel_requested_at` Stop timestamp. Debate-owned idea jobs derive that state
-  from the debate root and never copy its timestamp. The title and slug have no
-  update route.
+  including comparative selection, plus owner feedback. Feedback is nullable
+  until completion; its text is valid only with a negative rating. A standalone
+  root may also retain its `cancel_requested_at` Stop timestamp. Debate-owned
+  idea jobs derive that state from the debate root and never copy its timestamp.
+  The title and slug have no update route.
 - A debate-created idea job points to its owning debate with `ON DELETE
   CASCADE`; standalone idea jobs leave that owner null. Deleting an idea job
   deletes its child searches and all generations owned by either level.

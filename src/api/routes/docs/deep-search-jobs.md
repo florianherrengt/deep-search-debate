@@ -112,7 +112,11 @@ part of the standalone history response. Detail also includes the derived
 `stopRequested` flag and `canStop`. `canStop` is true only for the authenticated
 owner of a standalone root whose status is `running` and which has no persisted
 stop request. It is false for children, public viewers, terminal jobs, and roots
-already stopping.
+already stopping. Owners receive `feedback` in every lifecycle state with the
+current nullable boolean `rating` and derived `hasWrittenFeedback`; this keeps
+owner authority available when a snapshot fetched while running is later paired
+with replay-derived completion. Anonymous and authenticated public non-owners
+receive `feedback: null`. Written feedback is never returned.
 
 ### `POST /api/deep-search-jobs/:deepSearchJobId/cancel`
 
@@ -140,6 +144,32 @@ Completed usage remains charged; stopped in-progress attempts do not debit
 RethinkLoop credits. This is an application credit guarantee, not a claim about
 how an upstream provider bills work it already received.
 
+### `PATCH /api/deep-search-jobs/:deepSearchJobId/feedback`
+
+The authenticated owner may rate any completed search, including an automated
+idea child. Foreign and unknown UUIDs return `404`, and non-completed owner rows
+return `409`. A rating may be changed or repeated:
+
+```json
+{ "type": "rating", "rating": false }
+```
+
+A positive rating atomically deletes any existing written feedback. A negative
+rating preserves existing written feedback, and while the current rating is
+negative the owner may add or replace a raw 5,000-character maximum,
+non-whitespace-only explanation:
+
+```json
+{ "type": "text", "text": "The sources did not answer the core question." }
+```
+
+Text without a current negative rating returns `409`. Successful updates return
+only the derived state and never echo the text:
+
+```json
+{ "feedback": { "rating": false, "hasWrittenFeedback": true } }
+```
+
 ### `GET /api/deep-search-jobs/:deepSearchJobId/events`
 
 Returns the replay-and-follow NDJSON feed. Live jobs use the retained in-memory event log. Database-only jobs synthesize events from normalized records. Unknown UUIDs return 404.
@@ -161,8 +191,10 @@ Each non-empty completed search round emits:
 review reason as additional planning context. `stop`, review failure, or the
 hard round limit promotes the current candidate. Normal completion publishes
 `final-answer-stream`, referencing the same stream ID as the promoted
-`round-answer-stream`, followed by `done`. Ordinary failure publishes `error`,
-then `done`; it may already have published a final-answer stream if terminal
+`round-answer-stream`, then `research-analysis`, followed by `done`. The typed
+analysis payload contains `facts`, `disagreements`, `gaps`, and `assumptions`;
+all but gaps carry source URL arrays. Ordinary failure publishes `error`, then
+`done`; it may already have published a final-answer stream if terminal
 persistence was the failing boundary. A durable restart interruption publishes
 `interrupted`, then `done`, without `stop-requested`.
 
@@ -185,21 +217,25 @@ Full summaries remain durable; when their combined prompt representation would
 exceed the configured character budget, each keeps an equal serialized slot
 with middle omission markers. The same projection feeds next-round planning and
 round review, and executed queries are not serialized a second time outside
-their labeled summaries. Promotion verifies every planned query has a completed
-row, verifies the candidate generation's persisted text, attaches it as the
+their labeled summaries. The accepted candidate and those summaries feed a
+separate structured research-analysis generation. Promotion verifies every
+planned query has a completed row, verifies the candidate generation's
+persisted text and the schema-valid analysis, attaches the candidate as the
 job's final answer, and marks the job completed in one transaction.
 Page-summary failures stay attached to their web-page row and fall back to
-search snippets; a query-summary, candidate-answer, or wider pipeline failure
-marks the job failed.
+search snippets; a query-summary, candidate-answer, research-analysis, or wider
+pipeline failure marks the job failed.
 
 Internally, model-backed stages return their stream ID, durable completion, and
 typed result separately. Deep-search orchestration awaits those handles rather
 than subscribing to `/api/streams`; the public stream remains solely a live and
 replayable presentation interface. Page and query completion commit inside the
 same transaction as the corresponding generation outcome. A candidate answer
-becomes durable before review; a later transaction promotes that already
-completed generation and marks the job completed. The runner returns the same
-candidate text without a second model call or copied output.
+becomes durable before review; after acceptance, the separate structured
+analysis becomes durable. A later transaction verifies both generations,
+promotes the already completed candidate, and marks the job completed. The
+runner returns the same candidate text without a second answer call or copied
+output.
 
 `routes/deepSearch/pipeline.ts` is the single Effect-owned workflow coordinator:
 it owns the bounded round loop, stage ordering, fallback decisions, URL
@@ -240,6 +276,7 @@ The failure policy is:
 | Page-summary registration or generation | Page fails at `summary`; the query uses its search snippet and the standalone job may complete | Parent rejects the child through its stricter model-generation quality gate |
 | Query summary | Query and job fail; candidate-answer generation does not start | Parent fails |
 | Candidate answer | Job fails | Parent fails |
+| Structured research analysis | Job fails; candidate is not promoted | Parent fails |
 | Round review | Exploration stops and the current candidate is promoted | Parent accepts the completed child |
 | Terminal database persistence | The live feed emits `error` then `done` and remains retained; restart recovery later interrupts any still-running durable row | Parent fails |
 
@@ -287,8 +324,10 @@ event-to-persistence adapter: events are published only after their owning store
 command commits. Job lifecycle writes remain in `jobLifecycle.ts`.
 
 - `deep_search_jobs` owns request, per-round breadth limits, the hard round
-  limit, lifecycle, timestamps, the final-answer generation link, and an
-  optional parent-scoped position for idea-pipeline searches.
+  limit, lifecycle, timestamps, the final-answer and structured
+  research-analysis generation links, owner feedback, and an optional
+  parent-scoped position for idea-pipeline searches. Feedback is nullable until
+  completion; its text is valid only with a negative rating.
 - The same row owns the generated title and slug used for history and browser
   navigation. They have no update route.
 - `deep_search_rounds` stores one ordered round, links its query-plan and
@@ -325,8 +364,11 @@ completed queries to have selection and summary generations, completed pages to
 have a summary generation, and selected results to have a page. Active and
 terminal timestamp/error fields cannot be mixed. Page-summary and query-summary
 generation registration, success, and failure update both sides of each
-relationship transactionally. Candidate promotion and successful job
-completion are one transaction after that generation completes. Every durable
+relationship transactionally. The current pipeline also requires the research
+analysis generation before promotion; the link is nullable while a running job
+has not started or completed that generation. Candidate promotion and
+successful job completion are one transaction after the answer and structured
+analysis generations complete. Every durable
 work-start transaction, plus normal success, failure, and credit transitions,
 asserts that the effective root is still running and has no stop request. A
 completion race lost to cancellation becomes interruption rather than ordinary

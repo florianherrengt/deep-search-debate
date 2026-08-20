@@ -45,6 +45,8 @@ export const ideaJobs = sqliteTable(
     status: text("status", { enum: jobStatuses })
       .notNull()
       .default("running"),
+    feedbackRating: integer("feedback_rating", { mode: "boolean" }),
+    feedbackText: text("feedback_text"),
     error: text("error"),
     /** Set only on a standalone root when its owner requests an irreversible stop. */
     cancelRequestedAt: integer("cancel_requested_at", { mode: "timestamp_ms" }),
@@ -111,6 +113,14 @@ export const ideaJobs = sqliteTable(
     check(
       "idea_jobs_status_check",
       sql`${table.status} in ('running', 'completed', 'failed', 'interrupted')`,
+    ),
+    check(
+      "idea_jobs_feedback_rating_check",
+      sql`${table.feedbackRating} is null or (${table.status} = 'completed' and ${table.feedbackRating} in (0, 1))`,
+    ),
+    check(
+      "idea_jobs_feedback_text_check",
+      sql`${table.feedbackText} is null or (${table.status} = 'completed' and ${table.feedbackRating} is false and length(${table.feedbackText}) <= 5000 and length(trim(${table.feedbackText})) > 0)`,
     ),
     check(
       "idea_jobs_cancel_root_check",

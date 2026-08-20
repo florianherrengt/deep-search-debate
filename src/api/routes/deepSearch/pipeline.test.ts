@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
+  analyzeResearchAnswer: vi.fn(),
   answerResearchRequest: vi.fn(),
   attachPageSummaryGeneration: vi.fn(),
   createSearchRound: vi.fn(),
   attachQuerySummaryGeneration: vi.fn(),
   attachRoundAnswerGeneration: vi.fn(),
   attachRoundReviewGeneration: vi.fn(),
+  attachResearchAnalysisGeneration: vi.fn(),
   attachSelectionGeneration: vi.fn(),
   completePageSummaryGeneration: vi.fn(),
   completeEmptySearchQuery: vi.fn(),
@@ -30,6 +32,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../agents/deep_search/finalAnswer.ts", () => ({
   answerResearchRequest: mocks.answerResearchRequest,
+}))
+
+vi.mock("../../agents/deep_search/researchAnalysis.ts", () => ({
+  analyzeResearchAnswer: mocks.analyzeResearchAnswer,
 }))
 
 vi.mock("../../agents/deep_search/queries.ts", () => ({
@@ -62,6 +68,7 @@ vi.mock("./store.ts", () => ({
   attachQuerySummaryGeneration: mocks.attachQuerySummaryGeneration,
   attachRoundAnswerGeneration: mocks.attachRoundAnswerGeneration,
   attachRoundReviewGeneration: mocks.attachRoundReviewGeneration,
+  attachResearchAnalysisGeneration: mocks.attachResearchAnalysisGeneration,
   attachSelectionGeneration: mocks.attachSelectionGeneration,
   completePageSummaryGeneration: mocks.completePageSummaryGeneration,
   completeEmptySearchQuery: mocks.completeEmptySearchQuery,
@@ -104,6 +111,19 @@ const results = [
     link: "https://example.com/result",
   },
 ]
+
+const researchAnalysis = {
+  facts: [
+    {
+      title: "Supported finding",
+      description: "The evidence supports this finding.",
+      sources: ["https://example.com/result"],
+    },
+  ],
+  disagreements: [],
+  gaps: [],
+  assumptions: [],
+}
 
 function completedOutcome(text: string) {
   return Promise.resolve({
@@ -315,6 +335,17 @@ describe("deepSearch", () => {
         })
       },
     )
+    mocks.analyzeResearchAnswer.mockImplementation(
+      (input: TextGenerationPersistenceCallbacks) => {
+        const generationId = "research-analysis-generation-id"
+        input.onRegistered?.(generationId, transaction)
+        return Promise.resolve({
+          generationId,
+          analysis: Promise.resolve(researchAnalysis),
+          completion: completedOutcome(JSON.stringify(researchAnalysis)),
+        })
+      },
+    )
   })
 
   it("persists each stage before publishing the existing event sequence", async () => {
@@ -379,6 +410,7 @@ describe("deepSearch", () => {
         type: "final-answer-stream",
         streamId: "round-answer-stream-0",
       },
+      { type: "research-analysis", analysis: researchAnalysis },
     ])
 
     expect(mocks.createSearchRound.mock.invocationCallOrder[0]).toBeLessThan(
@@ -414,6 +446,9 @@ describe("deepSearch", () => {
     expect(mocks.promoteRoundAnswer.mock.invocationCallOrder[0]).toBeLessThan(
       getPublishOrder(publish, "final-answer-stream"),
     )
+    expect(
+      mocks.attachResearchAnalysisGeneration.mock.invocationCallOrder[0],
+    ).toBeLessThan(mocks.promoteRoundAnswer.mock.invocationCallOrder[0] ?? 0)
     expect(mocks.completePageSummaryGeneration).toHaveBeenCalledWith(
       transaction,
       {
@@ -430,10 +465,26 @@ describe("deepSearch", () => {
         generationId: "query-summary-stream-id",
       },
     )
+    expect(mocks.analyzeResearchAnswer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "test-user-id",
+        deepSearchJobId: "deep-search-job-id",
+        researchRequest: "Research this",
+        finalAnswer: "Completed answer",
+        searchSummaries: [
+          {
+            round: 0,
+            query: "test query",
+            content: "Completed query summary",
+          },
+        ],
+      }),
+    )
     expect(mocks.promoteRoundAnswer).toHaveBeenCalledWith({
       jobId: "deep-search-job-id",
       roundId: "round-0",
       generationId: "round-answer-stream-0",
+      researchAnalysisGenerationId: "research-analysis-generation-id",
     })
   })
 
@@ -586,6 +637,7 @@ describe("deepSearch", () => {
       mocks.summarizeSearchQuery.mock.calls[0]?.[0],
       mocks.startRoundReview.mock.calls[0]?.[0],
       mocks.answerResearchRequest.mock.calls[0]?.[0],
+      mocks.analyzeResearchAnswer.mock.calls[0]?.[0],
     ]) {
       expect(input).not.toHaveProperty("maxRetries")
     }
@@ -772,6 +824,7 @@ describe("deepSearch", () => {
       jobId: "deep-search-job-id",
       roundId: "round-0",
       generationId: "round-answer-stream-0",
+      researchAnalysisGenerationId: "research-analysis-generation-id",
     })
   })
 
@@ -1039,6 +1092,54 @@ describe("deepSearch", () => {
     answer.resolve("Completed answer")
     await run
     expect(completed).toBe(true)
+  })
+
+  it("waits for the structured research analysis before promotion", async () => {
+    const analysis = Promise.withResolvers<typeof researchAnalysis>()
+    mocks.analyzeResearchAnswer.mockResolvedValueOnce({
+      generationId: "research-analysis-generation-id",
+      analysis: analysis.promise,
+      completion: completedOutcome(JSON.stringify(researchAnalysis)),
+    })
+
+    const run = deepSearch({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
+      researchRequest: "Research this",
+      publish: ignoreEvent,
+    })
+    await vi.waitFor(() => {
+      expect(mocks.analyzeResearchAnswer).toHaveBeenCalledOnce()
+    })
+    expect(mocks.promoteRoundAnswer).not.toHaveBeenCalled()
+
+    analysis.resolve(researchAnalysis)
+    await expect(run).resolves.toBe("Completed answer")
+    expect(mocks.promoteRoundAnswer).toHaveBeenCalledOnce()
+  })
+
+  it("does not promote the answer when structured analysis fails", async () => {
+    mocks.analyzeResearchAnswer.mockResolvedValueOnce({
+      generationId: "research-analysis-generation-id",
+      analysis: Promise.reject(new Error("Research analysis failed")),
+      completion: Promise.resolve({
+        status: "failed",
+        text: "",
+        reasoning: "",
+        error: "Research analysis failed",
+      }),
+    })
+
+    await expect(
+      deepSearch({
+        userId: "test-user-id",
+        deepSearchJobId: "deep-search-job-id",
+        researchRequest: "Research this",
+        publish: ignoreEvent,
+      }),
+    ).rejects.toThrow("Research analysis failed")
+
+    expect(mocks.promoteRoundAnswer).not.toHaveBeenCalled()
   })
 
   it("does not start dependent work when query generation fails", async () => {

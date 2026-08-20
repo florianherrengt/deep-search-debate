@@ -946,3 +946,40 @@ export function attachFinalAnswerGeneration(
     throw new Error("Deep-search job was not persisted")
   }
 }
+
+export function attachResearchAnalysisGeneration(
+  transaction: TextStreamPersistenceTransaction,
+  input: {
+    jobId: string
+    generationId: string
+  },
+): void {
+  assertDeepSearchActive(transaction, input.jobId)
+  assertGenerationOwnedByJob(
+    transaction,
+    input.jobId,
+    input.generationId,
+  )
+  const storedJob = transaction
+    .select({
+      generationId: deepSearchJobs.researchAnalysisGenerationId,
+    })
+    .from(deepSearchJobs)
+    .where(eq(deepSearchJobs.deepSearchJobId, input.jobId))
+    .get()
+  if (!storedJob) throw new Error("Deep-search job was not persisted")
+  if (
+    storedJob.generationId !== null &&
+    storedJob.generationId !== input.generationId
+  ) {
+    throw new Error("Deep-search research analysis is already registered")
+  }
+  const result = transaction
+    .update(deepSearchJobs)
+    .set({ researchAnalysisGenerationId: input.generationId })
+    .where(eq(deepSearchJobs.deepSearchJobId, input.jobId))
+    .run()
+  if (result.changes !== 1) {
+    throw new Error("Deep-search job was not persisted")
+  }
+}
