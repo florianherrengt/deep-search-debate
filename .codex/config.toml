@@ -1,0 +1,3 @@
+[mcp_servers.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp@0.0.79", "--config", ".codex/playwright-mcp.json", "--snapshot-boxes"]
