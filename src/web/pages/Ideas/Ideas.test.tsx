@@ -92,6 +92,7 @@ describe("Ideas", () => {
       stopRequested: false,
       canStop: true,
       error: null,
+      creditsUsed: null,
       feedback: null,
       createdAt: new Date(),
       completedAt: null,
@@ -102,8 +103,8 @@ describe("Ideas", () => {
     })
   })
 
-  it("shows feedback on the parent as soon as the run completes, but not on an idea page", async () => {
-    mocks.getIdeaJob.mockResolvedValue({
+  it("refetches a running parent after done, shows its cost, and omits feedback from an idea page", async () => {
+    const runningJob = {
       ideaJobId: "idea-job-id",
       title: "Independent Café Ideas",
       slug: "independent-cafe-ideas",
@@ -117,10 +118,20 @@ describe("Ideas", () => {
       stopRequested: false,
       canStop: true,
       error: null,
+      creditsUsed: null,
       feedback: { rating: null, hasWrittenFeedback: false },
       createdAt: new Date(),
       completedAt: null,
-    })
+    } as const
+    mocks.getIdeaJob
+      .mockResolvedValueOnce(runningJob)
+      .mockResolvedValue({
+        ...runningJob,
+        status: "completed",
+        canStop: false,
+        completedAt: new Date(),
+        creditsUsed: 654,
+      })
     mocks.subscribeToIdeaJob.mockImplementation(async function* () {
       await Promise.resolve()
       yield { type: "done" as const }
@@ -130,6 +141,8 @@ describe("Ideas", () => {
     expect(
       await screen.findByRole("button", { name: "Thumbs down" }),
     ).toBeVisible()
+    expect(screen.getByText("654 credits")).toBeVisible()
+    await waitFor(() => expect(mocks.getIdeaJob).toHaveBeenCalledTimes(2))
     parent.unmount()
 
     renderIdeas("/ideas/independent-cafe-ideas/missing-idea")

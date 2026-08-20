@@ -77,6 +77,7 @@ function deepSearchJob() {
     maxRounds: 3,
     isIndexable: false,
     isPublic: false,
+    creditsUsed: null,
     feedback: null,
     canStop: false,
     status: "completed" as const,
@@ -106,13 +107,21 @@ describe("DeepSearch", () => {
     })
   })
 
-  it("shows owner feedback when the streamed run first completes and caches the saved rating", async () => {
-    mocks.getDeepSearchJob.mockResolvedValue({
+  it("refetches a running detail after done and shows its cost beside feedback", async () => {
+    const runningJob = {
       ...deepSearchJob(),
       status: "running",
       completedAt: null,
       feedback: { rating: null, hasWrittenFeedback: false },
-    })
+    } as const
+    mocks.getDeepSearchJob
+      .mockResolvedValueOnce(runningJob)
+      .mockResolvedValue({
+        ...runningJob,
+        status: "completed",
+        completedAt: new Date(),
+        creditsUsed: 321,
+      })
     mocks.subscribeToDeepSearchJob.mockImplementation(async function* () {
       await Promise.resolve()
       yield { type: "done" as const }
@@ -121,6 +130,10 @@ describe("DeepSearch", () => {
     renderDeepSearch("/deep-search/research-this")
 
     const up = await screen.findByRole("button", { name: "Thumbs up" })
+    expect(screen.getByText("321 credits")).toBeVisible()
+    await waitFor(() =>
+      expect(mocks.getDeepSearchJob).toHaveBeenCalledTimes(2),
+    )
     expect(up).toHaveAttribute("aria-pressed", "false")
     fireEvent.click(up)
 

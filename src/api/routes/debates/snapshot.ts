@@ -22,6 +22,7 @@ import {
   getTotalMatchCount,
   type CompletedSwissRound,
 } from "./tournament.ts"
+import { getDebateCreditsUsed } from "../runCredits.ts"
 
 type DebateIdeaSnapshot = {
   ideaId: string
@@ -65,6 +66,7 @@ export type DebateJobSnapshot = {
   isPublic: boolean
   isOwner: boolean
   feedback: ResultFeedback | null
+  creditsUsed: number | null
   stopRequested: boolean
   canStop: boolean
   stage: "ideas" | "swiss" | "semifinal" | "final"
@@ -301,6 +303,10 @@ export function getDebateJobSnapshot(
     feedback: isOwner
       ? resultFeedbackProjection(job.feedbackRating, job.feedbackText)
       : null,
+    creditsUsed:
+      isOwner && job.status === "completed"
+        ? getDebateCreditsUsed(job.debateJobId)
+        : null,
     stopRequested: job.cancelRequestedAt !== null,
     canStop:
       isOwner &&

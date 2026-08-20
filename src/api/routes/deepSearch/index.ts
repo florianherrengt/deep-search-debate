@@ -36,6 +36,7 @@ import {
   resultFeedbackProjection,
   updateResultFeedback,
 } from "../resultFeedback.ts"
+import { getDeepSearchCreditsUsed } from "../runCredits.ts"
 
 export type { DeepSearchJobEvent } from "./schemas.ts"
 
@@ -152,6 +153,12 @@ export function deepSearchJobReads(
                 ownerFeedbackText,
               )
             : null,
+          creditsUsed:
+            isOwner && publicDeepSearchJob.status === "completed"
+              ? getDeepSearchCreditsUsed(
+                  publicDeepSearchJob.deepSearchJobId,
+                )
+              : null,
           stopRequested,
           canStop:
             isOwner &&

@@ -269,8 +269,11 @@ function DebateDetail({
       )}
       <DebateView
         feedbackControl={
-          job.data.status === "completed" && job.data.feedback !== null ? (
+          job.data.status === "completed" &&
+          job.data.feedback !== null &&
+          job.data.creditsUsed !== null ? (
             <ResultFeedback
+              creditsUsed={job.data.creditsUsed}
               error={
                 feedback.error
                   ? getRequestErrorMessage(feedback.error)

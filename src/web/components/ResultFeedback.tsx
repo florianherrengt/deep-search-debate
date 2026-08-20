@@ -17,6 +17,7 @@ import type { ResultFeedback as ResultFeedbackState } from "../lib/resultFeedbac
 const maximumFeedbackLength = 5_000
 
 export function ResultFeedback({
+  creditsUsed,
   error,
   feedback,
   iconOnly = false,
@@ -24,6 +25,7 @@ export function ResultFeedback({
   onSubmitText,
   pending,
 }: {
+  creditsUsed: number
   error?: string
   feedback: ResultFeedbackState
   iconOnly?: boolean
@@ -74,7 +76,11 @@ export function ResultFeedback({
           Was this result helpful?
         </Typography>
       )}
-      <Stack direction="row" spacing={1}>
+      <Stack
+        direction="row"
+        spacing={1}
+        sx={{ alignItems: "center", flexWrap: "wrap", rowGap: 0.5 }}
+      >
         <Tooltip title="Helpful">
           <span>
             <IconButton
@@ -113,6 +119,9 @@ export function ResultFeedback({
             </IconButton>
           </span>
         </Tooltip>
+        <Typography color="text.secondary" variant="body2">
+          {creditsUsed.toLocaleString()} {creditsUsed === 1 ? "credit" : "credits"}
+        </Typography>
       </Stack>
       {error && !dialogOpen && <Alert severity="error">{error}</Alert>}
 

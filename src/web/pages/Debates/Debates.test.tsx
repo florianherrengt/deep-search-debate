@@ -99,6 +99,7 @@ function tournament(
       { idea: secondIdea, wins: 0, elo: 1500 },
     ],
     error: null,
+    creditsUsed: null,
     feedback: null,
     ...overrides,
   }
@@ -177,12 +178,14 @@ describe("Debates", () => {
         status: "completed",
         stage: "final",
         canStop: false,
+        creditsUsed: 456,
         feedback: { rating: null, hasWrittenFeedback: false },
       }),
     )
 
     const debate = renderDebates("/debates/better-cafe-ideas")
     const down = await screen.findByRole("button", { name: "Thumbs down" })
+    expect(screen.getByText("456 credits")).toBeVisible()
     fireEvent.click(down)
     expect(
       await screen.findByRole("dialog", { name: "What could be improved?" }),

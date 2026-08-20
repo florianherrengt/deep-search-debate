@@ -24,6 +24,7 @@ import {
   resultFeedbackProjection,
   updateResultFeedback,
 } from "../resultFeedback.ts"
+import { getIdeaCreditsUsed } from "../runCredits.ts"
 
 export type { IdeaJobEvent } from "./schemas.ts"
 
@@ -123,6 +124,10 @@ export function ideaJobReads(app: Hono<AppEnv>, manager: IdeaJobManager) {
                 ownerFeedbackText,
               )
             : null,
+          creditsUsed:
+            isOwner && ideaJob.status === "completed"
+              ? getIdeaCreditsUsed(ideaJob.ideaJobId)
+              : null,
           stopRequested,
           canStop:
             isOwner &&

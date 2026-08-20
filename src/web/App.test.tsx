@@ -229,6 +229,7 @@ describe("App", () => {
           completedAt: "2026-01-01T00:01:00.000Z",
           canStop: false,
           createdAt: "2026-01-01T00:00:00.000Z",
+          creditsUsed: null,
           deepSearchJobId: "loaded-job-id",
           error: null,
           feedback: null,

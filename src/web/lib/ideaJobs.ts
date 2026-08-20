@@ -126,6 +126,7 @@ const createIdeaJobResponseSchema = z.object({
 const ideaJobsResponseSchema = z.object({ ideaJobs: z.array(ideaJobSchema) })
 const ideaJobDetailSchema = ideaJobSchema.extend({
   canStop: z.boolean(),
+  creditsUsed: z.number().int().nonnegative().nullable(),
   feedback: resultFeedbackSchema.nullable(),
   isIndexable: z.boolean(),
   isPublic: z.boolean(),

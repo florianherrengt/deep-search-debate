@@ -58,6 +58,7 @@ const tournament: DebateTournament = {
   stage: "final",
   status: "completed",
   expectedMatchCount: 4,
+  creditsUsed: 123,
   rounds: [
     {
       debateRoundId: "swiss-two",

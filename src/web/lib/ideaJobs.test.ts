@@ -45,6 +45,7 @@ describe("idea jobs client", () => {
       status: "completed",
       stopRequested: false,
       canStop: false,
+      creditsUsed: 0,
       error: null,
       feedback: null,
       isIndexable: true,
@@ -62,6 +63,37 @@ describe("idea jobs client", () => {
       createdAt: new Date(job.createdAt),
       completedAt: new Date(job.completedAt),
     })
+  })
+
+  it("rejects malformed credit usage on a detail response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          ideaJob: {
+            ideaJobId: "idea-id",
+            title: "Generate Ideas",
+            slug: "generate-ideas",
+            prompt: "Generate ideas",
+            stage: "ideas",
+            numberOfIdeas: 12,
+            deepSearchCount: 2,
+            status: "completed",
+            stopRequested: false,
+            canStop: false,
+            error: null,
+            creditsUsed: 0.5,
+            feedback: null,
+            isIndexable: false,
+            isPublic: false,
+            createdAt: "2026-08-04T12:00:00.000Z",
+            completedAt: "2026-08-04T12:30:00.000Z",
+          },
+        }),
+      ),
+    )
+
+    await expect(getIdeaJob("generate-ideas")).rejects.toThrow()
   })
 
   it("rejects malformed durable job timestamps", async () => {

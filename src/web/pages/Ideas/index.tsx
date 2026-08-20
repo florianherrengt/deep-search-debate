@@ -2,7 +2,7 @@ import CircularProgress from "@mui/material/CircularProgress"
 import Stack from "@mui/material/Stack"
 import Typography from "@mui/material/Typography"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import type { ReactNode } from "react"
+import { useCallback, type ReactNode } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { JobHistory } from "../../components/JobHistory.tsx"
 import { JobStatusBadge } from "../../components/JobStatusBadge.tsx"
@@ -106,6 +106,7 @@ function IdeaJobContent({
   feedbackControl,
   ideaId,
   job,
+  onTerminal,
   onStop,
   stopError,
   stopPending,
@@ -113,11 +114,12 @@ function IdeaJobContent({
   feedbackControl?: ReactNode
   ideaId?: string
   job: IdeaJobDetail
+  onTerminal: () => void
   onStop: () => void
   stopError: Error | null
   stopPending: boolean
 }) {
-  const run = useIdeaJob(job.ideaJobId)
+  const run = useIdeaJob(job.ideaJobId, onTerminal)
   const idea = ideaId
     ? run.ideas.find((candidate) => candidate.ideaId === ideaId)
     : undefined
@@ -225,6 +227,12 @@ function IdeaRun({ ideaId, slug }: { ideaId?: string; slug: string }) {
     queryFn: ({ signal }) => getIdeaJob(slug, signal),
   })
   const ideaJobId = job.data?.ideaJobId
+  const reconcileTerminalJob = useCallback(() => {
+    void queryClient.invalidateQueries({
+      queryKey: [...ideaJobsQueryKey, slug],
+      exact: true,
+    })
+  }, [queryClient, slug])
   const stop = useMutation({
     mutationFn: (ideaJobId: string) =>
       requestResearchStop("idea", ideaJobId),
@@ -284,8 +292,10 @@ function IdeaRun({ ideaId, slug }: { ideaId?: string; slug: string }) {
     <IdeaJobContent
       feedbackControl={
         ideaId === undefined &&
-        job.data.feedback !== null ? (
+        job.data.feedback !== null &&
+        job.data.creditsUsed !== null ? (
           <ResultFeedback
+            creditsUsed={job.data.creditsUsed}
             error={
               feedback.error
                 ? getRequestErrorMessage(feedback.error)
@@ -304,6 +314,7 @@ function IdeaRun({ ideaId, slug }: { ideaId?: string; slug: string }) {
       }
       ideaId={ideaId}
       job={job.data}
+      onTerminal={reconcileTerminalJob}
       onStop={() => stop.mutate(job.data.ideaJobId)}
       stopError={stop.error}
       stopPending={stop.isPending}

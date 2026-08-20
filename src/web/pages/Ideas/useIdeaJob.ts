@@ -3,7 +3,7 @@ import { subscribeToIdeaJob } from "../../lib/ideaJobs.ts"
 import { followReplayableStream } from "../../lib/replayStream.ts"
 import { ideaJobReducer, initialIdeaJobState } from "./ideaJobState.ts"
 
-export function useIdeaJob(ideaJobId: string) {
+export function useIdeaJob(ideaJobId: string, onTerminal?: () => void) {
   const [state, dispatch] = useReducer(ideaJobReducer, initialIdeaJobState)
   const [observedSubscriptionError, setObservedSubscriptionError] = useState<{
     ideaJobId: string
@@ -31,7 +31,10 @@ export function useIdeaJob(ideaJobId: string) {
         setObservedSubscriptionError(null)
       },
       onReplayStart: () => dispatch({ type: "opened" }),
-      onEvent: dispatch,
+      onEvent: (event) => {
+        dispatch(event)
+        if (event.type === "done") onTerminal?.()
+      },
       onDisconnect: (_error, willRetry) => {
         setObservedSubscriptionError({
           ideaJobId,
@@ -43,7 +46,7 @@ export function useIdeaJob(ideaJobId: string) {
     })
 
     return () => controller.abort()
-  }, [ideaJobId])
+  }, [ideaJobId, onTerminal])
 
   return { ...state, subscriptionError }
 }

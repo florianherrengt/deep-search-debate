@@ -12,6 +12,28 @@ function deferred() {
   return { promise, resolve }
 }
 
+it.each([
+  ["ordinary", false],
+  ["icon-only", true],
+])("shows the localized run cost beside the thumbs in %s mode", (_mode, iconOnly) => {
+  render(
+    <ResultFeedback
+      creditsUsed={1_234}
+      feedback={{ rating: null, hasWrittenFeedback: false }}
+      iconOnly={iconOnly}
+      onRatingChange={vi.fn()}
+      onSubmitText={vi.fn()}
+      pending={false}
+    />,
+  )
+
+  const thumbsUp = screen.getByRole("button", { name: "Thumbs up" })
+  const cost = screen.getByText(
+    `${(1_234).toLocaleString()} credits`,
+  )
+  expect(thumbsUp.parentElement?.parentElement).toContainElement(cost)
+})
+
 it("waits for a saved negative rating before selecting it and opening the dialog", async () => {
   const saved = deferred()
 
@@ -22,6 +44,7 @@ it("waits for a saved negative rating before selecting it and opening the dialog
     })
     return (
       <ResultFeedback
+        creditsUsed={123}
         feedback={feedback}
         onRatingChange={async (rating) => {
           await saved.promise
@@ -55,6 +78,7 @@ describe("written feedback", () => {
     const onRatingChange = vi.fn()
     render(
       <ResultFeedback
+        creditsUsed={123}
         feedback={{ rating: false, hasWrittenFeedback: false }}
         onRatingChange={onRatingChange}
         onSubmitText={vi.fn()}
@@ -75,6 +99,7 @@ describe("written feedback", () => {
     const onSubmitText = vi.fn(() => saved.promise)
     render(
       <ResultFeedback
+        creditsUsed={123}
         feedback={{ rating: false, hasWrittenFeedback: false }}
         onRatingChange={vi.fn()}
         onSubmitText={onSubmitText}
@@ -107,6 +132,7 @@ describe("written feedback", () => {
     const onSubmitText = vi.fn().mockRejectedValue(new Error("failed"))
     const { rerender } = render(
       <ResultFeedback
+        creditsUsed={123}
         feedback={{ rating: false, hasWrittenFeedback: false }}
         onRatingChange={vi.fn()}
         onSubmitText={onSubmitText}
@@ -123,6 +149,7 @@ describe("written feedback", () => {
 
     rerender(
       <ResultFeedback
+        creditsUsed={123}
         error="The request could not be completed."
         feedback={{ rating: false, hasWrittenFeedback: false }}
         onRatingChange={vi.fn()}

@@ -193,6 +193,12 @@ current nullable boolean `rating` and derived `hasWrittenFeedback`; this keeps
 owner authority available when a snapshot fetched while running is later paired
 with replay-derived completion. Anonymous and authenticated public non-owners
 receive `feedback: null`. Written feedback is never returned.
+Completed owners also receive the derived nonnegative integer `creditsUsed`,
+which sums settled tournament LLM charges and the complete debate-owned idea
+and deep-search subtree. It is `null` unless the viewer owns a completed run.
+Standalone title generation is excluded because it is not owned by the run.
+On the completed owner detail page, the browser displays this total beside the
+feedback thumbs.
 
 ### `POST /api/debate-jobs/:debateJobId/cancel`
 

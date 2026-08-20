@@ -98,6 +98,7 @@ const services: DeepSearchServices = {
       createdAt,
       deepSearchJobId: slug,
       canStop: false,
+      creditsUsed: 123,
       error: null,
       feedback: { rating: null, hasWrittenFeedback: false },
       isIndexable: false,

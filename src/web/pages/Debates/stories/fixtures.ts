@@ -300,6 +300,7 @@ export const swissTournament: DebateTournament = {
   ],
   standings: createStandings(false),
   error: null,
+  creditsUsed: null,
   feedback: null,
 }
 
@@ -327,6 +328,7 @@ export const semifinalTournament: DebateTournament = {
   ],
   standings: createStandings(true),
   error: null,
+  creditsUsed: null,
   feedback: null,
 }
 
@@ -360,6 +362,7 @@ export const completedTournament: DebateTournament = {
   ],
   standings: createStandings(true),
   error: null,
+  creditsUsed: 1_234,
   feedback: { rating: null, hasWrittenFeedback: false },
 }
 

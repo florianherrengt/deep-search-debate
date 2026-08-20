@@ -4,7 +4,7 @@ import Tab from "@mui/material/Tab"
 import Tabs from "@mui/material/Tabs"
 import Typography from "@mui/material/Typography"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import type { ReactNode } from "react"
+import { useCallback, type ReactNode } from "react"
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { JobHistory } from "../../components/JobHistory.tsx"
 import { JobStatusBadge } from "../../components/JobStatusBadge.tsx"
@@ -170,17 +170,19 @@ function parseRoundNumber(value: string | undefined): number | null {
 function DeepSearchJobContent({
   feedbackControl,
   job,
+  onTerminal,
   onStop,
   routeRoundNumber,
   stopPending,
 }: {
   feedbackControl?: ReactNode
   job: DeepSearchJobDetail
+  onTerminal: () => void
   onStop: () => void
   routeRoundNumber?: string
   stopPending: boolean
 }) {
-  const run = useDeepSearchJob(job.deepSearchJobId)
+  const run = useDeepSearchJob(job.deepSearchJobId, onTerminal)
   const parentPageKey = `/deep-search/${encodeURIComponent(job.slug)}`
   const roundNumber = parseRoundNumber(routeRoundNumber)
   const roundIndex = roundNumber === null ? null : roundNumber - 1
@@ -287,6 +289,12 @@ function DeepSearchDetail({
     queryFn: ({ signal }) => services.getJob(slug, signal),
   })
   const deepSearchJobId = job.data?.deepSearchJobId
+  const reconcileTerminalJob = useCallback(() => {
+    void queryClient.invalidateQueries({
+      queryKey: deepSearchJobDetailQueryKey(slug),
+      exact: true,
+    })
+  }, [queryClient, slug])
   const stop = useMutation({
     mutationFn: (deepSearchJobId: string) => services.stopJob(deepSearchJobId),
     onSuccess: () => {
@@ -360,8 +368,10 @@ function DeepSearchDetail({
       <DeepSearchJobContent
         feedbackControl={
           routeRoundNumber === undefined &&
-          job.data.feedback !== null ? (
+          job.data.feedback !== null &&
+          job.data.creditsUsed !== null ? (
             <ResultFeedback
+              creditsUsed={job.data.creditsUsed}
               error={
                 feedback.error
                   ? getRequestErrorMessage(feedback.error)
@@ -379,6 +389,7 @@ function DeepSearchDetail({
           ) : undefined
         }
         job={job.data}
+        onTerminal={reconcileTerminalJob}
         onStop={() => stop.mutate(job.data.deepSearchJobId)}
         routeRoundNumber={routeRoundNumber}
         stopPending={stop.isPending}

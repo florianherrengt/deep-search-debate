@@ -72,6 +72,7 @@ describe("debate jobs client", () => {
       ],
       standings: [],
       error: null,
+      creditsUsed: null,
       feedback: null,
     }
     const events = [{ type: "updated" }, { type: "done" }] as const
@@ -123,6 +124,37 @@ describe("debate jobs client", () => {
       { signal: undefined },
     )
     expect(onOpen).toHaveBeenCalledOnce()
+  })
+
+  it("rejects malformed credit usage on a snapshot", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          debateJob: {
+            debateJobId: "debate-id",
+            ideaJobId: "idea-job-id",
+            title: "Solve This Problem",
+            slug: "solve-this-problem",
+            prompt: "Solve this problem",
+            isPublic: false,
+            isOwner: true,
+            stopRequested: false,
+            canStop: false,
+            stage: "final",
+            status: "completed",
+            expectedMatchCount: 1,
+            rounds: [],
+            standings: [],
+            error: null,
+            creditsUsed: "12",
+            feedback: null,
+          },
+        }),
+      ),
+    )
+
+    await expect(getDebateJob("solve-this-problem")).rejects.toThrow()
   })
 
   it("rejects malformed snapshots and events", async () => {

@@ -35,7 +35,10 @@ export function DeepSearchJobStreamProvider({
 }
 
 /** Replays and follows one durable deep-search job. */
-export function useDeepSearchJob(deepSearchJobId: string) {
+export function useDeepSearchJob(
+  deepSearchJobId: string,
+  onTerminal?: () => void,
+) {
   const subscribe = use(DeepSearchJobStreamContext)
   const [state, dispatch] = useReducer(
     deepSearchReducer,
@@ -61,7 +64,10 @@ export function useDeepSearchJob(deepSearchJobId: string) {
       isTerminal: (event) => event.type === "done",
       onOpen: () => setObservedSubscriptionError(null),
       onReplayStart: () => dispatch({ type: "opened" }),
-      onEvent: dispatch,
+      onEvent: (event) => {
+        dispatch(event)
+        if (event.type === "done") onTerminal?.()
+      },
       onDisconnect: (_error, willRetry) => {
         setObservedSubscriptionError({
           deepSearchJobId,
@@ -73,7 +79,7 @@ export function useDeepSearchJob(deepSearchJobId: string) {
     })
 
     return () => controller.abort()
-  }, [deepSearchJobId, subscribe])
+  }, [deepSearchJobId, onTerminal, subscribe])
 
   return { ...state, subscriptionError }
 }

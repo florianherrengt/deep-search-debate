@@ -13,6 +13,7 @@ const meta: Meta<typeof ResultFeedback> = {
     ),
   ],
   args: {
+    creditsUsed: 123,
     onRatingChange: () => Promise.resolve(),
     onSubmitText: () => Promise.resolve(),
     pending: false,

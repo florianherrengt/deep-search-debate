@@ -265,6 +265,7 @@ describe("deep search jobs client", () => {
           deepSearchJob: {
             ...job,
             canStop: false,
+            creditsUsed: 123,
             feedback: null,
             isIndexable: true,
             isPublic: true,
@@ -293,6 +294,7 @@ describe("deep search jobs client", () => {
       isIndexable: true,
       isPublic: true,
       canStop: false,
+      creditsUsed: 123,
       feedback: null,
       stopRequested: false,
     }
@@ -310,6 +312,37 @@ describe("deep search jobs client", () => {
       "/api/deep-search-jobs/research-this",
       { signal: undefined },
     )
+  })
+
+  it("rejects malformed credit usage on a detail response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          deepSearchJob: {
+            deepSearchJobId: "job-id",
+            title: "Research This",
+            slug: "research-this",
+            researchRequest: "Research this",
+            maxSearches: 3,
+            maxResultsPerSearch: 3,
+            maxRounds: 3,
+            status: "completed",
+            stopRequested: false,
+            error: null,
+            createdAt: "2026-08-01T12:00:00.000Z",
+            completedAt: "2026-08-01T12:01:00.000Z",
+            canStop: false,
+            creditsUsed: -1,
+            feedback: null,
+            isIndexable: false,
+            isPublic: false,
+          },
+        }),
+      ),
+    )
+
+    await expect(getDeepSearchJob("research-this")).rejects.toThrow()
   })
 
   it("parses the originating debate on automated job list items", async () => {

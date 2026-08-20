@@ -57,6 +57,7 @@ const debateTournamentSchema = z.object({
   rounds: z.array(debateRoundSchema),
   standings: z.array(debateStandingSchema),
   error: z.string().nullable(),
+  creditsUsed: z.number().int().nonnegative().nullable(),
   feedback: resultFeedbackSchema.nullable(),
 })
 

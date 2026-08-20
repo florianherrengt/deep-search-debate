@@ -36,6 +36,7 @@ function CompletedFeedbackControl() {
 
   return (
     <ResultFeedback
+      creditsUsed={completedTournament.creditsUsed ?? 0}
       feedback={feedback}
       iconOnly
       onRatingChange={(rating) => {
