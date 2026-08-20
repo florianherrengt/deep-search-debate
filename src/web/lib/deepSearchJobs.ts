@@ -1,5 +1,6 @@
 import z from "zod"
 import { getJson, postJson, subscribeToNdjson } from "./api.ts"
+import { resultFeedbackSchema } from "./resultFeedback.ts"
 
 const deepSearchResultSchema = z.object({
   title: z.string(),
@@ -13,6 +14,28 @@ const deepSearchResultsSchema = z.object({
 })
 
 export type DeepSearchResults = z.infer<typeof deepSearchResultsSchema>
+
+const sourcedResearchAnalysisItemSchema = z.object({
+  title: z.string().trim().min(1).max(160),
+  description: z.string().trim().min(1).max(2_000),
+  sources: z.array(z.url({ protocol: /^https?$/ })).max(12),
+})
+
+const researchAnalysisSchema = z.object({
+  facts: z.array(sourcedResearchAnalysisItemSchema).max(12),
+  disagreements: z.array(sourcedResearchAnalysisItemSchema).max(12),
+  gaps: z
+    .array(
+      z.object({
+        title: z.string().trim().min(1).max(160),
+        description: z.string().trim().min(1).max(2_000),
+      }),
+    )
+    .max(12),
+  assumptions: z.array(sourcedResearchAnalysisItemSchema).max(12),
+})
+
+export type ResearchAnalysis = z.infer<typeof researchAnalysisSchema>
 
 const deepSearchJobEventSchema = z.discriminatedUnion("type", [
   z.object({
@@ -79,6 +102,10 @@ const deepSearchJobEventSchema = z.discriminatedUnion("type", [
     type: z.literal("final-answer-stream"),
     streamId: z.string().min(1),
   }),
+  z.object({
+    type: z.literal("research-analysis"),
+    analysis: researchAnalysisSchema,
+  }),
   z.object({ type: z.literal("stop-requested") }),
   z.object({ type: z.literal("interrupted"), message: z.string().min(1) }),
   z.object({ type: z.literal("error"), message: z.string() }),
@@ -128,6 +155,7 @@ const deepSearchJobsResponseSchema = z.object({
 })
 const deepSearchJobDetailSchema = deepSearchJobSchema.extend({
   canStop: z.boolean(),
+  feedback: resultFeedbackSchema.nullable(),
   isIndexable: z.boolean(),
   isPublic: z.boolean(),
 })

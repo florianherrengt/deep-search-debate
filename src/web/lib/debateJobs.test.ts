@@ -72,6 +72,7 @@ describe("debate jobs client", () => {
       ],
       standings: [],
       error: null,
+      feedback: null,
     }
     const events = [{ type: "updated" }, { type: "done" }] as const
     const fetchMock = vi

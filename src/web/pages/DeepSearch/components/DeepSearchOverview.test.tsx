@@ -17,6 +17,7 @@ const baseRun: DeepSearchRunState = {
     },
   ],
   finalAnswerStreamId: null,
+  researchAnalysis: null,
   searches: [
     {
       round: 0,
@@ -141,6 +142,47 @@ describe("DeepSearchOverview", () => {
       screen.queryByRole("heading", { name: "Research rounds" }),
     ).not.toBeInTheDocument()
     expect(screen.getByText("Starting deep search…")).toBeVisible()
+  })
+
+  it("displays the separate facts, disagreements, gaps, and assumptions analysis", () => {
+    renderOverview({
+      ...baseRun,
+      status: "completed",
+      finalAnswerStreamId: "final-answer",
+      researchAnalysis: {
+        facts: [
+          {
+            title: "Supported fact",
+            description: "The collected evidence supports this claim.",
+            sources: ["https://example.com/fact"],
+          },
+        ],
+        disagreements: [],
+        gaps: [
+          {
+            title: "Missing regional evidence",
+            description: "The research does not cover every region.",
+          },
+        ],
+        assumptions: [],
+      },
+    })
+
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Research analysis" }),
+    ).toBeVisible()
+    expect(screen.getByRole("heading", { name: "Facts" })).toBeVisible()
+    expect(screen.getByText("Supported fact")).toBeVisible()
+    expect(
+      screen.getByRole("link", {
+        name: "Open source: https://example.com/fact",
+      }),
+    ).toHaveAttribute("href", "https://example.com/fact")
+    expect(screen.getByRole("heading", { name: "Disagreements" })).toBeVisible()
+    expect(screen.getByText("No material disagreements were identified.")).toBeVisible()
+    expect(screen.getByRole("heading", { name: "Gaps" })).toBeVisible()
+    expect(screen.getByText("Missing regional evidence")).toBeVisible()
+    expect(screen.getByRole("heading", { name: "Assumptions" })).toBeVisible()
   })
 
   it("ceases active presentation as soon as a durable Stop is requested", () => {

@@ -2,13 +2,20 @@ import CircularProgress from "@mui/material/CircularProgress"
 import Stack from "@mui/material/Stack"
 import Typography from "@mui/material/Typography"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import type { ReactNode } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { JobHistory } from "../../components/JobHistory.tsx"
 import { JobStatusBadge } from "../../components/JobStatusBadge.tsx"
 import { PromptForm } from "../../components/PromptForm.tsx"
 import { RequestError } from "../../components/RequestError.tsx"
+import { ResultFeedback } from "../../components/ResultFeedback.tsx"
 import { StopWorkflowControl } from "../../components/StopWorkflowControl.tsx"
+import { getRequestErrorMessage } from "../../lib/requestErrors.ts"
 import { requestResearchStop } from "../../lib/researchCancellation.ts"
+import {
+  type ResultFeedbackInput,
+  updateResultFeedback,
+} from "../../lib/resultFeedback.ts"
 import { truncateDescription, useSeo } from "../../lib/seo.ts"
 import {
   createIdeaJob,
@@ -96,12 +103,14 @@ function IdeaHistory() {
 }
 
 function IdeaJobContent({
+  feedbackControl,
   ideaId,
   job,
   onStop,
   stopError,
   stopPending,
 }: {
+  feedbackControl?: ReactNode
   ideaId?: string
   job: IdeaJobDetail
   onStop: () => void
@@ -186,6 +195,7 @@ function IdeaJobContent({
     />
   ) : (
     <IdeaJobView
+      feedbackControl={feedbackControl}
       jobSlug={job.slug}
       prompt={job.prompt}
       run={run}
@@ -214,6 +224,7 @@ function IdeaRun({ ideaId, slug }: { ideaId?: string; slug: string }) {
     queryKey: [...ideaJobsQueryKey, slug],
     queryFn: ({ signal }) => getIdeaJob(slug, signal),
   })
+  const ideaJobId = job.data?.ideaJobId
   const stop = useMutation({
     mutationFn: (ideaJobId: string) =>
       requestResearchStop("idea", ideaJobId),
@@ -229,6 +240,19 @@ function IdeaRun({ ideaId, slug }: { ideaId?: string; slug: string }) {
         queryKey: ideaJobsQueryKey,
         exact: true,
       })
+    },
+  })
+  const feedback = useMutation({
+    mutationFn: (input: ResultFeedbackInput) => {
+      if (!ideaJobId) throw new Error("Idea job is not loaded")
+      return updateResultFeedback("idea", ideaJobId, input)
+    },
+    onSuccess: (updatedFeedback) => {
+      queryClient.setQueryData<IdeaJobDetail>(
+        [...ideaJobsQueryKey, slug],
+        (current) =>
+          current ? { ...current, feedback: updatedFeedback } : current,
+      )
     },
   })
   const pageKey = `/ideas/${encodeURIComponent(slug)}${
@@ -258,6 +282,26 @@ function IdeaRun({ ideaId, slug }: { ideaId?: string; slug: string }) {
   }
   return (
     <IdeaJobContent
+      feedbackControl={
+        ideaId === undefined &&
+        job.data.feedback !== null ? (
+          <ResultFeedback
+            error={
+              feedback.error
+                ? getRequestErrorMessage(feedback.error)
+                : undefined
+            }
+            feedback={job.data.feedback}
+            onRatingChange={async (rating) => {
+              await feedback.mutateAsync({ type: "rating", rating })
+            }}
+            onSubmitText={async (text) => {
+              await feedback.mutateAsync({ type: "text", text })
+            }}
+            pending={feedback.isPending}
+          />
+        ) : undefined
+      }
       ideaId={ideaId}
       job={job.data}
       onStop={() => stop.mutate(job.data.ideaJobId)}

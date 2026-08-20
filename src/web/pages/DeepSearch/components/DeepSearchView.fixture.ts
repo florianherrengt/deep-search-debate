@@ -102,6 +102,42 @@ export const completedRun: DeepSearchRunState = {
   ],
   roundReviews: [],
   finalAnswerStreamId: "final-answer",
+  researchAnalysis: {
+    facts: [
+      {
+        title: "OpenAI was founded in 2015",
+        description:
+          "The founding announcement establishes 2015 as the organisation's starting point.",
+        sources: ["https://openai.com/index/introducing-openai/"],
+      },
+    ],
+    disagreements: [
+      {
+        title: "Governance effects remain contested",
+        description:
+          "Sources connect structural changes to accountability concerns but do not agree on their long-term effects.",
+        sources: [
+          "https://openai.com/about/",
+          "https://example.org/frontier-ai-governance",
+        ],
+      },
+    ],
+    gaps: [
+      {
+        title: "No independent product-usage comparison",
+        description:
+          "The research identifies the product portfolio but does not compare independently verified adoption across products.",
+      },
+    ],
+    assumptions: [
+      {
+        title: "Current pages represent the complete portfolio",
+        description:
+          "The answer assumes the official product pages enumerate every material current offering.",
+        sources: ["https://openai.com/products/"],
+      },
+    ],
+  },
   searches: [
     {
       round: 0,
@@ -236,6 +272,7 @@ export const reviewingEvidenceRun: DeepSearchRunState = {
     },
   ],
   finalAnswerStreamId: null,
+  researchAnalysis: null,
 }
 
 export const moreResearchRequestedRun: DeepSearchRunState = {

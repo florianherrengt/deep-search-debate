@@ -43,6 +43,21 @@ describe("deep search jobs client", () => {
         },
       ],
     }
+    const researchAnalysis: DeepSearchJobEvent = {
+      type: "research-analysis",
+      analysis: {
+        facts: [
+          {
+            title: "Supported finding",
+            description: "The evidence supports this finding.",
+            sources: ["https://example.com"],
+          },
+        ],
+        disagreements: [],
+        gaps: [],
+        assumptions: [],
+      },
+    }
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -98,6 +113,7 @@ describe("deep search jobs client", () => {
             type: "final-answer-stream",
             streamId: "final-answer-stream-id",
           },
+          researchAnalysis,
           { type: "stop-requested" },
           { type: "interrupted", message: "Workflow stopped by user" },
           { type: "done" },
@@ -160,6 +176,7 @@ describe("deep search jobs client", () => {
         type: "final-answer-stream",
         streamId: "final-answer-stream-id",
       },
+      researchAnalysis,
       { type: "stop-requested" },
       { type: "interrupted", message: "Workflow stopped by user" },
       { type: "done" },
@@ -193,6 +210,37 @@ describe("deep search jobs client", () => {
     ).rejects.toThrow(/500/)
   })
 
+  it("rejects unsafe source URLs in research analysis events", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          `${JSON.stringify({
+            type: "research-analysis",
+            analysis: {
+              facts: [
+                {
+                  title: "Unsafe source",
+                  description: "This source must not reach the UI.",
+                  sources: ["javascript:alert(1)"],
+                },
+              ],
+              disagreements: [],
+              gaps: [],
+              assumptions: [],
+            },
+          })}\n`,
+          {
+            status: 200,
+            headers: { "Content-Type": "application/x-ndjson" },
+          },
+        ),
+      ),
+    )
+
+    await expect(drain(subscribeToDeepSearchJob("job-id"))).rejects.toThrow()
+  })
+
   it("lists history and reads one durable job", async () => {
     const job = {
       deepSearchJobId: "job-id",
@@ -217,6 +265,7 @@ describe("deep search jobs client", () => {
           deepSearchJob: {
             ...job,
             canStop: false,
+            feedback: null,
             isIndexable: true,
             isPublic: true,
           },
@@ -244,6 +293,7 @@ describe("deep search jobs client", () => {
       isIndexable: true,
       isPublic: true,
       canStop: false,
+      feedback: null,
       stopRequested: false,
     }
     await expect(getDeepSearchJobs("manual")).resolves.toEqual([parsedListJob])

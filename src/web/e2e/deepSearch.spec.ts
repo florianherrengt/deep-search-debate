@@ -140,6 +140,11 @@ test.describe("Deep search", () => {
       jobError,
       jobError ? `Deep search job failed: ${jobError.message}` : undefined,
     ).toBeUndefined()
+    const researchAnalysis = liveEvents.find(
+      (event) => event.type === "research-analysis",
+    )
+    expect(researchAnalysis).toBeDefined()
+    expect(researchAnalysis?.analysis.facts).not.toHaveLength(0)
 
     const queryStreamEvent = liveEvents.find(
       (event) => event.type === "query-stream",
@@ -237,6 +242,12 @@ test.describe("Deep search", () => {
     const summaryPath = `/api/streams/${firstPageSummary?.streamId ?? ""}`
 
     await expect(page.getByTestId("final-answer")).toBeVisible()
+    await expect(
+      page.getByRole("heading", { name: "Research analysis" }),
+    ).toBeVisible()
+    await expect(
+      page.getByText("The supplied evidence supports the answer"),
+    ).toBeVisible()
     await expect(
       page.getByRole("heading", { name: "Research rounds" }),
     ).toBeVisible()
@@ -520,6 +531,12 @@ test.describe("Deep search", () => {
     await expect(page.getByTestId("final-answer")).toHaveText(
       streamedFinalAnswer,
     )
+    await expect(
+      page.getByRole("heading", { name: "Research analysis" }),
+    ).toBeVisible()
+    await expect(
+      page.getByText("Long-term outcomes remain untested"),
+    ).toBeVisible()
     await expect(
       page.getByRole("heading", { name: "Research rounds" }),
     ).toBeVisible()

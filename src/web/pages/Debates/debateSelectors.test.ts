@@ -90,8 +90,9 @@ const tournament: DebateTournament = {
     },
   ],
   standings: [],
-  error: null,
-}
+      error: null,
+      feedback: null,
+    }
 
 describe("debate selectors", () => {
   it("derives progress, the latest Swiss round, and the winner", () => {

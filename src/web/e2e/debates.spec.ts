@@ -322,6 +322,86 @@ test.describe("Debate tournament", () => {
       ),
     ).toBeVisible()
 
+    const debateFeedbackResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PATCH" &&
+        new URL(response.url()).pathname ===
+          `/api/debate-jobs/${debateJobId}/feedback`,
+    )
+    await page.getByRole("button", { name: "Thumbs up" }).click()
+    expect((await debateFeedbackResponse).status()).toBe(200)
+    await expect(page.getByRole("button", { name: "Thumbs up" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    )
+    await page.reload()
+    await expect(page.getByText("Debate complete")).toBeVisible()
+    await expect(page.getByRole("button", { name: "Thumbs up" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    )
+
+    const ideaUrl = `/ideas/${slug}`
+    await page.goto(ideaUrl)
+    const ideaFeedbackResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PATCH" &&
+        /^\/api\/idea-jobs\/[^/]+\/feedback$/.test(
+          new URL(response.url()).pathname,
+        ),
+    )
+    await page.getByRole("button", { name: "Thumbs down" }).click()
+    expect((await ideaFeedbackResponse).status()).toBe(200)
+    const writtenFeedbackDialog = page.getByRole("dialog", {
+      name: "What could be improved?",
+    })
+    await expect(writtenFeedbackDialog).toBeVisible()
+    await writtenFeedbackDialog
+      .getByRole("button", { name: "Not now" })
+      .click()
+    await page.reload()
+    await expect(page.getByRole("button", { name: "Thumbs down" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    )
+
+    const ownerResearchPath = await page
+      .locator('a[href^="/deep-search/"]')
+      .first()
+      .getAttribute("href")
+    expect(ownerResearchPath).toMatch(/^\/deep-search\/[a-z0-9-]+$/)
+    await page.goto(ownerResearchPath ?? "/deep-search/missing")
+    const researchFeedbackResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PATCH" &&
+        /^\/api\/deep-search-jobs\/[^/]+\/feedback$/.test(
+          new URL(response.url()).pathname,
+        ),
+    )
+    await page.getByRole("button", { name: "Thumbs up" }).click()
+    expect((await researchFeedbackResponse).status()).toBe(200)
+    await page.reload()
+    await expect(page.getByRole("button", { name: "Thumbs up" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    )
+
+    await anonymousPage.goto(debateUrl)
+    await expect(anonymousPage.getByText("Debate complete")).toBeVisible()
+    await expect(
+      anonymousPage.getByRole("button", { name: /Thumbs (up|down)/ }),
+    ).toHaveCount(0)
+    await anonymousPage.goto(ideaUrl)
+    await expect(
+      anonymousPage.getByRole("button", { name: /Thumbs (up|down)/ }),
+    ).toHaveCount(0)
+    await anonymousPage.goto(ownerResearchPath ?? "/deep-search/missing")
+    await expect(
+      anonymousPage.getByRole("button", { name: /Thumbs (up|down)/ }),
+    ).toHaveCount(0)
+
+    await page.goto(debateUrl)
+
     const terminalEventsResponse = await request.get(
       `/api/debate-jobs/${debateJobId}/events`,
     )

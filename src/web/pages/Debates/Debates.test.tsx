@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   subscribeToTextStream: vi.fn(),
   updateDebateJob: vi.fn(),
   requestResearchStop: vi.fn(),
+  updateResultFeedback: vi.fn(),
 }))
 
 vi.mock("../../lib/debateJobs.ts", async (importOriginal) => ({
@@ -29,6 +30,11 @@ vi.mock("../../lib/textStreams.ts", () => ({
 
 vi.mock("../../lib/researchCancellation.ts", () => ({
   requestResearchStop: mocks.requestResearchStop,
+}))
+
+vi.mock("../../lib/resultFeedback.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/resultFeedback.ts")>()),
+  updateResultFeedback: mocks.updateResultFeedback,
 }))
 
 import { Debates } from "./index.tsx"
@@ -93,6 +99,7 @@ function tournament(
       { idea: secondIdea, wins: 0, elo: 1500 },
     ],
     error: null,
+    feedback: null,
     ...overrides,
   }
 }
@@ -143,6 +150,10 @@ describe("Debates", () => {
       status: "cancellation-requested",
       cancelRequestedAt: new Date("2026-08-15T00:00:00.000Z"),
     })
+    mocks.updateResultFeedback.mockResolvedValue({
+      rating: false,
+      hasWrittenFeedback: false,
+    })
     mocks.subscribeToDebateJob.mockImplementation(async function* (
       _id: string,
       signal?: AbortSignal,
@@ -158,6 +169,35 @@ describe("Debates", () => {
       yield { type: "text" as const, text: "Live opening argument" }
       yield { type: "done" as const }
     })
+  })
+
+  it("places feedback on the completed owner debate and omits it from match pages", async () => {
+    mocks.getDebateJob.mockResolvedValue(
+      tournament({
+        status: "completed",
+        stage: "final",
+        canStop: false,
+        feedback: { rating: null, hasWrittenFeedback: false },
+      }),
+    )
+
+    const debate = renderDebates("/debates/better-cafe-ideas")
+    const down = await screen.findByRole("button", { name: "Thumbs down" })
+    fireEvent.click(down)
+    expect(
+      await screen.findByRole("dialog", { name: "What could be improved?" }),
+    ).toBeVisible()
+    expect(mocks.updateResultFeedback).toHaveBeenCalledWith(
+      "debate",
+      "debate-id",
+      { type: "rating", rating: false },
+    )
+    debate.unmount()
+
+    renderDebates("/debates/better-cafe-ideas/matches/match")
+    expect(
+      screen.queryByRole("button", { name: "Thumbs down" }),
+    ).not.toBeInTheDocument()
   })
 
   it("describes the tournament without fixed match or round counts", () => {

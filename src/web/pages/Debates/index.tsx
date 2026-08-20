@@ -13,6 +13,7 @@ import {
 } from "react-router-dom"
 import { JobHistory } from "../../components/JobHistory.tsx"
 import { RequestError } from "../../components/RequestError.tsx"
+import { ResultFeedback } from "../../components/ResultFeedback.tsx"
 import { StopWorkflowControl } from "../../components/StopWorkflowControl.tsx"
 import {
   createDebateJob,
@@ -23,6 +24,10 @@ import {
 } from "../../lib/debateJobs.ts"
 import { getRequestErrorMessage } from "../../lib/requestErrors.ts"
 import { requestResearchStop } from "../../lib/researchCancellation.ts"
+import {
+  type ResultFeedbackInput,
+  updateResultFeedback,
+} from "../../lib/resultFeedback.ts"
 import { truncateDescription, useSeo } from "../../lib/seo.ts"
 import { DebatePromptForm } from "./components/DebatePromptForm.tsx"
 import { DebateMatchDetail } from "./components/DebateMatchDetail.tsx"
@@ -159,6 +164,19 @@ function DebateDetail({
       })
     },
   })
+  const feedback = useMutation({
+    mutationFn: (input: ResultFeedbackInput) => {
+      if (!debateJobId) throw new Error("Debate job is not loaded")
+      return updateResultFeedback("debate", debateJobId, input)
+    },
+    onSuccess: (updatedFeedback) => {
+      queryClient.setQueryData<DebateTournamentSnapshot>(
+        debateJobQueryKey(slug),
+        (current) =>
+          current ? { ...current, feedback: updatedFeedback } : current,
+      )
+    },
+  })
 
   useSeo(
     invalidMatch
@@ -250,6 +268,26 @@ function DebateDetail({
         <Alert severity="error">{getRequestErrorMessage(stop.error)}</Alert>
       )}
       <DebateView
+        feedbackControl={
+          job.data.status === "completed" && job.data.feedback !== null ? (
+            <ResultFeedback
+              error={
+                feedback.error
+                  ? getRequestErrorMessage(feedback.error)
+                  : undefined
+              }
+              feedback={job.data.feedback}
+              iconOnly
+              onRatingChange={async (rating) => {
+                await feedback.mutateAsync({ type: "rating", rating })
+              }}
+              onSubmitText={async (text) => {
+                await feedback.mutateAsync({ type: "text", text })
+              }}
+              pending={feedback.isPending}
+            />
+          ) : undefined
+        }
         ownerActions={
           job.data.isOwner ? (
             <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>

@@ -22,11 +22,12 @@ import { TournamentBoard } from "./TournamentBoard.tsx"
 import { WinnerIdeaCard } from "./WinnerIdeaCard.tsx"
 
 export type DebateViewProps = {
+  feedbackControl?: ReactNode
   tournament: DebateTournament
   ownerActions?: ReactNode
 }
 
-export function DebateView({ ownerActions, tournament }: DebateViewProps) {
+export function DebateView({ feedbackControl, ownerActions, tournament }: DebateViewProps) {
   const winner = getWinner(tournament)
   const closestAlternative = getClosestAlternative(tournament)
   const winnerReason = getWinnerReason(tournament)
@@ -58,6 +59,7 @@ export function DebateView({ ownerActions, tournament }: DebateViewProps) {
             spacing={1}
             sx={{ alignItems: "center", alignSelf: "flex-start" }}
           >
+            {feedbackControl}
             <Chip
               color={status.color}
               label={status.label}

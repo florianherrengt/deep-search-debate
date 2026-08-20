@@ -17,6 +17,7 @@ function run(
   return {
     error: null,
     finalAnswerStreamId: "final-answer",
+    researchAnalysis: null,
     queryGenerations: [
       { round: 0, streamId: "queries-round-1" },
       { round: 2, streamId: "queries-round-3" },

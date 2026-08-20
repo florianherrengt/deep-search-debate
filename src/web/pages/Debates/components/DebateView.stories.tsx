@@ -1,5 +1,8 @@
 import { Container } from "@mui/material"
 import type { Meta, StoryObj } from "@storybook/react"
+import { useState } from "react"
+import { ResultFeedback } from "../../../components/ResultFeedback.tsx"
+import type { ResultFeedback as ResultFeedbackState } from "../../../lib/resultFeedback.ts"
 import { DebateView } from "./DebateView.tsx"
 import {
   completedTournament,
@@ -23,6 +26,38 @@ const meta: Meta<typeof DebateView> = {
 export default meta
 type Story = StoryObj<typeof DebateView>
 
+function CompletedFeedbackControl() {
+  const [feedback, setFeedback] = useState<ResultFeedbackState>(
+    completedTournament.feedback ?? {
+      rating: null,
+      hasWrittenFeedback: false,
+    },
+  )
+
+  return (
+    <ResultFeedback
+      feedback={feedback}
+      iconOnly
+      onRatingChange={(rating) => {
+        setFeedback((current) => ({
+          rating,
+          hasWrittenFeedback:
+            !rating && current.rating === false && current.hasWrittenFeedback,
+        }))
+        return Promise.resolve()
+      }}
+      onSubmitText={() => {
+        setFeedback((current) => ({
+          ...current,
+          hasWrittenFeedback: true,
+        }))
+        return Promise.resolve()
+      }}
+      pending={false}
+    />
+  )
+}
+
 export const RunningSwiss: Story = {
   args: {
     tournament: swissTournament,
@@ -37,6 +72,7 @@ export const RunningSemifinal: Story = {
 
 export const Completed: Story = {
   args: {
+    feedbackControl: <CompletedFeedbackControl />,
     tournament: completedTournament,
   },
 }

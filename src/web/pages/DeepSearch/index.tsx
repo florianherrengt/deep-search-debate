@@ -4,13 +4,20 @@ import Tab from "@mui/material/Tab"
 import Tabs from "@mui/material/Tabs"
 import Typography from "@mui/material/Typography"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import type { ReactNode } from "react"
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { JobHistory } from "../../components/JobHistory.tsx"
 import { JobStatusBadge } from "../../components/JobStatusBadge.tsx"
 import { PromptForm } from "../../components/PromptForm.tsx"
 import { RequestError } from "../../components/RequestError.tsx"
+import { ResultFeedback } from "../../components/ResultFeedback.tsx"
 import { StopWorkflowControl } from "../../components/StopWorkflowControl.tsx"
 import { truncateDescription, useSeo } from "../../lib/seo.ts"
+import { getRequestErrorMessage } from "../../lib/requestErrors.ts"
+import {
+  type ResultFeedbackInput,
+  updateResultFeedback,
+} from "../../lib/resultFeedback.ts"
 import {
   createDeepSearchJob,
   getDeepSearchJob,
@@ -161,11 +168,13 @@ function parseRoundNumber(value: string | undefined): number | null {
 }
 
 function DeepSearchJobContent({
+  feedbackControl,
   job,
   onStop,
   routeRoundNumber,
   stopPending,
 }: {
+  feedbackControl?: ReactNode
   job: DeepSearchJobDetail
   onStop: () => void
   routeRoundNumber?: string
@@ -241,6 +250,7 @@ function DeepSearchJobContent({
 
   return (
     <DeepSearchOverview
+      feedbackControl={feedbackControl}
       jobSlug={job.slug}
       researchRequest={job.researchRequest}
       run={run}
@@ -276,6 +286,7 @@ function DeepSearchDetail({
     queryKey: deepSearchJobDetailQueryKey(slug),
     queryFn: ({ signal }) => services.getJob(slug, signal),
   })
+  const deepSearchJobId = job.data?.deepSearchJobId
   const stop = useMutation({
     mutationFn: (deepSearchJobId: string) => services.stopJob(deepSearchJobId),
     onSuccess: () => {
@@ -289,6 +300,19 @@ function DeepSearchDetail({
       void queryClient.invalidateQueries({
         queryKey: [...deepSearchJobsQueryKey, "list"],
       })
+    },
+  })
+  const feedback = useMutation({
+    mutationFn: (input: ResultFeedbackInput) => {
+      if (!deepSearchJobId) throw new Error("Deep search job is not loaded")
+      return updateResultFeedback("deep-search", deepSearchJobId, input)
+    },
+    onSuccess: (updatedFeedback) => {
+      queryClient.setQueryData<DeepSearchJobDetail>(
+        deepSearchJobDetailQueryKey(slug),
+        (current) =>
+          current ? { ...current, feedback: updatedFeedback } : current,
+      )
     },
   })
   const parentPageKey = `/deep-search/${encodeURIComponent(slug)}`
@@ -334,6 +358,26 @@ function DeepSearchDetail({
     <>
       {stop.error && <RequestError error={stop.error} />}
       <DeepSearchJobContent
+        feedbackControl={
+          routeRoundNumber === undefined &&
+          job.data.feedback !== null ? (
+            <ResultFeedback
+              error={
+                feedback.error
+                  ? getRequestErrorMessage(feedback.error)
+                  : undefined
+              }
+              feedback={job.data.feedback}
+              onRatingChange={async (rating) => {
+                await feedback.mutateAsync({ type: "rating", rating })
+              }}
+              onSubmitText={async (text) => {
+                await feedback.mutateAsync({ type: "text", text })
+              }}
+              pending={feedback.isPending}
+            />
+          ) : undefined
+        }
         job={job.data}
         onStop={() => stop.mutate(job.data.deepSearchJobId)}
         routeRoundNumber={routeRoundNumber}

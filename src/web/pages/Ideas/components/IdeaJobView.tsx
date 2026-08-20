@@ -113,6 +113,7 @@ function IdeaResults({
 }
 
 export function IdeaJobView({
+  feedbackControl,
   jobSlug,
   title,
   prompt,
@@ -121,6 +122,7 @@ export function IdeaJobView({
   stopError,
   stopRequested = false,
 }: {
+  feedbackControl?: ReactNode
   jobSlug: string
   title: string
   prompt: string
@@ -301,6 +303,7 @@ export function IdeaJobView({
           selectionCompleted={selectionCompleted}
         />
       )}
+      {status === "completed" && feedbackControl}
 
       {status !== "completed" && (
         <Stack

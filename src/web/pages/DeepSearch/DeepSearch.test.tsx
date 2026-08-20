@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   requestResearchStop: vi.fn(),
   subscribeToDeepSearchJob: vi.fn(),
   subscribeToTextStream: vi.fn(),
+  updateResultFeedback: vi.fn(),
 }))
 
 vi.mock("../../lib/deepSearchJobs.ts", () => ({
@@ -33,6 +34,11 @@ vi.mock("../../lib/textStreams.ts", () => ({
 
 vi.mock("../../lib/researchCancellation.ts", () => ({
   requestResearchStop: mocks.requestResearchStop,
+}))
+
+vi.mock("../../lib/resultFeedback.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/resultFeedback.ts")>()),
+  updateResultFeedback: mocks.updateResultFeedback,
 }))
 
 import { DeepSearch } from "./index.tsx"
@@ -71,6 +77,7 @@ function deepSearchJob() {
     maxRounds: 3,
     isIndexable: false,
     isPublic: false,
+    feedback: null,
     canStop: false,
     status: "completed" as const,
     stopRequested: false,
@@ -89,10 +96,40 @@ describe("DeepSearch", () => {
       status: "cancellation-requested",
       cancelRequestedAt: new Date(),
     })
+    mocks.updateResultFeedback.mockResolvedValue({
+      rating: true,
+      hasWrittenFeedback: false,
+    })
     mocks.subscribeToDeepSearchJob.mockImplementation(async function* () {
       await Promise.resolve()
       yield { type: "done" as const }
     })
+  })
+
+  it("shows owner feedback when the streamed run first completes and caches the saved rating", async () => {
+    mocks.getDeepSearchJob.mockResolvedValue({
+      ...deepSearchJob(),
+      status: "running",
+      completedAt: null,
+      feedback: { rating: null, hasWrittenFeedback: false },
+    })
+    mocks.subscribeToDeepSearchJob.mockImplementation(async function* () {
+      await Promise.resolve()
+      yield { type: "done" as const }
+    })
+
+    renderDeepSearch("/deep-search/research-this")
+
+    const up = await screen.findByRole("button", { name: "Thumbs up" })
+    expect(up).toHaveAttribute("aria-pressed", "false")
+    fireEvent.click(up)
+
+    await waitFor(() => expect(up).toHaveAttribute("aria-pressed", "true"))
+    expect(mocks.updateResultFeedback).toHaveBeenCalledWith(
+      "deep-search",
+      "job-id",
+      { type: "rating", rating: true },
+    )
   })
 
   it("disables submission until the request contains text", () => {
@@ -249,6 +286,21 @@ describe("DeepSearch", () => {
         type: "final-answer-stream" as const,
         streamId: "final-answer-stream-id",
       }
+      yield {
+        type: "research-analysis" as const,
+        analysis: {
+          facts: [
+            {
+              title: "Useful evidence was found",
+              description: "The explored source supports the final answer.",
+              sources: ["https://example.com/result"],
+            },
+          ],
+          disagreements: [],
+          gaps: [],
+          assumptions: [],
+        },
+      }
       yield { type: "done" as const }
     }
     async function* summaryEvents() {
@@ -309,6 +361,10 @@ describe("DeepSearch", () => {
 
     const roundLink = await screen.findByRole("link", { name: /Round 1/ })
     expect(screen.getByTestId("final-answer")).toBeVisible()
+    expect(
+      screen.getByRole("heading", { name: "Research analysis" }),
+    ).toBeVisible()
+    expect(screen.getByText("Useful evidence was found")).toBeVisible()
     expect(roundLink).toHaveAttribute(
       "href",
       "/deep-search/research-this/rounds/1",

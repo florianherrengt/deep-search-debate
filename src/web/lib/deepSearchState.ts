@@ -2,6 +2,7 @@ import { produce, type Draft } from "immer"
 import type {
   DeepSearchJobEvent,
   DeepSearchResults,
+  ResearchAnalysis,
 } from "./deepSearchJobs.ts"
 
 export type DeepSearchPageSummary =
@@ -51,6 +52,7 @@ export type DeepSearchRunState = {
   roundAnswers: DeepSearchRoundAnswerState[]
   roundReviews: DeepSearchRoundReviewState[]
   finalAnswerStreamId: string | null
+  researchAnalysis: ResearchAnalysis | null
   searches: DeepSearchSearchState[]
   error: string | null
 }
@@ -61,6 +63,7 @@ export const initialDeepSearchState: DeepSearchRunState = {
   roundAnswers: [],
   roundReviews: [],
   finalAnswerStreamId: null,
+  researchAnalysis: null,
   searches: [],
   error: null,
 }
@@ -241,6 +244,9 @@ export const deepSearchReducer = produce<
     }
     case "final-answer-stream":
       state.finalAnswerStreamId = action.streamId
+      break
+    case "research-analysis":
+      state.researchAnalysis = action.analysis
       break
     case "stop-requested":
       if (state.status === "idle" || state.status === "running") {

@@ -10,6 +10,19 @@ const result = {
   link: "https://example.com/evidence",
 }
 
+const researchAnalysis = {
+  facts: [
+    {
+      title: "Supported finding",
+      description: "The evidence supports this finding.",
+      sources: [result.link],
+    },
+  ],
+  disagreements: [],
+  gaps: [],
+  assumptions: [],
+}
+
 describe("deep-search state", () => {
   it("retains independently keyed progress across search rounds", () => {
     const events = [
@@ -84,6 +97,7 @@ describe("deep-search state", () => {
         decision: "stop" as const,
         reason: "The evidence is sufficient.",
       },
+      { type: "research-analysis" as const, analysis: researchAnalysis },
       { type: "done" as const },
     ]
 
@@ -134,6 +148,7 @@ describe("deep-search state", () => {
         reason: "The evidence is sufficient.",
       },
     ])
+    expect(state.researchAnalysis).toEqual(researchAnalysis)
   })
 
   it("records optional review failure without failing the research job", () => {

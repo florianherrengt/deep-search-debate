@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   subscribeToDeepSearchJob: vi.fn(),
   subscribeToIdeaJob: vi.fn(),
   subscribeToTextStream: vi.fn(),
+  updateResultFeedback: vi.fn(),
 }))
 
 vi.mock("../../lib/ideaJobs.ts", () => ({
@@ -37,6 +38,11 @@ vi.mock("../../lib/deepSearchJobs.ts", () => ({
 
 vi.mock("../../lib/researchCancellation.ts", () => ({
   requestResearchStop: mocks.requestResearchStop,
+}))
+
+vi.mock("../../lib/resultFeedback.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/resultFeedback.ts")>()),
+  updateResultFeedback: mocks.updateResultFeedback,
 }))
 
 import { Ideas } from "./index.tsx"
@@ -86,9 +92,51 @@ describe("Ideas", () => {
       stopRequested: false,
       canStop: true,
       error: null,
+      feedback: null,
       createdAt: new Date(),
       completedAt: null,
     })
+    mocks.updateResultFeedback.mockResolvedValue({
+      rating: false,
+      hasWrittenFeedback: false,
+    })
+  })
+
+  it("shows feedback on the parent as soon as the run completes, but not on an idea page", async () => {
+    mocks.getIdeaJob.mockResolvedValue({
+      ideaJobId: "idea-job-id",
+      title: "Independent Café Ideas",
+      slug: "independent-cafe-ideas",
+      prompt: "Ideas for independent cafés",
+      numberOfIdeas: 12,
+      deepSearchCount: 2,
+      isIndexable: false,
+      isPublic: false,
+      stage: "ideas",
+      status: "running",
+      stopRequested: false,
+      canStop: true,
+      error: null,
+      feedback: { rating: null, hasWrittenFeedback: false },
+      createdAt: new Date(),
+      completedAt: null,
+    })
+    mocks.subscribeToIdeaJob.mockImplementation(async function* () {
+      await Promise.resolve()
+      yield { type: "done" as const }
+    })
+
+    const parent = renderIdeas("/ideas/independent-cafe-ideas")
+    expect(
+      await screen.findByRole("button", { name: "Thumbs down" }),
+    ).toBeVisible()
+    parent.unmount()
+
+    renderIdeas("/ideas/independent-cafe-ideas/missing-idea")
+    await waitFor(() => expect(mocks.getIdeaJob).toHaveBeenCalled())
+    expect(
+      screen.queryByRole("button", { name: "Thumbs down" }),
+    ).not.toBeInTheDocument()
   })
 
   it("explains how to generate researched options", async () => {

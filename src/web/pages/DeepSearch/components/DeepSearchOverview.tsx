@@ -24,8 +24,10 @@ import {
   type DeepSearchRoundStatus,
 } from "../deepSearchPresentation.ts"
 import { DeepSearchHeader } from "./DeepSearchHeader.tsx"
+import { ResearchAnalysis } from "./ResearchAnalysis.tsx"
 
 export type DeepSearchOverviewProps = {
+  feedbackControl?: ReactNode
   jobSlug: string
   researchRequest: string
   run: DeepSearchRunState & { subscriptionError?: string | null }
@@ -102,6 +104,7 @@ function formatSearchCount(count: number): string {
 }
 
 export function DeepSearchOverview({
+  feedbackControl,
   jobSlug,
   researchRequest,
   run,
@@ -168,6 +171,10 @@ export function DeepSearchOverview({
           waitingText="Writing the final answer…"
           testId="final-answer"
         />
+      )}
+      {presentationRun.status === "completed" && feedbackControl}
+      {run.researchAnalysis && (
+        <ResearchAnalysis analysis={run.researchAnalysis} />
       )}
       {roundNumbers.length > 0 && (
         <Stack

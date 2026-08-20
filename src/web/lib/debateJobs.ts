@@ -1,5 +1,6 @@
 import z from "zod"
 import { getJson, patchJson, postJson, subscribeToNdjson } from "./api.ts"
+import { resultFeedbackSchema } from "./resultFeedback.ts"
 
 const debateIdeaSchema = z.object({
   ideaId: z.string().min(1),
@@ -56,6 +57,7 @@ const debateTournamentSchema = z.object({
   rounds: z.array(debateRoundSchema),
   standings: z.array(debateStandingSchema),
   error: z.string().nullable(),
+  feedback: resultFeedbackSchema.nullable(),
 })
 
 const debateJobSummarySchema = z.object({

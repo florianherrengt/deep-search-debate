@@ -1,5 +1,6 @@
 import z from "zod"
 import { getJson, postJson, subscribeToNdjson } from "./api.ts"
+import { resultFeedbackSchema } from "./resultFeedback.ts"
 
 const ideaSchema = z.object({
   ideaId: z.string().min(1),
@@ -125,6 +126,7 @@ const createIdeaJobResponseSchema = z.object({
 const ideaJobsResponseSchema = z.object({ ideaJobs: z.array(ideaJobSchema) })
 const ideaJobDetailSchema = ideaJobSchema.extend({
   canStop: z.boolean(),
+  feedback: resultFeedbackSchema.nullable(),
   isIndexable: z.boolean(),
   isPublic: z.boolean(),
 })

@@ -300,6 +300,7 @@ export const swissTournament: DebateTournament = {
   ],
   standings: createStandings(false),
   error: null,
+  feedback: null,
 }
 
 export const semifinalTournament: DebateTournament = {
@@ -326,6 +327,7 @@ export const semifinalTournament: DebateTournament = {
   ],
   standings: createStandings(true),
   error: null,
+  feedback: null,
 }
 
 export const completedTournament: DebateTournament = {
@@ -358,6 +360,7 @@ export const completedTournament: DebateTournament = {
   ],
   standings: createStandings(true),
   error: null,
+  feedback: { rating: null, hasWrittenFeedback: false },
 }
 
 export const streamingMatch = swissTournament.rounds[1].matches[2]
