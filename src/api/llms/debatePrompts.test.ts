@@ -23,5 +23,7 @@ describe("debate prompts", () => {
     expect(prompt).toContain("presentation order is randomized")
     expect(prompt).toContain("decisive strengths")
     expect(prompt).toContain("losing candidate")
+    expect(prompt).toContain("`candidate_a` or `candidate_b`")
+    expect(prompt).toContain("supports the same selected candidate")
   })
 })

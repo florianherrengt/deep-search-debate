@@ -99,9 +99,23 @@ export const listDebateJobsResponseSchema = z.object({
 })
 
 export const judgeVerdictSchema = z.object({
+  winner: z
+    .enum(["candidate_a", "candidate_b"])
+    .describe(
+      "candidate_a selects <candidate_a>; candidate_b selects <candidate_b>",
+    ),
+  explanation: z.string().trim().min(1),
+})
+
+const legacyJudgeVerdictSchema = z.object({
   winnerSlot: z.number().int().min(0).max(1),
   explanation: z.string().trim().min(1),
 })
+
+export const persistedJudgeVerdictSchema = z.union([
+  judgeVerdictSchema,
+  legacyJudgeVerdictSchema,
+])
 
 export type DebateJobEvent =
   | { type: "updated" }

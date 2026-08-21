@@ -10,7 +10,7 @@ import {
   ideas,
   llmGenerations,
 } from "../../db/schema/index.ts"
-import { judgeVerdictSchema } from "./schemas.ts"
+import { persistedJudgeVerdictSchema } from "./schemas.ts"
 import { debateJobReadScope } from "../readAccess.ts"
 import {
   resultFeedbackProjection,
@@ -83,7 +83,8 @@ function parseMessageText(speakerSlot: number, rawText: string | null): string {
   if (speakerSlot !== 2 || rawText === null) return rawText ?? ""
 
   try {
-    return judgeVerdictSchema.parse(JSON.parse(rawText) as unknown).explanation
+    return persistedJudgeVerdictSchema.parse(JSON.parse(rawText) as unknown)
+      .explanation
   } catch (error) {
     throw new Error("A persisted judge verdict is not valid structured output", {
       cause: error,

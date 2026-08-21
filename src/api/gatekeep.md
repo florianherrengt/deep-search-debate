@@ -8,6 +8,7 @@ Use this checklist for recurring backend, orchestration, LLM, persistence, and s
 - Free-form model output is rejected when it is empty or whitespace-only before the workflow advances.
 - Already-started concurrent work is awaited or settled on failure so background writes do not escape the failed operation.
 - Structured model output is actually constrained and parsed with Zod. Preserve generation and reasoning required by the streaming contract without exposing raw provider envelopes as UI content.
+- Malformed or schema-invalid structured model output fails the generation and workflow. Do not repair, normalize, default, filter, or application-retry it; change the prompt or schema deliberately, or switch the configured model.
 - A durable outcome and its human-readable explanation are persisted atomically. Never recover a machine-readable result by reparsing prose.
 - Enforce workflow-wide invariants in application code when expressing them as SQL constraints would require duplicated keys or disproportionate schema complexity.
 - Validate that related records belong to the same owning job or aggregate before inserting cross-record references.

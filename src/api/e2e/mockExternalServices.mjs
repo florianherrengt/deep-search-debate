@@ -351,12 +351,13 @@ function debateAgentOutput(system, user) {
 function debateJudgeOutput(user) {
   const { firstOrdinal, secondOrdinal } = assertDebateJudgeInput(user)
 
-  const winnerSlot = firstOrdinal < secondOrdinal ? 0 : 1
+  const winner =
+    firstOrdinal < secondOrdinal ? "candidate_a" : "candidate_b"
   const winnerOrdinal = Math.min(firstOrdinal, secondOrdinal)
   return {
     reasoning: `Compare both complete mock transcripts and select idea ${winnerOrdinal}.`,
     text: JSON.stringify({
-      winnerSlot,
+      winner,
       explanation: `Renter Energy Idea ${winnerOrdinal} wins because it is the more direct, measurable response to the researched constraints.`,
     }),
     delayMs: 20,

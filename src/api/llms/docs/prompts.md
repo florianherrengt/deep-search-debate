@@ -30,3 +30,11 @@ short title preflight call before inserting the durable job and returning its
 slug. Title generation is not exposed as a user-visible stream. The provider
 adapter maps disabled reasoning to DeepSeek `thinking.type=disabled` or Zen
 `reasoning_effort=none`.
+
+Structured output is a strict model contract. Malformed JSON or output that
+fails its Zod schema fails the generation and its owning workflow. Application
+code must not repair malformed output, normalize or default schema-invalid
+values, filter invalid values, or retry because parsing or validation failed.
+Change the prompt or schema deliberately when the contract is wrong; switch the
+configured model when it cannot satisfy the contract. Provider-request retries
+remain governed separately by the configured AI SDK retry policy.

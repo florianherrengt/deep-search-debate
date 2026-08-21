@@ -39,7 +39,10 @@ import {
 import { createReplayableEventLog } from "../../helpers/replayableEventLog.ts"
 import { workflowAbortReason } from "../../workflowRuntime.ts"
 import { runDebateJob } from "./run.ts"
-import type { DebateJobEvent } from "./schemas.ts"
+import {
+  judgeVerdictSchema,
+  type DebateJobEvent,
+} from "./schemas.ts"
 import {
   DEBATE_TOURNAMENT_FORMAT,
   getTotalMatchCount,
@@ -149,6 +152,26 @@ function createRunFixture() {
   }
 }
 
+describe("judge verdict contract", () => {
+  it("requires explicit candidate labels for new verdicts", () => {
+    expect(
+      judgeVerdictSchema.parse({
+        winner: "candidate_a",
+        explanation: "Candidate A wins.",
+      }),
+    ).toEqual({
+      winner: "candidate_a",
+      explanation: "Candidate A wins.",
+    })
+    expect(() =>
+      judgeVerdictSchema.parse({
+        winnerSlot: 0,
+        explanation: "Candidate A wins.",
+      }),
+    ).toThrow()
+  })
+})
+
 describe("runDebateJob", () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -178,13 +201,13 @@ describe("runDebateJob", () => {
       return Promise.resolve({
         id,
         output: Promise.resolve({
-          winnerSlot: 0,
+          winner: "candidate_a",
           explanation: "Candidate A wins.",
         }),
         completion: Promise.resolve({
           status: "completed" as const,
           text: JSON.stringify({
-            winnerSlot: 0,
+            winner: "candidate_a",
             explanation: "Candidate A wins.",
           }),
           reasoning: "",
@@ -483,7 +506,10 @@ describe("runDebateJob", () => {
       onCompleted?: (
         result: {
           id: string
-          output: { winnerSlot: number; explanation: string }
+          output: {
+            winner: "candidate_a" | "candidate_b"
+            explanation: string
+          }
         },
         transaction: { kind: string },
       ) => void
@@ -491,8 +517,8 @@ describe("runDebateJob", () => {
       const isFirst = judgeGenerationNumber === 0
       const id = `retry-judge-${judgeGenerationNumber += 1}`
       const verdict = {
-        winnerSlot: 0,
-        explanation: "Candidate A wins.",
+        winner: "candidate_b" as const,
+        explanation: "Candidate B wins.",
       }
       if (!isFirst) {
         input.onCompleted?.(
@@ -518,8 +544,8 @@ describe("runDebateJob", () => {
             : {
                 status: "completed" as const,
                 text: JSON.stringify({
-                  winnerSlot: 0,
-                  explanation: "Candidate A wins.",
+                  winner: "candidate_b",
+                  explanation: "Candidate B wins.",
                 }),
                 reasoning: "",
                 finishReason: "stop" as const,
@@ -552,6 +578,26 @@ describe("runDebateJob", () => {
     expect(mocks.completeDebateMatch).toHaveBeenCalledTimes(
       getTotalMatchCount(DEBATE_TOURNAMENT_FORMAT.minParticipantCount),
     )
+    const firstCompletedMatch = mocks.completeDebateMatch.mock.calls[0]?.[0] as {
+      debateMatchId: string
+      winnerIdeaId: string
+    }
+    const createdMatches = mocks.createDebateRound.mock.results.flatMap(
+      ({ value }) =>
+        value as Array<{
+          debateMatchId: string
+          firstIdeaId: string
+          secondIdeaId: string
+        }>,
+    )
+    const createdMatch = createdMatches.find(
+      ({ debateMatchId }) =>
+        debateMatchId === firstCompletedMatch.debateMatchId,
+    )
+    expect(firstCompletedMatch).toMatchObject({
+      winnerIdeaId: createdMatch?.secondIdeaId,
+      judgeGenerationId: "retry-judge-2",
+    })
   })
 
   it("persists user Stop as interruption without an ordinary error event", async () => {

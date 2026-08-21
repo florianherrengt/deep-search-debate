@@ -84,6 +84,7 @@ describe("debate job snapshot", () => {
     db.insert(debateMatches).values(matches).run()
 
     const openingGenerationId = crypto.randomUUID()
+    const legacyJudgeGenerationId = crypto.randomUUID()
     const judgeGenerationId = crypto.randomUUID()
     db.insert(llmGenerations)
       .values([
@@ -99,11 +100,23 @@ describe("debate job snapshot", () => {
         {
           userId: "test-user-id",
           debateJobId,
-          llmGenerationId: judgeGenerationId,
+          llmGenerationId: legacyJudgeGenerationId,
           status: "completed",
           text: JSON.stringify({
             winnerSlot: 0,
             explanation: "Candidate A is more practical.",
+          }),
+          reasoning: "",
+          completedAt,
+        },
+        {
+          userId: "test-user-id",
+          debateJobId,
+          llmGenerationId: judgeGenerationId,
+          status: "completed",
+          text: JSON.stringify({
+            winner: "candidate_b",
+            explanation: "Candidate B is more practical.",
           }),
           reasoning: "",
           completedAt,
@@ -117,7 +130,7 @@ describe("debate job snapshot", () => {
           debateMatchId: matches[0].debateMatchId,
           position: 4,
           speakerSlot: 2,
-          llmGenerationId: judgeGenerationId,
+          llmGenerationId: legacyJudgeGenerationId,
           createdAt: completedAt,
         },
         {
@@ -126,6 +139,14 @@ describe("debate job snapshot", () => {
           position: 0,
           speakerSlot: 0,
           llmGenerationId: openingGenerationId,
+          createdAt: completedAt,
+        },
+        {
+          debateMessageId: crypto.randomUUID(),
+          debateMatchId: matches[1].debateMatchId,
+          position: 4,
+          speakerSlot: 2,
+          llmGenerationId: judgeGenerationId,
           createdAt: completedAt,
         },
       ])
@@ -153,6 +174,9 @@ describe("debate job snapshot", () => {
     expect(snapshot?.rounds[0]?.matches[0]?.messages.map(({ text }) => text)).toEqual([
       "Opening argument",
       "Candidate A is more practical.",
+    ])
+    expect(snapshot?.rounds[0]?.matches[1]?.messages.map(({ text }) => text)).toEqual([
+      "Candidate B is more practical.",
     ])
     expect(snapshot?.standings).toHaveLength(
       DEBATE_TOURNAMENT_FORMAT.participantCount,

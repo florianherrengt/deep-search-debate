@@ -367,7 +367,9 @@ function runMatchEffect(input: {
                 {
                   debateMatchId: input.match.debateMatchId,
                   winnerIdeaId:
-                    output.winnerSlot === 0 ? first.ideaId : second.ideaId,
+                    output.winner === "candidate_a"
+                      ? first.ideaId
+                      : second.ideaId,
                   judgeGenerationId: id,
                 },
                 transaction,
@@ -379,7 +381,7 @@ function runMatchEffect(input: {
       ),
     )
     const winnerIdeaId =
-      verdict.winnerSlot === 0 ? first.ideaId : second.ideaId
+      verdict.winner === "candidate_a" ? first.ideaId : second.ideaId
 
     yield* workflowEffect(() => input.job.publish({ type: "updated" }))
     return {
