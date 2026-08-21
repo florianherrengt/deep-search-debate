@@ -344,8 +344,9 @@ async function consume(
     interruptionReason ? "interrupted" : errorMessage ? "failed" : "completed"
 
   try {
-    // Product policy: users are not charged when a generation fails, even when
-    // the provider reports billable token usage for the failed attempt.
+    // Deliberate business policy: failed or interrupted generations never charge
+    // the user, even when the provider reports billable usage; RethinkLoop
+    // absorbs it.
     db.transaction((transaction) => {
       if (!interruptionReason) {
         try {

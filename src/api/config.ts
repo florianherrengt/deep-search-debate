@@ -614,6 +614,7 @@ export const config = {
       environment.DEBATE_MAX_ROOT_JOB_CREATIONS_PER_WINDOW,
   },
   webSearch: {
+    // TODO: Replace the temporary production Brave integration with Serper.
     provider:
       environment.NODE_ENV === "production"
         ? ("brave" as const)

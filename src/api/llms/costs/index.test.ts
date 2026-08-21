@@ -19,7 +19,7 @@ const usage: LanguageModelUsage = {
 }
 
 describe("calculateLlmCredits", () => {
-  it("does not apply product-credit billing to development-only Zen calls", () => {
+  it("charges one product credit for development-only Zen calls", () => {
     expect(
       calculateLlmCredits(
         {
@@ -31,7 +31,7 @@ describe("calculateLlmCredits", () => {
         "deepseek-v4-flash-free",
         usage,
       ),
-    ).toBe(0)
+    ).toBe(1)
   })
 
   it("rejects an unpriced DeepSeek model", () => {

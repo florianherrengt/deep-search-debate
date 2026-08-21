@@ -243,8 +243,9 @@ provider call checks that the initiating user's signed balance is positive
 before it starts; there is no reservation, so concurrent calls may all pass and
 overspend. After a successful call, the resource row and user debit commit
 together and the balance may become negative. Failed provider calls are
-deliberately not charged. Development-only Zen calls are also excluded from
-product-credit accounting. Completed usage remains charged; stopped in-progress
+deliberately not charged. Development-only Zen calls charge one product credit
+per successful generation for use of RethinkLoop and still require a positive
+balance before starting. Completed usage remains charged; stopped in-progress
 attempts do not debit RethinkLoop credits. This application guarantee does not
 promise that an upstream provider will waive its own charge. Successful
 ScrapingAnt extractions accumulate every reported `ant-credits-cost` across both

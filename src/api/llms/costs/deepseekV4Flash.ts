@@ -57,6 +57,8 @@ export function calculateDeepSeekV4FlashCostMicroUsd(
 export function calculateDeepSeekV4FlashCredits(
   usage: LanguageModelUsage,
 ): number {
+  // Product policy: round each successful generation independently to whole
+  // credits; do not aggregate fractional costs across an entire run.
   return Math.ceil(
     calculateDeepSeekV4FlashCostMicroUsd(usage) / MICRO_USD_PER_CREDIT,
   )

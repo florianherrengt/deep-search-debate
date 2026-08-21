@@ -390,6 +390,9 @@ function deepSearchPipelineEffect(
           }),
         ),
       )
+      // Product policy: if this search batch fails, none of its successful
+      // sibling requests are charged. Customers are not billed for this failed
+      // stage.
       const executedQueries = yield* workflowEffect(() => {
         const storedQueries = saveSearchResults({
           userId: params.userId,

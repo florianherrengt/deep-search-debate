@@ -26,6 +26,8 @@ type GenerateStreamInput = {
   owner: LlmGenerationOwner
   prompt: string
   promptName: PromptName
+  // Internal override only: RethinkLoop selects every model and must keep it
+  // aligned with the configured pricing function before use.
   model?: string
   temperature?: number
   maxOutputTokens?: number

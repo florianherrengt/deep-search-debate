@@ -8,9 +8,9 @@ export function calculateLlmCredits(
   modelId: string,
   usage: LanguageModelUsage,
 ): number {
-  // Zen is restricted to development, where its provider usage is deliberately
-  // excluded from production product-credit accounting.
-  if (llmConfig.provider === "zen") return 0
+  // Zen's upstream model is free in development, but each successful generation
+  // still costs one credit for use of the RethinkLoop product.
+  if (llmConfig.provider === "zen") return 1
 
   if (modelId === "deepseek-v4-flash") {
     return calculateDeepSeekV4FlashCredits(usage)
