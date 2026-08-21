@@ -21,6 +21,7 @@ at startup:
 | `BETTER_AUTH_SECRET` | Always; at least 32 characters |
 | `GITHUB_CLIENT_ID` | Always |
 | `GITHUB_CLIENT_SECRET` | Always |
+| `AUTH_ADMIN_EMAIL` | Production only; GitHub account email granted administrator access |
 | `SERPER_API_KEY` | Production only |
 | `AUTH_DEBUG_USER_PASSWORD` | Debug sign-in is enabled; at least 12 characters |
 
@@ -87,6 +88,7 @@ WEB_SEARCH_CREDITS_COST=1
 BETTER_AUTH_SECRET=
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
+AUTH_ADMIN_EMAIL=
 AUTH_DEBUG_USER_ENABLED=false
 AUTH_DEBUG_USER_EMAIL=debug@local.invalid
 AUTH_DEBUG_USER_PASSWORD=
@@ -137,8 +139,10 @@ public debate aggregates.
 
 Authenticated users start with 500 product credits. One product credit is
 $0.001 ($1 per 1,000 credits). The local debug user is an administrator and can
-grant credits from `/admin/credits`; production administrators are marked in
-the `user.is_admin` column. Provider work checks for a positive balance before
+grant credits from `/admin/credits`. In production, the signed-in GitHub account
+whose email matches `AUTH_ADMIN_EMAIL` is also an administrator; matching is
+case-insensitive. Existing administrators marked in the `user.is_admin` column
+remain administrators. Provider work checks for a positive balance before
 starting and debits actual settled usage afterward, so a completed call may
 leave a negative balance. Failed provider calls are not charged.
 Completed usage remains charged; stopped in-progress attempts do not debit

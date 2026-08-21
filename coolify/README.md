@@ -67,6 +67,7 @@ Before the first deployment:
 | `BETTER_AUTH_SECRET` | Better Auth signing secret, at least 32 characters |
 | `GITHUB_CLIENT_ID` | Production GitHub OAuth app client ID |
 | `GITHUB_CLIENT_SECRET` | Production GitHub OAuth app client secret |
+| `AUTH_ADMIN_EMAIL` | Required administrator email; set to `contact@florianherrengt.com` for the live application |
 | `EXAMPLE_DEBATE_IDS` | Optional ordered, comma-separated public debate UUIDs shown on `/examples` |
 
 Set `is_runtime=true`, `is_buildtime=false`, and `is_preview=false`. The

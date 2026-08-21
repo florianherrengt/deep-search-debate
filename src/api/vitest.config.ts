@@ -34,6 +34,7 @@ export default defineConfig({
       NODE_ENV: "test",
       BETTER_AUTH_URL: "http://localhost:5173",
       BETTER_AUTH_SECRET: "test-secret-that-is-at-least-thirty-two-characters",
+      AUTH_ADMIN_EMAIL: "admin@example.com",
       GITHUB_CLIENT_ID: "test-github-client-id",
       GITHUB_CLIENT_SECRET: "test-github-client-secret",
       AUTH_DEBUG_USER_ENABLED: "true",

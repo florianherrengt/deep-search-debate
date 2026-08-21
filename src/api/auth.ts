@@ -20,6 +20,7 @@ export const auth = betterAuth({
     github: {
       clientId: config.auth.github.clientId,
       clientSecret: config.auth.github.clientSecret,
+      overrideUserInfoOnSignIn: true,
     },
   },
   trustedOrigins: [config.auth.trustedOrigin],

@@ -130,6 +130,7 @@ required_runtime_keys=(
   BETTER_AUTH_SECRET
   GITHUB_CLIENT_ID
   GITHUB_CLIENT_SECRET
+  AUTH_ADMIN_EMAIL
 )
 
 for key in "${required_runtime_keys[@]}"; do

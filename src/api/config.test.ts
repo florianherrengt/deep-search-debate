@@ -44,6 +44,66 @@ describe("config", () => {
     expect(config.api.port).toBe(4321)
   })
 
+  it("normalizes the configured administrator email", async () => {
+    vi.stubEnv("AUTH_ADMIN_EMAIL", "  ADMIN@Example.COM  ")
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.auth.adminEmail).toBe("admin@example.com")
+  })
+
+  it("allows a blank administrator email outside production", async () => {
+    vi.stubEnv("AUTH_ADMIN_EMAIL", "   ")
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.auth.adminEmail).toBeUndefined()
+  })
+
+  it("allows an omitted administrator email outside production", async () => {
+    vi.stubEnv("AUTH_ADMIN_EMAIL", undefined)
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.auth.adminEmail).toBeUndefined()
+  })
+
+  it("rejects an invalid administrator email", async () => {
+    vi.stubEnv("AUTH_ADMIN_EMAIL", "not-an-email")
+    vi.resetModules()
+
+    await expect(import("./config.ts")).rejects.toThrow("AUTH_ADMIN_EMAIL")
+  })
+
+  it("rejects an administrator email longer than 254 characters", async () => {
+    const oversizedEmail = `${"a".repeat(64)}@${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(62)}`
+    expect(oversizedEmail).toHaveLength(255)
+    vi.stubEnv("AUTH_ADMIN_EMAIL", oversizedEmail)
+    vi.resetModules()
+
+    await expect(import("./config.ts")).rejects.toThrow("AUTH_ADMIN_EMAIL")
+  })
+
+  it("requires an administrator email in production", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("AUTH_ADMIN_EMAIL", undefined)
+    vi.stubEnv(
+      "BETTER_AUTH_SECRET",
+      "production-secret-with-at-least-32-characters",
+    )
+    vi.stubEnv("GITHUB_CLIENT_ID", "production-github-client-id")
+    vi.stubEnv("GITHUB_CLIENT_SECRET", "production-github-client-secret")
+    vi.stubEnv("AUTH_DEBUG_USER_ENABLED", "false")
+    vi.resetModules()
+
+    await expect(import("./config.ts")).rejects.toThrow(
+      "AUTH_ADMIN_EMAIL is required in production",
+    )
+  })
+
   it("parses ordered example debate IDs and removes duplicates", async () => {
     const firstId = "11111111-1111-4111-8111-111111111111"
     const secondId = "22222222-2222-4222-8222-222222222222"

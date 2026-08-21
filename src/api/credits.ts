@@ -1,5 +1,6 @@
 import { eq, sql } from "drizzle-orm"
 
+import { config } from "./config.ts"
 import { db } from "./db/index.ts"
 import { user } from "./db/schema/index.ts"
 
@@ -17,17 +18,32 @@ export class OutOfCreditsError extends Error {
   }
 }
 
+export function hasAdminAccess(account: {
+  email: string
+  isAdmin: boolean
+}): boolean {
+  return (
+    account.isAdmin ||
+    (config.auth.adminEmail !== undefined &&
+      account.email.trim().toLowerCase() === config.auth.adminEmail)
+  )
+}
+
 export function getCreditAccount(userId: string): {
   credits: number
   isAdmin: boolean
 } {
   const account = db
-    .select({ credits: user.credits, isAdmin: user.isAdmin })
+    .select({
+      credits: user.credits,
+      email: user.email,
+      isAdmin: user.isAdmin,
+    })
     .from(user)
     .where(eq(user.id, userId))
     .get()
   if (!account) throw new Error("Credit account was not found")
-  return account
+  return { credits: account.credits, isAdmin: hasAdminAccess(account) }
 }
 
 /** Checks admission only. Concurrent calls may all pass and overspend. */

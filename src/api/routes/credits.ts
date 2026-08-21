@@ -3,7 +3,11 @@ import { asc } from "drizzle-orm"
 import type { Hono } from "hono"
 import z from "zod"
 
-import { addUserCredits, getCreditAccount } from "../credits.ts"
+import {
+  addUserCredits,
+  getCreditAccount,
+  hasAdminAccess,
+} from "../credits.ts"
 import { db } from "../db/index.ts"
 import { user } from "../db/schema/index.ts"
 import type { AppEnv } from "../types/auth.ts"
@@ -32,7 +36,14 @@ export function creditRoutes(app: Hono<AppEnv>): void {
         })
         .from(user)
         .orderBy(asc(user.email))
-        .all(),
+        .all()
+        .map((account) => ({
+          id: account.id,
+          name: account.name,
+          email: account.email,
+          credits: account.credits,
+          isAdmin: hasAdminAccess(account),
+        })),
     }),
   )
 

@@ -24,6 +24,15 @@ const optionalSecretSchema = z.preprocess(
   nonWhitespaceSecretSchema.optional(),
 )
 
+const optionalEmailSchema = z.preprocess(
+  (value) => {
+    if (typeof value !== "string") return value
+    const normalized = value.trim().toLowerCase()
+    return normalized.length === 0 ? undefined : normalized
+  },
+  z.email().max(254).optional(),
+)
+
 const exampleDebateIdsSchema = z.preprocess(
   (value) => {
     if (value === undefined || value === "") return []
@@ -304,6 +313,7 @@ const nonSecretEnvironmentShape = {
   API_HOST: z.string().trim().min(1).default("127.0.0.1"),
   PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
   BETTER_AUTH_URL: z.url().optional(),
+  AUTH_ADMIN_EMAIL: optionalEmailSchema,
   AUTH_DEBUG_USER_ENABLED: z.stringbool().default(false),
   AUTH_DEBUG_USER_EMAIL: z.email().default("debug@local.invalid"),
   EXAMPLE_DEBATE_IDS: exampleDebateIdsSchema,
@@ -479,6 +489,13 @@ const environmentSchema = z.object({
     })
   }
   if (environment.NODE_ENV === "production") {
+    if (environment.AUTH_ADMIN_EMAIL === undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "AUTH_ADMIN_EMAIL is required in production",
+        path: ["AUTH_ADMIN_EMAIL"],
+      })
+    }
     if (new URL(environment.BETTER_AUTH_URL).protocol !== "https:") {
       context.addIssue({
         code: "custom",
@@ -595,6 +612,7 @@ export const config = {
   web: { publicBaseUrl: environment.BETTER_AUTH_URL },
   db: { url: environment.DATABASE_URL },
   auth: {
+    adminEmail: environment.AUTH_ADMIN_EMAIL,
     baseUrl: environment.BETTER_AUTH_URL,
     trustedOrigin: new URL(environment.BETTER_AUTH_URL).origin,
     secret: environment.BETTER_AUTH_SECRET,

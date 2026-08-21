@@ -8,6 +8,7 @@ vi.mock("./serper.ts", () => ({
 }))
 vi.mock("../config.ts", () => ({
   config: {
+    auth: { adminEmail: undefined },
     webSearch: {
       provider: "serper",
       timeoutMs: 30_000,

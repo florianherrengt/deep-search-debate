@@ -6,6 +6,7 @@ import {
   handleRequestError,
   setWebAssetCacheHeaders,
 } from "./index.ts"
+import { auth } from "./auth.ts"
 import type { AppEnv } from "./types/auth.ts"
 import { pingResponseSchema } from "./routes/ping.ts"
 import { authConfigResponseSchema } from "./routes/auth.ts"
@@ -132,6 +133,12 @@ describe("static web asset caching", () => {
 })
 
 describe("authentication", () => {
+  it("refreshes the stored GitHub email on every sign-in", () => {
+    expect(
+      auth.options.socialProviders?.github?.overrideUserInfoOnSignIn,
+    ).toBe(true)
+  })
+
   it("keeps auth discovery public and protects application routes", async () => {
     const configResponse = await app.request("/api/auth/config")
     expect(configResponse.status).toBe(200)

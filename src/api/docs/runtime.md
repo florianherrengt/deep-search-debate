@@ -63,8 +63,8 @@ required. `LLM_PROVIDER=deepseek` requires `DEEPSEEK_API_KEY` and the priced
 may be absent or blank.
 `SCRAPINGANT_API_KEY`, `BETTER_AUTH_SECRET`,
 `GITHUB_CLIENT_ID`, and `GITHUB_CLIENT_SECRET` are always required. Production
-also requires `SERPER_API_KEY`. A missing, blank, or whitespace-only
-required secret fails startup.
+also requires `SERPER_API_KEY` and `AUTH_ADMIN_EMAIL`. A missing, blank, or
+whitespace-only required secret fails startup.
 
 `BETTER_AUTH_SECRET` must contain at least 32 characters and production config
 rejects placeholder values. GitHub OAuth resolves both `GITHUB_CLIENT_ID` and
@@ -72,6 +72,8 @@ rejects placeholder values. GitHub OAuth resolves both `GITHUB_CLIENT_ID` and
 `BETTER_AUTH_URL` and ends in `/api/auth/callback/github`.
 `BETTER_AUTH_URL` must use HTTPS when `NODE_ENV=production` so session cookies
 cannot be deployed over plaintext transport.
+`AUTH_ADMIN_EMAIL` is optional outside production. It is trimmed, normalized to
+lowercase, limited to 254 characters, and validated as an email address.
 
 `NODE_ENV` also selects non-secret defaults. Development and test use
 `BETTER_AUTH_URL=http://localhost:5173` and `DATABASE_URL=data.db`; production
@@ -160,6 +162,14 @@ in `NODE_ENV=production`, when `API_HOST` is not loopback, or when
 password-reset HTTP endpoints are blocked; password auth exists only behind the
 trusted local debug sign-in endpoint. Provider-debug routes are registered only
 when debug auth is enabled and accept only the configured debug user's session.
+
+The local debug user is an administrator. A signed-in user is also an
+administrator when their GitHub email matches `AUTH_ADMIN_EMAIL`
+case-insensitively, or when their persisted `user.is_admin` flag is set. The
+email-based grant is evaluated dynamically so changing the environment value
+and restarting the application revokes the previous grant without a database
+change. GitHub identity data is refreshed on every OAuth sign-in so a changed
+provider email is reflected in later authorization.
 
 Application mutations and owner-only history routes after `/api/auth/*` require
 an opaque database-backed Better Auth session. The middleware stores the
