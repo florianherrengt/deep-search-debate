@@ -114,7 +114,11 @@ runtime_environment_value() {
         .is_literal == true
       )
     ][0] |
-    (.real_value // .value // "")
+    if .is_literal then
+      (.value // "")
+    else
+      (.real_value // .value // "")
+    end
   ' <<<"${environment_json}"
 }
 
@@ -159,7 +163,11 @@ check_optional_environment() {
       .is_buildtime == false and
       .is_runtime == true and
       .is_literal == true and
-      (.real_value // .value // "") == $value
+      (if .is_literal then
+        (.value // "")
+      else
+        (.real_value // .value // "")
+      end) == $value
     )
   ' >/dev/null <<<"${environment_json}"; then
     configuration_ok=false
@@ -181,9 +189,9 @@ if jq -e 'any(.[]; .key == "SERPER_MAX_QUERIES_PER_SECOND" and .is_preview == fa
       .is_buildtime == false and
       .is_runtime == true and
       .is_literal == true and
-      ((.real_value // .value // "") | tostring | test("^[0-9]+$")) and
-      ((.real_value // .value) | tonumber) >= 1 and
-      ((.real_value // .value) | tonumber) <= 50
+      ((if .is_literal then .value else (.real_value // .value // "") end) | tostring | test("^[0-9]+$")) and
+      ((if .is_literal then .value else (.real_value // .value) end) | tonumber) >= 1 and
+      ((if .is_literal then .value else (.real_value // .value) end) | tonumber) <= 50
     )
   ' >/dev/null <<<"${environment_json}"; then
   configuration_ok=false
@@ -195,7 +203,7 @@ if jq -e 'any(.[]; .key == "BETTER_AUTH_URL" and .is_preview == false)' >/dev/nu
     any(.[];
       .key == "BETTER_AUTH_URL" and
       .is_preview == false and
-      ((.real_value // .value // "") | rtrimstr("/")) == $public_url
+      ((if .is_literal then .value else (.real_value // .value // "") end) | rtrimstr("/")) == $public_url
     )
   ' >/dev/null <<<"${environment_json}"; then
   configuration_ok=false
