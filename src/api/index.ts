@@ -63,6 +63,31 @@ export function handleRequestError(
   return context.text("Internal Server Error", 500)
 }
 
+export function setWebAssetCacheHeaders(
+  servedPath: string,
+  context: Context<AppEnv>,
+): void {
+  if (servedPath.endsWith("index.html")) {
+    context.header("Cache-Control", "private, no-store")
+    context.header("Cloudflare-CDN-Cache-Control", "no-store")
+    return
+  }
+
+  const isVersionedAsset = context.req.path.startsWith("/assets/")
+  context.header(
+    "Cache-Control",
+    isVersionedAsset
+      ? "public, max-age=31536000, immutable"
+      : "public, max-age=3600",
+  )
+  context.header(
+    "Cloudflare-CDN-Cache-Control",
+    isVersionedAsset
+      ? "public, max-age=31536000, immutable"
+      : "public, max-age=86400",
+  )
+}
+
 const app = new Hono<AppEnv>()
 app.onError(handleRequestError)
 const api = app.basePath("/api")
@@ -92,7 +117,10 @@ debateJobs(api, debateJobManager)
 if (config.environment === "production") {
   const webRoot = fileURLToPath(new URL("../web/dist", import.meta.url))
   const webIndex = readFileSync(`${webRoot}/index.html`, "utf8")
-  app.get("*", serveStatic({ root: webRoot }))
+  app.get(
+    "*",
+    serveStatic({ root: webRoot, onFound: setWebAssetCacheHeaders }),
+  )
   app.get("*", loadOptionalSession)
   app.get("*", (c, next) => {
     if (c.req.path === "/api" || c.req.path.startsWith("/api/")) {

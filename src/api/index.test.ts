@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest"
 import { Hono } from "hono"
 import { HTTPException } from "hono/http-exception"
-import { app, handleRequestError } from "./index.ts"
+import {
+  app,
+  handleRequestError,
+  setWebAssetCacheHeaders,
+} from "./index.ts"
 import type { AppEnv } from "./types/auth.ts"
 import { pingResponseSchema } from "./routes/ping.ts"
 import { authConfigResponseSchema } from "./routes/auth.ts"
@@ -73,6 +77,57 @@ describe("request error handling", () => {
     } finally {
       consoleError.mockRestore()
     }
+  })
+})
+
+describe("static web asset caching", () => {
+  function requestWithServedPath(requestPath: string, servedPath: string) {
+    const testApp = new Hono<AppEnv>()
+    testApp.get("*", (context) => {
+      setWebAssetCacheHeaders(servedPath, context)
+      return context.body(null)
+    })
+    return testApp.request(requestPath)
+  }
+
+  it("caches fingerprinted build assets for one year", async () => {
+    const response = await requestWithServedPath(
+      "/assets/index-DNLI_ZQz.js",
+      "/app/src/web/dist/assets/index-DNLI_ZQz.js",
+    )
+
+    expect(response.headers.get("Cache-Control")).toBe(
+      "public, max-age=31536000, immutable",
+    )
+    expect(response.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "public, max-age=31536000, immutable",
+    )
+  })
+
+  it("uses a shorter CDN lifetime for stable-name assets", async () => {
+    const response = await requestWithServedPath(
+      "/og-image.png",
+      "/app/src/web/dist/og-image.png",
+    )
+
+    expect(response.headers.get("Cache-Control")).toBe(
+      "public, max-age=3600",
+    )
+    expect(response.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "public, max-age=86400",
+    )
+  })
+
+  it("does not cache the HTML entry point", async () => {
+    const response = await requestWithServedPath(
+      "/",
+      "/app/src/web/dist/index.html",
+    )
+
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store")
+    expect(response.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "no-store",
+    )
   })
 })
 
