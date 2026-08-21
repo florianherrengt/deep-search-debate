@@ -1,5 +1,15 @@
-import { readdirSync } from "node:fs"
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { fileURLToPath } from "node:url"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
 import Database from "better-sqlite3"
 import { drizzle } from "drizzle-orm/better-sqlite3"
 import { migrate } from "drizzle-orm/better-sqlite3/migrator"
@@ -9,11 +19,14 @@ const migrationsFolder = fileURLToPath(
   new URL("../../drizzle", import.meta.url),
 )
 
-describe("fresh database migration", () => {
-  it("creates the complete current schema from the fresh baseline", () => {
+describe("database migrations", () => {
+  it("creates the complete current schema from the full migration chain", () => {
     expect(
       readdirSync(migrationsFolder).filter((name) => name.endsWith(".sql")),
-    ).toEqual(["0000_fresh-baseline.sql"])
+    ).toEqual([
+      "0000_fresh-baseline.sql",
+      "0001_complex_whistler.sql",
+    ])
 
     const sqlite = new Database(":memory:")
     sqlite.pragma("foreign_keys = ON")
@@ -28,12 +41,13 @@ describe("fresh database migration", () => {
     expect(tableNames.has("deep_search_rounds")).toBe(true)
     expect(tableNames.has("deep_search_queries")).toBe(true)
     expect(tableNames.has("research_job_admissions")).toBe(true)
+    expect(tableNames.has("waitlist_entries")).toBe(true)
     expect(
       sqlite
         .prepare("SELECT count(*) FROM __drizzle_migrations")
         .pluck()
         .get(),
-    ).toBe(1)
+    ).toBe(2)
     expect(
       sqlite
         .prepare("PRAGMA table_info('user')")
@@ -132,5 +146,68 @@ describe("fresh database migration", () => {
       ]),
     )
     sqlite.close()
+  })
+
+  it("upgrades a populated baseline database through the forward migration", () => {
+    const priorMigrationsFolder = mkdtempSync(
+      join(tmpdir(), "rethinkloop-prior-migrations-"),
+    )
+    const priorMetaFolder = join(priorMigrationsFolder, "meta")
+    mkdirSync(priorMetaFolder)
+    copyFileSync(
+      join(migrationsFolder, "0000_fresh-baseline.sql"),
+      join(priorMigrationsFolder, "0000_fresh-baseline.sql"),
+    )
+    const journal = JSON.parse(
+      readFileSync(join(migrationsFolder, "meta/_journal.json"), "utf8"),
+    ) as { entries: unknown[] }
+    writeFileSync(
+      join(priorMetaFolder, "_journal.json"),
+      JSON.stringify({ ...journal, entries: journal.entries.slice(0, 1) }),
+    )
+
+    const sqlite = new Database(":memory:")
+    sqlite.pragma("foreign_keys = ON")
+
+    try {
+      migrate(drizzle(sqlite), { migrationsFolder: priorMigrationsFolder })
+      sqlite.prepare(
+        "INSERT INTO user (id, name, email) VALUES (?, ?, ?)",
+      ).run("existing-user", "Existing User", "existing@example.com")
+
+      migrate(drizzle(sqlite), { migrationsFolder })
+
+      expect(
+        sqlite.prepare("SELECT email FROM user WHERE id = ?").get(
+          "existing-user",
+        ),
+      ).toEqual({ email: "existing@example.com" })
+      expect(
+        sqlite
+          .prepare("SELECT count(*) FROM __drizzle_migrations")
+          .pluck()
+          .get(),
+      ).toBe(2)
+
+      sqlite.prepare(
+        "INSERT INTO waitlist_entries (waitlist_entry_id, email) VALUES (?, ?)",
+      ).run(
+        "10000000-0000-4000-8000-000000000001",
+        "upgrade@example.com",
+      )
+      expect(
+        sqlite.prepare(
+          "SELECT waitlist_entry_id, email FROM waitlist_entries WHERE email = ?",
+        ).get("upgrade@example.com"),
+      ).toEqual({
+        waitlist_entry_id: "10000000-0000-4000-8000-000000000001",
+        email: "upgrade@example.com",
+      })
+      expect(sqlite.pragma("foreign_key_check")).toEqual([])
+      expect(sqlite.pragma("integrity_check", { simple: true })).toBe("ok")
+    } finally {
+      sqlite.close()
+      rmSync(priorMigrationsFolder, { recursive: true, force: true })
+    }
   })
 })

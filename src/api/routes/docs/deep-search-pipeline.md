@@ -159,10 +159,10 @@ Implementation: [queries.ts](../../agents/deep_search/queries.ts)
 
 ## 3. Search the web
 
-All generated queries are sent to the configured search provider concurrently.
-Development and test use SearXNG; production uses Brave Search. Provider output
-is capped, normalized, and deduplicated to at most 30 rows per query with three
-fields:
+All generated queries are submitted to the configured search provider.
+Development and test use SearXNG; production uses Serper with a process-wide
+queries-per-second limit. Provider output is capped, normalized, and
+deduplicated to at most 30 rows per query with three fields:
 
 ```ts
 {

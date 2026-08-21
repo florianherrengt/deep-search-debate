@@ -10,7 +10,8 @@ import { Link as RouterLink } from "react-router-dom"
 import { supportEmail } from "../lib/support.ts"
 import { useSeo } from "../lib/seo.ts"
 
-const lastUpdated = "12 August 2026"
+const termsLastUpdated = "12 August 2026"
+const privacyLastUpdated = "21 August 2026"
 
 function SupportLink() {
   return (
@@ -54,10 +55,12 @@ function LegalSection({
 function LegalDocument({
   children,
   introduction,
+  lastUpdated,
   title,
 }: {
   children: ReactNode
   introduction: string
+  lastUpdated: string
   title: string
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
@@ -115,6 +118,7 @@ export function TermsAndConditions() {
   return (
     <LegalDocument
       introduction="These terms govern your access to and use of RethinkLoop. By using the service, you agree to them. If you do not agree, do not use the service."
+      lastUpdated={termsLastUpdated}
       title="Terms & Conditions"
     >
       <LegalSection title="The service">
@@ -238,6 +242,7 @@ export function PrivacyPolicy() {
   return (
     <LegalDocument
       introduction="This policy explains what information RethinkLoop collects, why it is used, where it may be sent, and the choices available to you."
+      lastUpdated={privacyLastUpdated}
       title="Privacy Policy"
     >
       <LegalSection title="Information we collect">
@@ -245,6 +250,10 @@ export function PrivacyPolicy() {
           <LegalListItem>
             <strong>Account information:</strong> your GitHub account
             identifier, name, email address, avatar, and authentication records.
+          </LegalListItem>
+          <LegalListItem>
+            <strong>Waiting-list information:</strong> the email address you
+            provide when asking to be notified about access.
           </LegalListItem>
           <LegalListItem>
             <strong>Content:</strong> prompts, selected sources, research jobs,
@@ -267,6 +276,9 @@ export function PrivacyPolicy() {
         <Typography>We use this information to:</Typography>
         <LegalList>
           <LegalListItem>authenticate users and maintain accounts;</LegalListItem>
+          <LegalListItem>
+            administer the waiting list and contact you when access opens;
+          </LegalListItem>
           <LegalListItem>
             run, save, display, and share workflows as you direct;
           </LegalListItem>
@@ -316,11 +328,11 @@ export function PrivacyPolicy() {
 
       <LegalSection title="Retention">
         <Typography>
-          Account, session, and workflow data is retained for as long as needed
-          to provide and secure the service, resolve disputes, and meet legal
-          obligations. You can request account or content deletion by contacting
-          support. Some records may remain in backups or where retention is
-          legally required.
+          Account, waiting-list, session, and workflow data is retained for as
+          long as needed to provide and secure the service, contact people who
+          requested access, resolve disputes, and meet legal obligations. You
+          can request deletion by contacting support. Some records may remain
+          in backups or where retention is legally required.
         </Typography>
       </LegalSection>
 

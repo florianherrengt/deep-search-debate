@@ -21,7 +21,7 @@ at startup:
 | `BETTER_AUTH_SECRET` | Always; at least 32 characters |
 | `GITHUB_CLIENT_ID` | Always |
 | `GITHUB_CLIENT_SECRET` | Always |
-| `BRAVE_SEARCH_API_KEY` | Production only |
+| `SERPER_API_KEY` | Production only |
 | `AUTH_DEBUG_USER_PASSWORD` | Debug sign-in is enabled; at least 12 characters |
 
 Create the ignored local environment file from the tracked template and fill in
@@ -41,6 +41,8 @@ SEARXNG_URL=http://127.0.0.1:8090
 SEARXNG_CATEGORIES=general,science
 SEARXNG_MAX_CONCURRENT_REQUESTS=1
 SEARXNG_MIN_INTERVAL_MS=1000
+SERPER_API_KEY=
+SERPER_MAX_QUERIES_PER_SECOND=50
 LLM_PROVIDER=deepseek
 LLM_MODEL_NAME=deepseek-v4-flash
 LLM_GENERATION_TIMEOUT_MS=300000
@@ -161,7 +163,9 @@ docker compose up -d searxng
 
 The development Compose service listens only on `127.0.0.1:8090` and enables the JSON search format used by the API.
 
-Production uses Brave Search and does not read `SEARXNG_URL`. See
+Production uses Serper and does not read `SEARXNG_URL`.
+`SERPER_MAX_QUERIES_PER_SECOND` defaults to 50 and may be lowered to match a
+different Serper plan. See
 [the Coolify operations guide](coolify/README.md) for the container, persistent
 SQLite volume, required runtime variables, and deployment procedure.
 

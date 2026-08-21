@@ -381,6 +381,17 @@ table verification {
   }
 }
 
+table waitlist_entries {
+  waitlist_entry_id text [pk, not null]
+  email text [not null]
+  created_at integer [not null, default: `(cast(unixepoch('subsecond') * 1000 as integer))`]
+
+  indexes {
+    email [name: 'waitlist_entries_email_idx', unique]
+
+  }
+}
+
 ref account_user_id_user_id_fk: account.user_id > user.id [delete: cascade, update: no action]
 
 ref debate_jobs_user_id_user_id_fk: debate_jobs.user_id > user.id [delete: cascade, update: no action]
@@ -459,6 +470,8 @@ ref research_job_admissions_user_id_user_id_fk: research_job_admissions.user_id 
 
 ref session_user_id_user_id_fk: session.user_id > user.id [delete: cascade, update: no action]
 
+// SQLite checks omitted from DBML require waitlist_entries.email to equal its
+// trimmed lowercase form and contain between 1 and 254 characters.
 // The baseline migration also defines triggers that require a selected result
 // and page to share a URL and deep-search job, freeze the ownership chain used
 // by that check and every LLM generation, and freeze ideas after their job

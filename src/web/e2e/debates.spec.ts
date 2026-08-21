@@ -217,8 +217,8 @@ test.describe("Debate tournament", () => {
     const anonymousPage = await anonymousContext.newPage()
     await anonymousPage.goto(matchUrl)
     await expect(
-      anonymousPage.getByRole("link", { name: "Start your own debate" }),
-    ).toHaveAttribute("href", "/debates")
+      anonymousPage.getByRole("button", { name: "Join the waiting list" }),
+    ).toBeVisible()
     await expect(
       anonymousPage.getByRole("heading", { name: matchHeading, level: 1 }),
     ).toBeVisible()

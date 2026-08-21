@@ -87,7 +87,7 @@ export const deepSearchWebPages = sqliteTable(
   ],
 )
 
-/** One ordered SearXNG result belonging to a generated query. */
+/** One ordered provider result belonging to a generated search query. */
 export const deepSearchResults = sqliteTable(
   "deep_search_results",
   {

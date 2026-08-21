@@ -20,6 +20,12 @@ import { ideas } from "./ideas.ts"
 import { llmGenerations } from "./llmGenerations.ts"
 import { researchJobAdmissions } from "./researchJobAdmissions.ts"
 import { account, session, user } from "./auth.ts"
+import { waitlistEntries } from "./waitlistEntries.ts"
+
+export const waitlistEntriesRelations = relations(
+  waitlistEntries,
+  () => ({}),
+)
 
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),

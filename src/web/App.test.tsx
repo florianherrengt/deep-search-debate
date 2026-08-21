@@ -11,7 +11,6 @@ import { App } from "./App"
 import { createAppQueryClient } from "./lib/queryClient.ts"
 
 const authMocks = vi.hoisted(() => ({
-  getAuthConfig: vi.fn(),
   refetch: vi.fn(),
   signInSocial: vi.fn(),
   signOut: vi.fn(),
@@ -30,7 +29,6 @@ vi.mock("./lib/authClient.ts", () => ({
     signOut: authMocks.signOut,
     useSession: authMocks.useSession,
   },
-  getAuthConfig: authMocks.getAuthConfig,
 }))
 
 vi.mock("./lib/credits.ts", () => ({
@@ -77,7 +75,6 @@ describe("App", () => {
     window.history.replaceState({}, "", "/")
     scrollToMock.mockClear()
     vi.stubGlobal("scrollTo", scrollToMock)
-    authMocks.getAuthConfig.mockResolvedValue({ debugUserEnabled: true })
     creditMocks.getCreditAccount.mockResolvedValue({
       credits: 1_000,
       isAdmin: true,
@@ -132,7 +129,6 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Open account menu for Debug User" })).toBeVisible()
     expect(screen.queryByText(/sign in required/i)).not.toBeInTheDocument()
     expect(screen.getByText("Your debate is saved automatically.")).toBeVisible()
-    expect(screen.getAllByText("AI output can be wrong")).toHaveLength(1)
 
     fireEvent.click(screen.getByRole("button", { name: "Open account menu for Debug User" }))
     const accountMenu = await screen.findByRole("menu", { name: "Account menu" })
@@ -377,7 +373,7 @@ describe("App", () => {
     ).toHaveAttribute("href", "/debates")
   })
 
-  it("gates the application behind GitHub or debug sign-in", async () => {
+  it("shows the waitlist instead of sign-in on protected routes", () => {
     window.history.replaceState({}, "", "/debates")
     authMocks.useSession.mockReturnValue({
       data: null,
@@ -390,17 +386,14 @@ describe("App", () => {
     renderApp()
 
     expect(
-      screen.getByRole("heading", { name: "Sign in to continue" }),
+      screen.getByRole("heading", { name: "Join the waiting list" }),
     ).toBeVisible()
     expect(
-      screen.getByRole("button", { name: "Continue with GitHub" }),
+      screen.getByRole("textbox", { name: "Email address" }),
     ).toBeVisible()
     expect(
-      await screen.findByRole("button", { name: "Continue as debug user" }),
-    ).toBeVisible()
-    expect(
-      screen.getByRole("link", { name: "Terms & Conditions" }),
-    ).toHaveAttribute("href", "/terms")
+      screen.queryByRole("button", { name: "Continue with GitHub" }),
+    ).not.toBeInTheDocument()
     expect(
       screen.getByRole("link", { name: "Privacy Policy" }),
     ).toHaveAttribute("href", "/privacy")
@@ -425,17 +418,17 @@ describe("App", () => {
       name: "Landing page navigation",
     })
     expect(
-      within(landingNavigation).getByRole("link", {
-        name: "Start your own debate",
+      within(landingNavigation).getByRole("button", {
+        name: "Join the waiting list",
       }),
-    ).toHaveAttribute("href", "/debates")
+    ).toBeVisible()
     expect(
       within(landingNavigation).getByRole("link", { name: "How it works" }),
     ).toHaveAttribute("href", "/#how-it-works")
     expect(
-      screen.queryByRole("heading", { name: "Sign in to continue" }),
+      screen.queryByRole("heading", { name: "Join the waiting list" }),
     ).not.toBeInTheDocument()
-    expect(screen.getByText(/sign in required/i)).toBeVisible()
+    expect(screen.getByText(/debate access is opening soon/i)).toBeVisible()
     expect(
       screen.getByRole("link", { name: "Terms & Conditions" }),
     ).toHaveAttribute("href", "/terms")
@@ -495,9 +488,10 @@ describe("App", () => {
     const anonymousHeading = screen.getByRole("heading", {
       name: "One answer is not enough.",
     })
-    const anonymousAction = within(screen.getByRole("main")).getByRole("link", {
-      name: "Start a debate",
-    })
+    const anonymousAction = within(screen.getByRole("main")).getAllByRole(
+      "button",
+      { name: "Join the waiting list" },
+    )[0]
     anonymousAction.focus()
     expect(anonymousAction).toHaveFocus()
 
@@ -557,7 +551,7 @@ describe("App", () => {
       screen.getByRole("progressbar", { name: "Loading session" }),
     ).toBeVisible()
     expect(
-      screen.queryByRole("link", { name: "Start your own debate" }),
+      screen.queryByRole("button", { name: "Join the waiting list" }),
     ).not.toBeInTheDocument()
 
     authMocks.useSession.mockReturnValue({
@@ -577,11 +571,11 @@ describe("App", () => {
       screen.getByRole("heading", { name: "Session unavailable" }),
     ).toBeVisible()
     expect(
-      screen.queryByRole("link", { name: "Start your own debate" }),
+      screen.queryByRole("button", { name: "Join the waiting list" }),
     ).not.toBeInTheDocument()
   })
 
-  it("keeps the examples page public without loading a session", async () => {
+  it("keeps the examples page visible to an anonymous session", async () => {
     window.history.replaceState({}, "", "/examples")
     authMocks.useSession.mockReturnValue({
       data: null,
@@ -603,7 +597,37 @@ describe("App", () => {
     expect(
       await screen.findByText("No examples are currently published."),
     ).toBeVisible()
-    expect(authMocks.useSession).not.toHaveBeenCalled()
+    expect(
+      screen.getByRole("button", { name: "Join the waiting list" }),
+    ).toBeVisible()
+    expect(authMocks.useSession).toHaveBeenCalled()
+  })
+
+  it("keeps the debate action for authenticated users on public pages", async () => {
+    window.history.replaceState({}, "", "/examples")
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(Response.json({ debates: [] })),
+    )
+
+    renderApp()
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Debate examples" }),
+    ).toBeVisible()
+    const landingNavigation = screen.getByRole("navigation", {
+      name: "Landing page navigation",
+    })
+    expect(
+      within(landingNavigation).getByRole("link", {
+        name: "Start your own debate",
+      }),
+    ).toHaveAttribute("href", "/debates")
+    expect(
+      within(landingNavigation).queryByRole("button", {
+        name: "Join the waiting list",
+      }),
+    ).not.toBeInTheDocument()
   })
 
   it("keeps match details shareable with anonymous viewers", () => {
@@ -624,10 +648,10 @@ describe("App", () => {
     renderApp()
 
     expect(
-      screen.getByRole("link", { name: "Start your own debate" }),
-    ).toHaveAttribute("href", "/debates")
+      screen.getByRole("button", { name: "Join the waiting list" }),
+    ).toBeVisible()
     expect(
-      screen.queryByRole("heading", { name: "Sign in to continue" }),
+      screen.queryByRole("heading", { name: "Join the waiting list" }),
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("navigation", { name: "Primary navigation" }),
@@ -652,10 +676,10 @@ describe("App", () => {
     renderApp()
 
     expect(
-      screen.getByRole("link", { name: "Start your own debate" }),
-    ).toHaveAttribute("href", "/debates")
+      screen.getByRole("button", { name: "Join the waiting list" }),
+    ).toBeVisible()
     expect(
-      screen.queryByRole("heading", { name: "Sign in to continue" }),
+      screen.queryByRole("heading", { name: "Join the waiting list" }),
     ).not.toBeInTheDocument()
   })
 
@@ -677,10 +701,10 @@ describe("App", () => {
     renderApp()
 
     expect(
-      screen.getByRole("link", { name: "Start your own debate" }),
-    ).toHaveAttribute("href", "/debates")
+      screen.getByRole("button", { name: "Join the waiting list" }),
+    ).toBeVisible()
     expect(
-      screen.queryByRole("heading", { name: "Sign in to continue" }),
+      screen.queryByRole("heading", { name: "Join the waiting list" }),
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("heading", { name: "Page not found" }),
@@ -709,7 +733,6 @@ describe("App", () => {
       name: "Account menu",
     })
     expect(within(accountMenu).getByText("Debug User")).toBeVisible()
-    expect(screen.getByText("AI output can be wrong")).toBeVisible()
     expect(
       screen.queryByRole("heading", { name: "Page not found" }),
     ).not.toBeInTheDocument()
@@ -754,10 +777,11 @@ describe("App", () => {
     expect(
       screen.getByText(/do not currently use non-essential cookies/i),
     ).toBeVisible()
+    expect(screen.getByText(/waiting-list information/i)).toBeVisible()
     expect(
       screen.getAllByRole("link", { name: "support@rethinkloop.com" })[0],
     ).toHaveAttribute("href", "mailto:support@rethinkloop.com")
-    expect(authMocks.useSession).not.toHaveBeenCalled()
+    expect(authMocks.useSession).toHaveBeenCalled()
   })
 
   it("makes the AI limitation explicit in the terms", () => {
@@ -777,7 +801,7 @@ describe("App", () => {
     ).toBeVisible()
   })
 
-  it("starts GitHub sign-in with the current route as its callback", async () => {
+  it("keeps sign-in controls hidden on a protected route with a query", () => {
     window.history.replaceState({}, "", "/ideas?source=test")
     authMocks.useSession.mockReturnValue({
       data: null,
@@ -788,15 +812,12 @@ describe("App", () => {
     })
 
     renderApp()
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue with GitHub" }),
-    )
-
-    await waitFor(() =>
-      expect(authMocks.signInSocial).toHaveBeenCalledWith({
-        callbackURL: "/ideas?source=test",
-        provider: "github",
-      }),
-    )
+    expect(
+      screen.getByRole("heading", { name: "Join the waiting list" }),
+    ).toBeVisible()
+    expect(
+      screen.queryByRole("button", { name: "Continue with GitHub" }),
+    ).not.toBeInTheDocument()
+    expect(authMocks.signInSocial).not.toHaveBeenCalled()
   })
 })

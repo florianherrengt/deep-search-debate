@@ -32,6 +32,7 @@ import {
   seoPages,
 } from "./routes/seo.ts"
 import { exampleDebateReads } from "./routes/examples/index.ts"
+import { waitlistRoutes } from "./routes/waitlist.ts"
 
 recoverInterruptedWork()
 
@@ -98,6 +99,7 @@ health(api)
 authRoutes(api)
 api.use("*", requireTrustedOrigin)
 api.use("*", loadOptionalSession)
+waitlistRoutes(api)
 const deepSearchManager = createDeepSearchJobManager()
 const ideaJobManager = createIdeaJobManager(deepSearchManager)
 const debateJobManager = createDebateJobManager(ideaJobManager)

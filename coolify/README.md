@@ -44,7 +44,7 @@ Run every command from the repository root.
 ## One-time production setup
 
 The application is one container: Hono serves `/api`, the built Vite client, and
-the React Router fallback on port 3000. Production web searches use Brave. Do not
+the React Router fallback on port 3000. Production web searches use Serper. Do not
 add `SEARXNG_URL` to this Coolify application.
 
 Before the first deployment:
@@ -57,7 +57,8 @@ Before the first deployment:
 
 | Variable | Requirement |
 | --- | --- |
-| `BRAVE_SEARCH_API_KEY` | Brave Search production credential |
+| `SERPER_API_KEY` | Serper production credential |
+| `SERPER_MAX_QUERIES_PER_SECOND` | Optional Serper rate limit from 1 to 50; defaults to 50 |
 | `LLM_PROVIDER` | `deepseek` or `zen` |
 | `LLM_MODEL_NAME` | Model ID accepted by the selected provider |
 | `DEEPSEEK_API_KEY` | Required when `LLM_PROVIDER=deepseek` |
@@ -222,7 +223,7 @@ its output.
 - `404`: the UUID is wrong or the token belongs to a different Coolify team.
 - `exited:unhealthy`: inspect configuration and deployment logs before retrying.
 - Database resets after deploy: the `/app/data` persistent volume is missing.
-- Startup reports a missing or invalid secret: confirm all six required runtime
+- Startup reports a missing or invalid secret: confirm all required runtime
   variables are configured in Coolify as nonblank literal production values.
 - Authentication callback failure: confirm the Coolify primary domain is
   `https://rethinkloop.com` and the GitHub OAuth callback is

@@ -1,10 +1,10 @@
 import { config } from "../config.ts"
 import { requirePositiveCreditBalance } from "../credits.ts"
-import { brave } from "./brave.ts"
+import { serper } from "./serper.ts"
 import { searxng } from "./searxng.ts"
 import type { WebSearchResult } from "./types.ts"
 
-const providers = { brave, searxng }
+const providers = { serper, searxng }
 
 export async function webSearch(params: {
   userId: string

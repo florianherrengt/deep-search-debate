@@ -604,6 +604,29 @@ function ShareableResourceRoute({
   )
 }
 
+function PublicPageRoute({
+  children,
+  maxWidth,
+}: {
+  children: ReactNode
+  maxWidth: ContainerProps["maxWidth"]
+}) {
+  return (
+    <AuthGate
+      anonymous={
+        <PublicLayout maxWidth={maxWidth}>{children}</PublicLayout>
+      }
+      showAnonymousDuringSessionCheck
+    >
+      {() => (
+        <PublicLayout authenticated maxWidth={maxWidth}>
+          {children}
+        </PublicLayout>
+      )}
+    </AuthGate>
+  )
+}
+
 export function App() {
   return (
     <BrowserRouter>
@@ -627,25 +650,25 @@ export function App() {
         <Route
           path="/examples"
           element={
-            <PublicLayout maxWidth="md">
+            <PublicPageRoute maxWidth="md">
               <Examples />
-            </PublicLayout>
+            </PublicPageRoute>
           }
         />
         <Route
           path="/terms"
           element={
-            <PublicLayout maxWidth="md">
+            <PublicPageRoute maxWidth="md">
               <TermsAndConditions />
-            </PublicLayout>
+            </PublicPageRoute>
           }
         />
         <Route
           path="/privacy"
           element={
-            <PublicLayout maxWidth="md">
+            <PublicPageRoute maxWidth="md">
               <PrivacyPolicy />
-            </PublicLayout>
+            </PublicPageRoute>
           }
         />
         <Route

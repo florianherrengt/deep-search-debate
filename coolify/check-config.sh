@@ -119,7 +119,7 @@ runtime_environment_value() {
 }
 
 required_runtime_keys=(
-  BRAVE_SEARCH_API_KEY
+  SERPER_API_KEY
   LLM_PROVIDER
   LLM_MODEL_NAME
   SCRAPINGANT_API_KEY
@@ -173,6 +173,23 @@ check_optional_environment "PORT" "3000"
 check_optional_environment "DATABASE_URL" "/app/data/data.db"
 check_optional_environment "AUTH_DEBUG_USER_ENABLED" "false"
 
+if jq -e 'any(.[]; .key == "SERPER_MAX_QUERIES_PER_SECOND" and .is_preview == false)' >/dev/null <<<"${environment_json}" &&
+  ! jq -e '
+    any(.[];
+      .key == "SERPER_MAX_QUERIES_PER_SECOND" and
+      .is_preview == false and
+      .is_buildtime == false and
+      .is_runtime == true and
+      .is_literal == true and
+      ((.real_value // .value // "") | tostring | test("^[0-9]+$")) and
+      ((.real_value // .value) | tonumber) >= 1 and
+      ((.real_value // .value) | tonumber) <= 50
+    )
+  ' >/dev/null <<<"${environment_json}"; then
+  configuration_ok=false
+  echo "SERPER_MAX_QUERIES_PER_SECOND must be a literal production runtime integer from 1 to 50." >&2
+fi
+
 if jq -e 'any(.[]; .key == "BETTER_AUTH_URL" and .is_preview == false)' >/dev/null <<<"${environment_json}" &&
   ! jq -e --arg public_url "${public_url}" '
     any(.[];
@@ -187,7 +204,7 @@ fi
 
 if jq -e 'any(.[]; .key == "SEARXNG_URL" and .is_preview == false)' >/dev/null <<<"${environment_json}"; then
   configuration_ok=false
-  echo "SEARXNG_URL must not be configured in production; this deployment uses Brave." >&2
+  echo "SEARXNG_URL must not be configured in production; this deployment uses Serper." >&2
 fi
 
 if [[ "${configuration_ok}" != true ]]; then

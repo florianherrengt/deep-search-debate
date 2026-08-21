@@ -26,14 +26,19 @@ describe("Home", () => {
     )
   })
 
-  it("uses session-aware save copy and a compact authenticated hierarchy", () => {
+  it("uses waitlist actions publicly and a compact authenticated hierarchy", () => {
     const { rerender } = render(
       <MemoryRouter>
         <Home />
       </MemoryRouter>,
     )
 
-    expect(screen.getByText(/sign in required/i)).toBeVisible()
+    expect(
+      screen.getAllByRole("button", { name: "Join the waiting list" }),
+    ).toHaveLength(2)
+    expect(
+      screen.queryByLabelText("Your problem or decision"),
+    ).not.toBeInTheDocument()
 
     rerender(
       <MemoryRouter>
@@ -41,7 +46,9 @@ describe("Home", () => {
       </MemoryRouter>,
     )
 
-    expect(screen.queryByText(/sign in required/i)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Join the waiting list" }),
+    ).not.toBeInTheDocument()
     expect(screen.getByText("Your debate is saved automatically.")).toBeVisible()
     expect(screen.queryByRole("heading", { name: "See the full case" })).not.toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "How agents test the ideas" })).toBeVisible()
@@ -51,7 +58,7 @@ describe("Home", () => {
     render(
       <MemoryRouter>
         <Routes>
-          <Route path="/" element={<Home />} />
+          <Route path="/" element={<Home authenticated />} />
           <Route path="/debates" element={<DebateLocation />} />
         </Routes>
       </MemoryRouter>,
@@ -62,8 +69,8 @@ describe("Home", () => {
     ).toBeVisible()
 
     expect(
-      screen.getByRole("heading", { name: "See the full case" }),
-    ).toBeVisible()
+      screen.queryByRole("heading", { name: "See the full case" }),
+    ).not.toBeInTheDocument()
     expect(
       screen.getByRole("heading", {
         name: "How agents test the ideas",

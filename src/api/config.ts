@@ -41,7 +41,6 @@ const exampleDebateIdsSchema = z.preprocess(
 )
 
 const secretSchemas = {
-  BRAVE_SEARCH_API_KEY: nonWhitespaceSecretSchema,
   SCRAPINGANT_API_KEY: nonWhitespaceSecretSchema,
   BETTER_AUTH_SECRET: z
     .string()
@@ -150,6 +149,12 @@ const nonSecretEnvironmentShape = {
     .min(0)
     .max(60_000)
     .default(1_000),
+  SERPER_MAX_QUERIES_PER_SECOND: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .default(50),
   WEB_SEARCH_TIMEOUT_MS: z.coerce
     .number()
     .int()
@@ -306,7 +311,7 @@ const nonSecretEnvironmentShape = {
 
 const rawEnvironmentSchema = z.object({
   ...nonSecretEnvironmentShape,
-  BRAVE_SEARCH_API_KEY: secretSchemas.BRAVE_SEARCH_API_KEY.optional(),
+  SERPER_API_KEY: optionalSecretSchema,
   DEEPSEEK_API_KEY: optionalSecretSchema,
   OPENCODE_ZEN_API_KEY: optionalSecretSchema,
   SCRAPINGANT_API_KEY: secretSchemas.SCRAPINGANT_API_KEY,
@@ -322,7 +327,7 @@ const environmentSchema = z.object({
   DATABASE_URL: z.string().min(1),
   BETTER_AUTH_URL: z.url(),
   AUTH_DEBUG_USER_ENABLED: z.boolean(),
-  BRAVE_SEARCH_API_KEY: secretSchemas.BRAVE_SEARCH_API_KEY.optional(),
+  SERPER_API_KEY: optionalSecretSchema,
   DEEPSEEK_API_KEY: optionalSecretSchema,
   OPENCODE_ZEN_API_KEY: optionalSecretSchema,
   SCRAPINGANT_API_KEY: secretSchemas.SCRAPINGANT_API_KEY,
@@ -453,12 +458,12 @@ const environmentSchema = z.object({
   }
   if (
     environment.NODE_ENV === "production" &&
-    environment.BRAVE_SEARCH_API_KEY === undefined
+    environment.SERPER_API_KEY === undefined
   ) {
     context.addIssue({
       code: "custom",
-      message: "BRAVE_SEARCH_API_KEY is required in production",
-      path: ["BRAVE_SEARCH_API_KEY"],
+      message: "SERPER_API_KEY is required in production",
+      path: ["SERPER_API_KEY"],
     })
   }
   if (
@@ -614,12 +619,14 @@ export const config = {
       environment.DEBATE_MAX_ROOT_JOB_CREATIONS_PER_WINDOW,
   },
   webSearch: {
-    // TODO: Replace the temporary production Brave integration with Serper.
     provider:
       environment.NODE_ENV === "production"
-        ? ("brave" as const)
+        ? ("serper" as const)
         : ("searxng" as const),
-    brave: { apiKey: environment.BRAVE_SEARCH_API_KEY },
+    serper: {
+      apiKey: environment.SERPER_API_KEY,
+      maxQueriesPerSecond: environment.SERPER_MAX_QUERIES_PER_SECOND,
+    },
     searxng: {
       url: environment.SEARXNG_URL,
       categories: [

@@ -1,6 +1,11 @@
 import { expect, test } from "@playwright/test"
 
-test("signs in and out with the local debug user", async ({ page }) => {
+const webOrigin =
+  process.env.PLAYWRIGHT_WEB_ORIGIN ?? "http://localhost:5174"
+
+test("joins the waitlist from the anonymous mobile experience", async ({
+  page,
+}) => {
   await page.setViewportSize({ height: 844, width: 320 })
   await page.goto("/")
 
@@ -11,37 +16,58 @@ test("signs in and out with the local debug user", async ({ page }) => {
     page.getByRole("link", { name: "RethinkLoop home" }),
   ).toHaveCSS("color", "rgb(241, 243, 245)")
   await expect(
-    page.getByRole("heading", { name: "Sign in to continue" }),
+    page.getByRole("button", { name: "Continue with GitHub" }),
   ).toHaveCount(0)
   expect(
     await page
       .locator("html")
       .evaluate((element) => element.scrollWidth <= element.clientWidth),
   ).toBe(true)
+
   await page
     .getByRole("main")
-    .getByRole("link", { name: "Start a debate" })
+    .getByRole("button", { name: "Join the waiting list" })
+    .first()
     .click()
+  const dialog = page.getByRole("dialog", { name: "Join the waiting list" })
+  await expect(dialog).toBeVisible()
+  await dialog
+    .getByRole("textbox", { name: "Email address" })
+    .fill("Waitlist-E2E@Example.com")
+  await dialog.getByRole("button", { name: "Join waiting list" }).click()
+  await expect(dialog.getByText(/you’re on the waiting list/i)).toBeVisible()
 
+  await page.goto("/debates")
   await expect(
-    page.getByRole("heading", { name: "Sign in to continue" }),
+    page.getByRole("heading", { name: "Join the waiting list" }),
   ).toBeVisible()
-  await page.getByRole("button", { name: "Continue as debug user" }).click()
+  await page
+    .getByRole("textbox", { name: "Email address" })
+    .fill("waitlist-e2e@example.com")
+  await page.getByRole("button", { name: "Join waiting list" }).click()
+  await expect(page.getByText(/you’re on the waiting list/i)).toBeVisible()
+})
 
-  const debateHeading = page.getByRole("heading", { name: "Debate ideas" })
-  await expect(debateHeading).toBeVisible()
+test("keeps existing authentication operational without a public sign-in button", async ({
+  page,
+}) => {
+  const signInResponse = await page.request.post(
+    "/api/auth/debug-sign-in",
+    {
+      headers: { Origin: webOrigin, "X-Debug-Auth": "1" },
+    },
+  )
+  expect(signInResponse.ok()).toBe(true)
+
+  await page.goto("/debates")
   await expect(
-    page.getByRole("textbox", { name: "What should the ideas solve?" }),
-  ).toBeFocused()
+    page.getByRole("heading", { name: "Debate ideas" }),
+  ).toBeVisible()
   await page
     .getByRole("button", { name: "Open account menu for Debug User" })
     .click()
-  await expect(
-    page.getByRole("menu", { name: "Account menu" }).getByText("Debug User"),
-  ).toBeVisible()
-
   await page.getByRole("menuitem", { name: "Sign out" }).click()
   await expect(
-    page.getByRole("heading", { name: "Sign in to continue" }),
+    page.getByRole("heading", { name: "Join the waiting list" }),
   ).toBeFocused()
 })

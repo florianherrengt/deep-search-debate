@@ -62,7 +62,7 @@ required. `LLM_PROVIDER=deepseek` requires `DEEPSEEK_API_KEY` and the priced
 requires `OPENCODE_ZEN_API_KEY`; the unselected key may be absent or blank.
 `SCRAPINGANT_API_KEY`, `BETTER_AUTH_SECRET`,
 `GITHUB_CLIENT_ID`, and `GITHUB_CLIENT_SECRET` are always required. Production
-also requires `BRAVE_SEARCH_API_KEY`. A missing, blank, or whitespace-only
+also requires `SERPER_API_KEY`. A missing, blank, or whitespace-only
 required secret fails startup.
 
 `BETTER_AUTH_SECRET` must contain at least 32 characters and production config
@@ -144,7 +144,9 @@ briefing, idea evaluation, and debate advocacy—disable hidden reasoning so it
 cannot consume that budget without producing the required durable output. Web searches have a 30-second deadline
 configured by `WEB_SEARCH_TIMEOUT_MS` and charge the fixed product-credit amount
 configured by `WEB_SEARCH_CREDITS_COST` (default 1) after a successful provider
-response. Direct `POST /api/streams` calls reuse the research
+response. Production Serper calls are limited process-wide by
+`SERPER_MAX_QUERIES_PER_SECOND` (default and maximum 50 for the configured
+plan). Direct `POST /api/streams` calls reuse the research
 request length limit and permit two active standalone generations per user by
 default, configurable through
 `LLM_MAX_ACTIVE_STANDALONE_GENERATIONS_PER_USER`. The process-wide provider
@@ -186,9 +188,13 @@ preserve or migrate its data.
 ## Search providers by environment
 
 Development and test use the configured SearXNG instance. Production instead
-requires the `BRAVE_SEARCH_API_KEY` environment variable and does not require or
+requires the `SERPER_API_KEY` environment variable and does not require or
 use `SEARXNG_URL`. This is an explicit environment policy in the typed config
 module, not an operator-selected fallback.
+
+Production calls Serper's Google Search endpoint through one process-wide rate
+limit. `SERPER_MAX_QUERIES_PER_SECOND` accepts 1 through 50 and defaults to the
+production plan limit of 50.
 
 ## Real external services in dev
 

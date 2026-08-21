@@ -7,6 +7,7 @@ import Typography from "@mui/material/Typography"
 import type { SubmitEvent } from "react"
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
+import { JoinWaitlistButton } from "../../../components/waitlist/Waitlist.tsx"
 import { sectionTitleSx } from "../landingStyles.ts"
 
 export function DebatePromptSection({ authenticated }: { authenticated: boolean }) {
@@ -37,44 +38,49 @@ export function DebatePromptSection({ authenticated }: { authenticated: boolean 
     >
       <Stack spacing={3} sx={{ maxWidth: 760, position: "relative" }}>
         <Typography color="primary.main" variant="overline">
-          Your turn
+          {authenticated ? "Your turn" : "Be first to know"}
         </Typography>
         <Typography
           component="h2"
           sx={sectionTitleSx}
           variant="h2"
         >
-          What should the agents debate?
+          {authenticated
+            ? "What should the agents debate?"
+            : "Debate access is opening soon."}
         </Typography>
         <Typography color="text.secondary">
-          Describe the decision, problem, or opportunity. The agents will build
-          the ideas and run the debate.
+          {authenticated
+            ? "Describe the decision, problem, or opportunity. The agents will build the ideas and run the debate."
+            : "Join the waiting list and we’ll email you when you can start running your own debates."}
         </Typography>
-        <Stack component="form" onSubmit={handleSubmit} spacing={1.5}>
-          <TextField
-            fullWidth
-            label="Your problem or decision"
-            minRows={2}
-            multiline
-            onChange={(event) => setPrompt(event.target.value)}
-            placeholder="Describe the problem or opportunity"
-            value={prompt}
-          />
-          <Button
-            disabled={!prompt.trim()}
-            endIcon={<ArrowForwardRounded />}
-            sx={{ alignSelf: { sm: "flex-start" } }}
-            type="submit"
-            variant="contained"
-          >
-            Start a debate
-          </Button>
-          <Typography color="text.secondary" variant="caption">
-            {authenticated
-              ? "Your debate is saved automatically."
-              : "Sign in required. Your debate is saved automatically."}
-          </Typography>
-        </Stack>
+        {authenticated ? (
+          <Stack component="form" onSubmit={handleSubmit} spacing={1.5}>
+            <TextField
+              fullWidth
+              label="Your problem or decision"
+              minRows={2}
+              multiline
+              onChange={(event) => setPrompt(event.target.value)}
+              placeholder="Describe the problem or opportunity"
+              value={prompt}
+            />
+            <Button
+              disabled={!prompt.trim()}
+              endIcon={<ArrowForwardRounded />}
+              sx={{ alignSelf: { sm: "flex-start" } }}
+              type="submit"
+              variant="contained"
+            >
+              Start a debate
+            </Button>
+            <Typography color="text.secondary" variant="caption">
+              Your debate is saved automatically.
+            </Typography>
+          </Stack>
+        ) : (
+          <JoinWaitlistButton sx={{ alignSelf: { sm: "flex-start" } }} />
+        )}
       </Stack>
     </Paper>
   )

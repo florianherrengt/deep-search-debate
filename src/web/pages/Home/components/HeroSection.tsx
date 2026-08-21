@@ -5,9 +5,12 @@ import Button from "@mui/material/Button"
 import Stack from "@mui/material/Stack"
 import Typography from "@mui/material/Typography"
 import { Link as RouterLink } from "react-router-dom"
+import { JoinWaitlistButton } from "../../../components/waitlist/Waitlist.tsx"
 import { IdeaTournamentDiagram } from "./IdeaTournamentDiagram.tsx"
 
-export function HeroSection({ compact = false }: { compact?: boolean }) {
+export function HeroSection({ authenticated = false }: { authenticated?: boolean }) {
+  const compact = authenticated
+
   return (
     <Box
       component="section"
@@ -92,15 +95,22 @@ export function HeroSection({ compact = false }: { compact?: boolean }) {
         </Typography>
 
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-          <Button
-            component={RouterLink}
-            endIcon={<ArrowForwardRounded />}
-            size="large"
-            to="/debates"
-            variant="contained"
-          >
-            Start a debate
-          </Button>
+          {authenticated ? (
+            <Button
+              component={RouterLink}
+              endIcon={<ArrowForwardRounded />}
+              size="large"
+              to="/debates"
+              variant="contained"
+            >
+              Start a debate
+            </Button>
+          ) : (
+            <JoinWaitlistButton
+              endIcon={<ArrowForwardRounded />}
+              size="large"
+            />
+          )}
           <Button
             component="a"
             href="#how-it-works"

@@ -34,6 +34,10 @@ ignores this one documented peer-resolution shim.
   an opaque database-backed session cookie rather than a JWT.
   The application adds a signed `credits` balance (default 500) and `is_admin`
   flag to `user`; Better Auth still owns identity and session behavior.
+- `waitlist_entries` stores anonymous waiting-list signups independently from
+  Better Auth. Emails are trimmed, lowercased, limited to 254 characters, and
+  unique; repeated submissions return the same success response without adding
+  another row.
 - Every root job and every `llm_generations` row has a required `user_id`.
   User-facing reads apply reusable SQL scopes to the query retrieving the root
   resource: an owner match grants private access, while a public debate grants

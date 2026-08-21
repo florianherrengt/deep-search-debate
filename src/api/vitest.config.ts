@@ -7,7 +7,7 @@ export default defineConfig({
     env: {
       SEARXNG_URL: "http://localhost:8090/",
       SEARXNG_MIN_INTERVAL_MS: "0",
-      BRAVE_SEARCH_API_KEY: "test-key",
+      SERPER_API_KEY: "test-key",
       DEEPSEEK_API_KEY: "test-key",
       LLM_PROVIDER: "deepseek",
       LLM_MODEL_NAME: "deepseek-v4-flash",

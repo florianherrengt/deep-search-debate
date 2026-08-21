@@ -20,7 +20,7 @@ export function Home({ authenticated = false }: { authenticated?: boolean }) {
       spacing={authenticated ? { xs: 8, md: 10 } : { xs: 10, md: 14 }}
       sx={{ pb: authenticated ? { xs: 7, md: 9 } : { xs: 10, md: 14 } }}
     >
-      <HeroSection compact={authenticated} />
+      <HeroSection authenticated={authenticated} />
       {authenticated ? null : <BenefitsSection />}
       <ProcessSection />
       <DebatePromptSection authenticated={authenticated} />

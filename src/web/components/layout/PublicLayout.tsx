@@ -6,15 +6,17 @@ import Toolbar from "@mui/material/Toolbar"
 import type { ReactNode } from "react"
 import type { ContainerProps } from "@mui/material/Container"
 import { Link as RouterLink } from "react-router-dom"
+import { JoinWaitlistButton } from "../waitlist/Waitlist.tsx"
 import { AppFooter } from "./AppFooter.tsx"
 import { BrandLink } from "./BrandLink.tsx"
 
 interface PublicLayoutProps {
+  authenticated?: boolean
   children: ReactNode
   maxWidth?: ContainerProps["maxWidth"]
 }
 
-function PublicHeader() {
+function PublicHeader({ authenticated }: { authenticated: boolean }) {
   return (
     <AppBar position="static">
       <Toolbar sx={{ gap: 1, maxWidth: 1200, mx: "auto", width: "100%" }}>
@@ -43,14 +45,18 @@ function PublicHeader() {
           >
             Examples
           </Button>
-          <Button
-            component={RouterLink}
-            size="small"
-            to="/debates"
-            variant="contained"
-          >
-            Start your own debate
-          </Button>
+          {authenticated ? (
+            <Button
+              component={RouterLink}
+              size="small"
+              to="/debates"
+              variant="contained"
+            >
+              Start your own debate
+            </Button>
+          ) : (
+            <JoinWaitlistButton size="small" />
+          )}
         </Box>
       </Toolbar>
     </AppBar>
@@ -58,6 +64,7 @@ function PublicHeader() {
 }
 
 export function PublicLayout({
+  authenticated = false,
   children,
   maxWidth = "lg",
 }: PublicLayoutProps) {
@@ -65,7 +72,7 @@ export function PublicLayout({
     <Box
       sx={{ display: "flex", flexDirection: "column", minHeight: "100dvh" }}
     >
-      <PublicHeader />
+      <PublicHeader authenticated={authenticated} />
       <Container component="main" maxWidth={maxWidth} sx={{ flex: 1 }}>
         {children}
       </Container>

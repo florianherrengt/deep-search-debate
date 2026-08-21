@@ -147,6 +147,7 @@ describe("config", () => {
     vi.stubEnv("SEARXNG_CATEGORIES", "general, science,science")
     vi.stubEnv("SEARXNG_MAX_CONCURRENT_REQUESTS", "2")
     vi.stubEnv("SEARXNG_MIN_INTERVAL_MS", "750")
+    vi.stubEnv("SERPER_MAX_QUERIES_PER_SECOND", "40")
     vi.resetModules()
 
     const { config } = await import("./config.ts")
@@ -168,6 +169,7 @@ describe("config", () => {
       maxConcurrentRequests: 2,
       minIntervalMs: 750,
     })
+    expect(config.webSearch.serper.maxQueriesPerSecond).toBe(40)
   })
 
   it("rejects invalid deep-search concurrency limits", async () => {
@@ -288,10 +290,10 @@ describe("config", () => {
     )
   })
 
-  it("uses Brave without SearXNG in production", async () => {
+  it("uses Serper without SearXNG in production", async () => {
     vi.stubEnv("NODE_ENV", "production")
     vi.stubEnv("SEARXNG_URL", undefined)
-    vi.stubEnv("BRAVE_SEARCH_API_KEY", "production-brave-key")
+    vi.stubEnv("SERPER_API_KEY", "production-serper-key")
     vi.stubEnv("BETTER_AUTH_URL", "https://app.example.com")
     vi.stubEnv("BETTER_AUTH_SECRET", "production-secret-with-at-least-32-characters")
     vi.stubEnv("GITHUB_CLIENT_ID", "production-github-client-id")
@@ -301,20 +303,32 @@ describe("config", () => {
 
     const { config } = await import("./config.ts")
 
-    expect(config.webSearch.provider).toBe("brave")
-    expect(config.webSearch.brave.apiKey).toBe("production-brave-key")
+    expect(config.webSearch.provider).toBe("serper")
+    expect(config.webSearch.serper).toEqual({
+      apiKey: "production-serper-key",
+      maxQueriesPerSecond: 50,
+    })
   })
 
-  it("requires a Brave API key in production", async () => {
+  it("requires a nonblank Serper API key in production", async () => {
     vi.stubEnv("NODE_ENV", "production")
-    vi.stubEnv("BRAVE_SEARCH_API_KEY", "")
+    vi.stubEnv("SERPER_API_KEY", "   ")
     vi.stubEnv("BETTER_AUTH_URL", "https://app.example.com")
     vi.stubEnv("BETTER_AUTH_SECRET", "production-secret-with-at-least-32-characters")
     vi.stubEnv("AUTH_DEBUG_USER_ENABLED", "false")
     vi.resetModules()
 
     await expect(import("./config.ts")).rejects.toThrow(
-      "BRAVE_SEARCH_API_KEY",
+      "SERPER_API_KEY",
+    )
+  })
+
+  it("rejects a Serper rate above the production plan limit", async () => {
+    vi.stubEnv("SERPER_MAX_QUERIES_PER_SECOND", "51")
+    vi.resetModules()
+
+    await expect(import("./config.ts")).rejects.toThrow(
+      "SERPER_MAX_QUERIES_PER_SECOND",
     )
   })
 
