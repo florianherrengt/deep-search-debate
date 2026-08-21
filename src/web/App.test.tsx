@@ -11,6 +11,7 @@ import { App } from "./App"
 import { createAppQueryClient } from "./lib/queryClient.ts"
 
 const authMocks = vi.hoisted(() => ({
+  getAuthConfig: vi.fn(),
   refetch: vi.fn(),
   signInSocial: vi.fn(),
   signOut: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock("./lib/authClient.ts", () => ({
     signOut: authMocks.signOut,
     useSession: authMocks.useSession,
   },
+  getAuthConfig: authMocks.getAuthConfig,
 }))
 
 vi.mock("./lib/credits.ts", () => ({
@@ -80,6 +82,7 @@ describe("App", () => {
       isAdmin: true,
     })
     creditMocks.getAdminUsers.mockResolvedValue({ users: [] })
+    authMocks.getAuthConfig.mockResolvedValue({ debugUserEnabled: true })
     authMocks.refetch.mockResolvedValue(undefined)
     authMocks.signInSocial.mockResolvedValue({ data: null, error: null })
     authMocks.signOut.mockResolvedValue({ data: null, error: null })
@@ -398,6 +401,64 @@ describe("App", () => {
       screen.getByRole("link", { name: "Privacy Policy" }),
     ).toHaveAttribute("href", "/privacy")
     expect(screen.queryByRole("link", { name: "Deep Search" })).toBeNull()
+  })
+
+  it("shows sign-in only at the hidden UUID route", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/8f917f11-9443-4241-b741-6320492608c5?source=test",
+    )
+    authMocks.useSession.mockReturnValue({
+      data: null,
+      error: null,
+      isPending: false,
+      isRefetching: false,
+      refetch: authMocks.refetch,
+    })
+
+    renderApp()
+
+    expect(
+      screen.getByRole("heading", { name: "Sign in to continue" }),
+    ).toBeVisible()
+    expect(
+      screen.queryByRole("textbox", { name: "Email address" }),
+    ).not.toBeInTheDocument()
+    expect(
+      await screen.findByRole("button", { name: "Continue as debug user" }),
+    ).toBeVisible()
+    expect(document.title).toBe("Sign in — RethinkLoop")
+    expect(document.head.querySelector('meta[name="robots"]')).toHaveAttribute(
+      "content",
+      "noindex, nofollow",
+    )
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue with GitHub" }),
+    )
+    await waitFor(() =>
+      expect(authMocks.signInSocial).toHaveBeenCalledWith({
+        callbackURL: "/",
+        provider: "github",
+      }),
+    )
+  })
+
+  it("redirects authenticated visitors from the hidden sign-in route home", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/8f917f11-9443-4241-b741-6320492608c5",
+    )
+
+    renderApp()
+
+    await waitFor(() => expect(window.location.pathname).toBe("/"))
+    expect(
+      screen.getByRole("heading", { name: "One answer is not enough." }),
+    ).toBeVisible()
+    expect(authMocks.getAuthConfig).not.toHaveBeenCalled()
   })
 
   it("renders the public product entry point for an anonymous session", () => {

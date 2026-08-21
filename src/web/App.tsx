@@ -1,6 +1,7 @@
 import {
   BrowserRouter,
   Link,
+  Navigate,
   Route,
   Routes,
   type Location,
@@ -56,6 +57,7 @@ const navigationItems = [
 ] as const
 
 const ROUTE_FOCUS_OBSERVER_TIMEOUT_MS = 30_000
+const HIDDEN_SIGN_IN_PATH = "/8f917f11-9443-4241-b741-6320492608c5"
 
 function findRouteFocusTarget(main: HTMLElement | null): HTMLElement | null {
   return (
@@ -644,6 +646,14 @@ export function App() {
               showAnonymousDuringSessionCheck
             >
               {(props) => <AuthenticatedHome {...props} />}
+            </AuthGate>
+          }
+        />
+        <Route
+          path={HIDDEN_SIGN_IN_PATH}
+          element={
+            <AuthGate showSignIn>
+              {() => <Navigate replace to="/" />}
             </AuthGate>
           }
         />

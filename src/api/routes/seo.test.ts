@@ -322,6 +322,19 @@ describe("sitemap.xml", () => {
 })
 
 describe("resolveSeoPage", () => {
+  it("serves the hidden sign-in route as an unindexed application page", () => {
+    expect(
+      resolveSeoPage("/8f917f11-9443-4241-b741-6320492608c5", null),
+    ).toMatchObject({
+      kind: "page",
+      metadata: {
+        canonicalUrl: null,
+        noindex: true,
+        title: "Sign in — RethinkLoop",
+      },
+    })
+  })
+
   it("serves the merged admin route as a private application page", () => {
     expect(resolveSeoPage("/admin/credits", "admin-user-id")).toMatchObject({
       kind: "page",

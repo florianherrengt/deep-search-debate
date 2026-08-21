@@ -26,6 +26,7 @@ const oneBasedRoundNumberSchema = z
   .transform(Number)
   .pipe(z.number().int().positive().max(Number.MAX_SAFE_INTEGER))
 const privatePageLabels: Readonly<Record<string, string>> = {
+  "/8f917f11-9443-4241-b741-6320492608c5": "Sign in",
   "/about": "About",
   "/admin/credits": "Admin Credits",
   "/debates": "Debates",

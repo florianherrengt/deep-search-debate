@@ -1,7 +1,6 @@
 import { expect, test } from "@playwright/test"
 
-const webOrigin =
-  process.env.PLAYWRIGHT_WEB_ORIGIN ?? "http://localhost:5174"
+const hiddenSignInPath = "/8f917f11-9443-4241-b741-6320492608c5"
 
 test("joins the waitlist from the anonymous mobile experience", async ({
   page,
@@ -51,13 +50,15 @@ test("joins the waitlist from the anonymous mobile experience", async ({
 test("keeps existing authentication operational without a public sign-in button", async ({
   page,
 }) => {
-  const signInResponse = await page.request.post(
-    "/api/auth/debug-sign-in",
-    {
-      headers: { Origin: webOrigin, "X-Debug-Auth": "1" },
-    },
-  )
-  expect(signInResponse.ok()).toBe(true)
+  await page.goto(hiddenSignInPath)
+  await expect(
+    page.getByRole("heading", { name: "Sign in to continue" }),
+  ).toBeVisible()
+  await page.getByRole("button", { name: "Continue as debug user" }).click()
+  await expect(page).toHaveURL("/")
+  await expect(
+    page.getByRole("heading", { name: "One answer is not enough." }),
+  ).toBeVisible()
 
   await page.goto("/debates")
   await expect(
