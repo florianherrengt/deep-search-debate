@@ -58,8 +58,9 @@ provider timeout policy remain authoritative.
 `src/api/config.ts` reads and validates environment configuration before any
 server or provider is constructed. `LLM_PROVIDER` and `LLM_MODEL_NAME` are
 required. `LLM_PROVIDER=deepseek` requires `DEEPSEEK_API_KEY` and the priced
-`deepseek-v4-flash` model. Development alone may use `LLM_PROVIDER=zen`, which
-requires `OPENCODE_ZEN_API_KEY`; the unselected key may be absent or blank.
+`deepseek-v4-flash` or `deepseek-v4-pro` model. Development alone may use
+`LLM_PROVIDER=zen`, which requires `OPENCODE_ZEN_API_KEY`; the unselected key
+may be absent or blank.
 `SCRAPINGANT_API_KEY`, `BETTER_AUTH_SECRET`,
 `GITHUB_CLIENT_ID`, and `GITHUB_CLIENT_SECRET` are always required. Production
 also requires `SERPER_API_KEY`. A missing, blank, or whitespace-only

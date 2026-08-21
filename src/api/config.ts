@@ -427,12 +427,14 @@ const environmentSchema = z.object({
   }
   if (
     environment.LLM_PROVIDER === "deepseek" &&
-    environment.LLM_MODEL_NAME !== "deepseek-v4-flash"
+    !["deepseek-v4-flash", "deepseek-v4-pro"].includes(
+      environment.LLM_MODEL_NAME,
+    )
   ) {
     context.addIssue({
       code: "custom",
       message:
-        "LLM_MODEL_NAME must be deepseek-v4-flash when LLM_PROVIDER=deepseek",
+        "LLM_MODEL_NAME must be deepseek-v4-flash or deepseek-v4-pro when LLM_PROVIDER=deepseek",
       path: ["LLM_MODEL_NAME"],
     })
   }

@@ -422,14 +422,29 @@ describe("config", () => {
     )
   })
 
-  it("rejects an unpriced DeepSeek model", async () => {
+  it("allows the priced DeepSeek Pro model", async () => {
     vi.stubEnv("LLM_PROVIDER", "deepseek")
     vi.stubEnv("LLM_MODEL_NAME", "deepseek-v4-pro")
     vi.stubEnv("DEEPSEEK_API_KEY", "environment-deepseek-key")
     vi.resetModules()
 
+    const { config } = await import("./config.ts")
+
+    expect(config.llm).toEqual({
+      provider: "deepseek",
+      model: "deepseek-v4-pro",
+      apiKey: "environment-deepseek-key",
+    })
+  })
+
+  it("rejects an unpriced DeepSeek model", async () => {
+    vi.stubEnv("LLM_PROVIDER", "deepseek")
+    vi.stubEnv("LLM_MODEL_NAME", "unsupported-deepseek-model")
+    vi.stubEnv("DEEPSEEK_API_KEY", "environment-deepseek-key")
+    vi.resetModules()
+
     await expect(import("./config.ts")).rejects.toThrow(
-      "LLM_MODEL_NAME must be deepseek-v4-flash",
+      "LLM_MODEL_NAME must be deepseek-v4-flash or deepseek-v4-pro when LLM_PROVIDER=deepseek",
     )
   })
 

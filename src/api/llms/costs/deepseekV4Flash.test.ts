@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest"
 import {
   calculateDeepSeekV4FlashCostMicroUsd,
   calculateDeepSeekV4FlashCredits,
+  calculateDeepSeekV4ProCostMicroUsd,
+  calculateDeepSeekV4ProCredits,
 } from "./deepseekV4Flash.ts"
 
 function createUsage(input: {
@@ -79,5 +81,28 @@ describe("calculateDeepSeekV4FlashCostMicroUsd", () => {
     expect(() => calculateDeepSeekV4FlashCostMicroUsd(usage)).toThrow(
       "Invalid DeepSeek V4 Flash output token count",
     )
+  })
+})
+
+describe("calculateDeepSeekV4ProCostMicroUsd", () => {
+  it("calculates mixed usage with the documented Pro rates", () => {
+    const usage = createUsage({
+      cacheMissInputTokens: 100_000,
+      cacheHitInputTokens: 10_000,
+      outputTokens: 5_000,
+    })
+
+    expect(calculateDeepSeekV4ProCostMicroUsd(usage)).toBe(47_887)
+    expect(calculateDeepSeekV4ProCredits(usage)).toBe(48)
+  })
+
+  it.each([
+    ["cache-hit input", { cacheHitInputTokens: 1_000_000 }, 3_625],
+    ["cache-miss input", { cacheMissInputTokens: 1_000_000 }, 435_000],
+    ["output", { outputTokens: 1_000_000 }, 870_000],
+  ])("applies the %s rate", (_name, usage, expectedCost) => {
+    expect(
+      calculateDeepSeekV4ProCostMicroUsd(createUsage(usage)),
+    ).toBe(expectedCost)
   })
 })
