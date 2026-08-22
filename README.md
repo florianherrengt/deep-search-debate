@@ -49,7 +49,7 @@ LLM_MODEL_NAME=deepseek-v4-flash
 LLM_GENERATION_TIMEOUT_MS=300000
 LLM_FIRST_CHUNK_TIMEOUT_MS=120000
 LLM_CHUNK_TIMEOUT_MS=60000
-LLM_MAX_OUTPUT_TOKENS=8192
+LLM_MAX_OUTPUT_TOKENS=32768
 LLM_MAX_RETRIES=2
 LLM_MAX_CONCURRENT_GENERATIONS=4
 LLM_MAX_ACTIVE_STANDALONE_GENERATIONS_PER_USER=2
@@ -283,15 +283,20 @@ The pipeline uses nine visible phases:
    evaluation. It returns an unordered, unique, even set of 6 through
    12 idea IDs. The UI retains the selector's reasoning and marks every idea as
    selected or rejected.
-7. Every selected idea receives a structured refinement generation using its
-   original content, evaluation, request, and shared research briefing.
-8. Each refined idea starts its own durable deep search through the same shared
-   execution queue.
-9. The parent completes only after all selected-idea research completes.
+  7. Every selected idea receives a structured refinement generation using its
+     original content, evaluation, request, and shared research briefing.
+  8. A website generation starts immediately after each selected idea's
+     refinement commits; the single-file page is stored on the server under
+     `data/ideas/<idea-id>/websites/index.html` and served through the idea
+     job's read scope.
+  9. Each refined idea starts its own durable deep search through the same shared
+     execution queue.
+  10. The parent completes only after all selected-idea research, evaluations,
+      and websites complete.
 
 The run is all-or-nothing: a planning, child-search, summary, idea-generation,
-evaluation, selection, refinement, or selected-idea-research failure fails the
-parent run and prevents later stages.
+evaluation, selection, refinement, website, or selected-idea-research failure
+fails the parent run and prevents later stages.
 Individual blocked, challenged, paywalled, unavailable, or unsupported pages
 remain non-fatal inside a child search because their search snippets can still
 support its synthesis.

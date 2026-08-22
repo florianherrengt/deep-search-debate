@@ -42,6 +42,7 @@ export type IdeaEventStage =
   | "selection"
   | "refinement"
   | "idea-research"
+  | "website"
 
 export const MIN_SELECTED_IDEAS = 6
 export const MAX_SELECTED_IDEAS = 12
@@ -128,6 +129,11 @@ export const createIdeaJobInputSchema = deepSearchControlsSchema
 export type CreateIdeaJobRequest = z.input<typeof createIdeaJobInputSchema>
 
 export const ideaJobEventParamsSchema = z.object({ ideaJobId: z.uuid() })
+
+export const ideaWebsiteParamsSchema = z.object({
+  ideaJobId: z.uuid(),
+  ideaId: z.uuid(),
+})
 
 export const ideaJobParamsSchema = z.object({
   slug: z.string().trim().min(1).max(80),

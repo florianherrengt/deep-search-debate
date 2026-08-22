@@ -1,6 +1,7 @@
 node_modules
 .worktrees/
 dist
+data/
 storybook-static
 .env
 *.db
@@ -14,3 +15,4 @@ coolify_token
 src/api/secrets/*
 !src/api/secrets/dev.kdbx
 !src/api/secrets/prod.kdbx
+coolify/backups/

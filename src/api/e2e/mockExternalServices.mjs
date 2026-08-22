@@ -15,6 +15,11 @@ const databasePath = join(
 const databaseFiles = [databasePath, `${databasePath}-shm`, `${databasePath}-wal`]
 for (const path of databaseFiles) rmSync(path, { force: true })
 
+// Generated idea websites are real files; keep E2E output out of the repo.
+const ideaSitesDir = join(tmpdir(), `rethinkloop-e2e-${process.pid}-idea-sites`)
+rmSync(ideaSitesDir, { force: true, recursive: true })
+process.env.IDEA_SITES_DIR = ideaSitesDir
+
 process.env.DATABASE_URL = databasePath
 const sqlite = new Database(databasePath)
 migrate(drizzle(sqlite), {
@@ -26,6 +31,7 @@ function cleanupTestFiles() {
   if (cleanupComplete) return
   cleanupComplete = true
   for (const path of databaseFiles) rmSync(path, { force: true })
+  rmSync(ideaSitesDir, { force: true, recursive: true })
 }
 process.once("exit", cleanupTestFiles)
 process.once("SIGINT", () => {
@@ -631,6 +637,20 @@ function deepSeekOutput(body) {
     return {
       reasoning: `Improve mock idea ${position + 1} using the shared research.`,
       text: JSON.stringify(refinedIdeas[position]),
+    }
+  }
+  if (system.includes("Create a single self-contained HTML page")) {
+    const improvedIdea = parseTaggedJson(user, "improved_idea")
+    const position = refinedIdeas.findIndex(
+      (idea) => JSON.stringify(idea) === JSON.stringify(improvedIdea),
+    )
+    if (position === -1 || !user.includes("<research_briefing>")) {
+      throw new Error("Idea website request omitted its research or improved idea")
+    }
+    const ordinal = position + 1
+    return {
+      reasoning: "",
+      text: `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Improved Renter Energy Idea ${ordinal}</title></head><body><h1>Improved Renter Energy Idea ${ordinal}</h1><p>Deterministic E2E idea website.</p></body></html>`,
     }
   }
   if (/independent judge/i.test(system)) {

@@ -1,10 +1,17 @@
+import { mkdtempSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { defineConfig } from "vitest/config"
+
+// Generated idea websites are real files; keep test output out of the repo.
+const ideaSitesDir = mkdtempSync(join(tmpdir(), "rethinkloop-idea-sites-"))
 
 export default defineConfig({
   test: {
     include: ["**/*.test.ts"],
     setupFiles: ["./db/testSetup.ts"],
     env: {
+      IDEA_SITES_DIR: ideaSitesDir,
       SEARXNG_URL: "http://localhost:8090/",
       SEARXNG_MIN_INTERVAL_MS: "0",
       SERPER_API_KEY: "test-key",

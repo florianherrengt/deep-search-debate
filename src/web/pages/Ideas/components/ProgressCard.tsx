@@ -65,7 +65,6 @@ export function ProgressCard({
       onChange={(_event, next) => setManualExpanded(next)}
       onFocusCapture={onFocusCapture}
       slots={{ heading: "h3" }}
-      variant="outlined"
       disableGutters
     >
       <AccordionSummary expandIcon={<ExpandMore />}>

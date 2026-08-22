@@ -79,7 +79,11 @@ lowercase, limited to 254 characters, and validated as an email address.
 `BETTER_AUTH_URL=http://localhost:5173` and `DATABASE_URL=data.db`; production
 uses `BETTER_AUTH_URL=https://rethinkloop.com` and
 `DATABASE_URL=/app/data/data.db`. Explicit environment overrides remain
-available for tests and alternate deployments.
+available for tests and alternate deployments. Generated idea websites are
+stored as single HTML files under `IDEA_SITES_DIR` (`data/ideas` beside the
+development database, `/app/data/ideas` on the production data volume), one
+`<idea_uuid>/websites/index.html` per selected idea, and inherit the same
+override mechanism.
 `BETTER_AUTH_URL` is also the public web origin used for canonical debate URLs
 and social-preview images because authentication and the production web app are
 served from the same origin.
@@ -135,8 +139,10 @@ and ceilings with `RESEARCH_JOB_CREATION_WINDOW_MS`,
 Every LLM stream has total, first-content, and inter-content deadlines. The
 defaults are 300, 120, and 60 seconds and are configured with
 `LLM_GENERATION_TIMEOUT_MS`, `LLM_FIRST_CHUNK_TIMEOUT_MS`, and
-`LLM_CHUNK_TIMEOUT_MS`. `LLM_MAX_OUTPUT_TOKENS` is an 8,192-token operator
-ceiling by default; stages send smaller explicit budgets when their outputs are
+`LLM_CHUNK_TIMEOUT_MS`. `LLM_MAX_OUTPUT_TOKENS` is a 32,768-token operator
+ceiling by default — a runaway-output guard rather than a cost target, sized so
+max-reasoning website generations keep room for the complete HTML page; stages
+send smaller explicit budgets when their outputs are
 known to be short. This avoids both provider-specific implicit limits and
 oversized structured responses. Provider-request failures use two SDK retries by default,
 configured through `LLM_MAX_RETRIES`, so dependency upgrades cannot silently

@@ -55,6 +55,7 @@ const failedStageToProgressStage: Record<FailedStage, ProgressStage> = {
   selection: "ideas",
   refinement: "improvement",
   "idea-research": "improvement",
+  website: "improvement",
 }
 
 function IdeaResults({
@@ -224,7 +225,8 @@ export function IdeaJobView({
     failed:
       failedStage === "refinement" ||
       failedStage === "idea-research" ||
-      failedStage === "evaluation",
+      failedStage === "evaluation" ||
+      failedStage === "website",
     notRun: notRunAfterFailure("improvement"),
     running:
       status === "running" &&
@@ -241,7 +243,8 @@ export function IdeaJobView({
     (selectionCompleted ||
       failedStage === "refinement" ||
       failedStage === "idea-research" ||
-      failedStage === "evaluation")
+      failedStage === "evaluation" ||
+      failedStage === "website")
   return (
     <Stack spacing={3}>
       <Stack spacing={1}>
@@ -470,6 +473,11 @@ export function IdeaJobView({
                 {failedStage === "evaluation" && (
                   <Typography color="error" variant="body2">
                     One or more improved ideas could not be assessed.
+                  </Typography>
+                )}
+                {failedStage === "website" && (
+                  <Typography color="error" variant="body2">
+                    One or more idea websites could not be generated.
                   </Typography>
                 )}
                 <Typography color="text.secondary">

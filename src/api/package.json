@@ -12,7 +12,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:diagram": "tsx db/generateDiagram.ts",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "cli": "node --experimental-strip-types cli.ts"
   },
   "dependencies": {
     "@ai-sdk/deepseek": "^3.0.17",

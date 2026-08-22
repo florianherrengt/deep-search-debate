@@ -51,22 +51,36 @@ when terminal persistence fails.
    selected idea. It receives the original request, shared research briefing,
    and original idea. Its generation link is attached before publication;
    validated refined title and description commit together.
-8. One deep-search job is then created for each refined idea. These
+8. One website generation starts immediately after each selected idea's
+   refinement commits, using the `create-idea-site` prompt, the original
+   request, the shared research briefing, and the improved idea. All websites
+   generate concurrently and keep running while selected-idea research and
+   evaluation proceed. Each durable page is written to
+   `IDEA_SITES_DIR/<idea_uuid>/websites/index.html` (default `data/ideas`
+   beside the local database; `/app/data/ideas` in production) only after its
+   generation completes, so no partial page is ever stored. Reasoning is
+   enabled at maximum effort with a deliberately generous 32,768-token output
+   budget — the bound only guards against runaway output and remains capped
+   by the operator's `LLM_MAX_OUTPUT_TOKENS` ceiling.
+9. One deep-search job is then created for each refined idea. These
    searches reuse the request's existing `maxSearches`,
    `maxResultsPerSearch`, and `maxRounds`. Each search's parent-scoped position is
    `deepSearchCount + idea.position`. The parent waits for every selected-idea
    search to complete and pass the parent quality gate.
-9. One fresh structured evaluation generation starts for each researched,
-   refined idea. Each call receives the original request, shared research
-   briefing, improved idea, and that idea's supporting-research answer. It
-   returns two to four pros, two to four cons, and one concise critique of the
-   final version. The calls run concurrently and attach their generation IDs
-   to the selected ideas. Raw rejected candidates are not evaluated, so every
-   displayed assessment describes the improved idea the user is reading.
+10. One fresh structured evaluation generation starts for each researched,
+    refined idea. Each call receives the original request, shared research
+    briefing, improved idea, and that idea's supporting-research answer. It
+    returns two to four pros, two to four cons, and one concise critique of the
+    final version. The calls run concurrently and attach their generation IDs
+    to the selected ideas. Raw rejected candidates are not evaluated, so every
+    displayed assessment describes the improved idea the user is reading.
+    After evaluations settle, every started website settles before the parent
+    can complete; a website generation or file-write failure fails the parent
+    with the `website` event stage.
 
 Any planning, child-search, summary, idea-generation, selection-generation,
-refinement-generation, selected-idea-search, or final-evaluation failure
-fails the parent. An invalid selection count,
+refinement-generation, website-generation, selected-idea-search, or
+final-evaluation failure fails the parent. An invalid selection count,
 duplicate ID, or foreign ID is a selection failure. A final-evaluation failure
 does not erase completed improvements or assessments. Selection remains null
 when the selection transaction does not complete. Individual page-extraction
@@ -226,6 +240,18 @@ only the derived state and never echo the text:
 { "feedback": { "rating": false, "hasWrittenFeedback": true } }
 ```
 
+### `GET /api/idea-jobs/:ideaJobId/ideas/:ideaId/website`
+
+Returns the stored single-file website generated for one selected idea of a
+readable idea job, applying the same read scope as the detail and event routes:
+the owner may read a private job, while any viewer may read a website belonging
+to a public debate. The response is the generated HTML with
+`Content-Type: text/html; charset=utf-8`, `Cache-Control: no-store`, and a
+sandboxing `Content-Security-Policy` because the page is model output that must
+not gain this origin's session credentials. Unknown or foreign jobs, ideas
+outside the requested job, and ideas whose website was never generated return
+404.
+
 ### `GET /api/idea-jobs/:ideaJobId/events`
 
 Returns the replay-and-follow NDJSON feed. Live jobs use the retained in-memory
@@ -251,9 +277,12 @@ The event sequence is:
 11. `idea-evaluated` once per completed final evaluation, with the stable
     `ideaId`, ordered `pros`, ordered `cons`, and explanatory `critique`.
 12. On ordinary failure, one `error` with the failing stage and message.
-    Evaluation, selection, refinement, and selected-idea research use the event
-    stages `evaluation`, `selection`, `refinement`, and `idea-research`; all
-    remain durable subphases of the DB's `ideas` stage.
+    Evaluation, selection, refinement, selected-idea research, and website
+    generation use the event stages `evaluation`, `selection`, `refinement`,
+    `idea-research`, and `website`; all remain durable subphases of the DB's
+    `ideas` stage. A website failure surfaces after evaluations settle, while
+    a website still generating when an earlier stage fails settles durably
+    before the parent becomes terminal without changing that failure's stage.
 13. Exactly one terminal `done`.
 
 A standalone root's explicit Stop or a debate-owned job's inherited Stop
@@ -279,10 +308,11 @@ not duplicated in the parent; clients link to or subscribe to each existing
 `routes/ideas/run.ts` is the single Effect-owned idea coordinator. One
 `runPromiseExit` bridge in the workflow runtime is its Promise-facing boundary.
 It uses `Effect.gen` for stage ordering and concurrent `Effect.all` result-mode
-fan-outs for initial child searches, refinements, selected-idea research, and
-final evaluations. Every started item settles, while the first failure in input
-order is reported deterministically. Hono, Drizzle commands, AI SDK policy, and
-the existing process-wide queues remain outside Effect.
+fan-outs for initial child searches, refinements, started websites,
+selected-idea research, and final evaluations. Every started item settles, while
+the first failure in input order is reported deterministically. Hono, Drizzle
+commands, AI SDK policy, and the existing process-wide queues remain outside
+Effect.
 
 The coordinator does not subscribe to presentation streams. It awaits each
 generation's durable completion handle and structured result directly, so a
@@ -325,6 +355,11 @@ generation still has unfinished durable cleanup.
   relationship; the idea does not store a redundant child-search ID.
 - Idea cards, evaluations, and selected or rejected presentation replay from
   `ideas` and their linked generations.
+- Idea websites are durable files, not rows: each completed page lives at
+  `IDEA_SITES_DIR/<idea_uuid>/websites/index.html`. Their `llm_generations`
+  rows stay owned by the idea job with the `create-idea-site` prompt name, so
+  completion guards and credit totals include them and replay derives the
+  `website` failure stage; no idea-column link exists.
 - Every durable work-start and normal terminal transaction checks that the
   effective idea or debate root is still running without a Stop request. A
   completion race lost to cancellation becomes interruption rather than an

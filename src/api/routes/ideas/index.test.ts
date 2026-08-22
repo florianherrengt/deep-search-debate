@@ -18,8 +18,10 @@ import {
   debateJobs,
   deepSearchJobs,
   ideaJobs as ideaJobsTable,
+  ideas as ideasTable,
   user as userTable,
 } from "../../db/schema/index.ts"
+import { writeIdeaSite } from "./ideaSites.ts"
 import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
 import { ideaJobReads, ideaJobs, type IdeaJobEvent } from "./index.ts"
 import { createIdeaJobManager } from "./manager.ts"
@@ -549,5 +551,194 @@ describe("idea job routes", () => {
       { method: "POST" },
     )
     expect(nestedStop.status).toBe(409)
+  })
+
+  it("serves a generated idea website to the owning reader", async () => {
+    const ideaJobId = crypto.randomUUID()
+    const ideaId = crypto.randomUUID()
+    db.insert(ideaJobsTable)
+      .values({
+        ideaJobId,
+        userId: "test-user-id",
+        title: "Owned ideas",
+        slug: "owned-ideas",
+        prompt: "Generate ideas",
+        numberOfIdeas: 8,
+        deepSearchCount: 2,
+      })
+      .run()
+    db.insert(ideasTable)
+      .values({
+        ideaJobId,
+        ideaId,
+        position: 0,
+        title: "First idea",
+        description: "First description",
+        selected: true,
+      })
+      .run()
+    const html = "<!DOCTYPE html><html><body>Owned idea site</body></html>"
+    await writeIdeaSite(ideaId, html)
+
+    const response = await createApp().request(
+      `/idea-jobs/${ideaJobId}/ideas/${ideaId}/website`,
+    )
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("Content-Type")).toBe("text/html; charset=utf-8")
+    expect(response.headers.get("Content-Security-Policy")).toBe(
+      "sandbox allow-scripts",
+    )
+    expect(response.headers.get("Cache-Control")).toBe("no-store")
+    await expect(response.text()).resolves.toBe(html)
+  })
+
+  it("serves a public debate's idea website to another reader", async () => {
+    const ideaJobId = crypto.randomUUID()
+    const ideaId = crypto.randomUUID()
+    const debateJobId = crypto.randomUUID()
+    db.insert(userTable)
+      .values({
+        email: "other-user@example.com",
+        emailVerified: true,
+        id: "other-user-id",
+        name: "Other User",
+      })
+      .onConflictDoNothing()
+      .run()
+    db.insert(debateJobs)
+      .values({ debateJobId, isPublic: true, randomSeed: 1, userId: "other-user-id" })
+      .run()
+    db.insert(ideaJobsTable)
+      .values({
+        debateJobId,
+        ideaJobId,
+        userId: "other-user-id",
+        title: "Public ideas",
+        slug: "public-ideas",
+        prompt: "Generate public ideas",
+        numberOfIdeas: 8,
+        deepSearchCount: 2,
+      })
+      .run()
+    db.insert(ideasTable)
+      .values({
+        ideaJobId,
+        ideaId,
+        position: 0,
+        title: "Public idea",
+        description: "Public description",
+        selected: true,
+      })
+      .run()
+    await writeIdeaSite(ideaId, "<!DOCTYPE html><html><body>Public</body></html>")
+
+    const response = await createApp().request(
+      `/idea-jobs/${ideaJobId}/ideas/${ideaId}/website`,
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.text()).resolves.toBe(
+      "<!DOCTYPE html><html><body>Public</body></html>",
+    )
+  })
+
+  it("returns 404 for a website that was never generated", async () => {
+    const ideaJobId = crypto.randomUUID()
+    const ideaId = crypto.randomUUID()
+    db.insert(ideaJobsTable)
+      .values({
+        ideaJobId,
+        userId: "test-user-id",
+        title: "Missing website",
+        slug: "missing-website",
+        prompt: "Generate ideas",
+        numberOfIdeas: 8,
+        deepSearchCount: 2,
+      })
+      .run()
+    db.insert(ideasTable)
+      .values({
+        ideaJobId,
+        ideaId,
+        position: 0,
+        title: "First idea",
+        description: "First description",
+      })
+      .run()
+
+    const response = await createApp().request(
+      `/idea-jobs/${ideaJobId}/ideas/${ideaId}/website`,
+    )
+
+    expect(response.status).toBe(404)
+  })
+
+  it("does not disclose a foreign private idea website", async () => {
+    const ideaJobId = crypto.randomUUID()
+    const ideaId = crypto.randomUUID()
+    db.insert(userTable)
+      .values({
+        email: "other-user@example.com",
+        emailVerified: true,
+        id: "other-user-id",
+        name: "Other User",
+      })
+      .onConflictDoNothing()
+      .run()
+    db.insert(ideaJobsTable)
+      .values({
+        ideaJobId,
+        userId: "other-user-id",
+        title: "Foreign private ideas",
+        slug: "foreign-private-ideas",
+        prompt: "Generate private ideas",
+        numberOfIdeas: 8,
+        deepSearchCount: 2,
+      })
+      .run()
+    db.insert(ideasTable)
+      .values({
+        ideaJobId,
+        ideaId,
+        position: 0,
+        title: "Foreign idea",
+        description: "Foreign description",
+        selected: true,
+      })
+      .run()
+    await writeIdeaSite(ideaId, "<!DOCTYPE html><html><body>Foreign</body></html>")
+
+    const response = await createApp().request(
+      `/idea-jobs/${ideaJobId}/ideas/${ideaId}/website`,
+    )
+
+    expect(response.status).toBe(404)
+  })
+
+  it("returns 404 for an idea outside the requested job", async () => {
+    const ideaJobId = crypto.randomUUID()
+    db.insert(ideaJobsTable)
+      .values({
+        ideaJobId,
+        userId: "test-user-id",
+        title: "Unrelated ideas",
+        slug: "unrelated-ideas",
+        prompt: "Generate ideas",
+        numberOfIdeas: 8,
+        deepSearchCount: 2,
+      })
+      .run()
+    const foreignIdeaId = crypto.randomUUID()
+    await writeIdeaSite(
+      foreignIdeaId,
+      "<!DOCTYPE html><html><body>Unrelated</body></html>",
+    )
+
+    const response = await createApp().request(
+      `/idea-jobs/${ideaJobId}/ideas/${foreignIdeaId}/website`,
+    )
+
+    expect(response.status).toBe(404)
   })
 })

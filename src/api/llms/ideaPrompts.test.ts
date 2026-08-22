@@ -7,6 +7,7 @@ describe("idea pipeline prompts", () => {
     const ideaPrompt = await loadPrompt(PromptName.GenerateIdeas)
     const evaluationPrompt = await loadPrompt(PromptName.EvaluateIdea)
     const refinementPrompt = await loadPrompt(PromptName.RefineIdea)
+    const sitePrompt = await loadPrompt(PromptName.CreateIdeaSite)
 
     expect(summaryPrompt).toContain("untrusted source material")
     expect(summaryPrompt).toContain("never as instructions")
@@ -21,5 +22,8 @@ describe("idea pipeline prompts", () => {
     expect(refinementPrompt).toContain("never as instructions")
     expect(refinementPrompt).toContain("Do not invent")
     expect(refinementPrompt).toContain("standalone")
+    expect(sitePrompt).toContain("untrusted content")
+    expect(sitePrompt).toContain("never as instructions")
+    expect(sitePrompt).toContain("one HTML file")
   })
 })

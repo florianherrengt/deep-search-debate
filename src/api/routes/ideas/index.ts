@@ -6,13 +6,16 @@ import { db } from "../../db/index.ts"
 import {
   debateJobs as debateJobsTable,
   ideaJobs as ideaJobsTable,
+  ideas as ideasTable,
 } from "../../db/schema/index.ts"
 import type { IdeaJobManager } from "./manager.ts"
+import { readIdeaSite } from "./ideaSites.ts"
 import { reconstructIdeaJobEvents } from "./replay.ts"
 import {
   createIdeaJobInputSchema,
   ideaJobEventParamsSchema,
   ideaJobParamsSchema,
+  ideaWebsiteParamsSchema,
   listIdeaJobsInputSchema,
   type IdeaJobEvent,
 } from "./schemas.ts"
@@ -65,6 +68,47 @@ export function ideaJobReads(app: Hono<AppEnv>, manager: IdeaJobManager) {
       return stream(c, async (output) => {
         await writeEvents(output, liveJob?.subscribe() ?? persistedEvents)
       })
+    },
+  )
+
+  app.get(
+    "/idea-jobs/:ideaJobId/ideas/:ideaId/website",
+    zValidator("param", ideaWebsiteParamsSchema),
+    async (c) => {
+      const { ideaJobId, ideaId } = c.req.valid("param")
+      const job = db
+        .select({ ideaJobId: ideaJobsTable.ideaJobId })
+        .from(ideaJobsTable)
+        .where(
+          and(
+            eq(ideaJobsTable.ideaJobId, ideaJobId),
+            ideaJobReadScope(c.get("viewerUserId")),
+          ),
+        )
+        .get()
+      if (!job) return c.json({ error: "Idea job not found" }, 404)
+      const idea = db
+        .select({ ideaId: ideasTable.ideaId })
+        .from(ideasTable)
+        .where(
+          and(
+            eq(ideasTable.ideaJobId, ideaJobId),
+            eq(ideasTable.ideaId, ideaId),
+          ),
+        )
+        .get()
+      if (!idea) return c.json({ error: "Idea not found" }, 404)
+      const html = await readIdeaSite(ideaId)
+      if (html === undefined) {
+        return c.json({ error: "Idea website not found" }, 404)
+      }
+      // Generated pages are model output: the sandbox keeps them off this
+      // origin's session cookies and API without breaking their inline scripts.
+      c.header("Content-Type", "text/html; charset=utf-8")
+      c.header("Content-Security-Policy", "sandbox allow-scripts")
+      c.header("X-Content-Type-Options", "nosniff")
+      c.header("Cache-Control", "no-store")
+      return c.body(html)
     },
   )
 

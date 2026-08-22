@@ -19,13 +19,13 @@ import {
   awaitGenerationOutput,
   awaitGenerationText,
   type GenerationHandle,
+  type LlmGenerationOwner,
   type TextStreamPersistenceTransaction,
 } from "../../llms/streams.ts"
 import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
-import {
-  EffectiveResearchRootInactiveError,
-} from "../researchCancellation.ts"
+import { EffectiveResearchRootInactiveError } from "../researchCancellation.ts"
 import { deepSearchResearchRequestSchema } from "../deepSearch/resourceLimits.ts"
+import { buildIdeaSitePrompt, writeIdeaSite } from "./ideaSites.ts"
 import {
   ideaSchema,
   ideaEvaluationSchema,
@@ -755,18 +755,73 @@ async function refineIdea(
   }
 }
 
+export type IdeaSiteInput = {
+  userId: string
+  owner: LlmGenerationOwner
+  prompt: string
+  workflowSignal?: AbortSignal
+}
+
+export async function generateIdeaSite(
+  input: IdeaSiteInput,
+  researchSummary: string,
+  idea: {
+    ideaId: string
+    refinedTitle: string
+    refinedDescription: string
+  },
+): Promise<void> {
+  const generation = await generateTextStream({
+    userId: input.userId,
+    owner: input.owner,
+    prompt: buildIdeaSitePrompt(input.prompt, researchSummary, idea),
+    promptName: PromptName.CreateIdeaSite,
+    // Generous budget: max reasoning shares it with the complete HTML page,
+    // so this only guards against runaway output, not cost. Still capped by
+    // the operator's LLM_MAX_OUTPUT_TOKENS ceiling.
+    reasoning: "enabled",
+    maxOutputTokens: 32_768,
+    workflowSignal: input.workflowSignal,
+  })
+  const html = await awaitGenerationText(generation)
+  await writeIdeaSite(idea.ideaId, html)
+}
+
+function startIdeaSite(
+  input: RunIdeaJobInput,
+  researchSummary: string,
+  idea: RefinedIdea,
+): Promise<void> {
+  const completion = generateIdeaSite(
+    {
+      userId: input.userId,
+      owner: { ideaJobId: input.ideaJobId },
+      prompt: input.prompt,
+      workflowSignal: input.workflowSignal,
+    },
+    researchSummary,
+    idea,
+  )
+  // Keep an early rejection from becoming an unhandled rejection while sibling
+  // stages are still running; the coordinator settles it before completion.
+  void completion.catch(() => undefined)
+  return completion
+}
+
 function refineIdeasEffect(
   input: RunIdeaJobInput,
   researchSummary: string,
   ideas: PersistedIdea[],
+  onRefined: (idea: RefinedIdea) => void,
 ): Effect.Effect<RefinedIdea[], WorkflowFailure> {
   return Effect.gen(function*() {
     const settled = yield* settleEffects(
       ideas.map((idea) =>
-        workflowEffect(
-          () => refineIdea(input, researchSummary, idea),
-          "Idea refinement failed",
-        ),
+        workflowEffect(async () => {
+          const refined = await refineIdea(input, researchSummary, idea)
+          onRefined(refined)
+          return refined
+        }, "Idea refinement failed"),
       ),
     )
     return yield* unwrapSettled(settled)
@@ -841,6 +896,7 @@ function researchRefinedIdeasEffect(
 function ideaPipelineEffect(
   input: RunIdeaJobInput,
   setEventStage: (stage: IdeaEventStage) => void,
+  websiteCompletions: Promise<void>[],
 ): Effect.Effect<void, WorkflowFailure> {
   return Effect.gen(function*() {
     const prompts = yield* workflowEffect(() => generateResearchPrompts(input))
@@ -868,16 +924,41 @@ function ideaPipelineEffect(
     )
 
     setEventStage("refinement")
-    const refinedIdeas = yield* refineIdeasEffect(input, summary, selectedIdeas)
-
-    setEventStage("idea-research")
-    const researchedIdeas = yield* researchRefinedIdeasEffect(
+    // Each selected idea's website generation starts as soon as its own
+    // refinement commits, so every website builds concurrently with the
+    // remaining research and evaluation stages.
+    const refinedIdeas = yield* refineIdeasEffect(
       input,
-      refinedIdeas,
+      summary,
+      selectedIdeas,
+      (refined) => {
+        websiteCompletions.push(startIdeaSite(input, summary, refined))
+      },
     )
 
-    setEventStage("evaluation")
-    yield* evaluateIdeasEffect(input, summary, researchedIdeas)
+    // Research and evaluation run while the started websites keep generating;
+    // every branch settles before the parent can complete. Website failures
+    // are deliberately fatal: a generated site is part of the deliverable, so
+    // one missing site fails the whole idea job (and therefore the debate)
+    // rather than completing with a degraded result.
+    const settledDownstream = yield* settleEffects([
+      Effect.gen(function*() {
+        setEventStage("idea-research")
+        const researchedIdeas = yield* researchRefinedIdeasEffect(
+          input,
+          refinedIdeas,
+        )
+
+        setEventStage("evaluation")
+        yield* evaluateIdeasEffect(input, summary, researchedIdeas)
+
+        setEventStage("website")
+      }),
+      ...websiteCompletions.map((completion) =>
+        workflowEffect(() => completion, "Idea website generation failed"),
+      ),
+    ])
+    yield* unwrapSettled(settledDownstream)
 
     yield* workflowEffect(() => completeIdeaJob(input.ideaJobId))
   })
@@ -905,7 +986,8 @@ function durableIdeaStage(stage: IdeaEventStage): IdeaJobStage {
   return stage === "evaluation" ||
     stage === "selection" ||
     stage === "refinement" ||
-    stage === "idea-research"
+    stage === "idea-research" ||
+    stage === "website"
     ? "ideas"
     : stage
 }
@@ -913,14 +995,23 @@ function durableIdeaStage(stage: IdeaEventStage): IdeaJobStage {
 /** Runs the Effect-owned pipeline and owns the exact terminal event suffix. */
 export async function runIdeaJob(input: RunIdeaJobInput): Promise<void> {
   let stage: IdeaEventStage = "planning"
+  // Started websites keep their own durable generation lifecycle. The failure
+  // path still settles them so the parent never becomes terminal while a
+  // website stream is running.
+  const websiteCompletions: Promise<void>[] = []
   try {
     await runWorkflowEffect(
-      ideaPipelineEffect(input, (nextStage) => {
-        stage = nextStage
-      }),
+      ideaPipelineEffect(
+        input,
+        (nextStage) => {
+          stage = nextStage
+        },
+        websiteCompletions,
+      ),
       input.workflowSignal,
     )
   } catch (error) {
+    await Promise.allSettled(websiteCompletions)
     let cancellationReason = getCancellationReason(error, input.workflowSignal)
     const message = getErrorMessage(error, "Idea generation failed")
     if (!cancellationReason) {

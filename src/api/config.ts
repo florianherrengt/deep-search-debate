@@ -96,7 +96,7 @@ const nonSecretEnvironmentShape = {
     .int()
     .min(1_000)
     .max(65_536)
-    .default(8_192),
+    .default(32_768),
   LLM_MAX_RETRIES: z.coerce.number().int().min(0).max(10).default(2),
   LLM_MAX_CONCURRENT_GENERATIONS: z.coerce
     .number()
@@ -310,6 +310,7 @@ const nonSecretEnvironmentShape = {
     .max(500)
     .default(81),
   DATABASE_URL: z.string().min(1).optional(),
+  IDEA_SITES_DIR: z.string().min(1).optional(),
   API_HOST: z.string().trim().min(1).default("127.0.0.1"),
   PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
   BETTER_AUTH_URL: z.url().optional(),
@@ -611,6 +612,9 @@ export const config = {
   api: { hostname: environment.API_HOST, port: environment.PORT },
   web: { publicBaseUrl: environment.BETTER_AUTH_URL },
   db: { url: environment.DATABASE_URL },
+  ideaSites: {
+    dir: environment.IDEA_SITES_DIR ?? environmentDefaults.ideaSitesDir,
+  },
   auth: {
     adminEmail: environment.AUTH_ADMIN_EMAIL,
     baseUrl: environment.BETTER_AUTH_URL,
