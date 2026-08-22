@@ -4,7 +4,13 @@ import {
   NavigateBeforeRounded,
   OpenInNew,
 } from "@mui/icons-material"
-import { Button, Chip, Stack, Typography } from "@mui/material"
+import {
+  Button,
+  Chip,
+  Link as MuiLink,
+  Stack,
+  Typography,
+} from "@mui/material"
 import { Link } from "react-router-dom"
 import {
   debateStageLabels,
@@ -133,12 +139,15 @@ export function DebateMatchDetail({
           spacing={1}
           sx={{ alignItems: { sm: "center" } }}
         >
-          <Typography
-            component="h1"
-            sx={{ flexGrow: 1, overflowWrap: "anywhere" }}
-            variant="h4"
-          >
-            {match.firstIdea.title} vs {match.secondIdea.title}
+          <Typography component="h1" sx={{ flexGrow: 1 }} variant="h4">
+            <MuiLink
+              color="inherit"
+              component={Link}
+              sx={{ overflowWrap: "anywhere" }}
+              to={`/ideas/${encodeURIComponent(tournament.slug)}`}
+            >
+              {match.firstIdea.title} vs {match.secondIdea.title}
+            </MuiLink>
           </Typography>
           <Chip
             color={matchStatus.color}
