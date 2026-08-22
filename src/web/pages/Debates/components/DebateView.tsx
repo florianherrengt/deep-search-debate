@@ -28,6 +28,7 @@ import type { DebateTournament } from "../debateUiTypes.ts"
 import { DebateStoppedAlert } from "./DebateStoppedAlert.tsx"
 import { TournamentBoard } from "./TournamentBoard.tsx"
 import { WinnerIdeaCard } from "./WinnerIdeaCard.tsx"
+import { MarkdownText } from "../../../components/MarkdownText.tsx"
 
 export type DebateViewProps = {
   feedbackControl?: ReactNode
@@ -89,13 +90,7 @@ export function DebateView({
             <Typography variant="subtitle1">Prompt</Typography>
           </AccordionSummary>
           <AccordionDetails>
-            <Typography
-              color="text.secondary"
-              sx={{ overflowWrap: "anywhere" }}
-              variant="body1"
-            >
-              {tournament.prompt}
-            </Typography>
+            <MarkdownText text={tournament.prompt} />
           </AccordionDetails>
         </Accordion>
         <Button

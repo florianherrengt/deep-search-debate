@@ -25,6 +25,7 @@ import {
 } from "../deepSearchPresentation.ts"
 import { DeepSearchHeader } from "./DeepSearchHeader.tsx"
 import { ResearchAnalysis } from "./ResearchAnalysis.tsx"
+import { MarkdownText } from "../../../components/MarkdownText.tsx"
 
 export type DeepSearchOverviewProps = {
   feedbackControl?: ReactNode
@@ -133,12 +134,10 @@ export function DeepSearchOverview({
         />
       )}
       {stopControl}
-      <Typography
-        color="text.secondary"
-        sx={{ maxWidth: "85ch", overflowWrap: "anywhere" }}
-      >
-        {researchRequest}
-      </Typography>
+      <MarkdownText
+        sx={{ maxWidth: "85ch" }}
+        text={researchRequest}
+      />
       {run.error && (
         <Alert severity={presentationRun.status === "interrupted" ? "info" : "error"}>
           {presentationRun.status === "interrupted" && (
