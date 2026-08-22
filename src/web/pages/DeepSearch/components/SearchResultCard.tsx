@@ -1,5 +1,6 @@
-import { Chip, Link, Paper, Stack, Typography } from "@mui/material"
+import { Chip, Paper, Stack, Typography } from "@mui/material"
 import { alpha, type Theme } from "@mui/material/styles"
+import { ExternalLink } from "../../../components/ExternalLink.tsx"
 import type { DeepSearchResultState } from "../../../lib/deepSearchState.ts"
 import { PageSummary } from "./PageSummary.tsx"
 
@@ -40,9 +41,7 @@ export function SearchResultCard({ result }: SearchResultCardProps) {
         sx={{ justifyContent: "space-between", alignItems: { sm: "flex-start" } }}
       >
         <Typography component="div" variant="subtitle1">
-          <Link href={result.link} target="_blank" rel="noreferrer">
-            {result.title}
-          </Link>
+          <ExternalLink href={result.link}>{result.title}</ExternalLink>
         </Typography>
         <Chip
           size="small"

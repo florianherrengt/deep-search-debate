@@ -33,6 +33,16 @@ export const ButtonVariant: Story = {
   },
 }
 
+export const ButtonTextVariant: Story = {
+  args: {
+    buttonVariant: "text",
+    children: "Open full research",
+    size: "small",
+    to: "/deep-search/tenant-friendly-retrofit-coordination",
+    variant: "button",
+  },
+}
+
 export const InheritColorInHeading: Story = {
   args: {
     children:

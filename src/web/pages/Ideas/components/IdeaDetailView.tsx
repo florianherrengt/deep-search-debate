@@ -10,6 +10,7 @@ import Stack from "@mui/material/Stack"
 import Typography from "@mui/material/Typography"
 import { useEffect } from "react"
 import { Link, useLocation } from "react-router-dom"
+import { ExternalLink } from "../../../components/ExternalLink.tsx"
 import type { IdeaJobRunState, IdeaResearchState } from "../ideaJobState.ts"
 import { IdeaAssessment } from "./IdeaAssessment.tsx"
 
@@ -43,16 +44,14 @@ function IdeaResearch({ research }: { research: IdeaResearchState }) {
             <Typography component="h2" variant="h6">
               Supporting research
             </Typography>
-            <Button
-              component={Link}
-              rel="noopener noreferrer"
+            <ExternalLink
+              buttonVariant="text"
               size="small"
-              target="_blank"
               to={`/deep-search/${encodeURIComponent(research.slug)}`}
-              variant="text"
+              variant="button"
             >
               Open full research
-            </Button>
+            </ExternalLink>
           </Stack>
           <Typography color="text.secondary" variant="body2">
             Read the evidence gathered specifically for this improved idea.

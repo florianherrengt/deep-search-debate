@@ -17,6 +17,7 @@ type ExternalLinkProps =
     })
   | (DestinationProps & {
       children: ReactNode
+      buttonVariant?: ButtonProps["variant"]
       size?: ButtonProps["size"]
       sx?: SxProps<Theme>
       variant: "button"
@@ -32,7 +33,7 @@ export function ExternalLink(props: ExternalLinkProps) {
       size: props.size,
       sx,
       target: "_blank",
-      variant: "outlined" as const,
+      variant: props.buttonVariant ?? "outlined",
     }
     return props.to !== undefined ? (
       <Button component={RouterLink} to={props.to} {...buttonProps}>
