@@ -67,54 +67,56 @@ export function TournamentBoard({ tournament }: TournamentBoardProps) {
 
   return (
     <Stack spacing={3}>
-      <Stack
-        aria-labelledby={`${headingId}-progress`}
-        component="section"
-        spacing={1.5}
-      >
+      {tournamentActive && (
         <Stack
-          direction="row"
-          spacing={1}
-          sx={{ alignItems: "center", justifyContent: "space-between" }}
+          aria-labelledby={`${headingId}-progress`}
+          component="section"
+          spacing={1.5}
         >
-          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-            <EmojiEventsRounded color="primary" />
-            <Typography
-              component="h2"
-              id={`${headingId}-progress`}
-              variant="h6"
-            >
-              Debate progress
-            </Typography>
-          </Stack>
-          <Chip
-            color="primary"
-            label={debateStageLabels[tournament.stage]}
-            size="small"
-          />
-        </Stack>
-        {expectedMatchCount ? (
-          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-            <LinearProgress
-              aria-label="Debate completion"
-              sx={{ flexGrow: 1, height: 8, borderRadius: 1 }}
-              value={(completedMatches / expectedMatchCount) * 100}
-              variant="determinate"
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{ alignItems: "center", justifyContent: "space-between" }}
+          >
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+              <EmojiEventsRounded color="primary" />
+              <Typography
+                component="h2"
+                id={`${headingId}-progress`}
+                variant="h6"
+              >
+                Debate progress
+              </Typography>
+            </Stack>
+            <Chip
+              color="primary"
+              label={debateStageLabels[tournament.stage]}
+              size="small"
             />
-            <Typography color="text.secondary" variant="caption">
-              {completedMatches}/{expectedMatchCount} matches
-            </Typography>
           </Stack>
-        ) : (
-          <Typography color="text.secondary" variant="body2">
-            Waiting for idea selection before creating the tournament.
-          </Typography>
-        )}
-      </Stack>
+          {expectedMatchCount ? (
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+              <LinearProgress
+                aria-label="Debate completion"
+                sx={{ flexGrow: 1, height: 8, borderRadius: 1 }}
+                value={(completedMatches / expectedMatchCount) * 100}
+                variant="determinate"
+              />
+              <Typography color="text.secondary" variant="caption">
+                {completedMatches}/{expectedMatchCount} matches
+              </Typography>
+            </Stack>
+          ) : (
+            <Typography color="text.secondary" variant="body2">
+              Waiting for idea selection before creating the tournament.
+            </Typography>
+          )}
+        </Stack>
+      )}
 
       {showKnockout && (
         <>
-          <Divider />
+          {tournamentActive && <Divider />}
           <Stack
             aria-labelledby={`${headingId}-knockout`}
             component="section"
@@ -138,7 +140,7 @@ export function TournamentBoard({ tournament }: TournamentBoardProps) {
         </>
       )}
 
-      <Divider />
+      {(tournamentActive || showKnockout) && <Divider />}
       <Box
         aria-label={
           swissRounds.length > 0 ? "Standings and debate rounds" : undefined

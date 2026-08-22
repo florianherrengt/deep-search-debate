@@ -22,13 +22,51 @@ describe("TournamentBoard", () => {
     renderBoard(completedTournament)
 
     expect(
-      screen.getByRole("region", { name: "Debate progress" }),
-    ).toBeVisible()
+      screen.queryByRole("region", { name: "Debate progress" }),
+    ).not.toBeInTheDocument()
     expect(screen.getByRole("region", { name: "Knockout" })).toBeVisible()
     expect(
       screen.getByRole("region", { name: "Debate rounds" }),
     ).toBeVisible()
     expect(screen.getByRole("region", { name: "Standings" })).toBeVisible()
+  })
+
+  it("shows debate progress only while the tournament is actively running", () => {
+    const { rerender } = renderBoard(swissTournament)
+    expect(
+      screen.getByRole("region", { name: "Debate progress" }),
+    ).toBeVisible()
+
+    rerender(
+      <MemoryRouter>
+        <TournamentBoard
+          tournament={{ ...swissTournament, stopRequested: true }}
+        />
+      </MemoryRouter>,
+    )
+    expect(
+      screen.queryByRole("region", { name: "Debate progress" }),
+    ).not.toBeInTheDocument()
+
+    rerender(
+      <MemoryRouter>
+        <TournamentBoard tournament={{ ...swissTournament, status: "failed" }} />
+      </MemoryRouter>,
+    )
+    expect(
+      screen.queryByRole("region", { name: "Debate progress" }),
+    ).not.toBeInTheDocument()
+
+    rerender(
+      <MemoryRouter>
+        <TournamentBoard
+          tournament={{ ...swissTournament, status: "interrupted" }}
+        />
+      </MemoryRouter>,
+    )
+    expect(
+      screen.queryByRole("region", { name: "Debate progress" }),
+    ).not.toBeInTheDocument()
   })
 
   it("groups standings before debate rounds in the tournament detail area", () => {

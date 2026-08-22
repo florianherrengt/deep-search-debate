@@ -116,6 +116,7 @@ test.describe("Debate tournament", () => {
     await expect(
       page.getByRole("heading", { name: "Apartment Energy Product Ideas" }),
     ).toBeVisible()
+    await page.getByRole("button", { name: "Prompt" }).click()
     await expect(page.getByText(prompt, { exact: true })).toBeVisible()
 
     const live = await liveResponse
@@ -294,7 +295,9 @@ test.describe("Debate tournament", () => {
       ),
     )
     expect(headerControlHeights).toEqual([30, 30, 30])
-    await expect(page.getByText("23/23 matches", { exact: true })).toBeVisible()
+    await expect(
+      page.getByRole("region", { name: "Debate progress" }),
+    ).toHaveCount(0)
     await expect(page.getByText("Winning idea", { exact: true })).toBeVisible()
     await expect(page.getByText("Why it won", { exact: true })).toBeVisible()
     await expect(
@@ -624,7 +627,9 @@ test.describe("Debate tournament", () => {
 
     await page.reload()
     await expect(page.getByText("Stopped").first()).toBeVisible()
-    await expect(page.getByText(/\d+\/23 matches/)).toBeVisible()
+    await expect(
+      page.getByRole("region", { name: "Debate progress" }),
+    ).toHaveCount(0)
   })
 
   test("fails after one opening exhausts provider retries without starting another round", async ({
