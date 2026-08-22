@@ -14,7 +14,7 @@ describe("configured LLM provider", () => {
     expect(llm.model("deepseek-override").modelId).toBe("deepseek-override")
     expect(llm.callOptions("enabled")).toEqual({
       providerOptions: {
-        deepseek: { thinking: { type: "enabled" } },
+        deepseek: { thinking: { type: "enabled" }, reasoningEffort: "max" },
       },
     })
     expect(llm.callOptions("disabled")).toEqual({

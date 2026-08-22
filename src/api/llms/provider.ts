@@ -26,6 +26,9 @@ export function createConfiguredLlm(llmConfig: LlmConfig) {
         providerOptions: {
           deepseek: {
             thinking: { type: reasoning },
+            // Reasoning-enabled calls request the maximum thinking strength;
+            // disabled calls stay effort-free.
+            ...(reasoning === "enabled" && { reasoningEffort: "max" }),
           } satisfies DeepSeekLanguageModelChatOptions,
         },
       }),

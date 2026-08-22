@@ -17,8 +17,10 @@ The LLM provider and model are selected by `LLM_PROVIDER` and
 `LLM_MODEL_NAME`. `generateTextStream` (`src/api/llms/generateText.ts`) requests
 reasoning and registers the provider stream immediately before returning its
 stream ID. The provider adapter translates that call-level intent into DeepSeek
-thinking or OpenCode Zen reasoning effort. See `routes/docs/text-streaming.md`
-for the client contract.
+thinking or OpenCode Zen reasoning effort. Enabled reasoning requests the
+maximum DeepSeek thinking strength (`thinking.type=enabled` with
+`reasoning_effort=max`); disabled reasoning sends `thinking.type=disabled`.
+See `routes/docs/text-streaming.md` for the client contract.
 
 For durable streams, `promptName` is also the operational stage name stored on
 `llm_generations` and emitted in the terminal lifecycle log. Prompts and model
