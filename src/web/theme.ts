@@ -229,6 +229,17 @@ const darkTheme = createTheme({
           "&.Mui-disabled": {
             backgroundColor: theme.vars.palette.action.disabledBackground,
           },
+          // MUI pads multiline outlined roots at 16.5px while the compact
+          // single-line inputs below use 10px, so multiline first lines and
+          // labels sat visibly lower. Align multiline roots with the compact
+          // input padding and let the root own the geometry; without this the
+          // compact input padding would otherwise also hit the textarea.
+          "&.MuiInputBase-multiline": {
+            padding: "10px 12px",
+            "& .MuiInputBase-input": {
+              padding: 0,
+            },
+          },
         }),
         input: {
           padding: "10px 12px",
@@ -239,6 +250,15 @@ const darkTheme = createTheme({
       styleOverrides: {
         root: {
           fontSize: "0.875rem",
+        },
+        // MUI rests outlined labels at translate(14px, 16px), tuned for its
+        // default 56px-tall inputs. The compact app-wide inputs (40px
+        // min-height, 10px input padding) center the resting label at
+        // translate(14px, 11px); the shrunk state keeps MUI's offset.
+        outlined: {
+          '&[data-shrink="false"]': {
+            transform: "translate(14px, 11px)",
+          },
         },
       },
     },
