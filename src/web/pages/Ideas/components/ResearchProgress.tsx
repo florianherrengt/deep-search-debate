@@ -1,5 +1,5 @@
-import OpenInNew from "@mui/icons-material/OpenInNew"
-import { Link, Stack, Typography } from "@mui/material"
+import { Stack, Typography } from "@mui/material"
+import { ExternalLink } from "../../../components/ExternalLink.tsx"
 import { getPromptExcerpt } from "../../../lib/promptPresentation.ts"
 import type { IdeaResearchState } from "../ideaJobState.ts"
 
@@ -8,19 +8,12 @@ function ResearchLink({ research }: { research: IdeaResearchState }) {
   // users follow a search without replacing or duplicating the idea pipeline.
   return (
     <Stack spacing={0.25}>
-      <Link
+      <ExternalLink
         href={`/deep-search/${research.slug}`}
-        target="_blank"
-        rel="noopener noreferrer"
         sx={{ overflowWrap: "anywhere" }}
       >
         {research.title}
-        <OpenInNew
-          aria-hidden="true"
-          fontSize="inherit"
-          sx={{ ml: 0.5, verticalAlign: "text-bottom" }}
-        />
-      </Link>
+      </ExternalLink>
       <Typography color="text.secondary" variant="body2">
         {getPromptExcerpt(research.researchRequest)}
       </Typography>

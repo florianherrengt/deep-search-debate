@@ -1,12 +1,11 @@
 import {
   CheckCircleOutlined,
   EmojiEventsRounded,
-  OpenInNew,
   RemoveCircleOutlined,
 } from "@mui/icons-material"
-import { Box, Card, CardContent, Chip, Link as MuiLink, Stack, Typography } from "@mui/material"
+import { Box, Card, CardContent, Chip, Stack, Typography } from "@mui/material"
 import { useId } from "react"
-import { Link as RouterLink } from "react-router-dom"
+import { ExternalLink } from "../../../components/ExternalLink.tsx"
 import type { IdeaEvaluation } from "../../../lib/ideaJobs.ts"
 import { AssessmentPoints } from "../../Ideas/components/IdeaAssessment.tsx"
 import type { DebateIdea } from "../debateUiTypes.ts"
@@ -54,24 +53,9 @@ export function WinnerIdeaCard({
               variant="outlined"
             />
             <Typography component="h2" variant="h5">
-              <MuiLink
-                component={RouterLink}
-                rel="noopener noreferrer"
-                sx={{
-                  color: "inherit",
-                  textDecoration: "none",
-                  "&:hover": { textDecoration: "underline" },
-                }}
-                target="_blank"
-                to={ideaDetailsUrl}
-              >
+              <ExternalLink color="inherit" to={ideaDetailsUrl}>
                 {idea.title}
-                <OpenInNew
-                  aria-hidden="true"
-                  fontSize="inherit"
-                  sx={{ ml: 0.5, verticalAlign: "text-bottom" }}
-                />
-              </MuiLink>
+              </ExternalLink>
             </Typography>
             <Typography color="text.secondary" variant="body2">
               {idea.description}
@@ -166,25 +150,13 @@ export function WinnerIdeaCard({
                       Closest alternative
                     </Typography>
                     <Typography sx={{ fontWeight: 600 }} variant="body2">
-                      <MuiLink
-                        component={RouterLink}
-                        rel="noopener noreferrer"
-                        sx={{
-                          color: "inherit",
-                          fontWeight: 600,
-                          textDecoration: "none",
-                          "&:hover": { textDecoration: "underline" },
-                        }}
-                        target="_blank"
+                      <ExternalLink
+                        color="inherit"
+                        sx={{ fontWeight: 600 }}
                         to={`/ideas/${encodeURIComponent(ideaJobSlug)}/${encodeURIComponent(closestAlternative.ideaId)}#improved-idea`}
                       >
                         {closestAlternative.title}
-                        <OpenInNew
-                          aria-hidden="true"
-                          fontSize="inherit"
-                          sx={{ ml: 0.5, verticalAlign: "text-bottom" }}
-                        />
-                      </MuiLink>
+                      </ExternalLink>
                     </Typography>
                     <Typography color="text.secondary" variant="body2">
                       {closestAlternative.description}
