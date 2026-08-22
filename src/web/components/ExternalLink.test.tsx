@@ -35,6 +35,26 @@ describe("ExternalLink", () => {
     expect(link.querySelector("svg[aria-hidden='true']")).not.toBeNull()
   })
 
+  it("renders the button variant as an outlined button link that opens in a new tab", () => {
+    render(
+      <MemoryRouter>
+        <ExternalLink
+          size="small"
+          to="/ideas/energy/idea-7#improved-idea"
+          variant="button"
+        >
+          Improved idea
+        </ExternalLink>
+      </MemoryRouter>,
+    )
+
+    const link = screen.getByRole("link", { name: "Improved idea" })
+    expect(link).toHaveAttribute("href", "/ideas/energy/idea-7#improved-idea")
+    expect(link).toHaveAttribute("target", "_blank")
+    expect(link).toHaveAttribute("rel", "noopener noreferrer")
+    expect(link.querySelector("svg[aria-hidden='true']")).not.toBeNull()
+  })
+
   it("inherits the surrounding color instead of the primary link color", () => {
     const headingColor = "rgb(123, 45, 6)"
     render(

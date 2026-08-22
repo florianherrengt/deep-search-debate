@@ -2,7 +2,6 @@ import {
   ArrowBackRounded,
   ArrowForwardRounded,
   NavigateBeforeRounded,
-  OpenInNew,
 } from "@mui/icons-material"
 import {
   Button,
@@ -12,6 +11,7 @@ import {
   Typography,
 } from "@mui/material"
 import { Link } from "react-router-dom"
+import { ExternalLink } from "../../../components/ExternalLink.tsx"
 import {
   debateStageLabels,
   getDebateStatusPresentation,
@@ -166,19 +166,15 @@ export function DebateMatchDetail({
           sx={{ alignItems: "flex-start" }}
         >
           {[match.firstIdea, match.secondIdea].map((idea) => (
-            <Button
-              component={Link}
-              endIcon={<OpenInNew />}
+            <ExternalLink
               key={idea.ideaId}
-              rel="noopener noreferrer"
               size="small"
               sx={{ overflowWrap: "anywhere", textAlign: "left" }}
-              target="_blank"
               to={`/ideas/${encodeURIComponent(tournament.slug)}/${encodeURIComponent(idea.ideaId)}#improved-idea`}
-              variant="outlined"
+              variant="button"
             >
               {idea.title}
-            </Button>
+            </ExternalLink>
           ))}
         </Stack>
       </Stack>

@@ -24,6 +24,15 @@ export const InternalRoute: Story = {
   },
 }
 
+export const ButtonVariant: Story = {
+  args: {
+    children: "Open the improved idea",
+    size: "small",
+    to: "/ideas/renter-energy-product-ideas/idea-42#improved-idea",
+    variant: "button",
+  },
+}
+
 export const InheritColorInHeading: Story = {
   args: {
     children:

@@ -1,25 +1,51 @@
 import OpenInNew from "@mui/icons-material/OpenInNew"
-import { Link } from "@mui/material"
-import type { LinkProps, SxProps, Theme } from "@mui/material"
+import { Button, Link } from "@mui/material"
+import type { ButtonProps, LinkProps, SxProps, Theme } from "@mui/material"
 import type { ReactNode } from "react"
 import { Link as RouterLink } from "react-router-dom"
 
-type ExternalLinkProps = (
+type DestinationProps =
   | { href: string; to?: undefined }
   | { href?: undefined; to: string }
-) & {
-  children: ReactNode
-  color?: LinkProps["color"]
-  sx?: SxProps<Theme>
-}
 
-export function ExternalLink({
-  children,
-  color,
-  href,
-  sx,
-  to,
-}: ExternalLinkProps) {
+type ExternalLinkProps =
+  | (DestinationProps & {
+      children: ReactNode
+      color?: LinkProps["color"]
+      sx?: SxProps<Theme>
+      variant?: "link"
+    })
+  | (DestinationProps & {
+      children: ReactNode
+      size?: ButtonProps["size"]
+      sx?: SxProps<Theme>
+      variant: "button"
+    })
+
+export function ExternalLink(props: ExternalLinkProps) {
+  const { children, sx } = props
+
+  if (props.variant === "button") {
+    const buttonProps = {
+      endIcon: <OpenInNew aria-hidden="true" />,
+      rel: "noopener noreferrer",
+      size: props.size,
+      sx,
+      target: "_blank",
+      variant: "outlined" as const,
+    }
+    return props.to !== undefined ? (
+      <Button component={RouterLink} to={props.to} {...buttonProps}>
+        {children}
+      </Button>
+    ) : (
+      <Button href={props.href} {...buttonProps}>
+        {children}
+      </Button>
+    )
+  }
+
+  const { color, href, to } = props
   const icon = (
     <OpenInNew
       aria-hidden="true"
@@ -45,7 +71,13 @@ export function ExternalLink({
   }
 
   return (
-    <Link color={color} href={href} rel="noopener noreferrer" sx={sx} target="_blank">
+    <Link
+      color={color}
+      href={href}
+      rel="noopener noreferrer"
+      sx={sx}
+      target="_blank"
+    >
       {children}
       {icon}
     </Link>
