@@ -99,13 +99,6 @@ function AppNavigation({ session, signingOut, signOut }: AppNavigationProps) {
     refetchInterval: 5_000,
   })
   const formattedCredits = creditAccount.data?.credits.toLocaleString() ?? "—"
-  const compactCredits =
-    creditAccount.data === undefined
-      ? "—"
-      : new Intl.NumberFormat(undefined, {
-          maximumFractionDigits: 1,
-          notation: "compact",
-        }).format(creditAccount.data.credits)
   const creditBalanceLabel =
     creditAccount.data === undefined
       ? "Credit balance unavailable"
@@ -233,7 +226,7 @@ function AppNavigation({ session, signingOut, signOut }: AppNavigationProps) {
                 component="span"
                 sx={{ display: { xs: "inline", sm: "none" } }}
               >
-                {compactCredits} cr
+                {formattedCredits} cr
               </Box>
               <Box
                 component="span"

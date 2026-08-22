@@ -333,7 +333,6 @@ describe("App", () => {
     const creditBalance = await screen.findByRole("status", {
       name: "Credit balance: 1,000 credits",
     })
-    expect(within(creditBalance).getByText("1K cr")).toBeInTheDocument()
     expect(within(creditBalance).getByText("1,000 credits")).toBeInTheDocument()
     expect(
       within(screen.getByRole("navigation", { name: "Primary navigation" }))
