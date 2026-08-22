@@ -82,16 +82,26 @@ export function DebateMatchDetail({
         >
           Back to debate
         </Button>
-        <Stack direction="row" spacing={1} sx={{ ml: "auto" }}>
+        <Stack
+          direction="row"
+          spacing={1}
+          sx={{ alignItems: "center", flexWrap: "wrap", ml: "auto" }}
+        >
           {previous ? (
             <Button
               aria-label={`Previous: ${matchName(previous)}`}
               component={Link}
               startIcon={<NavigateBeforeRounded />}
+              sx={{
+                maxInlineSize: 280,
+                minInlineSize: 0,
+                overflowWrap: "anywhere",
+                textAlign: "left",
+              }}
               to={matchPath(tournament, previous)}
               variant="outlined"
             >
-              Previous
+              {matchName(previous)}
             </Button>
           ) : null}
           {next ? (
@@ -99,10 +109,16 @@ export function DebateMatchDetail({
               aria-label={`Next: ${matchName(next)}`}
               component={Link}
               endIcon={<ArrowForwardRounded />}
+              sx={{
+                maxInlineSize: 280,
+                minInlineSize: 0,
+                overflowWrap: "anywhere",
+                textAlign: "left",
+              }}
               to={matchPath(tournament, next)}
               variant="outlined"
             >
-              Next
+              {matchName(next)}
             </Button>
           ) : null}
         </Stack>
