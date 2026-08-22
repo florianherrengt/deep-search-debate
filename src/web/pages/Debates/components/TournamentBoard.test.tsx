@@ -69,6 +69,27 @@ describe("TournamentBoard", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("renders the standings action at the end of the standings heading row", () => {
+    render(
+      <MemoryRouter>
+        <TournamentBoard
+          standingsAction={<a href="/ideas/x">Idea generation</a>}
+          tournament={swissTournament}
+        />
+      </MemoryRouter>,
+    )
+
+    const standings = screen.getByRole("region", { name: "Standings" })
+    const action = within(standings).getByRole("link", {
+      name: "Idea generation",
+    })
+    const heading = within(standings).getByRole("heading", {
+      name: "Standings",
+    })
+
+    expect(action.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+  })
+
   it("groups standings before debate rounds in the tournament detail area", () => {
     renderBoard(semifinalTournament)
 

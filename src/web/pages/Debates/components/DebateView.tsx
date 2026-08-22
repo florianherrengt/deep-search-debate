@@ -98,14 +98,6 @@ export function DebateView({
             </Typography>
           </AccordionDetails>
         </Accordion>
-        <Button
-          component={Link}
-          startIcon={<LightbulbOutlined />}
-          sx={{ alignSelf: "flex-start" }}
-          to={`/ideas/${tournament.slug}`}
-        >
-          View the underlying idea generation
-        </Button>
       </Stack>
 
       {tournament.error && (
@@ -146,7 +138,18 @@ export function DebateView({
         />
       )}
 
-      <TournamentBoard tournament={tournament} />
+      <TournamentBoard
+        standingsAction={
+          <Button
+            component={Link}
+            startIcon={<LightbulbOutlined />}
+            to={`/ideas/${tournament.slug}`}
+          >
+            View the underlying idea generation
+          </Button>
+        }
+        tournament={tournament}
+      />
     </Stack>
   )
 }
