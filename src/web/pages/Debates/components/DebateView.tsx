@@ -17,6 +17,7 @@ import {
 } from "@mui/material"
 import type { ReactNode } from "react"
 import { Link } from "react-router-dom"
+import type { IdeaEvaluation } from "../../../lib/ideaJobs.ts"
 import { getDebateStatusPresentation } from "../debatePresentation.ts"
 import {
   getClosestAlternative,
@@ -32,9 +33,15 @@ export type DebateViewProps = {
   feedbackControl?: ReactNode
   tournament: DebateTournament
   ownerActions?: ReactNode
+  winnerEvaluation?: IdeaEvaluation
 }
 
-export function DebateView({ feedbackControl, ownerActions, tournament }: DebateViewProps) {
+export function DebateView({
+  feedbackControl,
+  ownerActions,
+  tournament,
+  winnerEvaluation,
+}: DebateViewProps) {
   const winner = getWinner(tournament)
   const closestAlternative = getClosestAlternative(tournament)
   const winnerReason = getWinnerReason(tournament)
@@ -132,6 +139,7 @@ export function DebateView({ feedbackControl, ownerActions, tournament }: Debate
       {winner && (
         <WinnerIdeaCard
           closestAlternative={closestAlternative}
+          evaluation={winnerEvaluation}
           idea={winner}
           ideaJobSlug={tournament.slug}
           reason={winnerReason}

@@ -1,4 +1,5 @@
 /** Realistic, deterministic data used only by Debate Storybook stories. */
+import type { IdeaEvaluation } from "../../../lib/ideaJobs.ts"
 import type {
   DebateIdea,
   DebateMatch,
@@ -368,3 +369,18 @@ export const completedTournament: DebateTournament = {
 
 export const streamingMatch = swissTournament.rounds[1].matches[2]
 export const completedMatch = finalComplete
+
+export const completedWinnerEvaluation: IdeaEvaluation = {
+  pros: [
+    "Prevents waste at the highest-leverage decision point",
+    "Uses existing till and event data",
+    "Asks less of staff during the busiest part of the day",
+  ],
+  cons: [
+    "Depends on forecast accuracy",
+    "Requires cafés to trust a predictive model",
+    "Needs a brief onboarding period",
+  ],
+  critique:
+    "The strongest option for cutting waste where it is created, provided the forecast is explainable and the onboarding is kept minimal.",
+}

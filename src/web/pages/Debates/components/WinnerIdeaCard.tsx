@@ -1,22 +1,32 @@
-import { EmojiEventsRounded, LightbulbOutlined } from "@mui/icons-material"
-import { Button, Card, CardContent, Chip, Stack, Typography } from "@mui/material"
+import {
+  CheckCircleOutlined,
+  EmojiEventsRounded,
+  OpenInNew,
+  RemoveCircleOutlined,
+} from "@mui/icons-material"
+import { Box, Card, CardContent, Chip, Link as MuiLink, Stack, Typography } from "@mui/material"
 import { useId } from "react"
-import { Link } from "react-router-dom"
+import { Link as RouterLink } from "react-router-dom"
+import type { IdeaEvaluation } from "../../../lib/ideaJobs.ts"
+import { AssessmentPoints } from "../../Ideas/components/IdeaAssessment.tsx"
 import type { DebateIdea } from "../debateUiTypes.ts"
 
 export function WinnerIdeaCard({
   closestAlternative,
+  evaluation,
   idea,
   ideaJobSlug,
   reason,
 }: {
   closestAlternative?: DebateIdea
+  evaluation?: IdeaEvaluation
   idea: DebateIdea
   ideaJobSlug: string
   reason?: string
 }) {
   const explanationId = useId()
   const showExplanation = Boolean(reason || closestAlternative)
+  const ideaDetailsUrl = `/ideas/${encodeURIComponent(ideaJobSlug)}/${encodeURIComponent(idea.ideaId)}#improved-idea`
 
   return (
     <Card variant="outlined" sx={{ borderColor: "success.main" }}>
@@ -36,20 +46,69 @@ export function WinnerIdeaCard({
               variant="outlined"
             />
             <Typography component="h2" variant="h5">
-              {idea.title}
+              <MuiLink
+                component={RouterLink}
+                rel="noopener noreferrer"
+                sx={{
+                  color: "inherit",
+                  textDecoration: "none",
+                  "&:hover": { textDecoration: "underline" },
+                }}
+                target="_blank"
+                to={ideaDetailsUrl}
+              >
+                {idea.title}
+                <OpenInNew
+                  aria-hidden="true"
+                  fontSize="inherit"
+                  sx={{ ml: 0.5, verticalAlign: "text-bottom" }}
+                />
+              </MuiLink>
             </Typography>
             <Typography color="text.secondary" variant="body2">
               {idea.description}
             </Typography>
-            <Button
-              component={Link}
-              size="small"
-              startIcon={<LightbulbOutlined />}
-              sx={{ alignSelf: "flex-start" }}
-              to={`/ideas/${encodeURIComponent(ideaJobSlug)}/${encodeURIComponent(idea.ideaId)}#improved-idea`}
-            >
-              View winning idea details
-            </Button>
+            {evaluation && (
+              <Stack
+                aria-labelledby={`${explanationId}-pros-cons`}
+                component="section"
+                spacing={1.5}
+                sx={{ pt: 0.5 }}
+              >
+                <Typography
+                  component="h3"
+                  id={`${explanationId}-pros-cons`}
+                  variant="subtitle1"
+                >
+                  Pros and cons
+                </Typography>
+                <Box
+                  sx={{
+                    display: "grid",
+                    gap: 2,
+                    gridTemplateColumns: {
+                      xs: "1fr",
+                      md: "repeat(2, minmax(0, 1fr))",
+                    },
+                  }}
+                >
+                  <AssessmentPoints
+                    color="success.main"
+                    headingComponent="h4"
+                    icon={CheckCircleOutlined}
+                    points={evaluation.pros}
+                    title="Pros"
+                  />
+                  <AssessmentPoints
+                    color="warning.main"
+                    headingComponent="h4"
+                    icon={RemoveCircleOutlined}
+                    points={evaluation.cons}
+                    title="Cons"
+                  />
+                </Box>
+              </Stack>
+            )}
             {showExplanation && (
               <Stack
                 aria-labelledby={`${explanationId}-heading`}
@@ -88,19 +147,29 @@ export function WinnerIdeaCard({
                       Closest alternative
                     </Typography>
                     <Typography sx={{ fontWeight: 600 }} variant="body2">
-                      {closestAlternative.title}
+                      <MuiLink
+                        component={RouterLink}
+                        rel="noopener noreferrer"
+                        sx={{
+                          color: "inherit",
+                          fontWeight: 600,
+                          textDecoration: "none",
+                          "&:hover": { textDecoration: "underline" },
+                        }}
+                        target="_blank"
+                        to={`/ideas/${encodeURIComponent(ideaJobSlug)}/${encodeURIComponent(closestAlternative.ideaId)}#improved-idea`}
+                      >
+                        {closestAlternative.title}
+                        <OpenInNew
+                          aria-hidden="true"
+                          fontSize="inherit"
+                          sx={{ ml: 0.5, verticalAlign: "text-bottom" }}
+                        />
+                      </MuiLink>
                     </Typography>
                     <Typography color="text.secondary" variant="body2">
                       {closestAlternative.description}
                     </Typography>
-                    <Button
-                      component={Link}
-                      size="small"
-                      sx={{ alignSelf: "flex-start", px: 0 }}
-                      to={`/ideas/${encodeURIComponent(ideaJobSlug)}/${encodeURIComponent(closestAlternative.ideaId)}#improved-idea`}
-                    >
-                      View alternative details
-                    </Button>
                   </Stack>
                 )}
               </Stack>

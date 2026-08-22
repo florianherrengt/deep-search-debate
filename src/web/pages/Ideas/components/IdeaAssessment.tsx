@@ -8,7 +8,7 @@ import Stack from "@mui/material/Stack"
 import Typography from "@mui/material/Typography"
 import type { IdeaEvaluation } from "../../../lib/ideaJobs.ts"
 
-function AssessmentPoints({
+export function AssessmentPoints({
   color,
   headingComponent,
   icon: Icon,

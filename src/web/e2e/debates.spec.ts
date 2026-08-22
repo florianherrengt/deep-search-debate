@@ -309,11 +309,27 @@ test.describe("Debate tournament", () => {
         .getByText(/^Improved Renter Energy Idea \d+$/),
     ).toBeVisible()
     await expect(page.getByText(/wins because/)).toBeVisible()
+    const winnerIdeaHeading = page.getByRole("heading", {
+      name: "Improved Renter Energy Idea 1",
+      exact: true,
+    })
+    await expect(winnerIdeaHeading).toBeVisible()
+    await expect(winnerIdeaHeading.getByRole("link")).toHaveAttribute(
+      "href",
+      new RegExp(`^/ideas/${slug}/[0-9a-f-]+#improved-idea$`),
+    )
+    await expect(winnerIdeaHeading.getByRole("link")).toHaveAttribute(
+      "target",
+      "_blank",
+    )
     await expect(
-      page.getByRole("heading", {
-        name: "Improved Renter Energy Idea 1",
-        exact: true,
-      }),
+      page.getByRole("heading", { name: "Pros and cons" }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole("heading", { name: "Pros", exact: true }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole("heading", { name: "Cons", exact: true }),
     ).toBeVisible()
     await expect(
       page.getByText(

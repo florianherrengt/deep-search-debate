@@ -34,8 +34,9 @@ import { DebateMatchDetail } from "./components/DebateMatchDetail.tsx"
 import { DebateVisibilityControls } from "./components/DebateVisibilityControls.tsx"
 import { DebateView } from "./components/DebateView.tsx"
 import { getDebateStatusPresentation } from "./debatePresentation.ts"
-import { getMatch } from "./debateSelectors.ts"
+import { getMatch, getWinner } from "./debateSelectors.ts"
 import { debateJobQueryKey, useDebateJob } from "./useDebateJob.ts"
+import { useIdeaJob } from "../Ideas/useIdeaJob.ts"
 
 const debateJobsQueryKey = ["debate-jobs"] as const
 
@@ -119,7 +120,12 @@ function DebateDetail({
 }) {
   const queryClient = useQueryClient()
   const job = useDebateJob(slug)
+  const ideaRun = useIdeaJob(job.data?.ideaJobId ?? null)
   const debatePath = `/debates/${encodeURIComponent(slug)}`
+  const winner = job.data ? getWinner(job.data) : undefined
+  const winnerEvaluation = winner
+    ? ideaRun.ideaEvaluations[winner.ideaId]
+    : undefined
   const matchPath =
     matchId === undefined
       ? undefined
@@ -321,6 +327,7 @@ function DebateDetail({
           ) : null
         }
         tournament={job.data}
+        winnerEvaluation={winnerEvaluation}
       />
     </Stack>
   )

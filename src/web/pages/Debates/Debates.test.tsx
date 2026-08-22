@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getDebateJob: vi.fn(),
   getDebateJobs: vi.fn(),
   subscribeToDebateJob: vi.fn(),
+  subscribeToIdeaJob: vi.fn(),
   subscribeToTextStream: vi.fn(),
   updateDebateJob: vi.fn(),
   requestResearchStop: vi.fn(),
@@ -26,6 +27,10 @@ vi.mock("../../lib/debateJobs.ts", async (importOriginal) => ({
 
 vi.mock("../../lib/textStreams.ts", () => ({
   subscribeToTextStream: mocks.subscribeToTextStream,
+}))
+
+vi.mock("../../lib/ideaJobs.ts", () => ({
+  subscribeToIdeaJob: mocks.subscribeToIdeaJob,
 }))
 
 vi.mock("../../lib/researchCancellation.ts", () => ({
@@ -156,6 +161,16 @@ describe("Debates", () => {
       hasWrittenFeedback: false,
     })
     mocks.subscribeToDebateJob.mockImplementation(async function* (
+      _id: string,
+      signal?: AbortSignal,
+    ) {
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) resolve()
+        else signal?.addEventListener("abort", () => resolve(), { once: true })
+      })
+      yield* []
+    })
+    mocks.subscribeToIdeaJob.mockImplementation(async function* (
       _id: string,
       signal?: AbortSignal,
     ) {
@@ -677,6 +692,17 @@ describe("Debates", () => {
         ],
       }),
     )
+    mocks.subscribeToIdeaJob.mockImplementation(async function* () {
+      await Promise.resolve()
+      yield {
+        type: "idea-evaluated" as const,
+        ideaId: "first",
+        pros: ["Practical", "Inexpensive to build"],
+        cons: ["Needs staff training"],
+        critique: "A solid option that requires adoption effort.",
+      }
+      yield { type: "done" as const }
+    })
 
     renderDebates("/debates/better-cafe-ideas")
 
@@ -687,6 +713,28 @@ describe("Debates", () => {
       screen.getByRole("heading", { name: "Decisive strengths" }),
     ).toBeVisible()
     expect(screen.getByText("The first idea is more practical.")).toBeVisible()
+    const prosAndCons = screen.getByRole("region", { name: "Pros and cons" })
+    expect(
+      within(prosAndCons).getByRole("heading", { name: "Pros and cons" }),
+    ).toBeVisible()
+    expect(
+      within(prosAndCons).getByRole("heading", { name: "Pros" }),
+    ).toBeVisible()
+    expect(
+      within(prosAndCons).getByRole("heading", { name: "Cons" }),
+    ).toBeVisible()
+    expect(within(prosAndCons).getByText("Practical")).toBeVisible()
+    expect(within(prosAndCons).getByText("Inexpensive to build")).toBeVisible()
+    expect(within(prosAndCons).getByText("Needs staff training")).toBeVisible()
+    const winnerHeading = screen.getByRole("heading", { name: "First idea" })
+    expect(within(winnerHeading).getByRole("link")).toHaveAttribute(
+      "href",
+      "/ideas/better-cafe-ideas/first#improved-idea",
+    )
+    expect(within(winnerHeading).getByRole("link")).toHaveAttribute(
+      "target",
+      "_blank",
+    )
     const closestAlternative = screen.getByRole("region", {
       name: "Closest alternative",
     })
@@ -695,9 +743,14 @@ describe("Debates", () => {
         name: "Closest alternative",
       }),
     ).toBeVisible()
-    expect(
-      within(closestAlternative).getByText("Second idea", { exact: true }),
-    ).toBeVisible()
+    const alternativeLink = within(closestAlternative).getByRole("link", {
+      name: "Second idea",
+    })
+    expect(alternativeLink).toHaveAttribute(
+      "href",
+      "/ideas/better-cafe-ideas/second#improved-idea",
+    )
+    expect(alternativeLink).toHaveAttribute("target", "_blank")
     expect(
       within(closestAlternative).getByText("Second description", {
         exact: true,
@@ -708,19 +761,12 @@ describe("Debates", () => {
         name: "View the underlying idea generation",
       }),
     ).toHaveAttribute("href", "/ideas/better-cafe-ideas")
-    expect(
-      screen.getByRole("link", { name: "View winning idea details" }),
-    ).toHaveAttribute(
-      "href",
-      "/ideas/better-cafe-ideas/first#improved-idea",
-    )
-    expect(
-      screen.getByRole("link", { name: "View alternative details" }),
-    ).toHaveAttribute(
-      "href",
-      "/ideas/better-cafe-ideas/second#improved-idea",
-    )
     await waitFor(() => expect(mocks.subscribeToDebateJob).not.toHaveBeenCalled())
+    expect(mocks.subscribeToIdeaJob).toHaveBeenCalledWith(
+      "idea-job-id",
+      expect.any(AbortSignal),
+      expect.any(Function),
+    )
     expect(mocks.subscribeToTextStream).not.toHaveBeenCalled()
   })
 
