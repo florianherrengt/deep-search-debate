@@ -97,7 +97,7 @@ export function TournamentBoard({ tournament }: TournamentBoardProps) {
           <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
             <LinearProgress
               aria-label="Debate completion"
-              sx={{ flexGrow: 1, height: 8, borderRadius: 4 }}
+              sx={{ flexGrow: 1, height: 8, borderRadius: 1 }}
               value={(completedMatches / expectedMatchCount) * 100}
               variant="determinate"
             />
@@ -199,7 +199,21 @@ export function TournamentBoard({ tournament }: TournamentBoardProps) {
             >
               Debate rounds
             </Typography>
-            <Stack>
+            <Stack
+              sx={(theme) => ({
+                "& > .MuiAccordion-root": {
+                  borderRadius: 0,
+                },
+                "& > .MuiAccordion-root:first-of-type": {
+                  borderTopLeftRadius: theme.shape.borderRadius,
+                  borderTopRightRadius: theme.shape.borderRadius,
+                },
+                "& > .MuiAccordion-root:last-of-type": {
+                  borderBottomLeftRadius: theme.shape.borderRadius,
+                  borderBottomRightRadius: theme.shape.borderRadius,
+                },
+              })}
+            >
               {swissRounds.map((round) => (
                 <Accordion
                   key={round.debateRoundId}
@@ -212,7 +226,6 @@ export function TournamentBoard({ tournament }: TournamentBoardProps) {
                       expandedRoundId: expanded ? round.debateRoundId : null,
                     })
                   }}
-                  square
                   sx={{
                     borderTop: 1,
                     borderColor: "divider",

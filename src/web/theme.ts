@@ -67,7 +67,10 @@ const darkTheme = createTheme({
     },
   },
   shape: {
-    borderRadius: 10,
+    // Single app-wide corner radius. MUI v9 emits numeric borderRadius from
+    // sx as `calc(<n> * var(--mui-shape-border-radius))`, so a value of 1
+    // makes every numeric radius render at its literal pixel value.
+    borderRadius: 1,
   },
   typography: {
     fontFamily:
@@ -174,7 +177,7 @@ const darkTheme = createTheme({
       },
       styleOverrides: {
         root: {
-          borderRadius: 8,
+          borderRadius: 1,
           minHeight: 38,
           paddingInline: 14,
           textTransform: "none",
@@ -205,7 +208,7 @@ const darkTheme = createTheme({
       styleOverrides: {
         root: ({ theme }) => ({
           backgroundColor: withAlpha(theme.vars.palette.common.white, 0.025),
-          borderRadius: 8,
+          borderRadius: 1,
           minHeight: 40,
           transition: theme.transitions.create(
             ["background-color", "box-shadow"],
@@ -264,7 +267,7 @@ const darkTheme = createTheme({
         root: ({ theme }) => ({
           backgroundColor: theme.vars.palette.background.paper,
           borderColor: theme.vars.palette.divider,
-          borderRadius: 12,
+          borderRadius: 1,
           boxShadow: "none",
         }),
       },
@@ -363,7 +366,7 @@ const darkTheme = createTheme({
     MuiChip: {
       styleOverrides: {
         root: {
-          borderRadius: 6,
+          borderRadius: 1,
           fontSize: "0.75rem",
           fontWeight: 650,
           height: 28,
@@ -381,7 +384,7 @@ const darkTheme = createTheme({
         root: ({ theme }) => ({
           alignItems: "center",
           border: `1px solid ${theme.vars.palette.divider}`,
-          borderRadius: 10,
+          borderRadius: 1,
         }),
       },
     },
@@ -434,11 +437,11 @@ const darkTheme = createTheme({
       styleOverrides: {
         root: ({ theme }) => ({
           backgroundColor: theme.vars.palette.action.selected,
-          borderRadius: 999,
+          borderRadius: 1,
           height: 6,
         }),
         bar: {
-          borderRadius: 999,
+          borderRadius: 1,
         },
       },
     },

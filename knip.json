@@ -9,7 +9,10 @@
       ]
     },
     "src/web": {
-      "entry": ["e2e/**/*.spec.ts"]
+      "entry": [
+        "e2e/**/*.spec.ts",
+        "scripts/detect-rounded-clipping.mjs"
+      ]
     }
   }
 }

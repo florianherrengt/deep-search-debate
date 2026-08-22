@@ -34,7 +34,7 @@ export function IdeaTournamentDiagram() {
         const palette = (theme.vars ?? theme).palette
         return {
           background: `linear-gradient(145deg, color-mix(in srgb, ${palette.primary.main} 10%, ${palette.background.paper}), ${palette.background.paper} 48%, color-mix(in srgb, ${palette.secondary.main} 8%, ${palette.background.paper}))`,
-          borderRadius: 3,
+          borderRadius: 1,
           boxShadow: `0 32px 90px color-mix(in srgb, ${palette.common.black} 45%, transparent)`,
           overflow: "hidden",
           p: { xs: 2, sm: 3 },
@@ -73,7 +73,7 @@ export function IdeaTournamentDiagram() {
         <Paper
           sx={{
             bgcolor: "background.default",
-            borderRadius: 2,
+            borderRadius: 1,
             p: 2,
           }}
           variant="outlined"
@@ -152,7 +152,7 @@ export function IdeaTournamentDiagram() {
             return {
               background: `linear-gradient(135deg, ${palette.primary.main}, color-mix(in srgb, ${palette.primary.main} 72%, ${palette.secondary.main}))`,
               border: 0,
-              borderRadius: 2,
+              borderRadius: 1,
               color: "primary.contrastText",
               p: 2.25,
             }
@@ -182,7 +182,7 @@ export function IdeaTournamentDiagram() {
                     border: "1px solid",
                     borderColor:
                       "color-mix(in srgb, currentColor 24%, transparent)",
-                    borderRadius: 999,
+                    borderRadius: 1,
                     px: 1.25,
                     py: 0.5,
                   }}

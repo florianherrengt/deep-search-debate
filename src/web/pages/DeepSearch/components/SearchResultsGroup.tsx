@@ -77,7 +77,6 @@ export function SearchResultsGroup({
         disableGutters
         elevation={0}
         slots={{ heading: "h5" }}
-        square
         sx={{
           borderTop: 1,
           borderColor: "divider",

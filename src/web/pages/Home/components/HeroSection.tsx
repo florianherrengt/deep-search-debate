@@ -53,7 +53,7 @@ export function HeroSection({ authenticated = false }: { authenticated?: boolean
             alignItems: "center",
             border: 1,
             borderColor: "divider",
-            borderRadius: 999,
+            borderRadius: 1,
             color: "text.secondary",
             px: 1.5,
             py: 0.75,

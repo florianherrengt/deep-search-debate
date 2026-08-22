@@ -122,7 +122,12 @@ export function AdminCredits() {
         <RequestError error={users.error} onRetry={() => void users.refetch()} />
       ) : null}
 
-      <TableContainer component={Paper}>
+      <TableContainer
+        component={Paper}
+        sx={(theme) => ({
+          borderRadius: theme.shape.borderRadius,
+        })}
+      >
         <Table aria-label="User credit balances">
           <TableHead>
             <TableRow>

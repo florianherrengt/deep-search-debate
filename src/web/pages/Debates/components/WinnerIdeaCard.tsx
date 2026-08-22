@@ -19,14 +19,7 @@ export function WinnerIdeaCard({
   const showExplanation = Boolean(reason || closestAlternative)
 
   return (
-    <Card
-      variant="outlined"
-      sx={{
-        borderColor: "success.dark",
-        borderLeftColor: "success.main",
-        borderLeftWidth: 3,
-      }}
-    >
+    <Card variant="outlined" sx={{ borderColor: "success.main" }}>
       <CardContent>
         <Stack
           direction={{ xs: "column", sm: "row" }}

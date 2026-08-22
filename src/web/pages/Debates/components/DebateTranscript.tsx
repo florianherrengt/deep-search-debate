@@ -112,7 +112,7 @@ function TranscriptMessage({
               : isSecondSpeaker
                 ? "secondary.dark"
                 : "primary.dark",
-            borderRadius: 2,
+            borderRadius: 1,
             borderTopLeftRadius:
               !isJudge && !isSecondSpeaker ? 0.5 : undefined,
             borderTopRightRadius:

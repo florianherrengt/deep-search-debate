@@ -1,5 +1,12 @@
-import { AutoAwesomeRounded, LightbulbOutlined } from "@mui/icons-material"
 import {
+  AutoAwesomeRounded,
+  ExpandMoreRounded,
+  LightbulbOutlined,
+} from "@mui/icons-material"
+import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Button,
   Card,
   CardContent,
@@ -70,13 +77,20 @@ export function DebateView({ feedbackControl, ownerActions, tournament }: Debate
             {ownerActions}
           </Stack>
         </Stack>
-        <Typography
-          color="text.secondary"
-          sx={{ maxWidth: "85ch", overflowWrap: "anywhere" }}
-          variant="body1"
-        >
-          {tournament.prompt}
-        </Typography>
+        <Accordion sx={{ width: "100%" }}>
+          <AccordionSummary expandIcon={<ExpandMoreRounded />}>
+            <Typography variant="subtitle1">Prompt</Typography>
+          </AccordionSummary>
+          <AccordionDetails>
+            <Typography
+              color="text.secondary"
+              sx={{ overflowWrap: "anywhere" }}
+              variant="body1"
+            >
+              {tournament.prompt}
+            </Typography>
+          </AccordionDetails>
+        </Accordion>
         <Button
           component={Link}
           startIcon={<LightbulbOutlined />}

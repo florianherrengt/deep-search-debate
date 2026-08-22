@@ -29,7 +29,7 @@ export function DebatePromptSection({ authenticated }: { authenticated: boolean 
           background: `radial-gradient(circle at 88% 20%, color-mix(in srgb, ${palette.secondary.main} 18%, transparent), transparent 34%), linear-gradient(135deg, color-mix(in srgb, ${palette.primary.main} 14%, ${palette.background.paper}), ${palette.background.paper} 58%)`,
           border: 1,
           borderColor: "divider",
-          borderRadius: { xs: 2, md: 3 },
+          borderRadius: 1,
           overflow: "hidden",
           p: { xs: 3, sm: 5, md: 7 },
           position: "relative",

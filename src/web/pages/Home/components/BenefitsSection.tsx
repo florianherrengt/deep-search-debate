@@ -62,7 +62,7 @@ export function BenefitsSection() {
                     index === 0
                       ? `linear-gradient(145deg, color-mix(in srgb, ${palette.primary.main} 13%, ${palette.background.paper}), ${palette.background.paper})`
                       : palette.background.paper,
-                  borderRadius: 2,
+                  borderRadius: 1,
                   p: { xs: 2.5, md: 3 },
                 }
               }}
@@ -73,7 +73,7 @@ export function BenefitsSection() {
                   sx={{
                     alignItems: "center",
                     bgcolor: "action.selected",
-                    borderRadius: 1.5,
+                    borderRadius: 1,
                     color: "primary.main",
                     display: "flex",
                     flexShrink: 0,

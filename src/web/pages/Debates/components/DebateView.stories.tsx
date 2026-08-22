@@ -78,6 +78,16 @@ export const Completed: Story = {
   },
 }
 
+export const LongPrompt: Story = {
+  args: {
+    tournament: {
+      ...completedTournament,
+      prompt:
+        "Should independent cafés replace manual ordering with an AI-driven predictive inventory system that forecasts demand from weather, local events, and recent till data, or keep the current lightweight process that relies on staff judgement and historical spreadsheets?",
+    },
+  },
+}
+
 export const Failed: Story = {
   args: {
     tournament: {

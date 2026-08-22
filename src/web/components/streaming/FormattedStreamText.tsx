@@ -91,7 +91,7 @@ function MarkdownText({ text, testId }: { text: string; testId: string }) {
         "& li": { fontSize: "0.875rem", lineHeight: 1.6, mb: 0.5 },
         "& code": {
           bgcolor: "action.hover",
-          borderRadius: 0.5,
+          borderRadius: 1,
           fontFamily: "monospace",
           px: 0.5,
         },

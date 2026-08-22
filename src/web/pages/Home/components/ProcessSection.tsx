@@ -41,7 +41,7 @@ export function ProcessSection() {
           const palette = (theme.vars ?? theme).palette
           return {
             background: `linear-gradient(135deg, ${palette.background.paper}, color-mix(in srgb, ${palette.secondary.main} 7%, ${palette.background.paper}))`,
-            borderRadius: { xs: 2, md: 3 },
+            borderRadius: 1,
             p: { xs: 3, sm: 5, md: 6 },
           }
         }}

@@ -24,7 +24,12 @@ export function StandingsTable({
   standings: DebateStanding[]
 }) {
   return (
-    <TableContainer sx={{ maxHeight: 510 }}>
+    <TableContainer
+      sx={(theme) => ({
+        maxHeight: 510,
+        borderRadius: theme.shape.borderRadius,
+      })}
+    >
       <Table aria-label="Debate standings" size="small" stickyHeader>
         <TableHead>
           <TableRow>
