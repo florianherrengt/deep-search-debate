@@ -34,4 +34,22 @@ describe("ExternalLink", () => {
     expect(link).toHaveAttribute("rel", "noopener noreferrer")
     expect(link.querySelector("svg[aria-hidden='true']")).not.toBeNull()
   })
+
+  it("inherits the surrounding color instead of the primary link color", () => {
+    const headingColor = "rgb(123, 45, 6)"
+    render(
+      <div style={{ color: headingColor }}>
+        <ExternalLink color="inherit" href="https://example.com/heading">
+          Heading link
+        </ExternalLink>
+        <ExternalLink href="https://example.com/body">Body link</ExternalLink>
+      </div>,
+    )
+
+    const headingLink = screen.getByRole("link", { name: "Heading link" })
+    expect(getComputedStyle(headingLink).color).toBe(headingColor)
+    expect(
+      getComputedStyle(screen.getByRole("link", { name: "Body link" })).color,
+    ).not.toBe(headingColor)
+  })
 })
