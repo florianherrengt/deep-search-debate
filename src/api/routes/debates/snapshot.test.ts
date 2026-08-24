@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm"
 import { describe, expect, it } from "vitest"
 
 import { db } from "../../db/index.ts"
@@ -10,6 +11,7 @@ import {
   ideas,
   llmGenerations,
 } from "../../db/schema/index.ts"
+import { PromptName } from "../../llms/prompts.ts"
 import { getDebateJobSnapshot } from "./snapshot.ts"
 import { DEBATE_TOURNAMENT_FORMAT } from "./tournament.ts"
 
@@ -184,6 +186,144 @@ describe("debate job snapshot", () => {
     expect(
       snapshot?.standings.reduce((sum, standing) => sum + standing.wins, 0),
     ).toBe(DEBATE_TOURNAMENT_FORMAT.matchesPerSwissRound)
+  })
+
+  it("exposes the winner website only once its generation completes", () => {
+    const ideaJobId = crypto.randomUUID()
+    const debateJobId = crypto.randomUUID()
+    const debateRoundId = crypto.randomUUID()
+    const winnerIdeaId = crypto.randomUUID()
+    const runnerUpIdeaId = crypto.randomUUID()
+    const websiteGenerationId = crypto.randomUUID()
+
+    db.insert(debateJobs)
+      .values({
+        debateJobId,
+        userId: "test-user-id",
+        randomSeed: 42,
+        stage: "final",
+        status: "completed",
+        completedAt: new Date(),
+      })
+      .run()
+
+    db.insert(llmGenerations)
+      .values({
+        llmGenerationId: websiteGenerationId,
+        userId: "test-user-id",
+        debateJobId,
+        promptName: PromptName.CreateIdeaSite,
+        status: "completed",
+        text: "<!DOCTYPE html><html><body>Winner site</body></html>",
+        reasoning: "",
+        completedAt: new Date(),
+      })
+      .run()
+    db.update(debateJobs)
+      .set({ websiteGenerationId })
+      .where(eq(debateJobs.debateJobId, debateJobId))
+      .run()
+    db.insert(ideaJobs)
+      .values({
+        userId: "test-user-id",
+        ideaJobId,
+        debateJobId,
+        slug: `ideas-${ideaJobId}`,
+        prompt: "Choose an energy-saving product",
+        numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
+        deepSearchCount: 2,
+      })
+      .run()
+    db.insert(ideas)
+      .values([
+        {
+          ideaId: winnerIdeaId,
+          ideaJobId,
+          position: 0,
+          title: "Winner",
+          description: "Winner description",
+          selected: true,
+        },
+        {
+          ideaId: runnerUpIdeaId,
+          ideaJobId,
+          position: 1,
+          title: "Runner-up",
+          description: "Runner-up description",
+          selected: true,
+        },
+        ...Array.from({ length: 4 }, (_, index) => ({
+          ideaId: crypto.randomUUID(),
+          ideaJobId,
+          position: index + 2,
+          title: `Filler idea ${index + 1}`,
+          description: `Filler description ${index + 1}`,
+          selected: true,
+        })),
+      ])
+      .run()
+    db.insert(debateRounds)
+      .values({
+        debateRoundId,
+        debateJobId,
+        stage: "final",
+        stageRoundNumber: 1,
+      })
+      .run()
+    db.insert(debateMatches)
+      .values({
+        debateMatchId: crypto.randomUUID(),
+        debateRoundId,
+        position: 0,
+        firstIdeaId: winnerIdeaId,
+        secondIdeaId: runnerUpIdeaId,
+        winnerIdeaId,
+        completedAt: new Date(),
+      })
+      .run()
+
+    const snapshot = getDebateJobSnapshot(debateJobId, "test-user-id")
+    expect(snapshot?.winnerWebsiteIdeaId).toBe(winnerIdeaId)
+
+    // A registered-but-unfinished generation must not expose a dead link.
+    db.update(llmGenerations)
+      .set({
+        status: "running",
+        text: null,
+        reasoning: null,
+        completedAt: null,
+        error: null,
+      })
+      .where(eq(llmGenerations.llmGenerationId, websiteGenerationId))
+      .run()
+    const runningGeneration = getDebateJobSnapshot(debateJobId, "test-user-id")
+    expect(runningGeneration?.winnerWebsiteIdeaId).toBeNull()
+
+    // The generation may finish moments before completion commits; a snapshot
+    // fetched while the debate is still running must also hide the link.
+    db.update(llmGenerations)
+      .set({
+        status: "completed",
+        text: "<!DOCTYPE html><html><body>Winner site</body></html>",
+        reasoning: "",
+        completedAt: new Date(),
+        error: null,
+      })
+      .where(eq(llmGenerations.llmGenerationId, websiteGenerationId))
+      .run()
+    db.update(debateJobs)
+      .set({ status: "running", completedAt: null })
+      .where(eq(debateJobs.debateJobId, debateJobId))
+      .run()
+    const runningJob = getDebateJobSnapshot(debateJobId, "test-user-id")
+    expect(runningJob?.winnerWebsiteIdeaId).toBeNull()
+
+    db.update(debateJobs)
+      .set({ status: "completed", completedAt: new Date() })
+      .where(eq(debateJobs.debateJobId, debateJobId))
+      .run()
+    const completed = getDebateJobSnapshot(debateJobId, "test-user-id")
+    expect(completed?.winnerWebsiteIdeaId).toBe(winnerIdeaId)
   })
 
   it("returns an empty projection while the idea stage has no ideas yet", () => {

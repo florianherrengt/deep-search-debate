@@ -324,9 +324,7 @@ export function reconstructIdeaJobEvents(
                               ? ("idea-research" as const)
                               : !normalizedIdeas.allEvaluationsCompleted
                                 ? ("evaluation" as const)
-                                // Websites are the last subphase that can fail
-                                // before completion settles the job.
-                                : ("website" as const)
+                                : ("idea-research" as const)
                       : job.stage,
                 },
               ]

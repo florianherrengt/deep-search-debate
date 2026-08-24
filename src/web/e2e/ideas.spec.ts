@@ -411,6 +411,7 @@ test.describe("Ideas", () => {
         page.getByTestId(`idea-research-${child.deepSearchJobId}`),
       ).toHaveCount(0)
     }
+
     const researchLinks = page.locator('a[href^="/deep-search/"]')
     await expect(researchLinks).toHaveCount(2)
     for (const child of research) {

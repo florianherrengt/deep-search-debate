@@ -326,8 +326,11 @@ without attempting the factorial exhaustive search that becomes impossible for
 large fields. The top four by wins, Elo, two-way head-to-head, and seeded order
 advance to two semifinals and one final.
 
-Match transcripts, verdicts, standings, and the final winner are durable. The
-selected field produces `5 × ideas ÷ 2 + 3` matches, so the minimum six-idea run
+Match transcripts, verdicts, standings, and the final winner are durable. After
+the final match, the debate generates one self-contained website for the winning
+idea — stored under `data/ideas/<idea-id>/websites/index.html` and served
+through the idea job's read scope from the debate page. The selected field
+produces `5 × ideas ÷ 2 + 3` matches, so the minimum six-idea run
 contains 18 matches and the default eight-idea run contains at most 23. See [the debate-job
 contract](src/api/routes/docs/debate-jobs.md).
 

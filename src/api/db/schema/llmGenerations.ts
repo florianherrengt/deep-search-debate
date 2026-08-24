@@ -61,6 +61,10 @@ export const llmGenerations = sqliteTable(
       table.llmGenerationId,
       table.ideaJobId,
     ),
+    uniqueIndex("llm_generations_id_debate_job_idx").on(
+      table.llmGenerationId,
+      table.debateJobId,
+    ),
     uniqueIndex("llm_generations_id_user_deep_search_job_idx").on(
       table.llmGenerationId,
       table.userId,

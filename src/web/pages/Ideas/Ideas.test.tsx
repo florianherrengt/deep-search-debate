@@ -1422,6 +1422,7 @@ describe("Ideas", () => {
     ).toBeVisible()
   })
 
+
   it("stops loading an invalid idea after every expected idea arrives", async () => {
     document.head
       .querySelectorAll(

@@ -30,10 +30,12 @@ table debate_jobs {
   feedback_text text
   error text
   cancel_requested_at integer
+  website_generation_id text [unique]
   created_at integer [not null, default: `(cast(unixepoch('subsecond') * 1000 as integer))`]
   completed_at integer
 
   indexes {
+    website_generation_id [name: 'debate_jobs_website_generation_id_unique', unique]
     (user_id, created_at, debate_job_id) [name: 'debate_jobs_user_created_at_idx']
     (debate_job_id, user_id) [name: 'debate_jobs_id_user_id_idx', unique]
 
@@ -314,6 +316,7 @@ table llm_generations {
     (user_id, started_at, llm_generation_id) [name: 'llm_generations_user_started_at_idx']
     (llm_generation_id, user_id, idea_job_id) [name: 'llm_generations_id_user_idea_job_idx', unique]
     (llm_generation_id, idea_job_id) [name: 'llm_generations_id_idea_job_idx', unique]
+    (llm_generation_id, debate_job_id) [name: 'llm_generations_id_debate_job_idx', unique]
     (llm_generation_id, user_id, deep_search_job_id) [name: 'llm_generations_id_user_deep_search_job_idx', unique]
     debate_job_id [name: 'llm_generations_debate_job_id_idx']
     idea_job_id [name: 'llm_generations_idea_job_id_idx']
@@ -395,6 +398,8 @@ table waitlist_entries {
 ref account_user_id_user_id_fk: account.user_id > user.id [delete: cascade, update: no action]
 
 ref debate_jobs_user_id_user_id_fk: debate_jobs.user_id > user.id [delete: cascade, update: no action]
+
+ref debate_jobs_website_generation_id_llm_generations_llm_generation_id_fk: debate_jobs.website_generation_id > llm_generations.llm_generation_id [delete: no action, update: no action]
 
 ref debate_matches_debate_round_id_debate_rounds_debate_round_id_fk: debate_matches.debate_round_id > debate_rounds.debate_round_id [delete: cascade, update: no action]
 

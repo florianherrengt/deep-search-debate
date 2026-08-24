@@ -36,9 +36,13 @@ import {
   ideas,
   llmGenerations,
 } from "../../db/schema/index.ts"
+import { existsSync } from "node:fs"
+import { join } from "node:path"
+import { config } from "../../config.ts"
 import { createReplayableEventLog } from "../../helpers/replayableEventLog.ts"
 import { workflowAbortReason } from "../../workflowRuntime.ts"
 import { runDebateJob } from "./run.ts"
+import { PromptName } from "../../llms/prompts.ts"
 import {
   judgeVerdictSchema,
   type DebateJobEvent,
@@ -54,6 +58,52 @@ async function collectEvents(
   const collected: DebateJobEvent[] = []
   for await (const event of events) collected.push(event)
   return collected
+}
+
+
+type SiteCallInput = {
+  owner: { debateJobId?: string }
+  onRegistered?: (
+    id: string,
+    transaction: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  ) => void
+}
+
+/** Persists the mocked winner-site generation exactly like the real stream. */
+function completeWinnerSiteGeneration(input: SiteCallInput): {
+  id: string
+  completion: Promise<{
+    status: "completed"
+    text: string
+    reasoning: string
+  }>
+} {
+  const id = crypto.randomUUID()
+  const html = "<!DOCTYPE html><html><body>Winner website</body></html>"
+  db.transaction((transaction) => {
+    transaction
+      .insert(llmGenerations)
+      .values({
+        llmGenerationId: id,
+        userId: "test-user-id",
+        debateJobId: input.owner.debateJobId!,
+        promptName: PromptName.CreateIdeaSite,
+        status: "completed",
+        text: html,
+        reasoning: "",
+        completedAt: new Date(),
+      })
+      .run()
+    input.onRegistered?.(id, transaction)
+  })
+  return {
+    id,
+    completion: Promise.resolve({
+      status: "completed" as const,
+      text: html,
+      reasoning: "" as const,
+    }),
+  }
 }
 
 function createRunFixture() {
@@ -101,6 +151,11 @@ function createRunFixture() {
           llmGenerationId,
           userId: "test-user-id",
           ideaJobId,
+          promptName: "fixture-pipeline",
+          status: "completed" as const,
+          text: "Fixture pipeline output",
+          reasoning: "Fixture reasoning",
+          completedAt: new Date(),
         })),
         ...ideaRows.flatMap(
           ({ evaluationGenerationId, refinementGenerationId }) => [
@@ -179,11 +234,18 @@ describe("runDebateJob", () => {
 
     let generationNumber = 0
     mocks.generateTextStream.mockImplementation((input: {
+      promptName?: string
+      owner: { debateJobId?: string }
       onRegistered?: (
         id: string,
         transaction: { kind: string },
       ) => void
     }) => {
+      if (input.promptName === PromptName.CreateIdeaSite) {
+        return completeWinnerSiteGeneration(
+          input as Parameters<typeof completeWinnerSiteGeneration>[0],
+        )
+      }
       const id = `agent-${generationNumber += 1}`
       const transaction = { kind: "registration-transaction" }
       input.onRegistered?.(id, transaction)
@@ -267,11 +329,18 @@ describe("runDebateJob", () => {
   it("retries one transient other finish and completes the tournament", async () => {
     let advocateGenerationNumber = 0
     mocks.generateTextStream.mockImplementation((input: {
+      promptName?: string
+      owner: { debateJobId?: string }
       onRegistered?: (
         id: string,
         transaction: { kind: string },
       ) => void
     }) => {
+      if (input.promptName === PromptName.CreateIdeaSite) {
+        return completeWinnerSiteGeneration(
+          input as Parameters<typeof completeWinnerSiteGeneration>[0],
+        )
+      }
       const id = `retry-agent-${advocateGenerationNumber += 1}`
       const transaction = { kind: "registration-transaction" }
       input.onRegistered?.(id, transaction)
@@ -307,11 +376,32 @@ describe("runDebateJob", () => {
       job,
     })
 
-    expect(db.select().from(debateJobs).get()).toMatchObject({
+    const debate = db.select().from(debateJobs).get()
+    expect(debate).toMatchObject({
       stage: "final",
       status: "completed",
       error: null,
     })
+    // The tournament winner's website generation is linked, completed, and
+    // stored under the winning idea's site directory before completion.
+    expect(debate?.websiteGenerationId).toEqual(expect.any(String))
+    expect(
+      db
+        .select({ promptName: llmGenerations.promptName })
+        .from(llmGenerations)
+        .where(eq(llmGenerations.llmGenerationId, debate!.websiteGenerationId!))
+        .get(),
+    ).toMatchObject({ promptName: PromptName.CreateIdeaSite })
+    const winnerIdeas = db
+      .select({ ideaId: ideas.ideaId })
+      .from(ideas)
+      .where(eq(ideas.ideaJobId, ideaJobId))
+      .all()
+    expect(
+      winnerIdeas.some(({ ideaId }) =>
+        existsSync(join(config.ideaSites.dir, ideaId, "websites", "index.html")),
+      ),
+    ).toBe(true)
     const firstLink = mocks.createAgentMessage.mock.calls[0]?.[0] as {
       debateMatchId: string
       position: number
@@ -484,11 +574,18 @@ describe("runDebateJob", () => {
   it("retries one transient judge other finish", async () => {
     let advocateGenerationNumber = 0
     mocks.generateTextStream.mockImplementation((input: {
+      promptName?: string
+      owner: { debateJobId?: string }
       onRegistered?: (
         id: string,
         transaction: { kind: string },
       ) => void
     }) => {
+      if (input.promptName === PromptName.CreateIdeaSite) {
+        return completeWinnerSiteGeneration(
+          input as Parameters<typeof completeWinnerSiteGeneration>[0],
+        )
+      }
       const id = `judge-test-agent-${advocateGenerationNumber += 1}`
       input.onRegistered?.(id, { kind: "registration-transaction" })
       return Promise.resolve({
@@ -597,6 +694,70 @@ describe("runDebateJob", () => {
     expect(firstCompletedMatch).toMatchObject({
       winnerIdeaId: createdMatch?.secondIdeaId,
       judgeGenerationId: "retry-judge-2",
+    })
+  })
+
+  it("fails the debate when the winning idea website cannot be generated", async () => {
+    let advocateGenerationNumber = 0
+    mocks.generateTextStream.mockImplementation((input: {
+      promptName?: string
+      owner: { debateJobId?: string }
+      onRegistered?: (
+        id: string,
+        transaction: { kind: string },
+      ) => void
+    }) => {
+      if (input.promptName === PromptName.CreateIdeaSite) {
+        return Promise.reject(new Error("Website generation failed"))
+      }
+      const id = `site-fail-agent-${(advocateGenerationNumber += 1)}`
+      input.onRegistered?.(id, { kind: "registration-transaction" })
+      return Promise.resolve({
+        id,
+        completion: Promise.resolve({
+          status: "completed" as const,
+          text: "Substantive argument",
+          reasoning: "",
+          finishReason: "stop" as const,
+        }),
+      })
+    })
+    const fixture = createRunFixture()
+    // Point the briefing link at an unfinished generation after fixture
+    // creation so the winner-site lookup fails.
+    const runningSummaryId = crypto.randomUUID()
+    db.insert(llmGenerations)
+      .values({
+        llmGenerationId: runningSummaryId,
+        userId: "test-user-id",
+        ideaJobId: fixture.ideaJobId,
+        status: "running",
+      })
+      .run()
+    db.update(ideaJobs)
+      .set({ researchSummaryGenerationId: runningSummaryId })
+      .where(eq(ideaJobs.ideaJobId, fixture.ideaJobId))
+      .run()
+
+    await runDebateJob({
+      debateJobId: fixture.debateJobId,
+      userId: "test-user-id",
+      ideaJobId: fixture.ideaJobId,
+      randomSeed: 42,
+      ideaCompletion: Promise.resolve(),
+      job: fixture.job,
+    })
+
+    expect(db.select().from(debateJobs).get()).toMatchObject({
+      status: "failed",
+      error: "Research summary generation of the debate idea job did not complete",
+    })
+    expect(db.select().from(debateJobs).get()).toMatchObject({
+      websiteGenerationId: null,
+    })
+    expect(await fixture.events).toContainEqual({
+      type: "error",
+      message: "Research summary generation of the debate idea job did not complete",
     })
   })
 

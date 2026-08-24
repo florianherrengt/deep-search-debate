@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm"
+import { aliasedTable, and, asc, eq, inArray } from "drizzle-orm"
 
 import { db } from "../../db/index.ts"
 import {
@@ -74,8 +74,12 @@ export type DebateJobSnapshot = {
   expectedMatchCount: number | null
   rounds: DebateRoundSnapshot[]
   standings: { idea: DebateIdeaSnapshot; wins: number; elo: number }[]
+  /** Set once the tournament winner's website page has been generated. */
+  winnerWebsiteIdeaId: string | null
   error: string | null
 }
+
+const websiteGenerations = aliasedTable(llmGenerations, "winner_website_generations")
 
 const stageOrder = { swiss: 0, semifinal: 1, final: 2 } as const
 
@@ -109,6 +113,8 @@ export function getDebateJobSnapshot(
       feedbackRating: debateJobs.feedbackRating,
       feedbackText: debateJobs.feedbackText,
       cancelRequestedAt: debateJobs.cancelRequestedAt,
+      websiteGenerationId: debateJobs.websiteGenerationId,
+      websiteGenerationStatus: websiteGenerations.status,
       title: ideaJobs.title,
       slug: ideaJobs.slug,
       prompt: ideaJobs.prompt,
@@ -117,6 +123,13 @@ export function getDebateJobSnapshot(
     })
     .from(debateJobs)
     .innerJoin(ideaJobs, eq(debateJobs.debateJobId, ideaJobs.debateJobId))
+    .leftJoin(
+      websiteGenerations,
+      eq(
+        debateJobs.websiteGenerationId,
+        websiteGenerations.llmGenerationId,
+      ),
+    )
     .where(
       and(
         eq(debateJobs.debateJobId, debateJobId),
@@ -319,6 +332,15 @@ export function getDebateJobSnapshot(
       ideaRows.length === 0 ? null : getTotalMatchCount(ideaRows.length),
     rounds,
     standings,
+    winnerWebsiteIdeaId:
+      job.websiteGenerationId !== null &&
+      job.websiteGenerationStatus === "completed" &&
+      job.status === "completed"
+        ? (rounds
+            .find(({ stage }) => stage === "final")
+            ?.matches.find(({ winnerIdeaId }) => winnerIdeaId !== null)
+            ?.winnerIdeaId ?? null)
+        : null,
     error: job.error,
   }
 }

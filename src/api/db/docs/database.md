@@ -102,7 +102,8 @@ ignores this one documented peer-resolution shim.
 - API validation requires user prompts, research requests, generated queries,
   and persisted search facts to contain non-whitespace content. Idea content is
   immutable after insertion; its nullable evaluation and refinement links can
-  each transition exactly once from absent to present, its nullable selected
+  each transition exactly once from absent to present, its nullable
+  selected
   flag can transition exactly once from pending to true or false, and its
   refined title/description commit as a pair. A composite foreign key requires
   refinement generations to belong to the same idea job. Selected-idea
@@ -163,6 +164,14 @@ ignores this one documented peer-resolution shim.
   running, and requires both refined fields together. A composite foreign key
   enforces same-job refinement ownership. The selected idea's child search is
   derived from its parent and reserved position instead of being linked twice.
+- `debate_jobs.website_generation_id` links the tournament winner's single
+  website generation through a unique single-column reference into
+  `llm_generations`. Completion requires the linked generation to be
+  completed. Same-debate ownership is enforced transactionally by the debate
+  workflow, which creates both rows from one registration. Standalone idea
+  jobs generate no website. CLI regeneration writes a standalone generation
+  owned by no job and deliberately replaces only the stored file, never this
+  link.
 - `idea_jobs.selection_generation_id` has a unique composite foreign key that
   requires the generation to carry the same user and idea-job owner.
 - Aggregate parent columns such as `idea_jobs.debate_job_id`,
@@ -217,7 +226,8 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
   in their `llm_generations` rows. The job's idea- and
   selection-generation links separately retain raw structured output and
   selector reasoning for inspection and debugging.
-- `debate_jobs` owns its generated idea pipeline as well as
+- `debate_jobs` owns its generated idea pipeline — including the winner's
+  stored website generation link — as well as
   `debate_rounds`, `debate_matches`, and `debate_messages`. These tables store
   pairings, machine-readable winners, and transcript-generation links. Matches
   reference only selected stable ideas directly; standings, Elo, and expected

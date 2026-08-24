@@ -57,6 +57,23 @@ export function completeDebateJob(debateJobId: string): void {
     if (activeGeneration) {
       throw new Error("Debate generations must settle before parent completion")
     }
+    const winnerWebsite = transaction
+      .select({ status: llmGenerations.status })
+      .from(debateJobs)
+      .innerJoin(
+        llmGenerations,
+        eq(
+          llmGenerations.llmGenerationId,
+          debateJobs.websiteGenerationId,
+        ),
+      )
+      .where(eq(debateJobs.debateJobId, debateJobId))
+      .get()
+    if (!winnerWebsite || winnerWebsite.status !== "completed") {
+      throw new Error(
+        "The winning idea website must complete before the debate",
+      )
+    }
     const unfinishedIdea = transaction
       .select({ id: ideaJobs.ideaJobId })
       .from(ideaJobs)

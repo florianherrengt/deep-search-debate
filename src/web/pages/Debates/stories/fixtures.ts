@@ -302,6 +302,7 @@ export const swissTournament: DebateTournament = {
   standings: createStandings(false),
   error: null,
   creditsUsed: null,
+  winnerWebsiteIdeaId: null,
   feedback: null,
 }
 
@@ -330,8 +331,11 @@ export const semifinalTournament: DebateTournament = {
   standings: createStandings(true),
   error: null,
   creditsUsed: null,
+  winnerWebsiteIdeaId: null,
   feedback: null,
 }
+
+const completedFinalWinnerIdeaId = "idea-prep-forecast"
 
 export const completedTournament: DebateTournament = {
   debateJobId: "debate-completed",
@@ -364,6 +368,7 @@ export const completedTournament: DebateTournament = {
   standings: createStandings(true),
   error: null,
   creditsUsed: 1_234,
+  winnerWebsiteIdeaId: completedFinalWinnerIdeaId,
   feedback: { rating: null, hasWrittenFeedback: false },
 }
 

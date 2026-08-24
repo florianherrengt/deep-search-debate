@@ -190,9 +190,12 @@ export function recoverInterruptedWork(): void {
       )
       .run()
 
-    // The final verdict and machine-readable winner commit atomically, just
-    // before the runner marks its parent job complete. Close that small crash
-    // window by recognizing the one fully completed final match on restart.
+    // The final verdict, machine-readable winner, and winner-website link
+    // commit before the runner marks its parent job complete. Close that
+    // crash window by recognizing the fully completed final match together
+    // with a completed linked website generation on restart; debates whose
+    // website never finished fall through to ordinary interruption instead of
+    // completing without their deliverable.
     transaction.update(debateJobs)
       .set({ status: "completed", completedAt })
       .where(
@@ -208,6 +211,12 @@ export function recoverInterruptedWork(): void {
               and ${debateRounds.stageRoundNumber} = 1
               and ${debateMatches.winnerIdeaId} is not null
               and ${debateMatches.completedAt} is not null
+          )`,
+          sql`exists (
+            select 1
+            from ${llmGenerations}
+            where ${llmGenerations.llmGenerationId} = ${debateJobs.websiteGenerationId}
+              and ${llmGenerations.status} = 'completed'
           )`,
         ),
       )

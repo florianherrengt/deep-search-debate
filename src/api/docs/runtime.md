@@ -139,9 +139,9 @@ and ceilings with `RESEARCH_JOB_CREATION_WINDOW_MS`,
 Every LLM stream has total, first-content, and inter-content deadlines. The
 defaults are 300, 120, and 60 seconds and are configured with
 `LLM_GENERATION_TIMEOUT_MS`, `LLM_FIRST_CHUNK_TIMEOUT_MS`, and
-`LLM_CHUNK_TIMEOUT_MS`. `LLM_MAX_OUTPUT_TOKENS` is a 32,768-token operator
+`LLM_CHUNK_TIMEOUT_MS`. `LLM_MAX_OUTPUT_TOKENS` is a 65,536-token operator
 ceiling by default — a runaway-output guard rather than a cost target, sized so
-max-reasoning website generations keep room for the complete HTML page; stages
+the max-reasoning winner website keeps room for the complete HTML page; stages
 send smaller explicit budgets when their outputs are
 known to be short. This avoids both provider-specific implicit limits and
 oversized structured responses. Provider-request failures use two SDK retries by default,

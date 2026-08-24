@@ -57,12 +57,24 @@ export const debateJobs = sqliteTable(
     error: text("error"),
     /** Set when the owner requests an irreversible stop of this root workflow. */
     cancelRequestedAt: integer("cancel_requested_at", { mode: "timestamp_ms" }),
+    // The tournament winner's single website generation. The stored page
+    // itself lives under IDEA_SITES_DIR/<idea_uuid>/websites/index.html.
+    // Same-debate ownership is enforced transactionally by the workflow that
+    // creates both rows, so a plain single-column reference suffices here.
+    websiteGenerationId: text("website_generation_id")
+      .unique()
+      .references(() => llmGenerations.llmGenerationId, {
+        onDelete: "no action",
+      }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`),
     completedAt: integer("completed_at", { mode: "timestamp_ms" }),
   },
   (table) => [
+    uniqueIndex("debate_jobs_website_generation_id_unique").on(
+      table.websiteGenerationId,
+    ),
     index("debate_jobs_user_created_at_idx").on(
       table.userId,
       table.createdAt,

@@ -16,7 +16,13 @@ import {
   llmGenerations,
 } from "./schema/index.ts"
 
-function createFinalStageJob(finalMatchCompleted: boolean): string {
+function createFinalStageJob(
+  finalMatchCompleted: boolean,
+  options?: {
+    websiteGenerationStatus?: "completed" | "running"
+    linkWebsiteGeneration?: boolean
+  },
+): string {
   const ideaJobId = crypto.randomUUID()
   const debateJobId = crypto.randomUUID()
   const generationIds = Array.from({ length: 5 }, () => crypto.randomUUID())
@@ -94,6 +100,33 @@ function createFinalStageJob(finalMatchCompleted: boolean): string {
       completedAt: finalMatchCompleted ? completedAt : null,
     })
     .run()
+
+  if (options?.linkWebsiteGeneration) {
+    const websiteGenerationId = crypto.randomUUID()
+    db.insert(llmGenerations)
+      .values({
+        llmGenerationId: websiteGenerationId,
+        userId: "test-user-id",
+        debateJobId,
+        promptName: "create-idea-site",
+        status:
+          options.websiteGenerationStatus === "running"
+            ? "running"
+            : "completed",
+        text:
+          options.websiteGenerationStatus === "running"
+            ? null
+            : "<!DOCTYPE html><html><body>Winner site</body></html>",
+        reasoning: options.websiteGenerationStatus === "running" ? null : "",
+        completedAt:
+          options.websiteGenerationStatus === "running" ? null : completedAt,
+      })
+      .run()
+    db.update(debateJobs)
+      .set({ websiteGenerationId })
+      .where(eq(debateJobs.debateJobId, debateJobId))
+      .run()
+  }
 
   return debateJobId
 }
@@ -235,7 +268,10 @@ describe("restart recovery", () => {
   })
 
   it("finalizes a job whose final verdict committed before the restart", () => {
-    const completedJobId = createFinalStageJob(true)
+    const completedJobId = createFinalStageJob(true, {
+      linkWebsiteGeneration: true,
+      websiteGenerationStatus: "completed",
+    })
     const incompleteJobId = createFinalStageJob(false)
 
     recoverInterruptedWork()
@@ -258,6 +294,50 @@ describe("restart recovery", () => {
       error: "Interrupted by a server restart",
     })
     expect(incompleteJob?.completedAt).toBeInstanceOf(Date)
+  })
+
+  it("does not complete a crash-after-verdict debate whose website never generated", () => {
+    const debateJobId = createFinalStageJob(true, {
+      linkWebsiteGeneration: false,
+    })
+
+    recoverInterruptedWork()
+
+    expect(
+      db.query.debateJobs
+        .findFirst({ where: eq(debateJobs.debateJobId, debateJobId) })
+        .sync(),
+    ).toMatchObject({ status: "interrupted" })
+  })
+
+  it("does not complete a crash-during-website-generation debate either", () => {
+    const debateJobId = createFinalStageJob(true, {
+      linkWebsiteGeneration: true,
+      websiteGenerationStatus: "running",
+    })
+
+    recoverInterruptedWork()
+
+    expect(
+      db.query.debateJobs
+        .findFirst({ where: eq(debateJobs.debateJobId, debateJobId) })
+        .sync(),
+    ).toMatchObject({ status: "interrupted" })
+  })
+
+  it("still completes the crash window when the winner website is done", () => {
+    const debateJobId = createFinalStageJob(true, {
+      linkWebsiteGeneration: true,
+      websiteGenerationStatus: "completed",
+    })
+
+    recoverInterruptedWork()
+
+    expect(
+      db.query.debateJobs
+        .findFirst({ where: eq(debateJobs.debateJobId, debateJobId) })
+        .sync(),
+    ).toMatchObject({ status: "completed" })
   })
 
   it("terminalizes a cancel-requested debate tree before ordinary recovery", () => {

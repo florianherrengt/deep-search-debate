@@ -36,7 +36,6 @@ const ideaEventStageSchema = z.union([
   z.literal("selection"),
   z.literal("refinement"),
   z.literal("idea-research"),
-  z.literal("website"),
 ])
 
 const ideaJobEventSchema = z.discriminatedUnion("type", [

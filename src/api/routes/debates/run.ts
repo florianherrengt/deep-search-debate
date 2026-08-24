@@ -42,6 +42,7 @@ import {
   WorkflowInterruptedError,
 } from "../../workflowRuntime.ts"
 import { EffectiveResearchRootInactiveError } from "../researchCancellation.ts"
+import { generateWinningIdeaSite } from "../ideas/ideaSites.ts"
 import {
   completeDebateJob,
   failDebateJob,
@@ -518,7 +519,7 @@ function debateTournamentEffect(
 
     yield* workflowEffect(() => setDebateJobStage(input.debateJobId, "final"))
     yield* workflowEffect(() => input.job.publish({ type: "updated" }))
-    yield* runRoundEffect({
+    const finalResults = yield* runRoundEffect({
       userId: input.userId,
       debateJobId: input.debateJobId,
       stage: "final",
@@ -530,6 +531,25 @@ function debateTournamentEffect(
       job: input.job,
       workflowSignal: input.workflowSignal,
     })
+    const winnerIdeaId = finalResults[0]?.winnerIdeaId
+    if (winnerIdeaId === undefined) {
+      return yield* Effect.fail(
+        new WorkflowFailure({ message: "The final match produced no winner" }),
+      )
+    }
+
+    // The champion's website is part of the deliverable: its generation is
+    // debate-owned, fatal on failure, and must settle before completion.
+    yield* workflowEffect(
+      () =>
+        generateWinningIdeaSite({
+          userId: input.userId,
+          debateJobId: input.debateJobId,
+          winnerIdeaId,
+          workflowSignal: input.workflowSignal,
+        }),
+      "Winning idea website failed",
+    )
 
     yield* workflowEffect(() => completeDebateJob(input.debateJobId))
     yield* workflowEffect(() => input.job.publish({ type: "updated" }))

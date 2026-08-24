@@ -42,7 +42,6 @@ export type IdeaEventStage =
   | "selection"
   | "refinement"
   | "idea-research"
-  | "website"
 
 export const MIN_SELECTED_IDEAS = 6
 export const MAX_SELECTED_IDEAS = 12

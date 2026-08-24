@@ -96,7 +96,7 @@ const nonSecretEnvironmentShape = {
     .int()
     .min(1_000)
     .max(65_536)
-    .default(32_768),
+    .default(65_536),
   LLM_MAX_RETRIES: z.coerce.number().int().min(0).max(10).default(2),
   LLM_MAX_CONCURRENT_GENERATIONS: z.coerce
     .number()

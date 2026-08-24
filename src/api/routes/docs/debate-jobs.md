@@ -299,6 +299,12 @@ resource return 404.
   verdict.
 - Wins, Elo, standings, prior pairings, qualification, expected match count, and
   the winner projection are derived rather than duplicated.
+- After the final verdict, the debate generates one self-contained website for
+  the winning idea (`create-idea-site`, disabled hidden reasoning, generous
+  65,536-token output budget),
+  links it through `debate_jobs.website_generation_id`, stores it under
+  `IDEA_SITES_DIR/<idea_uuid>/websites/index.html`, and only then completes. A
+  website generation or file-write failure fails the whole debate.
 - Round creation validates selected same-job membership, unique round
   appearances, dynamic stage match counts, prior-stage completion, and
   non-repeating Swiss opponents before inserting the complete round

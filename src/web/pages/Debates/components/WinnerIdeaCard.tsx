@@ -15,17 +15,25 @@ export function WinnerIdeaCard({
   closestAlternative,
   evaluation,
   idea,
+  ideaJobId,
   ideaJobSlug,
   reason,
+  websiteIdeaId,
 }: {
   closestAlternative?: DebateIdea
   evaluation?: IdeaEvaluation
   idea: DebateIdea
+  ideaJobId: string
   ideaJobSlug: string
   reason?: string
+  websiteIdeaId?: string
 }) {
   const explanationId = useId()
   const showExplanation = Boolean(reason || closestAlternative)
+  const websiteUrl =
+    websiteIdeaId === undefined
+      ? undefined
+      : `/api/idea-jobs/${encodeURIComponent(ideaJobId)}/ideas/${encodeURIComponent(websiteIdeaId)}/website`
   const ideaDetailsUrl = `/ideas/${encodeURIComponent(ideaJobSlug)}/${encodeURIComponent(idea.ideaId)}#improved-idea`
 
   return (
@@ -68,6 +76,17 @@ export function WinnerIdeaCard({
             <Typography color="text.secondary" variant="body2">
               {idea.description}
             </Typography>
+            {websiteUrl && (
+              <MuiLink
+                href={websiteUrl}
+                rel="noopener noreferrer"
+                sx={{ alignSelf: "flex-start" }}
+                target="_blank"
+                variant="body2"
+              >
+                Open the generated website
+              </MuiLink>
+            )}
             {evaluation && (
               <Stack
                 aria-labelledby={`${explanationId}-pros-cons`}

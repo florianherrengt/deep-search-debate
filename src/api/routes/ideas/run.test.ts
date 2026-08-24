@@ -9,7 +9,6 @@ const mocks = vi.hoisted(() => ({
   generateTextStream: vi.fn(),
   requireParentQualityAcceptance: vi.fn(),
   startDeepSearch: vi.fn(),
-  writeIdeaSite: vi.fn(),
 }))
 
 vi.mock("../../llms/generateText.ts", () => ({
@@ -20,7 +19,6 @@ vi.mock("../../llms/generateText.ts", () => ({
 
 vi.mock("./ideaSites.ts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./ideaSites.ts")>()),
-  writeIdeaSite: mocks.writeIdeaSite,
 }))
 
 import { db } from "../../db/index.ts"
@@ -68,11 +66,6 @@ type RefinementMockInput = {
     transaction: Parameters<Parameters<typeof db.transaction>[0]>[0],
   ) => void
 }
-
-type TextStreamMockInput = {
-  prompt: string
-  reasoning: string
-} & GenerationMockInput
 
 type TestTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 type RegistrationHook = (id: string, transaction: TestTransaction) => void
@@ -139,14 +132,6 @@ function expectedRefinedIdeaResearchRequest(position: number): string {
   ].join("")
 }
 
-function websiteHtml(position: number): string {
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Idea website ${position + 1}</title></head><body><h1>Improved ${generatedIdeas[position].title}</h1></body></html>`
-}
-
-// Records the interleaving of website starts against child-search starts so
-// tests can prove websites launch right after refinement, before research.
-const orchestrationOrder: string[] = []
-
 function ideaPositionFromPrompt(
   prompt: string,
   element: "improved_idea" | "original_idea",
@@ -198,7 +183,6 @@ function setupGenerations(options?: {
   evaluationFailureAt?: number
   refinementFailureAt?: number
   selectionCount?: number
-  websiteFailureAt?: number
 }): void {
   insertGeneration("planning-id", JSON.stringify(researchPrompts))
   insertGeneration("summary-id", "Combined research briefing")
@@ -245,22 +229,7 @@ function setupGenerations(options?: {
         completion: completedGeneration("Combined research briefing"),
       })
     })
-    .mockImplementation((input: TextStreamMockInput) => {
-      if (!input.prompt.includes("<improved_idea>")) {
-        return Promise.reject(new Error("Unexpected idea text stream"))
-      }
-      const position = ideaPositionFromPrompt(input.prompt, "improved_idea")
-      if (position === options?.websiteFailureAt) {
-        return Promise.reject(
-          new Error("Website failed before streaming"),
-        )
-      }
-      orchestrationOrder.push(`website-${position}`)
-      return Promise.resolve({
-        id: `website-${position + 1}-id`,
-        completion: completedGeneration(websiteHtml(position)),
-      })
-    })
+
   mocks.generateObjectStream.mockImplementation(
     (
       rawInput:
@@ -494,8 +463,6 @@ describe("normalizeIdeaSelection", () => {
 describe("runIdeaJob", () => {
   beforeEach(() => {
     vi.resetAllMocks()
-    mocks.writeIdeaSite.mockResolvedValue(undefined)
-    orchestrationOrder.length = 0
     db.delete(ideaJobs).run()
     db.delete(llmGenerations).run()
   })
@@ -560,7 +527,6 @@ describe("runIdeaJob", () => {
     mocks.startDeepSearch.mockImplementation(
       (_userId: string, searchInput: StartSearchInput) => {
         const position = searchInput.ideaJobPosition ?? 0
-        orchestrationOrder.push(`search-${position}`)
         const id =
           position === 0
             ? "search-one"
@@ -591,7 +557,7 @@ describe("runIdeaJob", () => {
     for (const [generationInput] of mocks.generateArrayStream.mock.calls) {
       expect(generationInput).not.toHaveProperty("maxRetries")
     }
-    expect(mocks.generateTextStream).toHaveBeenCalledTimes(7)
+    expect(mocks.generateTextStream).toHaveBeenCalledOnce()
     for (const [generationInput] of mocks.generateTextStream.mock.calls) {
       expect(generationInput).not.toHaveProperty("maxRetries")
     }
@@ -601,30 +567,6 @@ describe("runIdeaJob", () => {
         reasoning: z.literal("disabled"),
       })
       .parse(mocks.generateTextStream.mock.calls[0]?.[0] as unknown)
-    const websiteInputs = mocks.generateTextStream.mock.calls
-      .slice(1)
-      .map(([value]) =>
-        z
-          .object({
-            prompt: z.string(),
-            reasoning: z.literal("enabled"),
-            promptName: z.literal(PromptName.CreateIdeaSite),
-            maxOutputTokens: z.literal(32_768),
-          })
-          .parse(value as unknown),
-      )
-    expect(websiteInputs).toHaveLength(6)
-    for (const [position, websiteInput] of websiteInputs.entries()) {
-      expect(websiteInput.prompt).toContain(
-        "<research_briefing>\nCombined research briefing\n</research_briefing>",
-      )
-      expect(websiteInput.prompt).toContain(
-        `<improved_idea>\n${JSON.stringify({
-          title: `Improved ${generatedIdeas[position].title}`,
-          description: `Improved ${generatedIdeas[position].description}`,
-        })}\n</improved_idea>`,
-      )
-    }
     const ideaInput = z.object({ prompt: z.string() }).parse(
       mocks.generateArrayStream.mock.calls[1]?.[0] as unknown,
     )
@@ -684,22 +626,6 @@ describe("runIdeaJob", () => {
     expect(mocks.generateObjectStream).toHaveBeenCalledTimes(13)
     const persistedIdeas = db.select().from(ideas).orderBy(ideas.position).all()
     const selectedIdeas = persistedIdeas.slice(0, 6)
-    expect(mocks.writeIdeaSite).toHaveBeenCalledTimes(6)
-    for (const [position, idea] of selectedIdeas.entries()) {
-      expect(mocks.writeIdeaSite).toHaveBeenCalledWith(
-        idea.ideaId,
-        websiteHtml(position),
-      )
-    }
-    // Every website generation starts right after its own refinement commits
-    // and therefore before any selected-idea research child is launched.
-    const firstRefinedSearch = orchestrationOrder.indexOf("search-2")
-    expect(firstRefinedSearch).toBeGreaterThan(-1)
-    for (let position = 0; position < 6; position++) {
-      const websiteStart = orchestrationOrder.indexOf(`website-${position}`)
-      expect(websiteStart).toBeGreaterThan(-1)
-      expect(websiteStart).toBeLessThan(firstRefinedSearch)
-    }
     for (const [position, idea] of selectedIdeas.entries()) {
       expect(mocks.startDeepSearch).toHaveBeenNthCalledWith(
         position + 3,
@@ -1090,7 +1016,7 @@ describe("runIdeaJob", () => {
 
     await runIdeaJob(input)
 
-    expect(mocks.generateTextStream).toHaveBeenCalledTimes(7)
+    expect(mocks.generateTextStream).toHaveBeenCalledOnce()
     expect(mocks.generateObjectStream).toHaveBeenCalledTimes(13)
     await expect(events).resolves.toContainEqual({
       type: "error",
@@ -1219,77 +1145,6 @@ describe("runIdeaJob", () => {
       type: "error",
       message: "Selected idea research failed",
       stage: "idea-research",
-    })
-  })
-
-  it("fails the whole job after evaluations when a website cannot be generated", async () => {
-    const { input, events } = createInput()
-    setupGenerations({ websiteFailureAt: 2 })
-    mocks.startDeepSearch.mockImplementation(
-      (_userId: string, searchInput: StartSearchInput) => {
-        const position = searchInput.ideaJobPosition ?? 0
-        return Promise.resolve(
-          persistCompletedSearch(`website-search-${position}`, searchInput),
-        )
-      },
-    )
-
-    await runIdeaJob(input)
-
-    expect(mocks.startDeepSearch).toHaveBeenCalledTimes(8)
-    expect(mocks.writeIdeaSite).toHaveBeenCalledTimes(5)
-    await expect(events).resolves.toContainEqual({
-      type: "idea-evaluated",
-      ideaId: db.select().from(ideas).orderBy(ideas.position).all()[0].ideaId,
-      ...generatedEvaluations[0],
-    })
-    await expect(events).resolves.toContainEqual({
-      type: "error",
-      message: "Website failed before streaming",
-      stage: "website",
-    })
-    expect(db.select().from(ideaJobs).get()).toMatchObject({
-      status: "failed",
-      stage: "ideas",
-      error: "Website failed before streaming",
-    })
-    expect(reconstructIdeaJobEvents(ideaJobId)).toContainEqual({
-      type: "error",
-      message: "Website failed before streaming",
-      stage: "website",
-    })
-  })
-
-  it("fails the whole job when a website cannot be written to disk", async () => {
-    const { input, events } = createInput()
-    setupGenerations()
-    mocks.writeIdeaSite.mockRejectedValue(new Error("Website storage failed"))
-    mocks.startDeepSearch.mockImplementation(
-      (_userId: string, searchInput: StartSearchInput) => {
-        const position = searchInput.ideaJobPosition ?? 0
-        return Promise.resolve(
-          persistCompletedSearch(`storage-search-${position}`, searchInput),
-        )
-      },
-    )
-
-    await runIdeaJob(input)
-
-    expect(mocks.writeIdeaSite).toHaveBeenCalledTimes(6)
-    await expect(events).resolves.toContainEqual({
-      type: "error",
-      message: "Website storage failed",
-      stage: "website",
-    })
-    expect(db.select().from(ideaJobs).get()).toMatchObject({
-      status: "failed",
-      stage: "ideas",
-      error: "Website storage failed",
-    })
-    expect(reconstructIdeaJobEvents(ideaJobId)).toContainEqual({
-      type: "error",
-      message: "Website storage failed",
-      stage: "website",
     })
   })
 })

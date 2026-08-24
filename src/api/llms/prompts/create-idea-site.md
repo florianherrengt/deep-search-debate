@@ -29,4 +29,4 @@ The design should adapt to the idea itself and feel polished, visual, and easy t
 
 Everything must be contained in one HTML file with inline CSS, JavaScript, and SVG where needed. No external dependencies or assets.
 
-Return only the complete HTML.
+Return only the complete HTML document. It must start with `<!DOCTYPE html>` and end with `</html>`. Never wrap it in markdown code fences or add any commentary before or after it.

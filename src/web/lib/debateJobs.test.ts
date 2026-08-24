@@ -72,7 +72,8 @@ describe("debate jobs client", () => {
       ],
       standings: [],
       error: null,
-      creditsUsed: null,
+      winnerWebsiteIdeaId: null,
+  creditsUsed: null,
       feedback: null,
     }
     const events = [{ type: "updated" }, { type: "done" }] as const

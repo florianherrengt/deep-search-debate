@@ -141,8 +141,14 @@ export function DebateView({
           closestAlternative={closestAlternative}
           evaluation={winnerEvaluation}
           idea={winner}
+          ideaJobId={tournament.ideaJobId}
           ideaJobSlug={tournament.slug}
           reason={winnerReason}
+          websiteIdeaId={
+            tournament.winnerWebsiteIdeaId === winner.ideaId
+              ? tournament.winnerWebsiteIdeaId
+              : undefined
+          }
         />
       )}
 

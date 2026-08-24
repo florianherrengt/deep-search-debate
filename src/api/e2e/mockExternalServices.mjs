@@ -400,6 +400,7 @@ function assertThinkingMode(body, system) {
   const budgetSensitiveTextSkipsReasoning =
     system.includes("Evaluate the improved idea against") ||
     system.includes("Combine the supplied research texts") ||
+    system.includes("Create a single self-contained HTML page") ||
     system.includes("You summarize an extracted web page") ||
     system.includes("You summarize the results returned for one web search") ||
     system.includes("You write the current candidate answer for a deep research run") ||
