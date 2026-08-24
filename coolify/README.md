@@ -10,10 +10,10 @@ the operational source of truth for the live Coolify resource.
 | --- | --- |
 | Project | `x4ourxjokp39jfmxfvbw5h1r` |
 | Environment | `qbtgd10bxar36onzm3gutnjp` |
-| Application | `hgv8mv8vamha35yjrzm2uu03` |
+| Application | `uk9l7wyulny8bxcrkysddlws` |
 
-The non-secret URL and UUIDs live in `config.sh`. The API base is
-`http://helium:8000/api/v1`.
+The non-secret URL and UUIDs live in `config.sh`, together with the Docker Hub
+image name. The API base is `http://helium:8000/api/v1`.
 
 ## Token
 
@@ -51,8 +51,10 @@ Before the first deployment:
 
 1. Configure `https://rethinkloop.com` as the primary domain in Coolify. The
    application derives `BETTER_AUTH_URL` from `NODE_ENV=production`.
-2. Add a persistent volume named `rethinkloop-data` with destination path
-   `/app/data`. SQLite is stored at `/app/data/data.db`.
+2. Store SQLite outside Docker's volume area: create `/data/rethinkloop/data`
+   on the server owned by uid/gid `1000`, then add a persistent storage binding
+   that host path to `/app/data`. SQLite lives at
+   `/data/rethinkloop/data/data.db`.
 3. Add these literal, runtime-only production variables in the Coolify UI:
 
 | Variable | Requirement |
@@ -93,9 +95,9 @@ The required application settings are:
 
 | Setting | Value |
 | --- | --- |
-| Build pack | Dockerfile |
-| Base directory | `/` |
-| Dockerfile | `/Dockerfile` |
+| Build pack | Docker image (`dockerimage`) |
+| Docker registry image | `florianherrengt/rethinkloop` |
+| Deployed tag | Full commit SHA of the release; set by the release procedure |
 | Primary domain | `https://rethinkloop.com` |
 | Exposed container port | `3000` |
 | Host port mapping | `4479:3000` |
@@ -118,10 +120,40 @@ them and Docker excludes them from the build context. Production receives only
 the runtime environment variables listed above.
 
 The API pins `deep-search-core` to the npm tarball attached to its immutable
-GitHub release. Coolify downloads that package during `npm ci`, so the Docker
-build does not depend on a sibling checkout or committed vendor files. When the
-dependency is intentionally upgraded, update its release URL in
-`src/api/package.json` and regenerate the root lockfile with `npm install`.
+GitHub release. That package is downloaded while the image is built locally by
+Dagger, so server-side deployments only pull a ready image. When the dependency
+is intentionally upgraded, update its release URL in `src/api/package.json` and
+regenerate the root lockfile with `npm install`.
+
+## Deployment procedure
+
+Coolify pulls the released tag from Docker Hub instead of building on the
+server. The tag is a full commit SHA published by Dagger, so publish from a
+tree whose committed state is what you intend to ship.
+
+```sh
+# 1. Confirm the repository passes locally, then commit the release.
+npm run gatekeep
+
+# 2. Build the production image from the Dockerfile and push it,
+#    tagged with the current commit SHA.
+dagger -m dagger call publish --tag "$(git rev-parse HEAD)"
+
+# 3. Point Coolify at that tag.
+TAG="$(git rev-parse HEAD)"
+printf '{"docker_registry_image_tag":"%s"}\n' "${TAG}" |
+  ./coolify/api.sh PATCH "/applications/$(source coolify/config.sh && printf '%s' "${COOLIFY_APPLICATION_UUID}")" -
+
+# 4. Queue the deployment. Copy deployment_uuid from this response.
+./coolify/deploy.sh
+
+# 5. Wait for that exact deployment; do not queue duplicates.
+./coolify/wait-deployment.sh DEPLOYMENT_UUID
+
+# 6. Verify Coolify state and the public endpoint.
+./coolify/status.sh
+./coolify/verify-live.sh
+```
 
 ## Read-only commands
 
@@ -161,7 +193,7 @@ These commands act immediately. They do not prompt for confirmation.
 # Queue a normal deployment
 ./coolify/deploy.sh
 
-# Rebuild without cache
+# Re-pull the configured tag without reusing cached layers
 ./coolify/deploy.sh --force
 
 # Skip Coolify's deployment queue (use only when intentional)
@@ -176,30 +208,6 @@ These commands act immediately. They do not prompt for confirmation.
 `wait-deployment.sh` to wait for completion or `deployment.sh` to inspect full
 metadata and logs.
 
-## Deployment procedure
-
-Coolify builds the committed `main` branch from GitHub. Local uncommitted changes
-are not deployed. Push the intended commit before starting this procedure.
-
-```sh
-# 1. Confirm the image and repository pass locally.
-npm run gatekeep
-docker build -t rethinkloop:local .
-
-# 2. Confirm production configuration. Configure it if this fails.
-./coolify/check-config.sh || ./coolify/configure-production.sh
-
-# 3. Queue a clean build. Copy deployment_uuid from this response.
-./coolify/deploy.sh --force
-
-# 4. Wait for that exact deployment; do not queue duplicates.
-./coolify/wait-deployment.sh DEPLOYMENT_UUID
-
-# 5. Verify Coolify and the public endpoint.
-./coolify/status.sh
-./coolify/verify-live.sh
-```
-
 ## Generic API requests
 
 `api.sh` supports `GET`, `POST`, `PUT`, `PATCH`, and `DELETE`. It accepts only a
@@ -208,9 +216,9 @@ as the JSON argument to read request bodies from standard input; this keeps
 secrets out of process arguments.
 
 ```sh
-./coolify/api.sh GET "/applications/hgv8mv8vamha35yjrzm2uu03"
+./coolify/api.sh GET "/applications/uk9l7wyulny8bxcrkysddlws"
 printf '%s\n' '{"name":"rethinkloop"}' | \
-  ./coolify/api.sh PATCH "/applications/hgv8mv8vamha35yjrzm2uu03" -
+  ./coolify/api.sh PATCH "/applications/uk9l7wyulny8bxcrkysddlws" -
 ```
 
 The generic helper prints the complete API response. Some endpoints return
@@ -223,7 +231,8 @@ its output.
 - `403`: the token lacks the required permission.
 - `404`: the UUID is wrong or the token belongs to a different Coolify team.
 - `exited:unhealthy`: inspect configuration and deployment logs before retrying.
-- Database resets after deploy: the `/app/data` persistent volume is missing.
+- Database resets after deploy: the `/app/data` bind mount (host path
+  `/data/rethinkloop/data`) is missing or not writable by uid `1000`.
 - Startup reports a missing or invalid secret: confirm all required runtime
   variables are configured in Coolify as nonblank literal production values.
 - Authentication callback failure: confirm the Coolify primary domain is

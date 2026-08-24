@@ -16,3 +16,4 @@ src/api/secrets/*
 !src/api/secrets/dev.kdbx
 !src/api/secrets/prod.kdbx
 coolify/backups/
+/*.png

@@ -13,9 +13,9 @@ Usage: ./coolify/api.sh METHOD /endpoint [JSON|-]
 
 Examples:
   ./coolify/api.sh GET /applications
-  ./coolify/api.sh GET /applications/hgv8mv8vamha35yjrzm2uu03
+  ./coolify/api.sh GET /applications/uk9l7wyulny8bxcrkysddlws
   printf '%s\n' '{"name":"rethinkloop"}' | \
-    ./coolify/api.sh PATCH /applications/hgv8mv8vamha35yjrzm2uu03 -
+    ./coolify/api.sh PATCH /applications/uk9l7wyulny8bxcrkysddlws -
 
 The endpoint must start with /. It is always sent to the configured Coolify API
 base, so the bearer token cannot be redirected to another host.

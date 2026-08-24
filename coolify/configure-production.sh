@@ -20,8 +20,9 @@ if [[ "${public_url}" != "${COOLIFY_APPLICATION_URL}" ]]; then
   exit 1
 fi
 
-jq -n --arg name "${COOLIFY_APPLICATION_NAME}" '{
+jq -n --arg name "${COOLIFY_APPLICATION_NAME}" --arg image "${COOLIFY_IMAGE_NAME}" '{
     name: $name,
+    docker_registry_image_name: $image,
     ports_exposes: "3000",
     ports_mappings: "4479:3000",
     health_check_enabled: true,
@@ -34,6 +35,6 @@ jq -n --arg name "${COOLIFY_APPLICATION_NAME}" '{
     health_check_start_period: 300
   }' | "${SCRIPT_DIR}/api.sh" PATCH "/applications/${COOLIFY_APPLICATION_UUID}" - >/dev/null
 
-echo "Configured the RethinkLoop resource names, host port 4479 to map to container port 3000, and the /api/health check. Runtime defaults come from the image and typed application config."
+echo "Configured the RethinkLoop resource name, ${COOLIFY_IMAGE_NAME} image source, host port 4479 to map to container port 3000, and the /api/health check. The deployed tag is managed by the release procedure; runtime defaults come from the image and typed application config."
 "${SCRIPT_DIR}/sync-proxy-labels.sh"
 "${SCRIPT_DIR}/check-config.sh"

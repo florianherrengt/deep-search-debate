@@ -1,11 +1,12 @@
 ---
 id: 5
 title: Render user prompts as markdown everywhere
-status: review
+status: done
 priority: medium
 created: 2026-08-22T16:41:53.304701+01:00
-updated: 2026-08-23T00:15:40.105993+01:00
+updated: 2026-08-24T02:06:22.731169+01:00
 started: 2026-08-22T16:55:09.057754+01:00
+completed: 2026-08-24T02:06:22.731733+01:00
 class: standard
 ---
 

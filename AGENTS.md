@@ -9,12 +9,14 @@ Area-specific guidance lives in per-folder `docs/` files (e.g. `src/api/llms/doc
 - `src/api` → `@rethinkloop/api`: Hono backend. Entry `server.ts` → `index.ts` (app). All routes mount under the `/api` basePath.
 - `src/web` → `@rethinkloop/web`: Vite + React 19 + MUI + React Query + React Router. Entry `main.tsx` → `App.tsx`.
 - Root `package.json` scripts proxy into workspaces with `-w @rethinkloop/{api,web}`.
+- `dagger/` → Dagger CI module (TypeScript SDK; not an npm workspace). Encodes containerized checks and production image releases.
 
 ## Commands
 
 - **Pre-PR gate:** `npm run gatekeep` — runs `lint → typecheck → knip → test` in that order. This is the canonical verification step.
 - **Per-workspace:** e.g. `npm run test -w @rethinkloop/api`, `npm run dev -w @rethinkloop/web`.
 - **Dev (full stack):** run `npm run dev` (API on `PORT`, default `:3000`) **and** `npm run dev:web` (Vite on `VITE_PORT`, default `:5173`) together. Vite proxies `/api` to `VITE_API_TARGET` (default `http://localhost:3000`).
+- **Dagger:** requires the Docker daemon. `dagger -m dagger call gatekeep` runs the pre-PR gate in containers; `dagger -m dagger call publish --tag "$(git rev-parse HEAD)"` builds the production Dockerfile image and pushes it to `florianherrengt/rethinkloop` on Docker Hub using `DOCKER_HUB_TOKEN` from `.env`. Coolify pulls that tag — see `coolify/README.md`.
 
 ## Lint / style
 

@@ -1,11 +1,12 @@
 ---
 id: 2
 title: Move View-the-underlying-idea-generation button to the Standings header
-status: review
+status: done
 priority: medium
 created: 2026-08-22T16:41:53.196842+01:00
-updated: 2026-08-22T23:35:29.704889+01:00
+updated: 2026-08-24T02:06:22.714698+01:00
 started: 2026-08-22T16:55:17.385748+01:00
+completed: 2026-08-24T02:06:22.715247+01:00
 class: standard
 ---
 

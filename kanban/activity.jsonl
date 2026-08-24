@@ -1,0 +1,101 @@
+{"timestamp":"2026-08-22T16:41:53.180845+01:00","action":"create","task_id":1,"detail":"Hide Debate progress once the debate is done"}
+{"timestamp":"2026-08-22T16:41:53.197424+01:00","action":"create","task_id":2,"detail":"Move View-the-underlying-idea-generation button to the Standings header"}
+{"timestamp":"2026-08-22T16:41:53.23484+01:00","action":"create","task_id":3,"detail":"Show idea names on match Previous/Next buttons"}
+{"timestamp":"2026-08-22T16:41:53.264918+01:00","action":"create","task_id":4,"detail":"Link match title to the idea generation page"}
+{"timestamp":"2026-08-22T16:41:53.305274+01:00","action":"create","task_id":5,"detail":"Render the debate prompt as markdown"}
+{"timestamp":"2026-08-22T16:46:36.125008+01:00","action":"create","task_id":6,"detail":"Create a shared ExternalLink component"}
+{"timestamp":"2026-08-22T16:49:22.993159+01:00","action":"edit","task_id":5,"detail":"Render user prompts as markdown everywhere"}
+{"timestamp":"2026-08-22T16:54:28.705897+01:00","action":"move","task_id":6,"detail":"backlog -\u003e todo"}
+{"timestamp":"2026-08-22T16:55:09.058032+01:00","action":"move","task_id":5,"detail":"backlog -\u003e todo"}
+{"timestamp":"2026-08-22T16:55:12.72369+01:00","action":"move","task_id":4,"detail":"backlog -\u003e todo"}
+{"timestamp":"2026-08-22T16:55:15.008088+01:00","action":"move","task_id":3,"detail":"backlog -\u003e todo"}
+{"timestamp":"2026-08-22T16:55:17.386374+01:00","action":"move","task_id":2,"detail":"backlog -\u003e todo"}
+{"timestamp":"2026-08-22T16:55:19.959594+01:00","action":"move","task_id":1,"detail":"backlog -\u003e todo"}
+{"timestamp":"2026-08-22T17:04:21.115833+01:00","action":"create","task_id":7,"detail":"Add Stripe for payments"}
+{"timestamp":"2026-08-22T17:05:53.071134+01:00","action":"edit","task_id":7,"detail":"Add Stripe for payments"}
+{"timestamp":"2026-08-22T17:35:48.655359+01:00","action":"create","task_id":8,"detail":"Generate per-idea websites and pipe them to the frontend"}
+{"timestamp":"2026-08-22T17:35:54.170773+01:00","action":"edit","task_id":8,"detail":"Generate per-idea websites and pipe them to the frontend"}
+{"timestamp":"2026-08-22T17:35:54.170854+01:00","action":"claim","task_id":8,"detail":"somatous-tankah"}
+{"timestamp":"2026-08-22T17:36:34.849945+01:00","action":"edit","task_id":8,"detail":"Generate per-idea websites and pipe them to the frontend"}
+{"timestamp":"2026-08-22T18:23:55.701148+01:00","action":"edit","task_id":8,"detail":"Generate per-idea websites and pipe them to the frontend"}
+{"timestamp":"2026-08-22T18:23:55.701672+01:00","action":"release","task_id":8,"detail":"somatous-tankah"}
+{"timestamp":"2026-08-22T18:23:55.717394+01:00","action":"move","task_id":8,"detail":"in-progress -\u003e done"}
+{"timestamp":"2026-08-22T18:23:59.168673+01:00","action":"create","task_id":9,"detail":"Frontend connection for idea websites"}
+{"timestamp":"2026-08-22T19:03:26.003232+01:00","action":"create","task_id":10,"detail":"Fix waitlist email field label sitting too low"}
+{"timestamp":"2026-08-22T19:06:20.450332+01:00","action":"move","task_id":10,"detail":"backlog -\u003e todo"}
+{"timestamp":"2026-08-22T19:06:37.933736+01:00","action":"priority","task_id":10,"detail":"medium -\u003e high"}
+{"timestamp":"2026-08-22T19:06:41.801633+01:00","action":"priority","task_id":6,"detail":"medium -\u003e high"}
+{"timestamp":"2026-08-22T19:07:24.236444+01:00","action":"edit","task_id":10,"detail":"Fix waitlist email field label sitting too low"}
+{"timestamp":"2026-08-22T19:19:06.541707+01:00","action":"edit","task_id":1,"detail":"Hide Debate progress once the debate is done"}
+{"timestamp":"2026-08-22T21:32:00.355353+01:00","action":"move","task_id":9,"detail":"todo -\u003e in-progress"}
+{"timestamp":"2026-08-22T21:32:46.847307+01:00","action":"move","task_id":6,"detail":"todo -\u003e backlog"}
+{"timestamp":"2026-08-22T21:34:27.922121+01:00","action":"claim","task_id":10,"detail":"aroon-sunburn"}
+{"timestamp":"2026-08-22T21:34:27.922232+01:00","action":"move","task_id":10,"detail":"todo -\u003e in-progress"}
+{"timestamp":"2026-08-22T21:40:11.627742+01:00","action":"edit","task_id":6,"detail":"Create a shared ExternalLink component"}
+{"timestamp":"2026-08-22T21:40:11.627841+01:00","action":"claim","task_id":6,"detail":"subvene-sybotism"}
+{"timestamp":"2026-08-22T21:40:11.642846+01:00","action":"move","task_id":6,"detail":"backlog -\u003e in-progress"}
+{"timestamp":"2026-08-22T22:00:20.61995+01:00","action":"edit","task_id":10,"detail":"Fix waitlist email field label sitting too low"}
+{"timestamp":"2026-08-22T22:01:38.718684+01:00","action":"edit","task_id":10,"detail":"Fix waitlist email field label sitting too low"}
+{"timestamp":"2026-08-22T22:01:38.71879+01:00","action":"release","task_id":10,"detail":"aroon-sunburn"}
+{"timestamp":"2026-08-22T22:01:38.734157+01:00","action":"move","task_id":10,"detail":"in-progress -\u003e done"}
+{"timestamp":"2026-08-22T22:02:30.979091+01:00","action":"claim","task_id":1,"detail":"aroon-sunburn"}
+{"timestamp":"2026-08-22T22:02:30.979205+01:00","action":"move","task_id":1,"detail":"todo -\u003e in-progress"}
+{"timestamp":"2026-08-22T23:12:11.460256+01:00","action":"edit","task_id":1,"detail":"Hide Debate progress once the debate is done"}
+{"timestamp":"2026-08-22T23:12:11.475578+01:00","action":"edit","task_id":1,"detail":"Hide Debate progress once the debate is done"}
+{"timestamp":"2026-08-22T23:12:11.475741+01:00","action":"release","task_id":1,"detail":"aroon-sunburn"}
+{"timestamp":"2026-08-22T23:12:11.490892+01:00","action":"move","task_id":1,"detail":"in-progress -\u003e done"}
+{"timestamp":"2026-08-22T23:12:22.707623+01:00","action":"claim","task_id":2,"detail":"aroon-sunburn"}
+{"timestamp":"2026-08-22T23:12:22.707708+01:00","action":"move","task_id":2,"detail":"todo -\u003e in-progress"}
+{"timestamp":"2026-08-22T23:15:23.594937+01:00","action":"move","task_id":6,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-08-22T23:15:23.595226+01:00","action":"handoff","task_id":6,"detail":"Create a shared ExternalLink component"}
+{"timestamp":"2026-08-22T23:15:23.595301+01:00","action":"release","task_id":6,"detail":"Create a shared ExternalLink component"}
+{"timestamp":"2026-08-22T23:26:54.479143+01:00","action":"edit","task_id":6,"detail":"Create a shared ExternalLink component"}
+{"timestamp":"2026-08-22T23:26:54.479239+01:00","action":"claim","task_id":6,"detail":"subvene-sybotism"}
+{"timestamp":"2026-08-22T23:26:56.533535+01:00","action":"edit","task_id":6,"detail":"Create a shared ExternalLink component"}
+{"timestamp":"2026-08-22T23:27:02.80652+01:00","action":"edit","task_id":6,"detail":"Create a shared ExternalLink component"}
+{"timestamp":"2026-08-22T23:27:02.806624+01:00","action":"release","task_id":6,"detail":"subvene-sybotism"}
+{"timestamp":"2026-08-22T23:35:29.688571+01:00","action":"edit","task_id":2,"detail":"Move View-the-underlying-idea-generation button to the Standings header"}
+{"timestamp":"2026-08-22T23:35:29.705808+01:00","action":"move","task_id":2,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-08-22T23:35:29.705969+01:00","action":"handoff","task_id":2,"detail":"Move View-the-underlying-idea-generation button to the Standings header"}
+{"timestamp":"2026-08-22T23:35:29.706027+01:00","action":"release","task_id":2,"detail":"Move View-the-underlying-idea-generation button to the Standings header"}
+{"timestamp":"2026-08-22T23:35:51.025963+01:00","action":"claim","task_id":3,"detail":"aroon-sunburn"}
+{"timestamp":"2026-08-22T23:35:51.026136+01:00","action":"move","task_id":3,"detail":"todo -\u003e in-progress"}
+{"timestamp":"2026-08-22T23:47:06.214776+01:00","action":"edit","task_id":3,"detail":"Show idea names on match Previous/Next buttons"}
+{"timestamp":"2026-08-22T23:47:06.214871+01:00","action":"release","task_id":3,"detail":"aroon-sunburn"}
+{"timestamp":"2026-08-22T23:47:06.230367+01:00","action":"move","task_id":3,"detail":"in-progress -\u003e done"}
+{"timestamp":"2026-08-22T23:47:06.278935+01:00","action":"claim","task_id":4,"detail":"aroon-sunburn"}
+{"timestamp":"2026-08-22T23:47:06.279042+01:00","action":"move","task_id":4,"detail":"todo -\u003e in-progress"}
+{"timestamp":"2026-08-22T23:52:49.012522+01:00","action":"edit","task_id":4,"detail":"Link match title to the idea generation page"}
+{"timestamp":"2026-08-22T23:52:49.012651+01:00","action":"release","task_id":4,"detail":"aroon-sunburn"}
+{"timestamp":"2026-08-22T23:52:49.027581+01:00","action":"move","task_id":4,"detail":"in-progress -\u003e done"}
+{"timestamp":"2026-08-22T23:53:01.041943+01:00","action":"claim","task_id":5,"detail":"aroon-sunburn"}
+{"timestamp":"2026-08-22T23:53:01.042035+01:00","action":"move","task_id":5,"detail":"todo -\u003e in-progress"}
+{"timestamp":"2026-08-23T00:15:40.091415+01:00","action":"edit","task_id":5,"detail":"Render user prompts as markdown everywhere"}
+{"timestamp":"2026-08-23T00:15:40.10665+01:00","action":"move","task_id":5,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-08-23T00:15:40.106761+01:00","action":"handoff","task_id":5,"detail":"Render user prompts as markdown everywhere"}
+{"timestamp":"2026-08-23T00:15:40.106862+01:00","action":"release","task_id":5,"detail":"Render user prompts as markdown everywhere"}
+{"timestamp":"2026-08-23T00:18:18.238116+01:00","action":"edit","task_id":6,"detail":"Create a shared ExternalLink component"}
+{"timestamp":"2026-08-23T00:18:18.238216+01:00","action":"claim","task_id":6,"detail":"subvene-sybotism"}
+{"timestamp":"2026-08-23T00:18:18.253357+01:00","action":"edit","task_id":6,"detail":"Create a shared ExternalLink component"}
+{"timestamp":"2026-08-23T00:18:18.253453+01:00","action":"release","task_id":6,"detail":"subvene-sybotism"}
+{"timestamp":"2026-08-23T00:41:00.808889+01:00","action":"edit","task_id":6,"detail":"Create a shared ExternalLink component"}
+{"timestamp":"2026-08-23T00:41:00.808988+01:00","action":"claim","task_id":6,"detail":"subvene-sybotism"}
+{"timestamp":"2026-08-23T00:41:00.823462+01:00","action":"move","task_id":6,"detail":"review -\u003e in-progress"}
+{"timestamp":"2026-08-23T00:42:22.17828+01:00","action":"move","task_id":6,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-08-23T00:42:22.178376+01:00","action":"handoff","task_id":6,"detail":"Create a shared ExternalLink component"}
+{"timestamp":"2026-08-23T00:42:22.178825+01:00","action":"release","task_id":6,"detail":"Create a shared ExternalLink component"}
+{"timestamp":"2026-08-24T01:34:07.36435+01:00","action":"create","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-24T01:34:33.648108+01:00","action":"edit","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-24T01:53:54.151727+01:00","action":"edit","task_id":6,"detail":"Create a shared ExternalLink component"}
+{"timestamp":"2026-08-24T01:53:54.151897+01:00","action":"claim","task_id":6,"detail":"subvene-sybotism"}
+{"timestamp":"2026-08-24T01:53:54.16726+01:00","action":"move","task_id":6,"detail":"review -\u003e in-progress"}
+{"timestamp":"2026-08-24T01:56:40.956299+01:00","action":"edit","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-24T01:58:07.429409+01:00","action":"edit","task_id":6,"detail":"Create a shared ExternalLink component"}
+{"timestamp":"2026-08-24T01:58:07.429518+01:00","action":"release","task_id":6,"detail":"subvene-sybotism"}
+{"timestamp":"2026-08-24T01:58:07.44594+01:00","action":"move","task_id":6,"detail":"in-progress -\u003e done"}
+{"timestamp":"2026-08-24T02:06:11.772609+01:00","action":"create","task_id":12,"detail":"Square screenshot of generated winner website replaces visit button"}
+{"timestamp":"2026-08-24T02:06:20.878451+01:00","action":"move","task_id":12,"detail":"backlog -\u003e in-progress"}
+{"timestamp":"2026-08-24T02:06:22.699349+01:00","action":"edit","task_id":2,"detail":"Move View-the-underlying-idea-generation button to the Standings header"}
+{"timestamp":"2026-08-24T02:06:22.715504+01:00","action":"move","task_id":2,"detail":"review -\u003e done"}
+{"timestamp":"2026-08-24T02:06:22.731969+01:00","action":"move","task_id":5,"detail":"review -\u003e done"}
+{"timestamp":"2026-08-24T02:42:27.113546+01:00","action":"edit","task_id":12,"detail":"Square screenshot of generated winner website replaces visit button"}

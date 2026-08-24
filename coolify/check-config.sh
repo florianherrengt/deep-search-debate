@@ -20,11 +20,11 @@ if ! jq -e --arg project_name "${COOLIFY_PROJECT_NAME}" '
   echo "The Coolify project name must be ${COOLIFY_PROJECT_NAME}." >&2
 fi
 
-if ! jq -e --arg application_name "${COOLIFY_APPLICATION_NAME}" '
+if ! jq -e --arg application_name "${COOLIFY_APPLICATION_NAME}" --arg image_name "${COOLIFY_IMAGE_NAME}" '
   .name == $application_name and
-  .build_pack == "dockerfile" and
-  .base_directory == "/" and
-  .dockerfile_location == "/Dockerfile" and
+  .build_pack == "dockerimage" and
+  .docker_registry_image_name == $image_name and
+  ((.docker_registry_image_tag // "") | length > 0) and
   .ports_exposes == "3000" and
   .ports_mappings == "4479:3000" and
   .health_check_enabled == true and
@@ -41,8 +41,8 @@ if ! jq -e --arg application_name "${COOLIFY_APPLICATION_NAME}" '
   jq '{
     name,
     build_pack,
-    base_directory,
-    dockerfile_location,
+    docker_registry_image_name,
+    docker_registry_image_tag,
     ports_exposes,
     ports_mappings,
     health_check_enabled,
