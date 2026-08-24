@@ -1,10 +1,8 @@
-import Box from "@mui/material/Box"
-import Link from "@mui/material/Link"
 import List from "@mui/material/List"
 import ListItem from "@mui/material/ListItem"
 import ListItemText from "@mui/material/ListItemText"
 import Typography from "@mui/material/Typography"
-import ReactMarkdown from "react-markdown"
+import { MarkdownText } from "../MarkdownText.tsx"
 
 export type StreamTextFormat = "text" | "markdown" | "structured-list"
 
@@ -68,57 +66,6 @@ function PlainText({ text, testId }: { text: string; testId: string }) {
   )
 }
 
-function MarkdownText({ text, testId }: { text: string; testId: string }) {
-  return (
-    <Box
-      data-testid={testId}
-      sx={{
-        maxWidth: "85ch",
-        overflowWrap: "anywhere",
-        "& > :first-of-type": { mt: 0 },
-        "& > :last-of-type": { mb: 0 },
-        "& h1": { fontSize: "1.4rem" },
-        "& h2": { fontSize: "1.25rem" },
-        "& h3, & h4, & h5, & h6": { fontSize: "1rem" },
-        "& h1, & h2, & h3, & h4, & h5, & h6": {
-          fontWeight: 600,
-          lineHeight: 1.35,
-          mb: 1,
-          mt: 2.5,
-        },
-        "& p": { fontSize: "0.875rem", lineHeight: 1.6, my: 1 },
-        "& ul, & ol": { my: 1, pl: 3 },
-        "& li": { fontSize: "0.875rem", lineHeight: 1.6, mb: 0.5 },
-        "& code": {
-          bgcolor: "action.hover",
-          borderRadius: 1,
-          fontFamily: "monospace",
-          px: 0.5,
-        },
-        "& pre": {
-          bgcolor: "action.hover",
-          borderRadius: 1,
-          overflowX: "auto",
-          p: 1.5,
-        },
-        "& pre code": { bgcolor: "transparent", p: 0 },
-      }}
-    >
-      <ReactMarkdown
-        components={{
-          a: ({ children, href }) => (
-            <Link href={href} rel="noopener noreferrer" target="_blank">
-              {children}
-            </Link>
-          ),
-        }}
-      >
-        {text}
-      </ReactMarkdown>
-    </Box>
-  )
-}
-
 function StructuredList({
   items,
   testId,
@@ -165,7 +112,13 @@ export function FormattedStreamText({
   testId: string
 }) {
   if (format === "markdown") {
-    return <MarkdownText text={text} testId={testId} />
+    return (
+      <MarkdownText
+        sx={{ fontSize: "0.875rem", maxWidth: "85ch" }}
+        testId={testId}
+        text={text}
+      />
+    )
   }
   if (format === "structured-list") {
     const items = parseStructuredList(text)

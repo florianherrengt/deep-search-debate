@@ -17,6 +17,7 @@ import {
 } from "../deepSearchPresentation.ts"
 import { RoundReview } from "./RoundReview.tsx"
 import { SearchResults } from "./SearchResults.tsx"
+import { MarkdownText } from "../../../components/MarkdownText.tsx"
 
 export type DeepSearchRoundDetailProps = {
   jobSlug: string
@@ -283,12 +284,10 @@ export function DeepSearchRoundDetail({
         >
           Research question
         </Typography>
-        <Typography
-          color="text.secondary"
-          sx={{ maxWidth: "85ch", overflowWrap: "anywhere" }}
-        >
-          {researchRequest}
-        </Typography>
+        <MarkdownText
+          sx={{ maxWidth: "85ch" }}
+          text={researchRequest}
+        />
       </Stack>
 
       <Stack

@@ -11,6 +11,7 @@ import { Link } from "react-router-dom"
 import { RequestError } from "../../components/RequestError.tsx"
 import { getExampleDebates } from "../../lib/examples.ts"
 import { useSeo } from "../../lib/seo.ts"
+import { MarkdownText } from "../../components/MarkdownText.tsx"
 
 const exampleDebatesQueryKey = ["example-debates"] as const
 const description =
@@ -61,9 +62,7 @@ export function Examples() {
                   <Typography component="h2" variant="h5">
                     {debate.title}
                   </Typography>
-                  <Typography color="text.secondary">
-                    {debate.prompt}
-                  </Typography>
+                  <MarkdownText text={debate.prompt} />
                 </Stack>
               </CardContent>
               <CardActions sx={{ px: 2, pb: 2 }}>

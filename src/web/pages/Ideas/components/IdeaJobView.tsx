@@ -12,6 +12,7 @@ import {
   type ProgressStatus,
 } from "./ProgressCard.tsx"
 import { ResearchProgress } from "./ResearchProgress.tsx"
+import { MarkdownText } from "../../../components/MarkdownText.tsx"
 
 function getProgressStatus({
   failed,
@@ -255,12 +256,10 @@ export function IdeaJobView({
           </Typography>
           {stopControl}
         </Stack>
-        <Typography
-          color="text.secondary"
-          sx={{ maxWidth: "85ch", overflowWrap: "anywhere" }}
-        >
-          {prompt}
-        </Typography>
+        <MarkdownText
+          sx={{ maxWidth: "85ch" }}
+          text={prompt}
+        />
       </Stack>
       {run.error && (
         <Alert severity={status === "interrupted" ? "info" : "error"}>
