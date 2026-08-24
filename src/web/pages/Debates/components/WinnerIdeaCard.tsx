@@ -61,15 +61,12 @@ export function WinnerIdeaCard({
               {idea.description}
             </Typography>
             {websiteUrl && (
-              <MuiLink
+              <ExternalLink
                 href={websiteUrl}
-                rel="noopener noreferrer"
-                sx={{ alignSelf: "flex-start" }}
-                target="_blank"
-                variant="body2"
+                sx={{ alignSelf: "flex-start", typography: "body2" }}
               >
                 Open the generated website
-              </MuiLink>
+              </ExternalLink>
             )}
             {evaluation && (
               <Stack
