@@ -1,5 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "ignore": ["dagger/**"],
   "ignoreDependencies": ["better-sqlite3"],
   "workspaces": {
     "src/api": {
