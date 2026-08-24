@@ -14,7 +14,7 @@ import {
   Stack,
   Typography,
 } from "@mui/material"
-import { useId, useState } from "react"
+import { useId, useState, type ReactNode } from "react"
 import { debateStageLabels } from "../debatePresentation.ts"
 import {
   getCompletedMatchCount,
@@ -30,10 +30,14 @@ import { MatchCard } from "./MatchCard.tsx"
 import { StandingsTable } from "./StandingsTable.tsx"
 
 export type TournamentBoardProps = {
+  standingsAction?: ReactNode
   tournament: DebateTournament
 }
 
-export function TournamentBoard({ tournament }: TournamentBoardProps) {
+export function TournamentBoard({
+  standingsAction,
+  tournament,
+}: TournamentBoardProps) {
   const headingId = useId()
   const completedMatches = getCompletedMatchCount(tournament)
   const currentSwissRound = getCurrentSwissRound(tournament)
@@ -174,6 +178,8 @@ export function TournamentBoard({ tournament }: TournamentBoardProps) {
             >
               Standings
             </Typography>
+            {standingsAction && <Box sx={{ flexGrow: 1 }} />}
+            {standingsAction}
           </Stack>
           <StandingsTable
             advancedIdeaIds={advancedIdeaIds}
