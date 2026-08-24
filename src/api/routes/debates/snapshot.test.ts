@@ -1,4 +1,6 @@
 import { eq } from "drizzle-orm"
+import { mkdir, writeFile } from "node:fs/promises"
+import { dirname } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import { db } from "../../db/index.ts"
@@ -12,6 +14,7 @@ import {
   llmGenerations,
 } from "../../db/schema/index.ts"
 import { PromptName } from "../../llms/prompts.ts"
+import { ideaSiteScreenshotPath } from "../ideas/ideaSites.ts"
 import { getDebateJobSnapshot } from "./snapshot.ts"
 import { DEBATE_TOURNAMENT_FORMAT } from "./tournament.ts"
 
@@ -188,7 +191,7 @@ describe("debate job snapshot", () => {
     ).toBe(DEBATE_TOURNAMENT_FORMAT.matchesPerSwissRound)
   })
 
-  it("exposes the winner website only once its generation completes", () => {
+  it("exposes the winner website only once its generation completes", async () => {
     const ideaJobId = crypto.randomUUID()
     const debateJobId = crypto.randomUUID()
     const debateRoundId = crypto.randomUUID()
@@ -284,6 +287,18 @@ describe("debate job snapshot", () => {
 
     const snapshot = getDebateJobSnapshot(debateJobId, "test-user-id")
     expect(snapshot?.winnerWebsiteIdeaId).toBe(winnerIdeaId)
+
+    // The preview is best-effort, so a completed website without one reports
+    // the absence instead of exposing a broken image.
+    expect(snapshot?.winnerWebsiteHasScreenshot).toBe(false)
+    await mkdir(dirname(ideaSiteScreenshotPath(winnerIdeaId)), {
+      recursive: true,
+    })
+    await writeFile(ideaSiteScreenshotPath(winnerIdeaId), new Uint8Array([1]))
+    expect(
+      getDebateJobSnapshot(debateJobId, "test-user-id")
+        ?.winnerWebsiteHasScreenshot,
+    ).toBe(true)
 
     // A registered-but-unfinished generation must not expose a dead link.
     db.update(llmGenerations)

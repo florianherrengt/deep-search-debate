@@ -299,6 +299,14 @@ test.describe("Debate tournament", () => {
       page.getByRole("region", { name: "Debate progress" }),
     ).toHaveCount(0)
     await expect(page.getByText("Winning idea", { exact: true })).toBeVisible()
+    const winnerScreenshot = page.getByRole("img", {
+      name: "Preview of the generated website",
+    })
+    await expect(winnerScreenshot).toBeVisible()
+    await expect(winnerScreenshot).toHaveAttribute(
+      "src",
+      /\/website\/screenshot\.png$/,
+    )
     await expect(page.getByText("Why it won", { exact: true })).toBeVisible()
     await expect(
       page.getByRole("heading", { name: "Decisive strengths" }),

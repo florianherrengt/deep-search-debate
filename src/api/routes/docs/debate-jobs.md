@@ -304,7 +304,9 @@ resource return 404.
   65,536-token output budget),
   links it through `debate_jobs.website_generation_id`, stores it under
   `IDEA_SITES_DIR/<idea_uuid>/websites/index.html`, and only then completes. A
-  website generation or file-write failure fails the whole debate.
+  website generation or file-write failure fails the whole debate. The square
+  preview screenshot is written afterwards and is best-effort: a capture
+  failure is logged and never fails the completed debate.
 - Round creation validates selected same-job membership, unique round
   appearances, dynamic stage match counts, prior-stage completion, and
   non-repeating Swiss opponents before inserting the complete round

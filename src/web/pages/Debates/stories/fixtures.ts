@@ -303,6 +303,7 @@ export const swissTournament: DebateTournament = {
   error: null,
   creditsUsed: null,
   winnerWebsiteIdeaId: null,
+  winnerWebsiteHasScreenshot: false,
   feedback: null,
 }
 
@@ -332,6 +333,7 @@ export const semifinalTournament: DebateTournament = {
   error: null,
   creditsUsed: null,
   winnerWebsiteIdeaId: null,
+  winnerWebsiteHasScreenshot: false,
   feedback: null,
 }
 
@@ -369,6 +371,8 @@ export const completedTournament: DebateTournament = {
   error: null,
   creditsUsed: 1_234,
   winnerWebsiteIdeaId: completedFinalWinnerIdeaId,
+  // Stories cannot fetch the API-served screenshot file.
+  winnerWebsiteHasScreenshot: false,
   feedback: { rating: null, hasWrittenFeedback: false },
 }
 

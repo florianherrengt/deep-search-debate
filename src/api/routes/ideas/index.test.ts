@@ -1,4 +1,6 @@
 import { eq } from "drizzle-orm"
+import { mkdir, writeFile } from "node:fs/promises"
+import { dirname } from "node:path"
 import { Hono } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -21,7 +23,7 @@ import {
   ideas as ideasTable,
   user as userTable,
 } from "../../db/schema/index.ts"
-import { writeIdeaSite } from "./ideaSites.ts"
+import { writeIdeaSite, ideaSiteScreenshotPath } from "./ideaSites.ts"
 import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
 import { ideaJobReads, ideaJobs, type IdeaJobEvent } from "./index.ts"
 import { createIdeaJobManager } from "./manager.ts"
@@ -53,6 +55,15 @@ async function readEvents(response: Response): Promise<IdeaJobEvent[]> {
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line) as IdeaJobEvent)
+}
+
+async function writeIdeaSiteScreenshot(
+  ideaId: string,
+  png: Uint8Array,
+): Promise<void> {
+  const path = ideaSiteScreenshotPath(ideaId)
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, png)
 }
 
 describe("idea job routes", () => {
@@ -737,6 +748,117 @@ describe("idea job routes", () => {
 
     const response = await createApp().request(
       `/idea-jobs/${ideaJobId}/ideas/${foreignIdeaId}/website`,
+    )
+
+    expect(response.status).toBe(404)
+  })
+
+  it("serves the captured screenshot to the owning reader", async () => {
+    const ideaJobId = crypto.randomUUID()
+    const ideaId = crypto.randomUUID()
+    db.insert(ideaJobsTable)
+      .values({
+        ideaJobId,
+        userId: "test-user-id",
+        title: "Screenshot ideas",
+        slug: "screenshot-ideas",
+        prompt: "Generate ideas",
+        numberOfIdeas: 8,
+        deepSearchCount: 2,
+      })
+      .run()
+    db.insert(ideasTable)
+      .values({
+        ideaJobId,
+        ideaId,
+        position: 0,
+        title: "First idea",
+        description: "First description",
+        selected: true,
+      })
+      .run()
+    const png = new Uint8Array([1, 2, 3])
+    await writeIdeaSiteScreenshot(ideaId, png)
+
+    const response = await createApp().request(
+      `/idea-jobs/${ideaJobId}/ideas/${ideaId}/website/screenshot.png`,
+    )
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("Content-Type")).toBe("image/png")
+    expect(response.headers.get("Cache-Control")).toBe("no-store")
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(png)
+  })
+
+  it("returns 404 for a screenshot that was never captured", async () => {
+    const ideaJobId = crypto.randomUUID()
+    const ideaId = crypto.randomUUID()
+    db.insert(ideaJobsTable)
+      .values({
+        ideaJobId,
+        userId: "test-user-id",
+        title: "No screenshot ideas",
+        slug: "no-screenshot-ideas",
+        prompt: "Generate ideas",
+        numberOfIdeas: 8,
+        deepSearchCount: 2,
+      })
+      .run()
+    db.insert(ideasTable)
+      .values({
+        ideaJobId,
+        ideaId,
+        position: 0,
+        title: "First idea",
+        description: "First description",
+        selected: true,
+      })
+      .run()
+
+    const response = await createApp().request(
+      `/idea-jobs/${ideaJobId}/ideas/${ideaId}/website/screenshot.png`,
+    )
+
+    expect(response.status).toBe(404)
+  })
+
+  it("does not disclose a foreign private idea screenshot", async () => {
+    const ideaJobId = crypto.randomUUID()
+    const ideaId = crypto.randomUUID()
+    db.insert(userTable)
+      .values({
+        email: "other-user@example.com",
+        emailVerified: true,
+        id: "other-user-id",
+        name: "Other User",
+      })
+      .onConflictDoNothing()
+      .run()
+    db.insert(ideaJobsTable)
+      .values({
+        ideaJobId,
+        userId: "other-user-id",
+        title: "Foreign screenshot ideas",
+        slug: "foreign-screenshot-ideas",
+        prompt: "Generate private ideas",
+        numberOfIdeas: 8,
+        deepSearchCount: 2,
+      })
+      .run()
+    db.insert(ideasTable)
+      .values({
+        ideaJobId,
+        ideaId,
+        position: 0,
+        title: "Foreign idea",
+        description: "Foreign description",
+        selected: true,
+      })
+      .run()
+    await writeIdeaSiteScreenshot(ideaId, new Uint8Array([1]))
+
+    const response = await createApp().request(
+      `/idea-jobs/${ideaJobId}/ideas/${ideaId}/website/screenshot.png`,
     )
 
     expect(response.status).toBe(404)

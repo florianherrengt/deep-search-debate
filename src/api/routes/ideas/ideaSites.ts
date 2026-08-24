@@ -1,6 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
+import { pathToFileURL } from "node:url"
 import { config } from "../../config.ts"
 import { db } from "../../db/index.ts"
 import {
@@ -19,6 +20,10 @@ import {
 
 export function ideaSitePath(ideaId: string): string {
   return join(config.ideaSites.dir, ideaId, "websites", "index.html")
+}
+
+export function ideaSiteScreenshotPath(ideaId: string): string {
+  return join(config.ideaSites.dir, ideaId, "websites", "screenshot.png")
 }
 
 function buildIdeaSitePrompt(
@@ -78,6 +83,16 @@ export async function generateIdeaSite(
   })
   const html = await awaitGenerationText(generation)
   await writeIdeaSite(input.idea.ideaId, html)
+  try {
+    await captureIdeaSiteScreenshot(input.idea.ideaId)
+  } catch (error) {
+    // The preview is presentation-only: a headless-browser failure must not
+    // fail the workflow that already persisted its website.
+    console.warn(
+      `Idea site screenshot for ${input.idea.ideaId} failed`,
+      error,
+    )
+  }
 }
 
 
@@ -86,15 +101,62 @@ export async function writeIdeaSite(
   ideaId: string,
   html: string,
 ): Promise<void> {
-  const path = ideaSitePath(ideaId)
+  await writeFileAtomically(ideaSitePath(ideaId), Buffer.from(html, "utf-8"))
+}
+
+/** Renders the stored page headlessly and stores one square PNG preview. */
+async function captureIdeaSiteScreenshot(ideaId: string): Promise<void> {
+  // Imported lazily so API startup never pays for the browser toolchain and
+  // deployments without a usable Chromium keep serving.
+  const { default: puppeteer } = await import("puppeteer")
+  // Container runtimes typically forbid Chromium's namespace sandbox; the
+  // page is our own generated file opened in a throwaway clean profile.
+  const browser = await puppeteer.launch({
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+    ],
+  })
+  try {
+    const page = await browser.newPage()
+    await page.setViewport({ height: 1024, width: 1024 })
+    await page.goto(pathToFileURL(ideaSitePath(ideaId)).href, {
+      timeout: 30_000,
+      waitUntil: "load",
+    })
+    const png = await page.screenshot({ type: "png" })
+    await writeFileAtomically(ideaSiteScreenshotPath(ideaId), png)
+  } finally {
+    await browser.close()
+  }
+}
+
+async function writeFileAtomically(
+  path: string,
+  data: Uint8Array,
+): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
-  // Readers must never observe a torn page while a regeneration is in flight.
+  // Readers must never observe a torn file while a regeneration is in flight.
   const tempPath = `${path}.${crypto.randomUUID()}.tmp`
   try {
-    await writeFile(tempPath, html, "utf-8")
+    await writeFile(tempPath, data)
     await rename(tempPath, path)
   } catch (error) {
     await rm(tempPath, { force: true })
+    throw error
+  }
+}
+
+/** Returns the stored screenshot bytes, or undefined when none was captured. */
+export async function readIdeaSiteScreenshot(
+  ideaId: string,
+): Promise<Uint8Array<ArrayBuffer> | undefined> {
+  try {
+    // Copied into a fresh ArrayBuffer so the bytes can back an HTTP response.
+    return new Uint8Array(await readFile(ideaSiteScreenshotPath(ideaId)))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return
     throw error
   }
 }

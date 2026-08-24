@@ -17,6 +17,7 @@ export function WinnerIdeaCard({
   ideaJobId,
   ideaJobSlug,
   reason,
+  websiteHasScreenshot = false,
   websiteIdeaId,
 }: {
   closestAlternative?: DebateIdea
@@ -25,14 +26,17 @@ export function WinnerIdeaCard({
   ideaJobId: string
   ideaJobSlug: string
   reason?: string
+  websiteHasScreenshot?: boolean
   websiteIdeaId?: string
 }) {
   const explanationId = useId()
   const showExplanation = Boolean(reason || closestAlternative)
-  const websiteUrl =
-    websiteIdeaId === undefined
-      ? undefined
-      : `/api/idea-jobs/${encodeURIComponent(ideaJobId)}/ideas/${encodeURIComponent(websiteIdeaId)}/website`
+  const hasWebsite = websiteIdeaId !== undefined
+  const websiteUrl = hasWebsite
+    ? `/api/idea-jobs/${encodeURIComponent(ideaJobId)}/ideas/${encodeURIComponent(websiteIdeaId)}/website`
+    : undefined
+  const screenshotUrl =
+    hasWebsite && websiteHasScreenshot ? `${websiteUrl}/screenshot.png` : undefined
   const ideaDetailsUrl = `/ideas/${encodeURIComponent(ideaJobSlug)}/${encodeURIComponent(idea.ideaId)}#improved-idea`
 
   return (
@@ -60,7 +64,29 @@ export function WinnerIdeaCard({
             <Typography color="text.secondary" variant="body2">
               {idea.description}
             </Typography>
-            {websiteUrl && (
+            {screenshotUrl && websiteUrl && (
+              <ExternalLink
+                href={websiteUrl}
+                // fontSize 0 suppresses the wrapper's trailing icon; the
+                // preview image is the link's visible content and name.
+                sx={{ alignSelf: "flex-start", fontSize: 0 }}
+              >
+                <Box
+                  alt="Preview of the generated website"
+                  component="img"
+                  src={screenshotUrl}
+                  sx={{
+                    borderColor: "divider",
+                    borderRadius: 1,
+                    border: "1px solid",
+                    display: "block",
+                    height: "auto",
+                    width: { sm: 240, xs: "100%" },
+                  }}
+                />
+              </ExternalLink>
+            )}
+            {websiteUrl && !screenshotUrl && (
               <ExternalLink
                 href={websiteUrl}
                 sx={{ alignSelf: "flex-start", typography: "body2" }}

@@ -1,4 +1,5 @@
 import { aliasedTable, and, asc, eq, inArray } from "drizzle-orm"
+import { existsSync } from "node:fs"
 
 import { db } from "../../db/index.ts"
 import {
@@ -11,6 +12,7 @@ import {
   llmGenerations,
 } from "../../db/schema/index.ts"
 import { persistedJudgeVerdictSchema } from "./schemas.ts"
+import { ideaSiteScreenshotPath } from "../ideas/ideaSites.ts"
 import { debateJobReadScope } from "../readAccess.ts"
 import {
   resultFeedbackProjection,
@@ -76,6 +78,8 @@ export type DebateJobSnapshot = {
   standings: { idea: DebateIdeaSnapshot; wins: number; elo: number }[]
   /** Set once the tournament winner's website page has been generated. */
   winnerWebsiteIdeaId: string | null
+  /** False when the winner's optional square preview was never captured. */
+  winnerWebsiteHasScreenshot: boolean
   error: string | null
 }
 
@@ -306,6 +310,15 @@ export function getDebateJobSnapshot(
         )
 
   const isOwner = job.userId === viewerUserId
+  const winnerWebsiteIdeaId =
+    job.websiteGenerationId !== null &&
+    job.websiteGenerationStatus === "completed" &&
+    job.status === "completed"
+      ? (rounds
+          .find(({ stage }) => stage === "final")
+          ?.matches.find(({ winnerIdeaId }) => winnerIdeaId !== null)
+          ?.winnerIdeaId ?? null)
+      : null
   return {
     debateJobId: job.debateJobId,
     ideaJobId: job.ideaJobId,
@@ -332,15 +345,12 @@ export function getDebateJobSnapshot(
       ideaRows.length === 0 ? null : getTotalMatchCount(ideaRows.length),
     rounds,
     standings,
-    winnerWebsiteIdeaId:
-      job.websiteGenerationId !== null &&
-      job.websiteGenerationStatus === "completed" &&
-      job.status === "completed"
-        ? (rounds
-            .find(({ stage }) => stage === "final")
-            ?.matches.find(({ winnerIdeaId }) => winnerIdeaId !== null)
-            ?.winnerIdeaId ?? null)
-        : null,
+    winnerWebsiteIdeaId,
+    // The capture is best-effort, so its presence is derived from the file
+    // rather than assumed from the completed website generation.
+    winnerWebsiteHasScreenshot:
+      winnerWebsiteIdeaId !== null &&
+      existsSync(ideaSiteScreenshotPath(winnerWebsiteIdeaId)),
     error: job.error,
   }
 }

@@ -242,6 +242,17 @@ not gain this origin's session credentials. Unknown or foreign jobs, ideas
 outside the requested job, and ideas whose website was never generated return
 404.
 
+### `GET /api/idea-jobs/:ideaJobId/ideas/:ideaId/website/screenshot.png`
+
+Returns the optional square PNG preview captured from the stored website of
+one selected idea, applying exactly the same read scope as the website route:
+the owner may read a private job, while any viewer may read a screenshot
+belonging to a public debate. The response is `image/png` with
+`Cache-Control: no-store` and `X-Content-Type-Options: nosniff`. Unknown or
+foreign jobs, ideas outside the requested job, ideas whose website was never
+generated, and ideas whose best-effort capture did not produce a file return
+404.
+
 ### `GET /api/idea-jobs/:ideaJobId/events`
 
 Returns the replay-and-follow NDJSON feed. Live jobs use the retained in-memory
@@ -342,7 +353,12 @@ generation still has unfinished durable cleanup.
 - Idea cards, evaluations, and selected or rejected presentation replay from
   `ideas` and their linked generations.
 - Idea websites are durable files, not rows: each completed page lives at
-  `IDEA_SITES_DIR/<idea_uuid>/websites/index.html`. Standalone idea runs store
+  `IDEA_SITES_DIR/<idea_uuid>/websites/index.html`. Right after the page is
+  written, a headless Chromium renders that stored file and stores one square
+  1024×1024 PNG preview beside it as `screenshot.png`. The capture is
+  best-effort: it never blocks or fails the workflow, and a missing preview is
+  reported by the debate snapshot's derived `winnerWebsiteHasScreenshot`
+  projection instead of being assumed. Standalone idea runs store
   no website. A debate generates exactly one page for its tournament winner;
   the debate job links that generation through its nullable one-time
   `website_generation_id`, which feeds its completion guard; same-debate

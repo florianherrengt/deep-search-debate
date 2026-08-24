@@ -9,7 +9,10 @@ import {
   ideas as ideasTable,
 } from "../../db/schema/index.ts"
 import type { IdeaJobManager } from "./manager.ts"
-import { readIdeaSite } from "./ideaSites.ts"
+import {
+  readIdeaSite,
+  readIdeaSiteScreenshot,
+} from "./ideaSites.ts"
 import { reconstructIdeaJobEvents } from "./replay.ts"
 import {
   createIdeaJobInputSchema,
@@ -48,6 +51,36 @@ async function writeEvents(
   }
 }
 
+/** Applies the website read scope to one job-and-idea pair. */
+function checkIdeaSiteAccess(
+  viewerUserId: string | null,
+  ideaJobId: string,
+  ideaId: string,
+): "ok" | "job" | "idea" {
+  const job = db
+    .select({ ideaJobId: ideaJobsTable.ideaJobId })
+    .from(ideaJobsTable)
+    .where(
+      and(
+        eq(ideaJobsTable.ideaJobId, ideaJobId),
+        ideaJobReadScope(viewerUserId),
+      ),
+    )
+    .get()
+  if (!job) return "job"
+  const idea = db
+    .select({ ideaId: ideasTable.ideaId })
+    .from(ideasTable)
+    .where(
+      and(
+        eq(ideasTable.ideaJobId, ideaJobId),
+        eq(ideasTable.ideaId, ideaId),
+      ),
+    )
+    .get()
+  return idea === undefined ? "idea" : "ok"
+}
+
 /** Registers idea-run reads inherited from a public debate aggregate. */
 export function ideaJobReads(app: Hono<AppEnv>, manager: IdeaJobManager) {
   app.get(
@@ -76,28 +109,20 @@ export function ideaJobReads(app: Hono<AppEnv>, manager: IdeaJobManager) {
     zValidator("param", ideaWebsiteParamsSchema),
     async (c) => {
       const { ideaJobId, ideaId } = c.req.valid("param")
-      const job = db
-        .select({ ideaJobId: ideaJobsTable.ideaJobId })
-        .from(ideaJobsTable)
-        .where(
-          and(
-            eq(ideaJobsTable.ideaJobId, ideaJobId),
-            ideaJobReadScope(c.get("viewerUserId")),
-          ),
+      const access = checkIdeaSiteAccess(
+        c.get("viewerUserId"),
+        ideaJobId,
+        ideaId,
+      )
+      if (access !== "ok") {
+        return c.json(
+          {
+            error:
+              access === "job" ? "Idea job not found" : "Idea not found",
+          },
+          404,
         )
-        .get()
-      if (!job) return c.json({ error: "Idea job not found" }, 404)
-      const idea = db
-        .select({ ideaId: ideasTable.ideaId })
-        .from(ideasTable)
-        .where(
-          and(
-            eq(ideasTable.ideaJobId, ideaJobId),
-            eq(ideasTable.ideaId, ideaId),
-          ),
-        )
-        .get()
-      if (!idea) return c.json({ error: "Idea not found" }, 404)
+      }
       const html = await readIdeaSite(ideaId)
       if (html === undefined) {
         return c.json({ error: "Idea website not found" }, 404)
@@ -109,6 +134,30 @@ export function ideaJobReads(app: Hono<AppEnv>, manager: IdeaJobManager) {
       c.header("X-Content-Type-Options", "nosniff")
       c.header("Cache-Control", "no-store")
       return c.body(html)
+    },
+  )
+
+  app.get(
+    "/idea-jobs/:ideaJobId/ideas/:ideaId/website/screenshot.png",
+    zValidator("param", ideaWebsiteParamsSchema),
+    async (c) => {
+      const { ideaJobId, ideaId } = c.req.valid("param")
+      const access = checkIdeaSiteAccess(
+        c.get("viewerUserId"),
+        ideaJobId,
+        ideaId,
+      )
+      if (access !== "ok") {
+        return c.json({ error: "Idea job not found" }, 404)
+      }
+      const png = await readIdeaSiteScreenshot(ideaId)
+      if (png === undefined) {
+        return c.json({ error: "Idea website screenshot not found" }, 404)
+      }
+      c.header("Content-Type", "image/png")
+      c.header("X-Content-Type-Options", "nosniff")
+      c.header("Cache-Control", "no-store")
+      return c.body(png)
     },
   )
 

@@ -106,6 +106,7 @@ function tournament(
     error: null,
     creditsUsed: null,
   winnerWebsiteIdeaId: null,
+  winnerWebsiteHasScreenshot: false,
     feedback: null,
     ...overrides,
   }

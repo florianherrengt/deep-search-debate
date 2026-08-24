@@ -131,6 +131,7 @@ export function DebateView({
           ideaJobId={tournament.ideaJobId}
           ideaJobSlug={tournament.slug}
           reason={winnerReason}
+          websiteHasScreenshot={tournament.winnerWebsiteHasScreenshot}
           websiteIdeaId={
             tournament.winnerWebsiteIdeaId === winner.ideaId
               ? tournament.winnerWebsiteIdeaId

@@ -73,6 +73,7 @@ describe("debate jobs client", () => {
       standings: [],
       error: null,
       winnerWebsiteIdeaId: null,
+      winnerWebsiteHasScreenshot: false,
   creditsUsed: null,
       feedback: null,
     }

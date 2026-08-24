@@ -57,6 +57,7 @@ const debateTournamentSchema = z.object({
   rounds: z.array(debateRoundSchema),
   standings: z.array(debateStandingSchema),
   winnerWebsiteIdeaId: z.string().min(1).nullable(),
+  winnerWebsiteHasScreenshot: z.boolean(),
   error: z.string().nullable(),
   creditsUsed: z.number().int().nonnegative().nullable(),
   feedback: resultFeedbackSchema.nullable(),

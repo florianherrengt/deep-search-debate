@@ -30,6 +30,7 @@
     "effect": "4.0.0-rc.109",
     "hono": "^4.12.34",
     "p-queue": "^9.3.3",
+    "puppeteer": "^25.8.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

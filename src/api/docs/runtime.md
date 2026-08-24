@@ -82,11 +82,19 @@ uses `BETTER_AUTH_URL=https://rethinkloop.com` and
 available for tests and alternate deployments. Generated idea websites are
 stored as single HTML files under `IDEA_SITES_DIR` (`data/ideas` beside the
 development database, `/app/data/ideas` on the production data volume), one
-`<idea_uuid>/websites/index.html` per selected idea, and inherit the same
-override mechanism.
+`<idea_uuid>/websites/index.html` per selected idea, plus a best-effort square
+`screenshot.png` preview rendered headlessly from the stored file, and inherit
+the same override mechanism.
 `BETTER_AUTH_URL` is also the public web origin used for canonical debate URLs
 and social-preview images because authentication and the production web app are
 served from the same origin.
+
+The screenshot renderer uses Puppeteer. Local development and unit tests use
+Puppeteer's own downloaded Chrome (tests mock the module), while the
+production image installs Debian Chromium and points Puppeteer at it with
+`PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium`; the Docker build stage sets
+`PUPPETEER_SKIP_DOWNLOAD=true`. A missing or broken browser only degrades the
+optional preview, never the workflow.
 
 `EXAMPLE_DEBATE_IDS` optionally contains an ordered, comma-separated list of up
 to 50 debate job UUIDs. The public examples endpoint and sitemap include only

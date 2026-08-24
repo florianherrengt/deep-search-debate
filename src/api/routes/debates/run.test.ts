@@ -28,6 +28,22 @@ vi.mock("./persistence.ts", () => ({
   replaceFailedAgentMessageGeneration:
     mocks.replaceFailedAgentMessageGeneration,
 }))
+// Unit tests never launch a browser; the winner-site screenshot is a stub.
+vi.mock("puppeteer", () => ({
+  default: {
+    launch: vi.fn(() =>
+      Promise.resolve({
+        newPage: () =>
+          Promise.resolve({
+            setViewport: () => Promise.resolve(),
+            goto: () => Promise.resolve(),
+            screenshot: () => Promise.resolve(new Uint8Array([1, 2, 3])),
+          }),
+        close: () => Promise.resolve(),
+      }),
+    ),
+  },
+}))
 
 import { db } from "../../db/index.ts"
 import {
