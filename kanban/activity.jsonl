@@ -308,3 +308,5 @@
 {"timestamp":"2026-08-25T14:55:36.307069+01:00","action":"move","task_id":11,"detail":"in-progress -\u003e review"}
 {"timestamp":"2026-08-25T14:55:36.307261+01:00","action":"handoff","task_id":11,"detail":"Database schema fixes"}
 {"timestamp":"2026-08-25T14:55:36.307345+01:00","action":"release","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T14:58:42.948728+01:00","action":"edit","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T14:58:42.966033+01:00","action":"move","task_id":11,"detail":"review -\u003e done"}

@@ -1,11 +1,12 @@
 ---
 id: 11
 title: Database schema fixes
-status: review
+status: done
 priority: high
 created: 2026-08-24T01:34:07.363343+01:00
-updated: 2026-08-25T14:55:36.304661+01:00
+updated: 2026-08-25T14:58:42.96409+01:00
 started: 2026-08-25T11:09:28.989354+01:00
+completed: 2026-08-25T14:58:42.965766+01:00
 tags:
     - database
     - schema
