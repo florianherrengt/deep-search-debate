@@ -4,13 +4,13 @@ title: Database schema fixes
 status: in-progress
 priority: high
 created: 2026-08-24T01:34:07.363343+01:00
-updated: 2026-08-25T12:03:31.302865+01:00
+updated: 2026-08-25T12:23:26.936802+01:00
 started: 2026-08-25T11:09:28.989354+01:00
 tags:
     - database
     - schema
 claimed_by: laddie-catechin
-claimed_at: 2026-08-25T12:03:31.302865+01:00
+claimed_at: 2026-08-25T12:23:26.936924+01:00
 class: standard
 ---
 
@@ -109,3 +109,6 @@ Flattened the unreleased three-file migration history into one fresh 0000 baseli
 - Verified: 48 database tests; Drizzle check; lint; typecheck; Knip; 616 API tests; 299 web tests. Independent flatten review found no issues.
 - Fresh schema audit findings, all pre-existing: idea selection and evaluation CHECK gaps; completed debates do not SQL-require website_generation_id; tournament idea ownership is app-only; cross-connection slug allocation can fail SQLITE_BUSY_SNAPSHOT under deferred transactions; active-capacity counts lack partial indexes.
 - No commit or merge was created.
+
+[[2026-08-25]] Tue 12:23
+Implemented all five fresh-schema review findings in codex-ticket-11-database-schema-fixes: SQL selection/evaluation/refinement integrity, completed-debate website-link requirement, tournament ownership and structural immutability triggers, BEGIN IMMEDIATE slug allocation, and covering partial capacity indexes. Regenerated the single 0000 baseline (18 tables, 16 triggers), snapshot, DBML, docs, and fixtures. Verified Drizzle check/no drift, focused regressions, full gate: 619 API tests and 299 web tests.

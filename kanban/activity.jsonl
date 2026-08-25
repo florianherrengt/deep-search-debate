@@ -278,3 +278,4 @@
 {"timestamp":"2026-08-25T12:20:04.169563+01:00","action":"handoff","task_id":14,"detail":"Idea UI shows improved while refinement research is still running"}
 {"timestamp":"2026-08-25T12:20:04.169715+01:00","action":"release","task_id":14,"detail":"Idea UI shows improved while refinement research is still running"}
 {"timestamp":"2026-08-25T12:23:23.516739+01:00","action":"move","task_id":14,"detail":"review -\u003e done"}
+{"timestamp":"2026-08-25T12:23:26.937438+01:00","action":"edit","task_id":11,"detail":"Database schema fixes"}
