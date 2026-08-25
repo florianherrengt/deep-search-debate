@@ -1,10 +1,11 @@
 ---
 id: 18
 title: Expose RethinkLoop as an MCP server via stdio CLI
-status: backlog
-priority: medium
+status: todo
+priority: high
 created: 2026-08-25T08:33:46.360225+01:00
-updated: 2026-08-25T11:48:16.782829+01:00
+updated: 2026-08-25T14:32:28.211084+01:00
+started: 2026-08-25T14:32:28.212562+01:00
 tags:
     - feature
     - mcp

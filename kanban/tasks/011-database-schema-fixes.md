@@ -1,16 +1,14 @@
 ---
 id: 11
 title: Database schema fixes
-status: in-progress
+status: review
 priority: high
 created: 2026-08-24T01:34:07.363343+01:00
-updated: 2026-08-25T14:25:19.09849+01:00
+updated: 2026-08-25T14:33:03.599053+01:00
 started: 2026-08-25T11:09:28.989354+01:00
 tags:
     - database
     - schema
-claimed_by: mousy-croceine
-claimed_at: 2026-08-25T14:25:19.09849+01:00
 class: standard
 ---
 
@@ -122,3 +120,11 @@ All five requested fresh-schema fixes are implemented in the task worktree. Sing
 - Regression evidence: the new transaction-option test failed before the production change and passes after it; focused capacity and manager tests pass 27/27.
 - Full verification: lint, typecheck, Knip, 620 API tests, 299 web tests, and git diff --check all pass.
 - Review notes: task code remains uncommitted for user review; no schema or migration files changed in this final fix.
+
+[[2026-08-25]] Tue 14:33
+## Post-main review handoff
+- Fast-forwarded codex/ticket-11-database-schema-fixes to current main and restored the complete ticket diff uncommitted; overlapping snapshot, replay, and SEO tests auto-merged without conflicts.
+- Full verification on the combined tree: lint, typecheck, Knip, 624 API tests, 314 web tests, drizzle-kit check, generated baseline/snapshot comparison, and git diff --check all pass.
+- Review finding P3: ideas/replay.test.ts now marks the selection-failure fixture selected=false, so no test protects selection-stage error reconstruction; keep selected null and restore the selection-stage expectation.
+- Review finding P3: capacity and slug concurrency tests use in-memory SQLite and transaction spies only; add a coordinated two-connection file-backed WAL regression.
+- No source changes were made during review beyond merging main; task code remains uncommitted.

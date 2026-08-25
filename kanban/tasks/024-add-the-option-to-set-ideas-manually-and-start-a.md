@@ -1,10 +1,11 @@
 ---
 id: 24
 title: Add the option to set ideas manually and start a debate with them
-status: backlog
+status: todo
 priority: medium
 created: 2026-08-25T13:53:40.007623+01:00
-updated: 2026-08-25T13:53:40.007623+01:00
+updated: 2026-08-25T14:32:34.34552+01:00
+started: 2026-08-25T14:32:34.34676+01:00
 tags:
     - feature
 class: standard

@@ -292,3 +292,12 @@
 {"timestamp":"2026-08-25T14:16:35.147436+01:00","action":"create","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
 {"timestamp":"2026-08-25T14:25:19.099614+01:00","action":"move","task_id":11,"detail":"review -\u003e in-progress"}
 {"timestamp":"2026-08-25T14:31:44.499574+01:00","action":"edit","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
+{"timestamp":"2026-08-25T14:32:00.741439+01:00","action":"priority","task_id":18,"detail":"medium -\u003e high"}
+{"timestamp":"2026-08-25T14:32:25.978962+01:00","action":"move","task_id":23,"detail":"backlog -\u003e todo"}
+{"timestamp":"2026-08-25T14:32:28.212817+01:00","action":"move","task_id":18,"detail":"backlog -\u003e todo"}
+{"timestamp":"2026-08-25T14:32:31.055172+01:00","action":"move","task_id":25,"detail":"backlog -\u003e todo"}
+{"timestamp":"2026-08-25T14:32:34.34701+01:00","action":"move","task_id":24,"detail":"backlog -\u003e todo"}
+{"timestamp":"2026-08-25T14:32:38.472255+01:00","action":"priority","task_id":13,"detail":"medium -\u003e low"}
+{"timestamp":"2026-08-25T14:33:03.600724+01:00","action":"move","task_id":11,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-08-25T14:33:03.600868+01:00","action":"handoff","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T14:33:03.601267+01:00","action":"release","task_id":11,"detail":"Database schema fixes"}

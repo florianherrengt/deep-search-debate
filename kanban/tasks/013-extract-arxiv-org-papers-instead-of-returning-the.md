@@ -2,9 +2,9 @@
 id: 13
 title: Extract arxiv.org papers instead of returning the abstract page
 status: backlog
-priority: medium
+priority: low
 created: 2026-08-24T12:11:42.150579+01:00
-updated: 2026-08-24T12:11:42.150579+01:00
+updated: 2026-08-25T14:32:38.470814+01:00
 tags:
     - feature
 class: standard
