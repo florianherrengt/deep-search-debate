@@ -1,11 +1,12 @@
 ---
 id: 14
 title: Idea UI shows improved while refinement research is still running
-status: review
+status: done
 priority: high
 created: 2026-08-24T12:11:45.292312+01:00
-updated: 2026-08-25T12:20:04.168202+01:00
+updated: 2026-08-25T12:23:23.514749+01:00
 started: 2026-08-25T11:09:02.758286+01:00
+completed: 2026-08-25T12:23:23.516097+01:00
 tags:
     - bug
 class: standard

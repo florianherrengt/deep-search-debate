@@ -277,3 +277,4 @@
 {"timestamp":"2026-08-25T12:15:23.541312+01:00","action":"release","task_id":17,"detail":"Investigate AI SDK responseFormat JSON schema compatibility warning"}
 {"timestamp":"2026-08-25T12:20:04.169563+01:00","action":"handoff","task_id":14,"detail":"Idea UI shows improved while refinement research is still running"}
 {"timestamp":"2026-08-25T12:20:04.169715+01:00","action":"release","task_id":14,"detail":"Idea UI shows improved while refinement research is still running"}
+{"timestamp":"2026-08-25T12:23:23.516739+01:00","action":"move","task_id":14,"detail":"review -\u003e done"}
