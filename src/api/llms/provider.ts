@@ -10,6 +10,12 @@ import { config, type LlmConfig } from "../config.ts"
 
 export type LlmCallReasoning = "enabled" | "disabled"
 
+if (config.environment === "production") {
+  // Warning objects remain available on AI SDK results; only their automatic
+  // process-level logging is disabled in production.
+  globalThis.AI_SDK_LOG_WARNINGS = false
+}
+
 /**
  * Selects the transport while keeping reasoning policy at each generation call.
  */
@@ -21,6 +27,10 @@ export function createConfiguredLlm(llmConfig: LlmConfig) {
 
     return {
       model: (modelName = llmConfig.model) => provider(modelName),
+      // This application flag means the provider owns schema instructions; it
+      // does not claim that DeepSeek supports native `json_schema`. The adapter
+      // injects the schema once in `json_object` compatibility mode, so false
+      // here would make loadStructuredPrompt inject a duplicate.
       supportsStructuredOutputs: true,
       callOptions: (reasoning: LlmCallReasoning) => ({
         providerOptions: {
