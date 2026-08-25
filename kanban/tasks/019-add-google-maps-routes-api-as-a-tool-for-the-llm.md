@@ -2,9 +2,9 @@
 id: 19
 title: Add Google Maps Routes API as a tool for the LLM
 status: backlog
-priority: medium
+priority: low
 created: 2026-08-25T10:18:24.625682+01:00
-updated: 2026-08-25T10:19:17.165636+01:00
+updated: 2026-08-25T11:03:43.263735+01:00
 tags:
     - feature
 class: standard

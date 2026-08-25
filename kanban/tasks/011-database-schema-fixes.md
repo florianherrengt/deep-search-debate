@@ -1,13 +1,16 @@
 ---
 id: 11
 title: Database schema fixes
-status: backlog
+status: in-progress
 priority: high
 created: 2026-08-24T01:34:07.363343+01:00
-updated: 2026-08-24T01:56:40.955927+01:00
+updated: 2026-08-25T11:55:43.697276+01:00
+started: 2026-08-25T11:09:28.989354+01:00
 tags:
     - database
     - schema
+claimed_by: beman-impen
+claimed_at: 2026-08-25T11:55:43.697408+01:00
 class: standard
 ---
 
@@ -70,3 +73,30 @@ A13. Doc/drift nits: database.md:177-181 insert-only contract does not name idea
 ### Confirmed independently by second pass
 
 Items 4, 6, 7, 8 (evaluation coupling), 9, AGENTS.md stale wording, partial-index capacity counts, unbounded growth all reproduced with the same evidence. One correction to the record: judge messages ARE persisted with speaker_slot = 2 (debates/persistence.ts:404), so the slot-2 partial unique index is live and tested, not dead weight.
+
+[[2026-08-25]] Tue 11:24
+Implementation progress in .worktrees/codex-ticket-11-database-schema-fixes: added indexed slug probes, additive parent-link immutability triggers with populated upgrade proof, exact winner-website FK regression, migration-safety checklist rules, and TypeScript↔SQL lifecycle parity coverage. Focused 45 tests and full API suite (75 files / 616 tests) pass. CHECK additions remain paused because generated SQLite table rebuilds require a migration-runner/data-compatibility decision; operational backup, secret rotation/history purge, and production boot policy also require user authorization.
+
+[[2026-08-25]] Tue 11:30
+## Handoff
+- Location: uncommitted changes in /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-11-database-schema-fixes on codex/ticket-11-database-schema-fixes
+- Implemented: indexed equality probes replace per-job full slug scans; additive immutable parent-link triggers; exact winner-website FK regression; populated 0000-to-0001 upgrade proof; migration safety checklist; lifecycle constant-to-SQL parity regression; stale database documentation fixed.
+- Already resolved on main: local DB drift reset and missing winner-site file recovery (commit 76c904b).
+- Files changed: AGENTS.md; src/api/db/docs/database.md; src/api/db/schema/baselineMigration.test.ts; src/api/db/schema/gatekeep.md; src/api/db/schema/integrityConstraints.test.ts; src/api/drizzle/0001_immutable_parent_links.sql; src/api/drizzle/meta/_journal.json; src/api/drizzle/meta/0001_snapshot.json; src/api/helpers/promptTitles.ts and test; both idea/deep-search manager files and tests.
+- Verified: focused 45 tests; full API 75 files/616 tests; npm run gatekeep passed lint, typecheck, knip, 616 API tests and 299 web tests; Drizzle reports no ungenerated schema changes; independent full diff review found no issues; indexed probes use covering slug indexes.
+- Decision needed 1: for finish_reason, nonnegative credits, and completed-idea selection CHECKs, authorize a data-preserving forward migration plus migration-runner changes and invalid-row preflight, or explicitly authorize destructive fresh-database recreation.
+- Decision needed 2: define production backup destination, encryption, retention, alerting, restore drill, and empty-database initialization/override policy; backup must cover SQLite plus durable idea-site files.
+- Decision needed 3: confirm an independent vault copy, authorize removing tracked KDBX files, rotate all contained credentials, and separately authorize coordinated Git-history rewriting/force-push.
+- Next step: reclaim after the user chooses scope, then implement the selected remaining slice. No commit or merge was created.
+
+[[2026-08-25]] Tue 11:48
+## Schema slice completed
+- User confirmed there is no production data and existing databases are disposable; 0002 intentionally has no backfill/data-compatibility path.
+- Added finish_reason and non-negative credits SQL checks, completed-idea selection-link enforcement, restored all triggers around generated SQLite rebuilds, updated fixtures/docs/DBML, and kept 0000 immutable.
+- Earlier in this worktree: indexed slug probes, immutable idea/deep-search parent links, exact winner-website FK test, migration guardrails, and lifecycle value parity checks.
+- Location: uncommitted changes in /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-11-database-schema-fixes on codex/ticket-11-database-schema-fixes.
+- Verified exact final state: npm run gatekeep passed lint, typecheck, knip, 617 API tests, and 299 web tests; drizzle-kit reports no schema drift; independent final diff review found no actionable issues.
+- Remaining ticket scope needs separate product/ops authorization: backup destination/retention/restore and empty-production boot policy; vault removal, credential rotation, and Git history rewrite; other explicitly listed audit/retention/admin/idempotency decisions. No commit or merge was created.
+
+[[2026-08-25]] Tue 11:55
+Flattened the unreleased three-file migration history into one fresh 0000 baseline with all 13 custom triggers. Fresh database and integrity tests pass 48/48; Drizzle consistency check passes. Running the full gate and independent schema review.

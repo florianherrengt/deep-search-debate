@@ -178,3 +178,81 @@
 {"timestamp":"2026-08-25T10:18:36.868858+01:00","action":"edit","task_id":19,"detail":"Add Google Maps search as a tool for the LLM"}
 {"timestamp":"2026-08-25T10:19:17.166102+01:00","action":"edit","task_id":19,"detail":"Add Google Maps Routes API as a tool for the LLM"}
 {"timestamp":"2026-08-25T10:43:34.909634+01:00","action":"move","task_id":15,"detail":"review -\u003e done"}
+{"timestamp":"2026-08-25T11:03:43.265573+01:00","action":"priority","task_id":19,"detail":"medium -\u003e low"}
+{"timestamp":"2026-08-25T11:06:17.067957+01:00","action":"edit","task_id":9,"detail":"Frontend connection for idea websites"}
+{"timestamp":"2026-08-25T11:06:17.068085+01:00","action":"release","task_id":9,"detail":"tui@MacBookPro.hyperoptic.com"}
+{"timestamp":"2026-08-25T11:06:20.175953+01:00","action":"create","task_id":21,"detail":"Publish a live website-generation progress event for the winner website"}
+{"timestamp":"2026-08-25T11:08:13.592015+01:00","action":"create","task_id":22,"detail":"Make winner-website generation optional — on by default in UI, off by default via MCP"}
+{"timestamp":"2026-08-25T11:08:30.6645+01:00","action":"priority","task_id":22,"detail":"medium -\u003e low"}
+{"timestamp":"2026-08-25T11:09:02.759876+01:00","action":"move","task_id":14,"detail":"backlog -\u003e in-progress"}
+{"timestamp":"2026-08-25T11:09:28.990164+01:00","action":"move","task_id":11,"detail":"backlog -\u003e in-progress"}
+{"timestamp":"2026-08-25T11:12:46.340499+01:00","action":"edit","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T11:15:43.534512+01:00","action":"move","task_id":14,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-08-25T11:15:43.53465+01:00","action":"handoff","task_id":14,"detail":"Idea UI shows improved while refinement research is still running"}
+{"timestamp":"2026-08-25T11:15:43.534724+01:00","action":"block","task_id":14,"detail":"Waiting on user: confirm authoritative pipeline order, refined-draft visibility/stage fidelity, and debate standings behavior."}
+{"timestamp":"2026-08-25T11:15:43.534903+01:00","action":"release","task_id":14,"detail":"Idea UI shows improved while refinement research is still running"}
+{"timestamp":"2026-08-25T11:19:24.793458+01:00","action":"edit","task_id":14,"detail":"Idea UI shows improved while refinement research is still running"}
+{"timestamp":"2026-08-25T11:19:24.793602+01:00","action":"claim","task_id":14,"detail":"reunion-ratanhia"}
+{"timestamp":"2026-08-25T11:19:24.80875+01:00","action":"edit","task_id":14,"detail":"Idea UI shows improved while refinement research is still running"}
+{"timestamp":"2026-08-25T11:19:24.808854+01:00","action":"unblock","task_id":14,"detail":"Idea UI shows improved while refinement research is still running"}
+{"timestamp":"2026-08-25T11:19:24.824778+01:00","action":"move","task_id":14,"detail":"review -\u003e in-progress"}
+{"timestamp":"2026-08-25T11:19:24.840231+01:00","action":"edit","task_id":14,"detail":"Idea UI shows improved while refinement research is still running"}
+{"timestamp":"2026-08-25T11:21:44.64396+01:00","action":"edit","task_id":14,"detail":"Idea UI shows improved while refinement research is still running"}
+{"timestamp":"2026-08-25T11:24:24.417678+01:00","action":"edit","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T11:25:25.962407+01:00","action":"move","task_id":16,"detail":"backlog -\u003e in-progress"}
+{"timestamp":"2026-08-25T11:26:09.369844+01:00","action":"move","task_id":17,"detail":"backlog -\u003e in-progress"}
+{"timestamp":"2026-08-25T11:27:10.19923+01:00","action":"move","task_id":21,"detail":"backlog -\u003e in-progress"}
+{"timestamp":"2026-08-25T11:30:38.537221+01:00","action":"move","task_id":11,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-08-25T11:30:38.537408+01:00","action":"handoff","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T11:30:38.537585+01:00","action":"block","task_id":11,"detail":"Waiting on user: choose data migration, production backup/boot, and KeePass incident-response scope"}
+{"timestamp":"2026-08-25T11:30:38.537713+01:00","action":"release","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T11:30:44.306189+01:00","action":"edit","task_id":17,"detail":"Investigate AI SDK responseFormat JSON schema compatibility warning"}
+{"timestamp":"2026-08-25T11:32:25.721038+01:00","action":"edit","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T11:32:25.721165+01:00","action":"claim","task_id":11,"detail":"raploch-chico"}
+{"timestamp":"2026-08-25T11:32:25.736748+01:00","action":"edit","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T11:32:25.736856+01:00","action":"unblock","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T11:32:25.754662+01:00","action":"move","task_id":11,"detail":"review -\u003e in-progress"}
+{"timestamp":"2026-08-25T11:33:43.845754+01:00","action":"edit","task_id":16,"detail":"Remove excessive LLM logging"}
+{"timestamp":"2026-08-25T11:34:22.322419+01:00","action":"move","task_id":17,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-08-25T11:34:22.32254+01:00","action":"handoff","task_id":17,"detail":"Investigate AI SDK responseFormat JSON schema compatibility warning"}
+{"timestamp":"2026-08-25T11:34:22.322783+01:00","action":"release","task_id":17,"detail":"Investigate AI SDK responseFormat JSON schema compatibility warning"}
+{"timestamp":"2026-08-25T11:35:22.462369+01:00","action":"edit","task_id":14,"detail":"Idea UI shows improved while refinement research is still running"}
+{"timestamp":"2026-08-25T11:40:24.894519+01:00","action":"move","task_id":16,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-08-25T11:40:24.894704+01:00","action":"handoff","task_id":16,"detail":"Remove excessive LLM logging"}
+{"timestamp":"2026-08-25T11:40:24.894792+01:00","action":"release","task_id":16,"detail":"Remove excessive LLM logging"}
+{"timestamp":"2026-08-25T11:41:43.145783+01:00","action":"edit","task_id":17,"detail":"Investigate AI SDK responseFormat JSON schema compatibility warning"}
+{"timestamp":"2026-08-25T11:41:43.146059+01:00","action":"claim","task_id":17,"detail":"simlin-enjoying"}
+{"timestamp":"2026-08-25T11:41:43.16383+01:00","action":"move","task_id":17,"detail":"review -\u003e in-progress"}
+{"timestamp":"2026-08-25T11:42:34.414676+01:00","action":"move","task_id":17,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-08-25T11:42:34.414831+01:00","action":"handoff","task_id":17,"detail":"Investigate AI SDK responseFormat JSON schema compatibility warning"}
+{"timestamp":"2026-08-25T11:42:34.414918+01:00","action":"release","task_id":17,"detail":"Investigate AI SDK responseFormat JSON schema compatibility warning"}
+{"timestamp":"2026-08-25T11:48:14.296016+01:00","action":"create","task_id":23,"detail":"Every run needs a budget"}
+{"timestamp":"2026-08-25T11:48:16.786918+01:00","action":"edit","task_id":18,"detail":"Expose RethinkLoop as an MCP server via stdio CLI"}
+{"timestamp":"2026-08-25T11:48:54.1538+01:00","action":"edit","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T11:48:54.15397+01:00","action":"block","task_id":11,"detail":"Schema fixes are review-ready; remaining backup/boot and secret-rotation/history-rewrite work requires product/operations decisions and explicit authorization."}
+{"timestamp":"2026-08-25T11:48:54.301199+01:00","action":"edit","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T11:48:54.301346+01:00","action":"release","task_id":11,"detail":"raploch-chico"}
+{"timestamp":"2026-08-25T11:49:16.324852+01:00","action":"edit","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T11:49:16.324984+01:00","action":"claim","task_id":11,"detail":"raploch-chico"}
+{"timestamp":"2026-08-25T11:49:16.341095+01:00","action":"edit","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T11:49:16.341211+01:00","action":"release","task_id":11,"detail":"raploch-chico"}
+{"timestamp":"2026-08-25T11:50:52.239874+01:00","action":"move","task_id":16,"detail":"review -\u003e done"}
+{"timestamp":"2026-08-25T11:51:02.47888+01:00","action":"move","task_id":21,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-08-25T11:51:02.47906+01:00","action":"handoff","task_id":21,"detail":"Publish a live website-generation progress event for the winner website"}
+{"timestamp":"2026-08-25T11:51:02.482734+01:00","action":"release","task_id":21,"detail":"Publish a live website-generation progress event for the winner website"}
+{"timestamp":"2026-08-25T11:51:33.020027+01:00","action":"edit","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T11:51:33.020274+01:00","action":"claim","task_id":11,"detail":"beman-impen"}
+{"timestamp":"2026-08-25T11:51:33.158669+01:00","action":"edit","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T11:51:33.158844+01:00","action":"unblock","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T11:51:33.296811+01:00","action":"move","task_id":11,"detail":"review -\u003e in-progress"}
+{"timestamp":"2026-08-25T11:51:58.333608+01:00","action":"edit","task_id":17,"detail":"Investigate AI SDK responseFormat JSON schema compatibility warning"}
+{"timestamp":"2026-08-25T11:51:58.333773+01:00","action":"claim","task_id":17,"detail":"simlin-enjoying"}
+{"timestamp":"2026-08-25T11:51:58.350021+01:00","action":"move","task_id":17,"detail":"review -\u003e in-progress"}
+{"timestamp":"2026-08-25T11:55:43.697786+01:00","action":"edit","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T11:57:39.703537+01:00","action":"edit","task_id":14,"detail":"Idea UI shows improved while refinement research is still running"}
+{"timestamp":"2026-08-25T11:57:39.732173+01:00","action":"move","task_id":14,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-08-25T11:57:39.732303+01:00","action":"handoff","task_id":14,"detail":"Idea UI shows improved while refinement research is still running"}
+{"timestamp":"2026-08-25T11:57:39.73237+01:00","action":"release","task_id":14,"detail":"Idea UI shows improved while refinement research is still running"}
+{"timestamp":"2026-08-25T11:58:37.010649+01:00","action":"move","task_id":17,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-08-25T11:58:37.010814+01:00","action":"handoff","task_id":17,"detail":"Investigate AI SDK responseFormat JSON schema compatibility warning"}
+{"timestamp":"2026-08-25T11:58:37.011121+01:00","action":"release","task_id":17,"detail":"Investigate AI SDK responseFormat JSON schema compatibility warning"}

@@ -4,7 +4,7 @@ title: Expose RethinkLoop as an MCP server via stdio CLI
 status: backlog
 priority: medium
 created: 2026-08-25T08:33:46.360225+01:00
-updated: 2026-08-25T08:33:46.360225+01:00
+updated: 2026-08-25T11:48:16.782829+01:00
 tags:
     - feature
     - mcp
@@ -193,3 +193,6 @@ src/api/middleware/requireTrustedOrigin.ts: safe methods (GET/HEAD/OPTIONS) alwa
 - **`@better-auth/api-key` compatibility: RESOLVED — no better-auth upgrade needed.** The plugin ships a version line matching core minors: `@better-auth/api-key@1.6.26` declares peerDependencies `better-auth: ^1.6.26`, `@better-auth/core: ^1.6.26`, `better-call: 1.3.7` (satisfied by installed better-auth@1.6.26 / @better-auth/core@1.6.26; zod ^4.3.6 already in repo). Pin the plugin to **1.6.26** — plugin versions ≥1.6.27 peer `^1.6.27`+ and would force a core upgrade; latest 1.7.1 peers `^1.7.1`. Schema integration follows existing conventions: add a hand-written Drizzle `apikey` table to src/api/db/schema/auth.ts (fields per plugin's `apiKeySchema`: id, name, key hash, prefix, referenceId, configId, enabled, rateLimit*/refill*/requestCount/remaining/lastRequest/lastRefillAt, expiresAt, createdAt, updatedAt, permissions, metadata) + drizzle-kit migration, same pattern as the `user`/`session`/`account`/`verification` tables.
 - **Root package rename impact: LOW RISK.** `"name": "rethinkloop"` appears only in root package.json, package-lock.json (regenerated), and dagger/dagger.json — the last being the Dagger *module* name, independent of npm publishing. No script, Dockerfile, or docs reference uses the unscoped root npm name (`-w` flags all use `@rethinkloop/*`). Renaming the root package breaks nothing else.
 - **Raw-TS CLI distribution floor: Node ≥ 22.18.0** (LTS backport) or ≥ 23.6.0, where type stripping is enabled by default — verified against nodejs.org release notes/docs (stable since v24.12/v25.2). Local smoke test on installed v26.5.1: `.ts` files with `.ts`-extension imports run flagless. Constraints for CLI code: erasable syntax only (no enums/namespaces/parameter properties — transform-types support removed in v26), no tsconfig-path resolution. Shebang `#!/usr/bin/env node` suffices (no flags needed), so MCP clients spawning `rethinkloop mcp` need nothing special beyond a compatible Node on PATH. Published package should declare its own `engines.node` (≥22.18) independent of the repo dev requirement of ≥26.
+
+[[2026-08-25]] Tue 11:48
+UI requirement: create a UI that lets users set a max budget for MCP calls (surface it alongside the account tokens UI in scope).
