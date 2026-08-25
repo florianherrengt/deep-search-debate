@@ -4,13 +4,13 @@ title: Database schema fixes
 status: in-progress
 priority: high
 created: 2026-08-24T01:34:07.363343+01:00
-updated: 2026-08-25T11:55:43.697276+01:00
+updated: 2026-08-25T12:03:31.302865+01:00
 started: 2026-08-25T11:09:28.989354+01:00
 tags:
     - database
     - schema
-claimed_by: beman-impen
-claimed_at: 2026-08-25T11:55:43.697408+01:00
+claimed_by: laddie-catechin
+claimed_at: 2026-08-25T12:03:31.302865+01:00
 class: standard
 ---
 
@@ -100,3 +100,12 @@ Implementation progress in .worktrees/codex-ticket-11-database-schema-fixes: add
 
 [[2026-08-25]] Tue 11:55
 Flattened the unreleased three-file migration history into one fresh 0000 baseline with all 13 custom triggers. Fresh database and integrity tests pass 48/48; Drizzle consistency check passes. Running the full gate and independent schema review.
+
+[[2026-08-25]] Tue 12:01
+## Fresh-baseline handoff
+- Location: uncommitted changes in /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-11-database-schema-fixes on codex/ticket-11-database-schema-fixes.
+- Flattened migrations: one 0000_fresh-baseline.sql, one snapshot, one journal entry; 18 tables and all 13 handwritten triggers.
+- Retained prior ticket fixes: SQL value and credit checks, completed-idea selection link, parent immutability, exact website FK regression, indexed slug probes, parity tests, fixtures, DBML, and docs.
+- Verified: 48 database tests; Drizzle check; lint; typecheck; Knip; 616 API tests; 299 web tests. Independent flatten review found no issues.
+- Fresh schema audit findings, all pre-existing: idea selection and evaluation CHECK gaps; completed debates do not SQL-require website_generation_id; tournament idea ownership is app-only; cross-connection slug allocation can fail SQLITE_BUSY_SNAPSHOT under deferred transactions; active-capacity counts lack partial indexes.
+- No commit or merge was created.

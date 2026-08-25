@@ -256,3 +256,12 @@
 {"timestamp":"2026-08-25T11:58:37.010649+01:00","action":"move","task_id":17,"detail":"in-progress -\u003e review"}
 {"timestamp":"2026-08-25T11:58:37.010814+01:00","action":"handoff","task_id":17,"detail":"Investigate AI SDK responseFormat JSON schema compatibility warning"}
 {"timestamp":"2026-08-25T11:58:37.011121+01:00","action":"release","task_id":17,"detail":"Investigate AI SDK responseFormat JSON schema compatibility warning"}
+{"timestamp":"2026-08-25T12:01:07.489555+01:00","action":"move","task_id":11,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-08-25T12:01:07.489724+01:00","action":"handoff","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T12:01:07.4898+01:00","action":"block","task_id":11,"detail":"Flattening is review-ready. Further schema changes need user direction on whether to implement the five newly reported P2 audit findings; backup and secret-rotation operations remain separately authorization-gated."}
+{"timestamp":"2026-08-25T12:01:07.489896+01:00","action":"release","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T12:03:31.026047+01:00","action":"edit","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T12:03:31.026223+01:00","action":"claim","task_id":11,"detail":"laddie-catechin"}
+{"timestamp":"2026-08-25T12:03:31.164152+01:00","action":"edit","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T12:03:31.164285+01:00","action":"unblock","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T12:03:31.30441+01:00","action":"move","task_id":11,"detail":"review -\u003e in-progress"}
