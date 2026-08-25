@@ -1,15 +1,13 @@
 ---
 id: 17
 title: Investigate AI SDK responseFormat JSON schema compatibility warning
-status: in-progress
+status: review
 priority: medium
 created: 2026-08-24T12:11:53.779676+01:00
-updated: 2026-08-25T12:10:46.176398+01:00
+updated: 2026-08-25T12:15:23.538875+01:00
 started: 2026-08-25T11:26:09.368999+01:00
 tags:
     - investigation
-claimed_by: simlin-enjoying
-claimed_at: 2026-08-25T12:10:46.176398+01:00
 class: standard
 ---
 
@@ -51,3 +49,11 @@ Filtered only the expected DeepSeek AI SDK compatibility warning (responseFormat
 - Files changed: src/api/llms/provider.ts and src/api/llms/provider.test.ts.
 - Verified: focused provider tests passed 5/5; full npm run gatekeep passed lint, typecheck, knip, 614 API tests, and 299 web tests. The web suite still emits its unrelated Node localStorage ExperimentalWarning.
 - Review notes: no new environment variable; reuses config.environment. Task code remains uncommitted.
+
+[[2026-08-25]] Tue 12:15
+## Simplified handoff
+- Worktree and branch: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-17-ai-sdk-response-format-warning on codex/ticket-17-ai-sdk-response-format-warning.
+- Final change: removed the bespoke per-warning middleware, stream transformer, exact-warning matcher, and custom regression harness. Production now uses only the AI SDK-supported globalThis.AI_SDK_LOG_WARNINGS=false switch; development/test retain normal SDK warning logs.
+- File changed: src/api/llms/provider.ts only (10 added lines: 6 for production warning policy and 4 for the requested structured-output ownership comment).
+- Verified: full npm run gatekeep passed lint, typecheck, knip, 611 API tests, and 299 web tests. The unrelated Node localStorage ExperimentalWarning remains visible in web tests.
+- Task code remains uncommitted for review.
