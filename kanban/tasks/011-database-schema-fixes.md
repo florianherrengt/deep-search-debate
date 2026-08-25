@@ -1,16 +1,14 @@
 ---
 id: 11
 title: Database schema fixes
-status: in-progress
+status: review
 priority: high
 created: 2026-08-24T01:34:07.363343+01:00
-updated: 2026-08-25T14:08:02.881205+01:00
+updated: 2026-08-25T14:13:30.92178+01:00
 started: 2026-08-25T11:09:28.989354+01:00
 tags:
     - database
     - schema
-claimed_by: harden-afoul
-claimed_at: 2026-08-25T14:08:02.881205+01:00
 class: standard
 ---
 
@@ -114,3 +112,11 @@ Flattened the unreleased three-file migration history into one fresh 0000 baseli
 Implemented all five fresh-schema review findings in codex-ticket-11-database-schema-fixes: SQL selection/evaluation/refinement integrity, completed-debate website-link requirement, tournament ownership and structural immutability triggers, BEGIN IMMEDIATE slug allocation, and covering partial capacity indexes. Regenerated the single 0000 baseline (18 tables, 16 triggers), snapshot, DBML, docs, and fixtures. Verified Drizzle check/no drift, focused regressions, full gate: 619 API tests and 299 web tests.
 
 All five requested fresh-schema fixes are implemented in the task worktree. Single 0000 baseline, snapshot, journal, DBML, and docs are synchronized. Full gate passes: lint, typecheck, Knip, 619 API tests, 299 web tests. Drizzle check and no-drift generation pass; independent final review found no actionable issues. Residual test note: manager regressions assert BEGIN IMMEDIATE directly; a separate two-WAL-connection reproduction verified the lock fix.
+
+[[2026-08-25]] Tue 14:13
+## Final fix handoff
+- Worktree and branch: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-11-database-schema-fixes on codex/ticket-11-database-schema-fixes.
+- Fixed the second review findings: root admission now uses BEGIN IMMEDIATE before capacity reads/writes; the partial-index regression now requires a covering query plan.
+- Regression evidence: the new transaction-option test failed before the production change and passes after it; focused capacity and manager tests pass 27/27.
+- Full verification: lint, typecheck, Knip, 620 API tests, 299 web tests, and git diff --check all pass.
+- Review notes: task code remains uncommitted for user review; no schema or migration files changed in this final fix.
