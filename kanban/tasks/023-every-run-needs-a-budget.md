@@ -2,9 +2,9 @@
 id: 23
 title: Every run needs a budget
 status: todo
-priority: critical
+priority: high
 created: 2026-08-25T11:48:14.29449+01:00
-updated: 2026-08-25T14:32:25.976302+01:00
+updated: 2026-08-25T14:33:04.180819+01:00
 started: 2026-08-25T14:32:25.977763+01:00
 tags:
     - credits
