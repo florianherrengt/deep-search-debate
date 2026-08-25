@@ -93,7 +93,7 @@ function parseStructuredText<Result>(
 
 // The SDK's default stream handler logs the complete provider error object,
 // which can contain request details. Durable generation state and the bounded
-// terminal log provide the diagnostics this application exposes instead.
+// privacy-safe failure log provide the diagnostics this application exposes.
 const suppressProviderErrorLogging = () => undefined
 
 async function loadStructuredPrompt(

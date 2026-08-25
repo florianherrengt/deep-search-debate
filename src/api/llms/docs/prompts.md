@@ -23,8 +23,9 @@ maximum DeepSeek thinking strength (`thinking.type=enabled` with
 See `routes/docs/text-streaming.md` for the client contract.
 
 For durable streams, `promptName` is also the operational stage name stored on
-`llm_generations` and emitted in the terminal lifecycle log. Prompts and model
-outputs themselves are never included in that log.
+`llm_generations`. Failed metadata-bearing generations include that stage name
+in their privacy-safe error record. Prompts and model outputs themselves are
+never included in application logs.
 
 `generatePromptTitle`, `generateArrayStream`, and `generateObjectStream` request
 reasoning-disabled calls and schema-validated output. Job creation awaits the

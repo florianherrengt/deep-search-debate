@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import type {
   ScrapingAntClient,
   ScrapingAntPage,
@@ -75,6 +75,8 @@ function createHarness() {
 }
 
 describe("webExtract", () => {
+  afterEach(() => vi.restoreAllMocks())
+
   it("uses the cheap ScrapingAnt request when it returns usable content", async () => {
     const harness = createHarness()
     harness.fetchPage.mockResolvedValueOnce(htmlPage(usableHtml(), {
@@ -101,6 +103,18 @@ describe("webExtract", () => {
         credits: 1,
       },
     ])
+  })
+
+  it("does not log page retrieval attempts by default", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const fetchPage = vi
+      .fn<ScrapingAntClient["fetchPage"]>()
+      .mockResolvedValueOnce(htmlPage(usableHtml(), { credits: 1 }))
+    const extract = createWebExtractor({ client: { fetchPage } })
+
+    await extract({ url: "https://example.com/page" })
+
+    expect(info).not.toHaveBeenCalled()
   })
 
   it("extracts PDF text instead of accepting the binary payload as HTML", async () => {

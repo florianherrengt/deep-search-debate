@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { eq } from "drizzle-orm"
 import type { streamText } from "ai"
-import z from "zod"
 import { debitCredits, getCreditAccount } from "../credits.ts"
 import { db } from "../db/index.ts"
 import {
@@ -297,7 +296,7 @@ describe("text streams", () => {
     expect(onCompleted).toHaveBeenCalledOnce()
   })
 
-  it("persists provider metadata and emits one privacy-safe terminal log", async () => {
+  it("persists provider metadata without logging successful generations", async () => {
     const deepSearchJobId = crypto.randomUUID()
     db.insert(deepSearchJobs)
       .values({
@@ -311,6 +310,7 @@ describe("text streams", () => {
       })
       .run()
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const source = new AsyncQueue<SourceStreamPart>()
     const { id, completion } = registerTextStream(
       "test-user-id",
@@ -364,39 +364,11 @@ describe("text streams", () => {
       outputTokens: 30,
       reasoningTokens: 10,
     })
-    expect(info).toHaveBeenCalledOnce()
-    expect(info.mock.calls[0]?.[0]).toBe("LLM generation")
-    const { durationMs, ...logEntry } = z
-      .object({
-        generationId: z.string(),
-        deepSearchJobId: z.string(),
-        stage: z.string(),
-        modelId: z.string(),
-        status: z.enum(["completed", "failed"]),
-        finishReason: z.string().nullable(),
-        inputTokens: z.number().nullable(),
-        outputTokens: z.number().nullable(),
-        reasoningTokens: z.number().nullable(),
-        durationMs: z.number().nonnegative(),
-      })
-      .strict()
-      .parse(info.mock.calls[0]?.[1] as unknown)
-    expect(durationMs).toBeGreaterThanOrEqual(0)
-    expect(logEntry).toEqual({
-      generationId: id,
-      deepSearchJobId,
-      stage: "summarize-search-query",
-      modelId: "deepseek-chat",
-      status: "completed",
-      finishReason: "stop",
-      inputTokens: 120,
-      outputTokens: 30,
-      reasoningTokens: 10,
-    })
+    expect(info).not.toHaveBeenCalled()
+    expect(error).not.toHaveBeenCalled()
   })
 
   it("keeps generation success independent from optional usage metadata", async () => {
-    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
     const source = new AsyncQueue<SourceStreamPart>()
     const { id, completion } = registerTextStream(
       "test-user-id",
@@ -433,21 +405,10 @@ describe("text streams", () => {
       outputTokens: null,
       reasoningTokens: null,
     })
-    expect(info).toHaveBeenCalledWith(
-      "LLM generation",
-      expect.objectContaining({
-        generationId: id,
-        stage: "default",
-        status: "completed",
-        finishReason: "stop",
-        inputTokens: null,
-        outputTokens: null,
-        reasoningTokens: null,
-      }),
-    )
   })
 
   it("fails closed when finish-reason metadata is unavailable", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const source = new AsyncQueue<SourceStreamPart>()
     const { id, completion } = registerTextStream(
       "test-user-id",
@@ -484,6 +445,12 @@ describe("text streams", () => {
     ).toEqual({
       status: "failed",
       error: "Text generation did not report a finish reason",
+      finishReason: null,
+    })
+    expect(error).toHaveBeenCalledExactlyOnceWith("LLM generation failed", {
+      generationId: id,
+      stage: "default",
+      modelId: "configured-model",
       finishReason: null,
     })
   })

@@ -287,7 +287,6 @@ async function consume(
   source: AsyncIterable<SourceStreamPart>,
   stream: TextStream,
   owner: LlmGenerationOwner,
-  startedAt: Date,
   options: RegisterTextStreamOptions,
 ): Promise<GenerationOutcome> {
   let text = ""
@@ -441,15 +440,14 @@ async function consume(
       }
     })
     if (persistedOutcome) return persistedOutcome
-    logTerminalGeneration({
-      id,
-      owner,
-      startedAt,
-      completedAt,
-      status: terminalStatus,
-      metadata: options.metadata,
-      terminalMetadata,
-    })
+    if (terminalStatus === "failed") {
+      logFailedGeneration({
+        id,
+        owner,
+        metadata: options.metadata,
+        terminalMetadata,
+      })
+    }
   } catch (error) {
     const message = getErrorMessage(error, "Text generation failed")
     const failedAt = new Date()
@@ -481,12 +479,9 @@ async function consume(
         fallbackError,
       )
     }
-    logTerminalGeneration({
+    logFailedGeneration({
       id,
       owner,
-      startedAt,
-      completedAt: failedAt,
-      status: "failed",
       metadata: options.metadata,
       terminalMetadata,
     })
@@ -551,31 +546,20 @@ async function resolveTerminalMetadata(
   }
 }
 
-function logTerminalGeneration(input: {
+function logFailedGeneration(input: {
   id: string
   owner: LlmGenerationOwner
-  startedAt: Date
-  completedAt: Date
-  status: "completed" | "failed" | "interrupted"
   metadata: TextGenerationMetadata | undefined
   terminalMetadata: TerminalGenerationMetadata
 }): void {
   if (!input.metadata) return
   try {
-    console.info("LLM generation", {
+    console.error("LLM generation failed", {
       generationId: input.id,
       ...("standalone" in input.owner ? {} : input.owner),
       stage: input.metadata.promptName,
       modelId: input.metadata.modelId,
-      status: input.status,
       finishReason: input.terminalMetadata.finishReason ?? null,
-      inputTokens: input.terminalMetadata.inputTokens ?? null,
-      outputTokens: input.terminalMetadata.outputTokens ?? null,
-      reasoningTokens: input.terminalMetadata.reasoningTokens ?? null,
-      durationMs: Math.max(
-        0,
-        input.completedAt.getTime() - input.startedAt.getTime(),
-      ),
     })
   } catch {
     // Observability must never change generation persistence or stream outcome.
@@ -672,7 +656,6 @@ export function prepareTextGeneration(
       source,
       stream,
       owner,
-      startedAt,
       combinedOptions,
     )
     void completion.then(

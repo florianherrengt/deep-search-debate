@@ -39,15 +39,14 @@ failed. Finish-reason metadata is required and fails closed when unavailable;
 usage metadata remains best-effort. The AI SDK's default full-error
 logger is disabled so
 provider request envelopes are not written to application logs. The durable
-generation row retains the authorized failure message, while terminal console
-records stay limited to IDs, stage, model, status, usage, and duration.
+generation row retains the authorized failure message and all generation
+metadata, while successful and interrupted generations produce no console log.
 
-Every metadata-bearing generation emits one structured terminal console record
-with generation ID, owning job ID when present, prompt/stage, model ID, status,
-finish reason, token counts, and derived duration. It deliberately excludes the
-prompt, output, reasoning, provider response body, page content, credentials,
-and error text. Detailed failure text remains available in the authorized local
-database row.
+A failed metadata-bearing generation emits one privacy-safe error record with
+its generation ID, owning job ID when present, prompt/stage, model ID, and finish
+reason. It deliberately excludes token counts, duration, prompt, output,
+reasoning, provider response body, page content, credentials, and error text.
+Detailed diagnostics remain available in the authorized local database row.
 
 Internal registration returns `{ id, completion }`. The ID is available as
 soon as the initial `llm_generations` row and any registration hook commit.

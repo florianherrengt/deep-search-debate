@@ -168,8 +168,6 @@ async function extractContent(params: {
 export function createWebExtractor(deps: WebExtractorDeps) {
   const now = deps.now ?? performance.now.bind(performance)
   const pdfExtractor = deps.pdfExtractor ?? new PdfExtractor()
-  const log =
-    deps.log ?? ((entry: PageRetrievalLog) => console.info("Page retrieval", entry))
 
   return async function extract(params: {
     url: string
@@ -209,11 +207,11 @@ export function createWebExtractor(deps: WebExtractorDeps) {
         }
 
         if (failure !== undefined) {
-          log({ ...diagnostic, outcome: "failure", failure })
+          deps.log?.({ ...diagnostic, outcome: "failure", failure })
           continue
         }
 
-        log({ ...diagnostic, outcome: "success" })
+        deps.log?.({ ...diagnostic, outcome: "success" })
         return {
           url: params.url,
           content,
@@ -224,7 +222,7 @@ export function createWebExtractor(deps: WebExtractorDeps) {
         const providerError =
           error instanceof ScrapingAntRequestError ? error : undefined
         scrapingAntCredits += providerError?.credits ?? 0
-        log({
+        deps.log?.({
           event: "page-retrieval-attempt",
           url: params.url,
           domain: parsedUrl.hostname,
