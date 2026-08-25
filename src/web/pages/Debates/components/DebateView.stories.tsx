@@ -9,6 +9,7 @@ import {
   completedWinnerEvaluation,
   semifinalTournament,
   swissTournament,
+  websiteGeneratingTournament,
 } from "../stories/fixtures.ts"
 
 const meta: Meta<typeof DebateView> = {
@@ -76,6 +77,13 @@ export const Completed: Story = {
   args: {
     feedbackControl: <CompletedFeedbackControl />,
     tournament: completedTournament,
+    winnerEvaluation: completedWinnerEvaluation,
+  },
+}
+
+export const GeneratingWinnerWebsite: Story = {
+  args: {
+    tournament: websiteGeneratingTournament,
     winnerEvaluation: completedWinnerEvaluation,
   },
 }

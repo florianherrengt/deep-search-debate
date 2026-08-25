@@ -550,6 +550,84 @@ describe("runDebateJob", () => {
     }))
   })
 
+  it("publishes the final verdict while the winner website is still generating", async () => {
+    let advocateGenerationNumber = 0
+    const websiteCompletion = Promise.withResolvers<{
+      status: "completed"
+      text: string
+      reasoning: string
+    }>()
+    const websiteStarted = Promise.withResolvers<void>()
+    const websiteHtml =
+      "<!DOCTYPE html><html><body>Winner website</body></html>"
+    mocks.generateTextStream.mockImplementation((input: {
+      promptName?: string
+      owner: { debateJobId?: string }
+      onRegistered?: (
+        id: string,
+        transaction: { kind: string },
+      ) => void
+    }) => {
+      if (input.promptName === PromptName.CreateIdeaSite) {
+        const generation = completeWinnerSiteGeneration(
+          input as unknown as Parameters<
+            typeof completeWinnerSiteGeneration
+          >[0],
+        )
+        websiteStarted.resolve()
+        return {
+          ...generation,
+          completion: websiteCompletion.promise,
+        }
+      }
+      const id = `website-progress-agent-${(advocateGenerationNumber += 1)}`
+      input.onRegistered?.(id, { kind: "registration-transaction" })
+      return Promise.resolve({
+        id,
+        completion: Promise.resolve({
+          status: "completed" as const,
+          text: "Substantive argument",
+          reasoning: "",
+        }),
+      })
+    })
+    const { debateJobId, ideaJobManager, job, events } = createRunFixture()
+    const publish = vi.spyOn(job, "publish")
+    const close = vi.spyOn(job, "close")
+    const run = runDebateJob({ debateJobId, ideaJobManager, job })
+
+    try {
+      await websiteStarted.promise
+
+      expect(db.select().from(debateJobs).get()).toMatchObject({
+        stage: "final",
+        status: "running",
+      })
+      const matchCount = getTotalMatchCount(
+        DEBATE_TOURNAMENT_FORMAT.minParticipantCount,
+      )
+      const roundCount = DEBATE_TOURNAMENT_FORMAT.swissRounds + 2
+      // Each match announces four advocates, its judge, and its durable result.
+      // The runner also announces every round and its three stage transitions.
+      expect(publish).toHaveBeenCalledTimes(
+        matchCount * 6 + roundCount + 3,
+      )
+      expect(publish).toHaveBeenLastCalledWith({ type: "updated" })
+      expect(close).not.toHaveBeenCalled()
+    } finally {
+      websiteCompletion.resolve({
+        status: "completed",
+        text: websiteHtml,
+        reasoning: "",
+      })
+      await run
+    }
+
+    expect(await events).not.toContainEqual(expect.objectContaining({
+      type: "error",
+    }))
+  })
+
   it("fails after exactly one retry when other happens twice", async () => {
     let advocateGenerationNumber = 0
     mocks.generateTextStream.mockImplementation((input: {

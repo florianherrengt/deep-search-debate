@@ -3,9 +3,17 @@ import { fireEvent, render, screen, within } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 import preview from "../../../.storybook/preview.tsx"
 import { completedTournament } from "../stories/fixtures.ts"
-import meta, { Completed } from "./DebateView.stories.tsx"
+import meta, {
+  Completed,
+  GeneratingWinnerWebsite,
+} from "./DebateView.stories.tsx"
 
 const CompletedStory = composeStory(Completed, meta, preview)
+const GeneratingWinnerWebsiteStory = composeStory(
+  GeneratingWinnerWebsite,
+  meta,
+  preview,
+)
 
 describe("Debate tournament stories", () => {
   it("shows feedback controls on the completed owner tournament", () => {
@@ -70,5 +78,18 @@ describe("Debate tournament stories", () => {
       "/ideas/independent-cafe-energy-ideas/idea-closing-loop#improved-idea",
     )
     expect(alternativeLink).toHaveAttribute("target", "_blank")
+  })
+
+  it("shows live website progress after the final verdict", () => {
+    render(<GeneratingWinnerWebsiteStory />)
+
+    expect(
+      within(screen.getByRole("status")).getByText(
+        "Generating the winner's website…",
+      ),
+    ).toBeVisible()
+    expect(
+      screen.queryByRole("link", { name: "Open the generated website" }),
+    ).not.toBeInTheDocument()
   })
 })
