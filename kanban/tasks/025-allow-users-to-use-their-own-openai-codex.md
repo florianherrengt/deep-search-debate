@@ -4,10 +4,10 @@ title: Allow users to use their own OpenAI Codex subscription
 status: in-progress
 priority: medium
 created: 2026-08-25T14:16:35.14541+01:00
-updated: 2026-08-25T23:06:36.468373+01:00
+updated: 2026-08-25T23:37:25.223094+01:00
 started: 2026-08-25T14:32:31.054817+01:00
 claimed_by: becramp-moneybag
-claimed_at: 2026-08-25T23:06:36.468373+01:00
+claimed_at: 2026-08-25T23:37:25.223211+01:00
 class: standard
 ---
 
@@ -126,3 +126,11 @@ This section supersedes the earlier open questions.
 
 ### Validation
 - Add deterministic fake app-server tests for authentication and generation, cross-user isolation tests, credential encryption and refresh tests, routing and billing tests, frontend connection-flow tests, and final-container Codex binary and protocol smoke tests.
+
+[[2026-08-25]] Tue 23:37
+Approved implementation defaults (2026-08-25):
+- Put the authenticated OpenAI connection workflow on a private `/settings` page linked from the account menu.
+- Use the connected account’s default Codex model. Map the existing reasoning toggle to the highest advertised reasoning effort when enabled and the lowest advertised effort when disabled.
+- Use exact `@openai/codex@0.149.1` through an npm override despite `ai-sdk-provider-codex-cli@2.1.2` declaring a `0.144.x` range; explicit path selection and real protocol smoke tests are required.
+- Disconnect affects new calls immediately. An already-active Codex call may finish, but credential refresh uses compare-and-swap and cannot recreate a deleted or replaced connection.
+- Use the specified single server-held encryption key for this ticket; keyring rotation and privacy-policy wording are outside this implementation unless separately requested.
