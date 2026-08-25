@@ -9,6 +9,7 @@ description: >
 allowed-tools:
   - Bash(kanban-md *)
   - Bash(kbmd *)
+  - Bash(git *)
 ---
 <!-- kanban-md-skill-version: 0.38.0 -->
 
@@ -35,6 +36,35 @@ Each task is a `.md` file in `kanban/tasks/`. The CLI is `kanban-md`
   `kanban-md board` to discover valid values before using them.
 - Default statuses: backlog, todo, in-progress, review, done.
 - Default priorities: low, medium, high, critical.
+
+## Git persistence in this repository
+
+- Run mutating board commands from the canonical board home on `main`.
+- After every mutating command, or one short atomic batch of related commands,
+  inspect and commit the resulting `kanban/` snapshot on `main`. Do not leave
+  board changes uncommitted at a handoff, context switch, or completion.
+- Preserve concurrent board updates from other agents. Commit the complete
+  coherent `kanban/` state; never reset or discard their mutations.
+- Use `chore: update kanban board` as the default board-only commit message.
+- A board commit never authorizes committing task code. Leave verified task
+  code uncommitted in its `.worktrees/` checkout while the user reviews it.
+- After review, an explicit request to `merge` means commit the approved task
+  code and integrate its branch directly into local `main`; pushing or opening
+  a pull request remains a separate action.
+
+After a board mutation:
+
+```bash
+git diff --check -- kanban
+git add -- kanban
+git diff --quiet -- kanban
+git diff --cached --stat -- kanban
+git commit --only -m "chore: update kanban board" -- kanban
+```
+
+The quiet diff check must show that the staged and working-tree `kanban/` state
+match. If a concurrent board mutation makes it fail, inspect and re-stage the
+complete coherent board snapshot before committing.
 
 ## Decision Tree
 
@@ -246,8 +276,10 @@ All commands accept: `--json`, `--table`, `--compact` (alias `--oneline`), `--di
 
 ### Complete a Task
 
-1. `kanban-md move ID done` — marks complete, sets Completed timestamp
-2. `kanban-md show ID --json` — verify status and timestamps
+1. Verify the task commit is merged into local `main`.
+2. `kanban-md move ID done` — marks complete, sets Completed timestamp.
+3. Commit the resulting `kanban/` snapshot on `main`.
+4. `kanban-md show ID` — verify status and timestamps.
 
 ### Track a Bug
 
@@ -265,6 +297,8 @@ All commands accept: `--json`, `--table`, `--compact` (alias `--oneline`), `--di
 
 Quick-reference for the agent task lifecycle. These are combination commands — multiple flags
 in one call to minimize round-trips. Replace `<agent>` with your session's `agent-name` output.
+After every mutating example, commit the coherent `kanban/` snapshot using the
+Git persistence sequence above before switching context.
 
 ### Session start
 
@@ -306,7 +340,7 @@ kanban-md edit <ID> -a "Implemented X, running tests." -t --claim <agent>
 ### Finish task (release claim + mark done)
 
 ```bash
-# Run from board home, after merging
+# Run from board home on main, after merging the task branch into main
 kanban-md edit <ID> --release
 kanban-md move <ID> done
 ```
