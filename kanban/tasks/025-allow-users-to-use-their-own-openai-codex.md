@@ -4,10 +4,10 @@ title: Allow users to use their own OpenAI Codex subscription
 status: in-progress
 priority: medium
 created: 2026-08-25T14:16:35.14541+01:00
-updated: 2026-08-25T23:37:25.223094+01:00
+updated: 2026-08-26T00:26:59.635632+01:00
 started: 2026-08-25T14:32:31.054817+01:00
 claimed_by: becramp-moneybag
-claimed_at: 2026-08-25T23:37:25.223211+01:00
+claimed_at: 2026-08-26T00:26:59.635751+01:00
 class: standard
 ---
 
