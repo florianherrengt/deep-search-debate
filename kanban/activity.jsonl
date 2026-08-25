@@ -285,3 +285,4 @@
 {"timestamp":"2026-08-25T13:53:40.00877+01:00","action":"create","task_id":24,"detail":"Add the option to set ideas manually and start a debate with them"}
 {"timestamp":"2026-08-25T13:54:55.248461+01:00","action":"edit","task_id":17,"detail":"Investigate AI SDK responseFormat JSON schema compatibility warning"}
 {"timestamp":"2026-08-25T13:54:55.26506+01:00","action":"move","task_id":17,"detail":"review -\u003e done"}
+{"timestamp":"2026-08-25T14:08:02.884928+01:00","action":"move","task_id":11,"detail":"review -\u003e in-progress"}
