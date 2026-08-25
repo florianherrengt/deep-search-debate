@@ -1,13 +1,13 @@
 ---
 id: 25
 title: Allow users to use their own OpenAI Codex subscription
-status: in-progress
+status: review
 priority: medium
 created: 2026-08-25T14:16:35.14541+01:00
-updated: 2026-08-25T16:07:51.871509+01:00
+updated: 2026-08-25T20:39:57.851814+01:00
 started: 2026-08-25T14:32:31.054817+01:00
-claimed_by: becramp-moneybag
-claimed_at: 2026-08-25T16:07:51.871509+01:00
+blocked: true
+block_reason: Waiting on user approval for public Codex execution risk, credential storage, isolation strategy, device-code behavior, fallback and credit semantics, UI behavior, and two new dependencies.
 class: standard
 ---
 
@@ -69,3 +69,15 @@ Let signed-in users supply their own OpenAI Codex subscription as the LLM creden
 7. Interaction with #7 (Stripe) and #23 (per-run budgets): per-run credit budgets do not apply to user-provider runs (no credits used) — confirm; do upstream-cost guardrails (e.g. `LLM_MAX_OUTPUT_TOKENS`, timeouts) suffice?
 8. Upstream rate limits (ChatGPT/Codex plans throttle requests) and error surfacing; does retry/timeout policy change per provider?
 9. Precedence: `config.llm` is resolved at import time from env; a per-user override needs a resolution layer (which wins, and what happens when the user credential is absent/expired/invalid — fallback to server provider or block?).
+
+[[2026-08-25]] Tue 20:39
+## Handoff — feasibility and auth investigation complete
+
+- User confirmed full authentication workflow is in scope and connected-account LLM calls do not consume RethinkLoop credits.
+- Official Codex app-server supports managed ChatGPT authentication; device-code is the viable remote-web flow, but it is beta and may be disabled by a user or workspace admin.
+- Recommend ai-sdk-provider-codex-cli 2.1.2 for AI SDK generation only. It is compatible with this repo but does not publicly expose managed account login/read/logout, so a small typed stdio auth client is still required.
+- Recommend per-user provider process and persistent CODEX_HOME, with account/read authoritative and pending login state in memory; no DB migration is necessary.
+- Security blocker: the provider inherits the full API environment, and same-UID Codex children can read sibling homes/app data. A scrubbed environment plus verified current Codex minimal-permission profile or stronger outer isolation is required.
+- Runtime impact: add exact provider and exact official Codex dependencies, roughly 300–350 MB image growth, final-image CLI/protocol smoke tests, lifecycle cleanup, and persistence/isolation tests.
+- Generation seam: resolve provider by userId in generateText.ts; keep streams.ts persistence and server-funded DeepSeek pricing intact; connected Codex calls persist usage with zero product credits.
+- Product decisions requested from user: accept public/community-package risk; at-rest credential policy; isolation level; external search/extraction credits and zero-balance admission; fallback behavior; model/output-limit policy; signout/disconnect behavior and active jobs; Settings account details; dependency approval.

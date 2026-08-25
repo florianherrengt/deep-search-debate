@@ -311,3 +311,7 @@
 {"timestamp":"2026-08-25T14:58:42.948728+01:00","action":"edit","task_id":11,"detail":"Database schema fixes"}
 {"timestamp":"2026-08-25T14:58:42.966033+01:00","action":"move","task_id":11,"detail":"review -\u003e done"}
 {"timestamp":"2026-08-25T16:07:51.873524+01:00","action":"move","task_id":25,"detail":"todo -\u003e in-progress"}
+{"timestamp":"2026-08-25T20:39:57.853487+01:00","action":"move","task_id":25,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-08-25T20:39:57.853951+01:00","action":"handoff","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
+{"timestamp":"2026-08-25T20:39:57.854053+01:00","action":"block","task_id":25,"detail":"Waiting on user approval for public Codex execution risk, credential storage, isolation strategy, device-code behavior, fallback and credit semantics, UI behavior, and two new dependencies."}
+{"timestamp":"2026-08-25T20:39:57.854195+01:00","action":"release","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
