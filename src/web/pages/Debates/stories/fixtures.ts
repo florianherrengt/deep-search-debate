@@ -379,6 +379,18 @@ export const completedTournament: DebateTournament = {
   feedback: { rating: null, hasWrittenFeedback: false },
 }
 
+export const websiteGeneratingTournament: DebateTournament = {
+  ...completedTournament,
+  debateJobId: "debate-website-generating",
+  isPublic: false,
+  canStop: true,
+  status: "running",
+  creditsUsed: null,
+  winnerWebsiteIdeaId: null,
+  winnerWebsiteHasScreenshot: false,
+  feedback: null,
+}
+
 export const streamingMatch = swissTournament.rounds[1].matches[2]
 export const completedMatch = finalComplete
 

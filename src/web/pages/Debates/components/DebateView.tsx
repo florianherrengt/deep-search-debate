@@ -54,6 +54,11 @@ export function DebateView({
     tournament.status === "running" &&
     tournament.stage === "ideas" &&
     !tournament.stopRequested
+  const websiteGenerating =
+    tournament.status === "running" &&
+    !tournament.stopRequested &&
+    winner !== undefined &&
+    tournament.winnerWebsiteIdeaId === null
 
   return (
     <Stack spacing={3}>
@@ -131,6 +136,7 @@ export function DebateView({
           ideaJobId={tournament.ideaJobId}
           ideaJobSlug={tournament.slug}
           reason={winnerReason}
+          websiteGenerating={websiteGenerating}
           websiteHasScreenshot={tournament.winnerWebsiteHasScreenshot}
           websiteIdeaId={
             tournament.winnerWebsiteIdeaId === winner.ideaId

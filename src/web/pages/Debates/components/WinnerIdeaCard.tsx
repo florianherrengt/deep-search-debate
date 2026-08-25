@@ -3,7 +3,15 @@ import {
   EmojiEventsRounded,
   RemoveCircleOutlined,
 } from "@mui/icons-material"
-import { Box, Card, CardContent, Chip, Stack, Typography } from "@mui/material"
+import {
+  Box,
+  Card,
+  CardContent,
+  Chip,
+  CircularProgress,
+  Stack,
+  Typography,
+} from "@mui/material"
 import { useId } from "react"
 import { ExternalLink } from "../../../components/ExternalLink.tsx"
 import type { IdeaEvaluation } from "../../../lib/ideaJobs.ts"
@@ -17,6 +25,7 @@ export function WinnerIdeaCard({
   ideaJobId,
   ideaJobSlug,
   reason,
+  websiteGenerating = false,
   websiteHasScreenshot = false,
   websiteIdeaId,
 }: {
@@ -26,6 +35,7 @@ export function WinnerIdeaCard({
   ideaJobId: string
   ideaJobSlug: string
   reason?: string
+  websiteGenerating?: boolean
   websiteHasScreenshot?: boolean
   websiteIdeaId?: string
 }) {
@@ -64,6 +74,19 @@ export function WinnerIdeaCard({
             <Typography color="text.secondary" variant="body2">
               {idea.description}
             </Typography>
+            {websiteGenerating && !websiteUrl && (
+              <Stack
+                direction="row"
+                role="status"
+                spacing={1}
+                sx={{ alignItems: "center" }}
+              >
+                <CircularProgress aria-hidden="true" size={18} />
+                <Typography color="text.secondary" variant="body2">
+                  Generating the winner's website…
+                </Typography>
+              </Stack>
+            )}
             {screenshotUrl && websiteUrl && (
               <ExternalLink
                 href={websiteUrl}

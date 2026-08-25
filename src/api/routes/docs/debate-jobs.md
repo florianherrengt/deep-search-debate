@@ -283,12 +283,15 @@ only the derived state and never echo the text:
 ### `GET /api/debate-jobs/:debateJobId/events`
 
 Returns replay-and-follow NDJSON. `updated` means clients should refresh the
-durable snapshot. A Stop publishes `updated` after its durable request commits,
-then another `updated` after interruption becomes terminal, followed by `done`.
-It does not publish an ordinary `error`. A failed job still emits `error` with
-its exact message before `done`. After restart, running and terminal events are
-synthesized from SQLite, so refresh while stopping and terminal replay remain
-snapshot-driven.
+durable snapshot. The final verdict publishes `updated` before winner-website
+generation starts, so the running snapshot can show that phase from its durable
+winner while the website settles. Another `updated` follows after the website
+and debate complete. A Stop publishes `updated` after its durable request
+commits, then another `updated` after interruption becomes terminal, followed
+by `done`. It does not publish an ordinary `error`. A failed job still emits
+`error` with its exact message before `done`. After restart, running and
+terminal events are synthesized from SQLite, so refresh while stopping and
+terminal replay remain snapshot-driven.
 
 ### `PATCH /api/debate-jobs/:debateJobId`
 
