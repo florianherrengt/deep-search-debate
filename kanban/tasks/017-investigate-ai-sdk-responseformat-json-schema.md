@@ -1,15 +1,13 @@
 ---
 id: 17
 title: Investigate AI SDK responseFormat JSON schema compatibility warning
-status: in-progress
+status: review
 priority: medium
 created: 2026-08-24T12:11:53.779676+01:00
-updated: 2026-08-25T12:05:17.946504+01:00
+updated: 2026-08-25T12:07:46.880545+01:00
 started: 2026-08-25T11:26:09.368999+01:00
 tags:
     - investigation
-claimed_by: simlin-enjoying
-claimed_at: 2026-08-25T12:05:17.946504+01:00
 class: standard
 ---
 
@@ -42,3 +40,12 @@ Investigation: reproduced the warning with a fake DeepSeek transport. The SDK se
 
 [[2026-08-25]] Tue 11:58
 Filtered only the expected DeepSeek AI SDK compatibility warning (responseFormat JSON schema / schema injected into system message) through provider-scoped middleware. Other warnings remain visible, and the request still sends response_format json_object. Added a regression test covering both properties. Full npm run gatekeep passed: lint, typecheck, knip, 612 API tests, and 299 web tests. Changes remain uncommitted in the ticket worktree.
+
+[[2026-08-25]] Tue 12:07
+## Follow-up handoff
+- Worktree and branch: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-17-ai-sdk-response-format-warning on codex/ticket-17-ai-sdk-response-format-warning.
+- Production policy: provider initialization sets globalThis.AI_SDK_LOG_WARNINGS=false only when the typed config environment is production. Development/test warning logging remains unchanged, and warning objects remain available on AI SDK results.
+- Existing behavior: the exact expected DeepSeek structured-output warning remains filtered at the model boundary; unrelated warnings remain programmatically visible.
+- Files changed: src/api/llms/provider.ts and src/api/llms/provider.test.ts.
+- Verified: focused provider tests passed 5/5; full npm run gatekeep passed lint, typecheck, knip, 614 API tests, and 299 web tests. The web suite still emits its unrelated Node localStorage ExperimentalWarning.
+- Review notes: no new environment variable; reuses config.environment. Task code remains uncommitted.
