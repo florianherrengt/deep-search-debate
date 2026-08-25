@@ -1,11 +1,12 @@
 ---
 id: 21
 title: Publish a live website-generation progress event for the winner website
-status: review
+status: done
 priority: medium
 created: 2026-08-25T11:06:20.174889+01:00
-updated: 2026-08-25T11:51:02.466769+01:00
+updated: 2026-08-25T12:10:57.757141+01:00
 started: 2026-08-25T11:27:10.198852+01:00
+completed: 2026-08-25T12:10:57.759027+01:00
 class: standard
 ---
 

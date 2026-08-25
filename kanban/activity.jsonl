@@ -270,3 +270,5 @@
 {"timestamp":"2026-08-25T12:07:46.882483+01:00","action":"handoff","task_id":17,"detail":"Investigate AI SDK responseFormat JSON schema compatibility warning"}
 {"timestamp":"2026-08-25T12:07:46.88256+01:00","action":"release","task_id":17,"detail":"Investigate AI SDK responseFormat JSON schema compatibility warning"}
 {"timestamp":"2026-08-25T12:10:46.177838+01:00","action":"move","task_id":17,"detail":"review -\u003e in-progress"}
+{"timestamp":"2026-08-25T12:10:57.742196+01:00","action":"edit","task_id":21,"detail":"Publish a live website-generation progress event for the winner website"}
+{"timestamp":"2026-08-25T12:10:57.759283+01:00","action":"move","task_id":21,"detail":"review -\u003e done"}
