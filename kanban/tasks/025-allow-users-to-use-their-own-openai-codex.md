@@ -1,13 +1,11 @@
 ---
 id: 25
 title: Allow users to use their own OpenAI Codex subscription
-status: review
+status: todo
 priority: medium
 created: 2026-08-25T14:16:35.14541+01:00
-updated: 2026-08-25T23:00:18.272528+01:00
+updated: 2026-08-25T23:02:04.710789+01:00
 started: 2026-08-25T14:32:31.054817+01:00
-blocked: true
-block_reason: Waiting on user confirmation to use ChatGPT device-code authentication.
 class: standard
 ---
 
@@ -99,3 +97,30 @@ Still awaiting decisions on device-code authentication UX, whether existing sear
 - Do not add a Codex-specific output-size or token cap. Preserve the existing request timeout and abort behavior, accepting that the community provider ignores maxOutputTokens.
 
 The only remaining product confirmation is whether to use the recommended ChatGPT device-code connection flow.
+
+[[2026-08-25]] Tue 23:01
+## Confirmed implementation specification
+
+This section supersedes the earlier open questions.
+
+### Authentication and credential lifecycle
+- Use the official ChatGPT managed device-code flow. The authenticated connection UI presents the verification URL and one-time code and supports pending, connected, failure, cancel, and disconnect states.
+- Store Codex credentials encrypted in the application database with a server-held encryption key.
+- Hydrate credentials into a private temporary CODEX_HOME only while Codex is active. If Codex rotates credentials, persist the updated encrypted value before deleting the temporary directory.
+
+### Provider selection and billing
+- Resolve the provider at the start of every LLM call.
+- If no OpenAI connection is configured, use DeepSeek and normal RethinkLoop LLM credits.
+- If a valid OpenAI connection exists, use Codex and record zero RethinkLoop credits for the LLM generation.
+- Existing web-search and extraction charges remain unchanged; the OpenAI subscription covers only LLM generation.
+- A configured connection that is expired, broken, or rate-limited returns an actionable error. Do not silently fall back to DeepSeek or charge product LLM credits.
+
+### Runtime and security
+- Use exact pinned ai-sdk-provider-codex-cli and OpenAI Codex dependencies; adding both is approved.
+- Use app-server over local stdio. Do not expose an app-server network listener.
+- Scrub the child environment, isolate HOME, CODEX_HOME, temporary files, and working directory, apply the narrowest verified filesystem and tool permissions, disable unnecessary tools and tool network access, fail approvals closed, and enforce process lifecycle limits.
+- Isolation tests that attempt to access application secrets, source, database files, or another users credentials must fail before release.
+- Do not add a Codex-specific token or output-size cap. Preserve existing request timeouts and cancellation behavior, accepting that the community adapter ignores maxOutputTokens.
+
+### Validation
+- Add deterministic fake app-server tests for authentication and generation, cross-user isolation tests, credential encryption and refresh tests, routing and billing tests, frontend connection-flow tests, and final-container Codex binary and protocol smoke tests.
