@@ -60,6 +60,33 @@ function CompletedFeedbackControl() {
   )
 }
 
+export const PreparingIdeas: Story = {
+  args: {
+    tournament: {
+      ...swissTournament,
+      stage: "ideas",
+      expectedMatchCount: null,
+      rounds: [],
+      standings: [],
+    },
+  },
+}
+
+export const InterruptedDuringIdeaPreparation: Story = {
+  args: {
+    tournament: {
+      ...swissTournament,
+      stage: "ideas",
+      status: "interrupted",
+      canStop: false,
+      expectedMatchCount: null,
+      rounds: [],
+      standings: [],
+      error: "Workflow interrupted during idea preparation",
+    },
+  },
+}
+
 export const RunningSwiss: Story = {
   args: {
     tournament: swissTournament,

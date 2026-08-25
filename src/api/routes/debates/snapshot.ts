@@ -160,9 +160,8 @@ export function getDebateJobSnapshot(
     .all()
   const ideaRows: DebateIdeaSnapshot[] = persistedIdeaRows
     .filter((idea) =>
-      job.selectionGenerationId
-        ? idea.selected === true
-        : job.stage !== "ideas",
+      job.stage !== "ideas" &&
+      (!job.selectionGenerationId || idea.selected === true),
     )
     .map(
       ({

@@ -1,3 +1,4 @@
+import { secureJsonParse } from "@ai-sdk/provider-utils"
 import z from "zod"
 import { config } from "../../config.ts"
 import { ideaJobStages } from "../../db/schema/index.ts"
@@ -35,6 +36,19 @@ export const ideaEvaluationSchema = z.object({
 })
 
 export type IdeaEvaluation = z.infer<typeof ideaEvaluationSchema>
+
+export function parseIdeaEvaluation(
+  text: string | null,
+): IdeaEvaluation | undefined {
+  if (text === null) return
+  try {
+    const evaluation = ideaEvaluationSchema.safeParse(secureJsonParse(text))
+    return evaluation.success ? evaluation.data : undefined
+  } catch {
+    return
+  }
+}
+
 export type IdeaJobStage = (typeof ideaJobStages)[number]
 export type IdeaEventStage =
   | IdeaJobStage
@@ -73,6 +87,7 @@ export type IdeaJobEvent =
   | { type: "research-summary-stream"; streamId: string }
   | { type: "idea-generation-stream"; streamId: string }
   | ({ type: "idea"; ideaId: string } & Idea)
+  | { type: "idea-evaluation-stream"; ideaId: string; streamId: string }
   | ({ type: "idea-evaluated"; ideaId: string } & IdeaEvaluation)
   | { type: "idea-selection-stream"; streamId: string }
   | ({ type: "selected-ideas" } & IdeaSelection)
@@ -90,6 +105,7 @@ export type IdeaJobEvent =
       slug: string
       researchRequest: string
     }
+  | { type: "idea-research-completed" }
   | { type: "stop-requested" }
   | { type: "interrupted"; message: string }
   | { type: "error"; message: string; stage: IdeaEventStage }

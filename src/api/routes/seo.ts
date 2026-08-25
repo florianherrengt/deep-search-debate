@@ -12,8 +12,10 @@ import {
   deepSearchRounds as deepSearchRoundsTable,
   ideaJobs as ideaJobsTable,
   ideas as ideasTable,
+  llmGenerations as llmGenerationsTable,
 } from "../db/schema/index.ts"
 import type { AppEnv } from "../types/auth.ts"
+import { parseIdeaEvaluation } from "./ideas/schemas.ts"
 
 const HOME_DESCRIPTION =
   "Give AI agents a problem. They generate multiple researched ideas and debate them through multiple rounds until one winner remains."
@@ -367,11 +369,20 @@ function resolveIdea(
   const idea = db
     .select({
       description: ideasTable.description,
+      evaluationStatus: llmGenerationsTable.status,
+      evaluationText: llmGenerationsTable.text,
       refinedDescription: ideasTable.refinedDescription,
       refinedTitle: ideasTable.refinedTitle,
       title: ideasTable.title,
     })
     .from(ideasTable)
+    .leftJoin(
+      llmGenerationsTable,
+      eq(
+        ideasTable.evaluationGenerationId,
+        llmGenerationsTable.llmGenerationId,
+      ),
+    )
     .where(
       and(
         eq(ideasTable.ideaJobId, job.ideaJobId),
@@ -382,14 +393,23 @@ function resolveIdea(
   if (idea === undefined) return { kind: "not-found" }
 
   const isPublic = job.debateIsPublic === true
+  const evaluationCompleted =
+    idea.evaluationStatus === "completed" &&
+    parseIdeaEvaluation(idea.evaluationText) !== undefined
   return {
     kind: "page",
     metadata: articleMetadata({
-      description: idea.refinedDescription ?? idea.description,
+      description:
+        evaluationCompleted && idea.refinedDescription !== null
+          ? idea.refinedDescription
+          : idea.description,
       indexable: isPublic && job.debateStatus === "completed",
       path: resourcePath("ideas", slug, ideaId),
       public: isPublic,
-      title: idea.refinedTitle ?? idea.title,
+      title:
+        evaluationCompleted && idea.refinedTitle !== null
+          ? idea.refinedTitle
+          : idea.title,
     }),
   }
 }

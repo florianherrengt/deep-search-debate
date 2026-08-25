@@ -724,6 +724,13 @@ async function evaluateIdea(
       })
     },
   })
+  await publishStartedGeneration(generation, () => {
+    input.job.publish({
+      type: "idea-evaluation-stream",
+      ideaId: idea.ideaId,
+      streamId: generation.id,
+    })
+  })
   const evaluation = await awaitGenerationOutput(
     generation,
     generation.output,
@@ -1074,6 +1081,9 @@ function ideaPipelineEffect(
       input,
       refinedIdeas,
     )
+    yield* workflowEffect(() => {
+      input.job.publish({ type: "idea-research-completed" })
+    })
 
     setEventStage("evaluation")
     yield* evaluateIdeasEffect(input, summary, researchedIdeas)

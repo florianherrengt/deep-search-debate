@@ -1,5 +1,4 @@
 import { aliasedTable, and, asc, eq, lt, sql, type SQL } from "drizzle-orm"
-import { secureJsonParse } from "@ai-sdk/provider-utils"
 import { db } from "../../db/index.ts"
 import {
   deepSearchJobs,
@@ -8,26 +7,13 @@ import {
   llmGenerations,
 } from "../../db/schema/index.ts"
 import {
-  ideaEvaluationSchema,
-  type IdeaEvaluation,
+  parseIdeaEvaluation,
   type IdeaJobEvent,
 } from "./schemas.ts"
 import {
   resolveEffectiveResearchRoot,
   stopRequestAppliesToJob,
 } from "../researchCancellation.ts"
-
-function parseIdeaEvaluation(text: string | null): IdeaEvaluation | undefined {
-  if (text === null) return
-  try {
-    const evaluation = ideaEvaluationSchema.safeParse(
-      secureJsonParse(text),
-    )
-    return evaluation.success ? evaluation.data : undefined
-  } catch {
-    return
-  }
-}
 
 function replayNormalizedIdeas(ideaJobId: string, deepSearchCount: number): {
   ideaEvents: IdeaJobEvent[]
@@ -54,6 +40,7 @@ function replayNormalizedIdeas(ideaJobId: string, deepSearchCount: number): {
       ideaId: ideas.ideaId,
       title: ideas.title,
       description: ideas.description,
+      evaluationGenerationId: ideas.evaluationGenerationId,
       evaluationStatus: evaluationGenerations.status,
       evaluationText: evaluationGenerations.text,
       selected: ideas.selected,
@@ -99,14 +86,27 @@ function replayNormalizedIdeas(ideaJobId: string, deepSearchCount: number): {
     ({ selected }) => selected === true,
   )
   const evaluationReplays = selectedIdeas.map(
-    (idea): { completed: boolean; events: IdeaJobEvent[] } => {
+    (idea): {
+      completed: boolean
+      streamEvents: IdeaJobEvent[]
+      completedEvents: IdeaJobEvent[]
+    } => {
       const evaluation =
         idea.evaluationStatus === "completed"
           ? parseIdeaEvaluation(idea.evaluationText)
           : undefined
       return {
         completed: evaluation !== undefined,
-        events: evaluation
+        streamEvents: idea.evaluationGenerationId
+          ? [
+              {
+                type: "idea-evaluation-stream" as const,
+                ideaId: idea.ideaId,
+                streamId: idea.evaluationGenerationId,
+              },
+            ]
+          : [],
+        completedEvents: evaluation
           ? [
               {
                 type: "idea-evaluated" as const,
@@ -126,7 +126,10 @@ function replayNormalizedIdeas(ideaJobId: string, deepSearchCount: number): {
       title,
       description,
     })),
-    evaluationEvents: evaluationReplays.flatMap(({ events }) => events),
+    evaluationEvents: [
+      ...evaluationReplays.flatMap(({ streamEvents }) => streamEvents),
+      ...evaluationReplays.flatMap(({ completedEvents }) => completedEvents),
+    ],
     refinementEvents: selectedIdeas.flatMap(
       ({
         ideaId,
@@ -297,6 +300,9 @@ export function reconstructIdeaJobEvents(
       : []),
     ...normalizedIdeas.refinementEvents,
     ...normalizedIdeas.researchEvents,
+    ...(normalizedIdeas.allSelectedResearchCompleted
+      ? [{ type: "idea-research-completed" as const }]
+      : []),
     ...normalizedIdeas.evaluationEvents,
     ...(stopRequested ? [{ type: "stop-requested" as const }] : []),
     ...(job.status === "running"

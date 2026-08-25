@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm"
 import { Hono } from "hono"
 import { beforeEach, describe, expect, it } from "vitest"
 
@@ -670,6 +671,104 @@ describe("resolveSeoPage", () => {
         null,
       ),
     ).toEqual({ kind: "not-found" })
+  })
+
+  it("keeps original idea metadata until its evaluation completes", () => {
+    const ideaId = "33333333-3333-4333-8333-333333333333"
+    const ideaJobId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    const evaluationGenerationId =
+      "55555555-5555-4555-8555-555555555555"
+    const refinementGenerationId =
+      "44444444-4444-4444-8444-444444444444"
+    seedDebate({
+      slug: "refining-idea",
+      debateJobId: "11111111-1111-4111-8111-111111111111",
+      ideaJobId,
+      isPublic: true,
+      status: "running",
+      ideas: [
+        {
+          ideaId,
+          title: "Original idea",
+          description: "Original description.",
+        },
+      ],
+    })
+    db.insert(llmGenerationsTable)
+      .values([
+        {
+          completedAt: new Date(),
+          ideaJobId,
+          llmGenerationId: refinementGenerationId,
+          reasoning: "",
+          status: "completed",
+          text: '{"title":"Refined idea","description":"Refined description."}',
+          userId: "test-user-id",
+        },
+        {
+          ideaJobId,
+          llmGenerationId: evaluationGenerationId,
+          userId: "test-user-id",
+        },
+      ])
+      .run()
+    db.update(ideasTable)
+      .set({
+        evaluationGenerationId,
+        refinedDescription: "Refined description.",
+        refinedTitle: "Refined idea",
+        refinementGenerationId,
+        selected: true,
+      })
+      .where(eq(ideasTable.ideaId, ideaId))
+      .run()
+
+    expect(
+      resolveSeoPage(`/ideas/refining-idea/${ideaId}`, null),
+    ).toMatchObject({
+      kind: "page",
+      metadata: {
+        description: "Original description.",
+        title: "Original idea — RethinkLoop",
+      },
+    })
+
+    db.update(llmGenerationsTable)
+      .set({
+        completedAt: new Date(),
+        reasoning: "",
+        status: "completed",
+        text: '{"pros":[],"cons":[],"critique":"Invalid evaluation."}',
+      })
+      .where(eq(llmGenerationsTable.llmGenerationId, evaluationGenerationId))
+      .run()
+
+    expect(
+      resolveSeoPage(`/ideas/refining-idea/${ideaId}`, null),
+    ).toMatchObject({
+      kind: "page",
+      metadata: {
+        description: "Original description.",
+        title: "Original idea — RethinkLoop",
+      },
+    })
+
+    db.update(llmGenerationsTable)
+      .set({
+        text: '{"pros":["Strong evidence","Practical"],"cons":["High cost","Long timeline"],"critique":"Sound overall."}',
+      })
+      .where(eq(llmGenerationsTable.llmGenerationId, evaluationGenerationId))
+      .run()
+
+    expect(
+      resolveSeoPage(`/ideas/refining-idea/${ideaId}`, null),
+    ).toMatchObject({
+      kind: "page",
+      metadata: {
+        description: "Refined description.",
+        title: "Refined idea — RethinkLoop",
+      },
+    })
   })
 
   it("returns a hard not-found result for unknown application routes", () => {

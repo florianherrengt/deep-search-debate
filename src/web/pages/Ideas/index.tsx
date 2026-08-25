@@ -27,6 +27,7 @@ import {
 } from "../../lib/ideaJobs.ts"
 import { IdeaJobView } from "./components/IdeaJobView.tsx"
 import { IdeaDetailView } from "./components/IdeaDetailView.tsx"
+import { getIdeaPresentation } from "./ideaJobState.ts"
 import { useIdeaJob } from "./useIdeaJob.ts"
 
 const ideaJobsQueryKey = ["idea-jobs"] as const
@@ -131,7 +132,7 @@ function IdeaJobContent({
   const idea = ideaId
     ? run.ideas.find((candidate) => candidate.ideaId === ideaId)
     : undefined
-  const displayIdea = idea ? run.refinedIdeas[idea.ideaId] ?? idea : undefined
+  const seoIdea = idea ? getIdeaPresentation(idea, run).seoIdea : undefined
   const nestedIdeaIsPending =
     ideaId !== undefined &&
     idea === undefined &&
@@ -141,6 +142,8 @@ function IdeaJobContent({
     run.status !== "interrupted" &&
     run.status !== "stopping"
   const indexable = job.isIndexable
+  const nestedSeoReady =
+    job.status === "running" || run.status === job.status
   const pageKey = `/ideas/${encodeURIComponent(job.slug)}${
     ideaId === undefined ? "" : `/${encodeURIComponent(ideaId)}`
   }`
@@ -165,20 +168,21 @@ function IdeaJobContent({
               }
             : undefined,
         }
-      : displayIdea !== undefined
+      : seoIdea !== undefined
         ? {
-            title: `${displayIdea.title} — RethinkLoop`,
-            description: truncateDescription(displayIdea.description),
+            title: `${seoIdea.title} — RethinkLoop`,
+            description: truncateDescription(seoIdea.description),
             path: job.isPublic ? pageKey : undefined,
             pageKey,
             noindex: !indexable,
+            enabled: nestedSeoReady,
             openGraphType: "article" as const,
             jsonLd: indexable
               ? {
                   "@context": "https://schema.org",
                   "@type": "Article",
-                  description: truncateDescription(displayIdea.description),
-                  headline: displayIdea.title,
+                  description: truncateDescription(seoIdea.description),
+                  headline: seoIdea.title,
                   inLanguage: "en",
                   isAccessibleForFree: true,
                 }

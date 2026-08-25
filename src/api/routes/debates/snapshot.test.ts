@@ -379,6 +379,81 @@ describe("debate job snapshot", () => {
     })
   })
 
+  it("hides selected ideas until the idea pipeline leaves its preparation stage", () => {
+    const ideaJobId = crypto.randomUUID()
+    const debateJobId = crypto.randomUUID()
+    const selectionGenerationId = crypto.randomUUID()
+    const refinementGenerationId = crypto.randomUUID()
+    db.insert(debateJobs)
+      .values({
+        debateJobId,
+        userId: "test-user-id",
+        randomSeed: 13,
+        stage: "ideas",
+      })
+      .run()
+    db.insert(ideaJobs)
+      .values({
+        userId: "test-user-id",
+        ideaJobId,
+        debateJobId,
+        slug: `preparing-${ideaJobId}`,
+        prompt: "Prepare ideas before debating them",
+        numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
+        deepSearchCount: 2,
+        maxSearches: 2,
+        maxResultsPerSearch: 2,
+        maxRounds: 1,
+      })
+      .run()
+    db.insert(llmGenerations)
+      .values([
+        {
+          llmGenerationId: selectionGenerationId,
+          userId: "test-user-id",
+          ideaJobId,
+          status: "completed",
+          text: "Selection complete",
+          reasoning: "",
+          completedAt: new Date(),
+        },
+        {
+          llmGenerationId: refinementGenerationId,
+          userId: "test-user-id",
+          ideaJobId,
+        },
+      ])
+      .run()
+    db.update(ideaJobs)
+      .set({ selectionGenerationId })
+      .where(eq(ideaJobs.ideaJobId, ideaJobId))
+      .run()
+    db.insert(ideas)
+      .values(
+        Array.from(
+          { length: DEBATE_TOURNAMENT_FORMAT.participantCount },
+          (_, position) => ({
+            ideaId: crypto.randomUUID(),
+            ideaJobId,
+            position,
+            title: `Original idea ${position + 1}`,
+            description: `Original description ${position + 1}`,
+            refinementGenerationId:
+              position === 0 ? refinementGenerationId : null,
+            selected: true,
+          }),
+        ),
+      )
+      .run()
+
+    expect(getDebateJobSnapshot(debateJobId, "test-user-id")).toMatchObject({
+      stage: "ideas",
+      expectedMatchCount: null,
+      rounds: [],
+      standings: [],
+    })
+  })
+
   it("ignores a pre-registered failed judge message before match completion", () => {
     const ideaJobId = crypto.randomUUID()
     const debateJobId = crypto.randomUUID()

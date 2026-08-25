@@ -735,7 +735,12 @@ describe("runIdeaJob", () => {
         refinedDescription: `Improved ${generatedIdeas[position].description}`,
       })
     }
-    await expect(events).resolves.toEqual([
+    const publishedEvents = await events
+    const firstEvaluationEventIndex = publishedEvents.findIndex(
+      ({ type }) => type === "idea-evaluation-stream",
+    )
+    expect(firstEvaluationEventIndex).toBeGreaterThan(-1)
+    expect(publishedEvents.slice(0, firstEvaluationEventIndex)).toEqual([
       { type: "research-prompt-stream", streamId: "planning-id" },
       {
         type: "deep-search-started",
@@ -783,13 +788,37 @@ describe("runIdeaJob", () => {
         slug: `idea-search-${position + 2}`,
         researchRequest: expectedRefinedIdeaResearchRequest(position),
       })),
-      ...selectedIdeas.map(({ ideaId }, position) => ({
-        type: "idea-evaluated" as const,
-        ideaId,
-        ...generatedEvaluations[position],
-      })),
-      { type: "done" },
+      { type: "idea-research-completed" },
     ])
+    expect(publishedEvents.slice(firstEvaluationEventIndex, -1)).toEqual(
+      expect.arrayContaining([
+        ...selectedIdeas.map(({ ideaId }, position) => ({
+          type: "idea-evaluation-stream" as const,
+          ideaId,
+          streamId: evaluationGenerationIds[position],
+        })),
+        ...selectedIdeas.map(({ ideaId }, position) => ({
+          type: "idea-evaluated" as const,
+          ideaId,
+          ...generatedEvaluations[position],
+        })),
+      ]),
+    )
+    expect(publishedEvents.slice(firstEvaluationEventIndex, -1)).toHaveLength(
+      selectedIdeas.length * 2,
+    )
+    for (const { ideaId } of selectedIdeas) {
+      const streamIndex = publishedEvents.findIndex(
+        (event) =>
+          event.type === "idea-evaluation-stream" &&
+          event.ideaId === ideaId,
+      )
+      const evaluatedIndex = publishedEvents.findIndex(
+        (event) => event.type === "idea-evaluated" && event.ideaId === ideaId,
+      )
+      expect(streamIndex).toBeLessThan(evaluatedIndex)
+    }
+    expect(publishedEvents.at(-1)).toEqual({ type: "done" })
     expect(db.select().from(ideaJobs).get()).toMatchObject({
       status: "completed",
       stage: "ideas",
@@ -829,6 +858,12 @@ describe("runIdeaJob", () => {
           title: `Improved ${generatedIdeas[position].title}`,
           slug: `idea-search-${position + 2}`,
           researchRequest: expectedRefinedIdeaResearchRequest(position),
+        })),
+        { type: "idea-research-completed" },
+        ...selectedIdeas.map(({ ideaId }, position) => ({
+          type: "idea-evaluation-stream" as const,
+          ideaId,
+          streamId: evaluationGenerationIds[position],
         })),
         { type: "done" },
       ]),
@@ -1369,7 +1404,10 @@ describe("runIdeaJob", () => {
     expect(mocks.generateObjectStream).not.toHaveBeenCalled()
     expect(mocks.startDeepSearch).not.toHaveBeenCalled()
     expect(mocks.resumeExisting).not.toHaveBeenCalled()
-    expect(await resumedEvents).toEqual([{ type: "done" }])
+    expect(await resumedEvents).toEqual([
+      { type: "idea-research-completed" },
+      { type: "done" },
+    ])
     expect(db.select().from(llmGenerations).all()).toHaveLength(
       counts.generations,
     )
