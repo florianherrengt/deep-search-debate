@@ -1,11 +1,12 @@
 ---
 id: 17
 title: Investigate AI SDK responseFormat JSON schema compatibility warning
-status: review
+status: done
 priority: medium
 created: 2026-08-24T12:11:53.779676+01:00
-updated: 2026-08-25T12:15:23.538875+01:00
+updated: 2026-08-25T13:54:55.263513+01:00
 started: 2026-08-25T11:26:09.368999+01:00
+completed: 2026-08-25T13:54:55.264811+01:00
 tags:
     - investigation
 class: standard
@@ -57,3 +58,6 @@ Filtered only the expected DeepSeek AI SDK compatibility warning (responseFormat
 - File changed: src/api/llms/provider.ts only (10 added lines: 6 for production warning policy and 4 for the requested structured-output ownership comment).
 - Verified: full npm run gatekeep passed lint, typecheck, knip, 611 API tests, and 299 web tests. The unrelated Node localStorage ExperimentalWarning remains visible in web tests.
 - Task code remains uncommitted for review.
+
+[[2026-08-25]] Tue 13:54
+Integrated commit dd45ff9 into local main. Post-merge npm run gatekeep passed lint, typecheck, knip, 615 API tests, and 314 web tests.
