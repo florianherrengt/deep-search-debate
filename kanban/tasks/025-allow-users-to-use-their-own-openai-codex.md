@@ -4,10 +4,10 @@ title: Allow users to use their own OpenAI Codex subscription
 status: review
 priority: medium
 created: 2026-08-25T14:16:35.14541+01:00
-updated: 2026-08-25T22:56:55.566532+01:00
+updated: 2026-08-25T23:00:18.272528+01:00
 started: 2026-08-25T14:32:31.054817+01:00
 blocked: true
-block_reason: Waiting on user decisions for device-code authentication, external search/extraction credit charging, and Codex output-limit behavior.
+block_reason: Waiting on user confirmation to use ChatGPT device-code authentication.
 class: standard
 ---
 
@@ -91,3 +91,11 @@ Let signed-in users supply their own OpenAI Codex subscription as the LLM creden
 - Adding exact pinned ai-sdk-provider-codex-cli and OpenAI Codex dependencies is approved.
 
 Still awaiting decisions on device-code authentication UX, whether existing search and extraction credit charges remain, and the Codex output-limit policy.
+
+[[2026-08-25]] Tue 23:00
+## Further user-confirmed decisions
+
+- OpenAI-connected calls continue charging the existing RethinkLoop credits for web search and extraction; only the LLM generation portion is zero-credit.
+- Do not add a Codex-specific output-size or token cap. Preserve the existing request timeout and abort behavior, accepting that the community provider ignores maxOutputTokens.
+
+The only remaining product confirmation is whether to use the recommended ChatGPT device-code connection flow.
