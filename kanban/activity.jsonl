@@ -289,3 +289,4 @@
 {"timestamp":"2026-08-25T14:13:30.923423+01:00","action":"move","task_id":11,"detail":"in-progress -\u003e review"}
 {"timestamp":"2026-08-25T14:13:30.92358+01:00","action":"handoff","task_id":11,"detail":"Database schema fixes"}
 {"timestamp":"2026-08-25T14:13:30.923781+01:00","action":"release","task_id":11,"detail":"Database schema fixes"}
+{"timestamp":"2026-08-25T14:16:35.147436+01:00","action":"create","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
