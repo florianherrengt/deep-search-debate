@@ -57,6 +57,11 @@ export const deepSearchJobs = sqliteTable(
       table.createdAt,
       table.deepSearchJobId,
     ),
+    index("deep_search_jobs_active_standalone_user_idx")
+      .on(table.userId, table.ideaJobId)
+      .where(
+        sql`${table.status} = 'running' and ${table.ideaJobId} is null`,
+      ),
     uniqueIndex("deep_search_jobs_slug_idx").on(table.slug),
     uniqueIndex("deep_search_jobs_id_user_id_idx").on(
       table.deepSearchJobId,

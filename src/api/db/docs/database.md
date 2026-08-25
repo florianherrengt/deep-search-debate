@@ -28,7 +28,8 @@ ignores this one documented peer-resolution shim.
 
 ## Schema and migrations
 
-- Schema modules live in `src/api/db/schema/` and are exported from `schema/index.ts`. Drizzle migrations live in `src/api/drizzle/`.
+- Schema modules live in `src/api/db/schema/` and are exported from
+  `schema/index.ts`. Drizzle migrations live in `src/api/drizzle/`.
 - Better Auth owns the `user`, `session`, `account`, and `verification` tables.
   GitHub OAuth tokens remain server-side in `account`; application requests use
   an opaque database-backed session cookie rather than a JWT.
@@ -50,7 +51,8 @@ ignores this one documented peer-resolution shim.
   terminal state; a stale callback that loses that transition reads the durable
   outcome and cannot debit credits or run the owning-stage completion hook
   again.
-  Negative account balances are valid; `credits_used` is never a reservation.
+  Negative account balances are valid; `credits_used` is never a reservation
+  and is constrained to be null or non-negative.
   Inaccessible rows are never loaded before authorization. Nested idea searches,
   debate jobs, and all of their generations inherit the initiating user's ID
   explicitly. Composite
@@ -59,9 +61,9 @@ ignores this one documented peer-resolution shim.
   where duplicating `user_id` would add no domain information.
 - Debate ownership follows the creation graph: `debate_jobs` owns an optional
   one-to-one `idea_jobs` child, which owns its `deep_search_jobs`. Standalone
-  idea and deep-search jobs have no parent. Application writers create these
-  ownership links once and never reparent them; under that contract, deleting a
-  debate cascades through its complete generated pipeline.
+  idea and deep-search jobs have no parent. SQLite triggers keep these ownership
+  links immutable after insertion, so deleting a debate always cascades through
+  its complete generated pipeline.
 - Completed `deep_search_jobs`, `idea_jobs`, and `debate_jobs` store their
   owner's mutable feedback directly on the root row. `feedback_rating` is a
   nullable SQLite boolean (`0` negative, `1` positive); `feedback_text` is
@@ -106,6 +108,9 @@ ignores this one documented peer-resolution shim.
   A completed query may omit both generation links only when the provider
   returned no usable result rows; the transactional empty-result command checks
   that condition and avoids fabricating selection or summary generations.
+- Active-capacity counts use covering partial indexes over running root jobs
+  and standalone generations, so retained terminal history is not scanned when
+  enforcing per-user concurrency limits.
 - Deep-search jobs persist `strict_quality` explicitly. Standalone searches set
   it false; idea-owned searches set it true so a failed model-backed page
   summary remains retryable instead of becoming a snippet fallback. The column
@@ -120,15 +125,18 @@ ignores this one documented peer-resolution shim.
 - API validation requires user prompts, research requests, generated queries,
   and persisted search facts to contain non-whitespace content. Idea content is
   immutable after insertion; its nullable evaluation and refinement links can
-  each transition exactly once from absent to present, its nullable
-  selected
+  each transition exactly once from absent to present, its nullable selected
   flag can transition exactly once from pending to true or false, and its
   refined title/description commit as a pair. A composite foreign key requires
-  refinement generations to belong to the same idea job. Selected-idea
+  evaluation and refinement generations to belong to the same idea job. SQL
+  checks require evaluation and refinement links to remain absent unless the
+  idea is selected. Selected-idea
   research is derived from the child search at the reserved parent position
   `deepSearchCount + idea.position`, so no mutable reverse link is stored.
   Terminal jobs reject collection additions,
   and deleting the owning job still cascades through the ideas and searches.
+  A completed idea job requires all four pipeline generation links, including
+  the unconditional comparative-selection generation.
 - Child-key indexes support aggregate cascades and `NO ACTION` checks without
   scanning unrelated generations, queries, pages, results, or debate matches.
 - All database timestamps use Unix milliseconds. Ordered records use explicit
@@ -141,10 +149,11 @@ ignores this one documented peer-resolution shim.
   ```
 - The API workspace's `predev` and `prestart` lifecycle scripts apply pending
   migrations before either development or production startup.
-- Migration history starts with the intentionally fresh
-  `0000_fresh-baseline` migration. Databases created from the superseded history
+- Migration history is the single intentionally fresh
+  `0000_fresh-baseline` migration. Databases created from any superseded history
   are unsupported and must be recreated; there is no data-preserving upgrade
-  path from that older history. Keep the baseline immutable and add forward
+  path because no production data existed when this reset was approved. Once
+  the baseline supports a retained database, keep it immutable and add forward
   migrations for later schema changes. `baselineMigration.test.ts` verifies
   fresh creation through the same Drizzle migrator used by the application.
 
@@ -166,13 +175,15 @@ ignores this one documented peer-resolution shim.
   transition. Its foreign key and unique index
   prevent nonexistent or reused generations, while a composite foreign key
   enforces same-job ownership without duplicating `user_id` on every idea row.
-  Application orchestration requires a link for every selected idea before job
-  completion. The
+  A SQL check rejects an evaluation link until selection has resolved true;
+  application orchestration additionally requires a link for every selected
+  idea before job completion. The
   linked generation stores the validated evaluation; replay parses that payload
   instead of duplicating it on `ideas`.
 - `ideas.selected` is null from insertion until comparative selection commits.
   The selector's terminal transaction updates the complete idea batch to true
-  or false. Application validation enforces an unordered, unique, same-job,
+  or false. A SQL check restricts the persisted domain to null, 0, or 1.
+  Application validation enforces an unordered, unique, same-job,
   even selected set containing 6 through 12 ideas; the idea immutability
   trigger permits only the one-time null-to-boolean transition.
 - Selected ideas use three nullable columns rather than an extra lifecycle
@@ -184,7 +195,8 @@ ignores this one documented peer-resolution shim.
   derived from its parent and reserved position instead of being linked twice.
 - `debate_jobs.website_generation_id` links the tournament winner's single
   website generation through a unique single-column reference into
-  `llm_generations`. Completion requires the linked generation to be
+  `llm_generations`. The database requires completed debates to retain this
+  link; application completion also requires the linked generation to be
   completed. Same-debate ownership is enforced transactionally by the debate
   workflow, which creates both rows from one registration. Standalone idea
   jobs generate no website. CLI regeneration writes a standalone generation
@@ -192,11 +204,10 @@ ignores this one documented peer-resolution shim.
   link.
 - `idea_jobs.selection_generation_id` has a unique composite foreign key that
   requires the generation to carry the same user and idea-job owner.
-- Aggregate parent columns such as `idea_jobs.debate_job_id`,
-  `deep_search_jobs.idea_job_id`, and the debate round/match parent links are not
-  immutable in SQLite. Application writers treat them as insert-only. Direct SQL
-  or maintenance code must not reparent existing records; doing so can detach
-  generated data from the root whose deletion is expected to cascade through it.
+- SQLite triggers require both match participants to be selected ideas from the
+  idea job owned by that match's debate. They also freeze round parent, stage,
+  and stage-round fields and match parent, position, and participant fields, so
+  direct SQL cannot reparent or rewrite tournament structure after insertion.
 - Lifecycle checks validate legal combinations of status, result, error, and
   timestamp fields, but most do not enforce one-way state transitions. Application
   writers treat terminal jobs, matches, queries, pages, and generations as
@@ -214,13 +225,14 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
   creation timestamp are immutable facts; old rows remain useful for audit even
   after they fall outside the configured admission window.
 - `llm_generations` stores terminal text, reasoning, status, errors, requested
-  model ID, prompt/stage name, standardized finish reason, available input,
-  output, and reasoning token counts, and the owning job for every replayable
-  workflow model invocation. Provider-dependent operational metadata may be
-  null. Duration is derived from `completed_at - started_at` rather than
-  duplicated in another column. Live deltas remain in memory and are never
-  written individually. The short preflight title call is not replayed; only
-  its validated title is stored on the new job.
+  model ID, prompt/stage name, a SQL-constrained standardized finish reason,
+  available input, output, and reasoning token counts, and the owning job for
+  every replayable workflow model invocation. Provider-dependent operational
+  metadata may be null. Duration is derived from
+  `completed_at - started_at` rather than duplicated in another column. Live
+  deltas remain in memory and are never written individually. The short
+  preflight title call is not replayed; only its validated title is stored on
+  the new job.
 - `deep_search_jobs` owns an LLM-generated title, readable slug, and deep-search
   request, search limits, and strict-quality policy and may belong to an
   `idea_jobs` parent. Child searches store their planning-generation position.

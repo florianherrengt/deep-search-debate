@@ -52,6 +52,17 @@ export const llmGenerations = sqliteTable(
       table.startedAt,
       table.llmGenerationId,
     ),
+    index("llm_generations_active_standalone_user_idx")
+      .on(
+        table.userId,
+        table.status,
+        table.debateJobId,
+        table.ideaJobId,
+        table.deepSearchJobId,
+      )
+      .where(
+        sql`${table.status} = 'running' and ${table.debateJobId} is null and ${table.ideaJobId} is null and ${table.deepSearchJobId} is null`,
+      ),
     uniqueIndex("llm_generations_id_user_idea_job_idx").on(
       table.llmGenerationId,
       table.userId,
@@ -101,6 +112,14 @@ export const llmGenerations = sqliteTable(
     check(
       "llm_generations_status_check",
       sql`${table.status} in ('running', 'completed', 'failed', 'interrupted')`,
+    ),
+    check(
+      "llm_generations_finish_reason_check",
+      sql`${table.finishReason} is null or ${table.finishReason} in ('stop', 'length', 'content-filter', 'tool-calls', 'error', 'other')`,
+    ),
+    check(
+      "llm_generations_credits_used_check",
+      sql`${table.creditsUsed} is null or ${table.creditsUsed} >= 0`,
     ),
     check(
       "llm_generations_output_fields_check",

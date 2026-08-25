@@ -138,6 +138,10 @@ export const deepSearchQueries = sqliteTable(
       sql`length(trim(${table.query})) > 0`,
     ),
     check(
+      "deep_search_queries_credits_used_check",
+      sql`${table.creditsUsed} is null or ${table.creditsUsed} >= 0`,
+    ),
+    check(
       "deep_search_queries_error_stage_check",
       sql`${table.errorStage} is null or ${table.errorStage} in ('search', 'selection', 'summary')`,
     ),

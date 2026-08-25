@@ -44,7 +44,7 @@ Detailed guidance lives in per-folder `docs/` files. Read the relevant one with 
 - `src/api/docs/standards.md` — Zod everywhere, `z.function()` pattern, Hono route conventions. Read before adding routes, validation, or service functions.
 - `src/api/docs/testing.md` — vitest mock conventions, in-memory SQLite. Read before writing or editing API tests.
 - `src/api/llms/docs/prompts.md` — prompt `.md` files and the `PromptName` enum. Read before adding or editing prompts.
-- `src/api/db/docs/database.md` — better-sqlite3, committed `data.db`, Drizzle migrations. Read before touching the schema or DB.
+- `src/api/db/docs/database.md` — better-sqlite3, ignored disposable database files, Drizzle migrations. Read before touching the schema or DB.
 - `src/api/routes/docs/text-streaming.md` — the LLM stream lifecycle and NDJSON contract. Read before changing stream routes, generation, or the streaming client.
 - `src/api/routes/docs/deep-search-jobs.md` — the deep-search job and event contract. Read before changing the deep-search route, agent events, or frontend subscription.
 - `src/api/routes/docs/idea-jobs.md` — the researched-idea pipeline, child searches, failure policy, persistence, and event contract. Read before changing idea routes, stages, events, or frontend subscription.

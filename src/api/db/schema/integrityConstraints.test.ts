@@ -4,13 +4,23 @@ import { describe, expect, it } from "vitest"
 import { db } from "../index.ts"
 import {
   debateJobs,
+  debateJobStages,
+  debateRoundStages,
+  deepSearchQueryErrorStages,
   deepSearchJobs,
   deepSearchQueries,
   deepSearchRounds,
   deepSearchResults,
+  deepSearchQueryStatuses,
+  deepSearchWebPageErrorStages,
   deepSearchWebPages,
+  deepSearchWebPageStatuses,
+  ideaJobStages,
   ideaJobs,
   ideas,
+  jobStatuses,
+  llmFinishReasons,
+  llmGenerationStatuses,
   llmGenerations,
   user,
 } from "./index.ts"
@@ -81,7 +91,102 @@ function insertDeepSearchQuery(deepSearchJobId: string): {
   return { deepSearchRoundId, deepSearchQueryId }
 }
 
+function readCheckStringValues(
+  tableName: string,
+  constraintName: string,
+): string[] {
+  const row = db.get<{ createSql: string }>(sql`
+    select sql as createSql
+    from sqlite_schema
+    where type = 'table' and name = ${tableName}
+  `)
+  const marker = `CONSTRAINT "${constraintName}" CHECK(`
+  const checkStart = row.createSql.indexOf(marker)
+  if (checkStart === -1) {
+    throw new Error(`Missing ${constraintName} on ${tableName}`)
+  }
+
+  const expressionStart = checkStart + marker.length
+  let depth = 1
+  let quoted = false
+  let expressionEnd = expressionStart
+  for (; expressionEnd < row.createSql.length; expressionEnd += 1) {
+    const character = row.createSql[expressionEnd]
+    const nextCharacter = row.createSql[expressionEnd + 1]
+    if (character === "'" && quoted && nextCharacter === "'") {
+      expressionEnd += 1
+      continue
+    }
+    if (character === "'") {
+      quoted = !quoted
+      continue
+    }
+    if (quoted) continue
+    if (character === "(") depth += 1
+    if (character === ")") depth -= 1
+    if (depth === 0) break
+  }
+
+  const expression = row.createSql.slice(expressionStart, expressionEnd)
+  return [
+    ...new Set(
+      [...expression.matchAll(/'((?:''|[^'])*)'/g)].map((match) =>
+        match[1].replaceAll("''", "'"),
+      ),
+    ),
+  ]
+}
+
 describe("aggregate integrity constraints", () => {
+  it("keeps TypeScript lifecycle values in sync with SQL checks", () => {
+    const expectations: Array<
+      readonly [string, string, readonly string[]]
+    > = [
+      ["deep_search_jobs", "deep_search_jobs_status_check", jobStatuses],
+      ["idea_jobs", "idea_jobs_status_check", jobStatuses],
+      ["debate_jobs", "debate_jobs_status_check", jobStatuses],
+      ["idea_jobs", "idea_jobs_stage_check", ideaJobStages],
+      [
+        "llm_generations",
+        "llm_generations_status_check",
+        llmGenerationStatuses,
+      ],
+      [
+        "llm_generations",
+        "llm_generations_finish_reason_check",
+        llmFinishReasons,
+      ],
+      [
+        "deep_search_queries",
+        "deep_search_queries_status_check",
+        deepSearchQueryStatuses,
+      ],
+      [
+        "deep_search_queries",
+        "deep_search_queries_error_stage_check",
+        deepSearchQueryErrorStages,
+      ],
+      [
+        "deep_search_web_pages",
+        "deep_search_web_pages_status_check",
+        deepSearchWebPageStatuses,
+      ],
+      [
+        "deep_search_web_pages",
+        "deep_search_web_pages_error_stage_check",
+        deepSearchWebPageErrorStages,
+      ],
+      ["debate_jobs", "debate_jobs_stage_check", debateJobStages],
+      ["debate_rounds", "debate_rounds_stage_check", debateRoundStages],
+    ]
+
+    for (const [tableName, constraintName, expectedValues] of expectations) {
+      expect(readCheckStringValues(tableName, constraintName)).toEqual([
+        ...expectedValues,
+      ])
+    }
+  })
+
   it("keeps public resource slugs globally unique", () => {
     const foreignUserId = crypto.randomUUID()
     db.insert(user)
@@ -243,6 +348,53 @@ describe("aggregate integrity constraints", () => {
     ).toThrow(/LLM generation ownership columns are immutable/)
   })
 
+  it("keeps aggregate parent links immutable after insertion", () => {
+    const debateJobId = crypto.randomUUID()
+    const ideaJobId = insertIdeaJob()
+    const deepSearchJobId = insertDeepSearchJob()
+    db.insert(debateJobs)
+      .values({ debateJobId, userId, randomSeed: 1 })
+      .run()
+
+    expect(() =>
+      db
+        .update(ideaJobs)
+        .set({ debateJobId })
+        .where(eq(ideaJobs.ideaJobId, ideaJobId))
+        .run(),
+    ).toThrow(/Idea-job parent columns are immutable/)
+
+    expect(() =>
+      db
+        .update(deepSearchJobs)
+        .set({ ideaJobId, ideaJobPosition: 0 })
+        .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+        .run(),
+    ).toThrow(/Deep-search parent columns are immutable/)
+
+    const childDeepSearchJobId = crypto.randomUUID()
+    db.insert(deepSearchJobs)
+      .values({
+        deepSearchJobId: childDeepSearchJobId,
+        userId,
+        ideaJobId,
+        ideaJobPosition: 0,
+        slug: `search-${childDeepSearchJobId}`,
+        researchRequest: "Research this child",
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+        strictQuality: true,
+      })
+      .run()
+    expect(() =>
+      db
+        .update(deepSearchJobs)
+        .set({ ideaJobPosition: 1 })
+        .where(eq(deepSearchJobs.deepSearchJobId, childDeepSearchJobId))
+        .run(),
+    ).toThrow(/Deep-search parent columns are immutable/)
+  })
+
   it("keeps search rounds ordered and review outcomes internally consistent", () => {
     const deepSearchJobId = insertDeepSearchJob()
     const generationIds = Array.from({ length: 4 }, () => crypto.randomUUID())
@@ -351,7 +503,7 @@ describe("aggregate integrity constraints", () => {
   it("freezes ideas after completion without blocking aggregate deletion", () => {
     const ideaJobId = insertIdeaJob()
     const ideaId = crypto.randomUUID()
-    const generationIds = Array.from({ length: 4 }, () => crypto.randomUUID())
+    const generationIds = Array.from({ length: 5 }, () => crypto.randomUUID())
     db.insert(llmGenerations)
       .values(
         generationIds.map((llmGenerationId) => ({
@@ -368,7 +520,8 @@ describe("aggregate integrity constraints", () => {
         position: 0,
         title: "Original idea",
         description: "Original description",
-        evaluationGenerationId: generationIds[3],
+        evaluationGenerationId: generationIds[4],
+        selected: true,
       })
       .run()
     db.update(ideaJobs)
@@ -377,6 +530,7 @@ describe("aggregate integrity constraints", () => {
         researchPromptGenerationId: generationIds[0],
         researchSummaryGenerationId: generationIds[1],
         ideaGenerationId: generationIds[2],
+        selectionGenerationId: generationIds[3],
         status: "completed",
         completedAt: new Date(),
       })
@@ -399,7 +553,8 @@ describe("aggregate integrity constraints", () => {
           position: 1,
           title: "Late idea",
           description: "Added after completion",
-          evaluationGenerationId: generationIds[3],
+          evaluationGenerationId: generationIds[4],
+          selected: true,
         })
         .run(),
     ).toThrow(/terminal idea collections are immutable/)
@@ -457,6 +612,14 @@ describe("aggregate integrity constraints", () => {
       { evaluationGenerationId: null },
     ])
     db.update(ideas)
+      .set({ selected: true })
+      .where(sql`${ideas.ideaId} = ${firstIdeaId}`)
+      .run()
+    db.update(ideas)
+      .set({ selected: true })
+      .where(sql`${ideas.ideaId} = ${secondIdeaId}`)
+      .run()
+    db.update(ideas)
       .set({ evaluationGenerationId })
       .where(sql`${ideas.ideaId} = ${firstIdeaId}`)
       .run()
@@ -502,14 +665,6 @@ describe("aggregate integrity constraints", () => {
         .get(),
     ).toEqual({ llmGenerationId: evaluationGenerationId })
 
-    db.update(ideas)
-      .set({ selected: true })
-      .where(sql`${ideas.ideaId} = ${firstIdeaId}`)
-      .run()
-    db.update(ideas)
-      .set({ selected: false })
-      .where(sql`${ideas.ideaId} = ${secondIdeaId}`)
-      .run()
     expect(() =>
       db
         .update(ideas)
@@ -517,6 +672,71 @@ describe("aggregate integrity constraints", () => {
         .where(sql`${ideas.ideaId} = ${firstIdeaId}`)
         .run(),
     ).toThrow(/one-time pipeline linkage/)
+  })
+
+  it("requires valid selection before refinement or evaluation", () => {
+    const ideaJobId = insertIdeaJob()
+    const evaluationGenerationId = crypto.randomUUID()
+    const refinementGenerationId = crypto.randomUUID()
+    db.insert(llmGenerations)
+      .values([
+        { llmGenerationId: evaluationGenerationId, userId, ideaJobId },
+        { llmGenerationId: refinementGenerationId, userId, ideaJobId },
+      ])
+      .run()
+
+    expect(() =>
+      db
+        .insert(ideas)
+        .values({
+          ideaId: crypto.randomUUID(),
+          ideaJobId,
+          position: 0,
+          title: "Invalid selection",
+          description: "Selection must use SQLite boolean values",
+          selected: sql<boolean>`2`,
+        })
+        .run(),
+    ).toThrow(/ideas_selected_check/)
+
+    const unresolvedIdeaId = crypto.randomUUID()
+    const rejectedIdeaId = crypto.randomUUID()
+    db.insert(ideas)
+      .values([
+        {
+          ideaId: unresolvedIdeaId,
+          ideaJobId,
+          position: 1,
+          title: "Unresolved idea",
+          description: "Selection has not completed",
+        },
+        {
+          ideaId: rejectedIdeaId,
+          ideaJobId,
+          position: 2,
+          title: "Rejected idea",
+          description: "Selection rejected this idea",
+          selected: false,
+        },
+      ])
+      .run()
+
+    for (const ideaId of [unresolvedIdeaId, rejectedIdeaId]) {
+      expect(() =>
+        db
+          .update(ideas)
+          .set({ evaluationGenerationId })
+          .where(eq(ideas.ideaId, ideaId))
+          .run(),
+      ).toThrow(/ideas_evaluation_selection_check/)
+    }
+    expect(() =>
+      db
+        .update(ideas)
+        .set({ refinementGenerationId })
+        .where(eq(ideas.ideaId, unresolvedIdeaId))
+        .run(),
+    ).toThrow(/ideas_refinement_lifecycle_check/)
   })
 
   it("links refinement and research only to the selected owning idea", () => {
@@ -711,7 +931,7 @@ describe("aggregate integrity constraints", () => {
 
   it("requires complete root-job terminal state", () => {
     const ideaJobId = insertIdeaJob()
-    const generationIds = Array.from({ length: 2 }, () => crypto.randomUUID())
+    const generationIds = Array.from({ length: 3 }, () => crypto.randomUUID())
     db.insert(llmGenerations)
       .values(
         generationIds.map((llmGenerationId) => ({
@@ -726,6 +946,7 @@ describe("aggregate integrity constraints", () => {
         stage: "ideas",
         researchPromptGenerationId: generationIds[0],
         researchSummaryGenerationId: generationIds[1],
+        ideaGenerationId: generationIds[2],
       })
       .where(sql`${ideaJobs.ideaJobId} = ${ideaJobId}`)
       .run()
@@ -746,6 +967,22 @@ describe("aggregate integrity constraints", () => {
         .where(sql`${deepSearchJobs.deepSearchJobId} = ${deepSearchJobId}`)
         .run(),
     ).toThrow(/deep_search_jobs_terminal_fields_check/)
+
+    const debateJobId = crypto.randomUUID()
+    db.insert(debateJobs)
+      .values({ debateJobId, userId, randomSeed: 1 })
+      .run()
+    expect(() =>
+      db
+        .update(debateJobs)
+        .set({
+          stage: "final",
+          status: "completed",
+          completedAt: new Date(),
+        })
+        .where(eq(debateJobs.debateJobId, debateJobId))
+        .run(),
+    ).toThrow(/debate_jobs_terminal_fields_check/)
   })
 
   it("constrains mutable feedback to completed jobs", () => {
@@ -796,7 +1033,7 @@ describe("aggregate integrity constraints", () => {
       .run()
 
     const ideaGenerationIds = Array.from(
-      { length: 3 },
+      { length: 4 },
       () => crypto.randomUUID(),
     )
     db.insert(llmGenerations)
@@ -814,15 +1051,25 @@ describe("aggregate integrity constraints", () => {
         researchPromptGenerationId: ideaGenerationIds[0],
         researchSummaryGenerationId: ideaGenerationIds[1],
         ideaGenerationId: ideaGenerationIds[2],
+        selectionGenerationId: ideaGenerationIds[3],
         status: "completed",
         completedAt: new Date(),
       })
       .where(eq(ideaJobs.ideaJobId, ideaJobId))
       .run()
 
+    const websiteGenerationId = crypto.randomUUID()
+    db.insert(llmGenerations)
+      .values({
+        llmGenerationId: websiteGenerationId,
+        userId,
+        debateJobId,
+      })
+      .run()
     db.update(debateJobs)
       .set({
         stage: "final",
+        websiteGenerationId,
         status: "completed",
         completedAt: new Date(),
       })
@@ -957,6 +1204,52 @@ describe("aggregate integrity constraints", () => {
           .run(),
       ).toThrow(/llm_generations_terminal_fields_check/)
     }
+  })
+
+  it("rejects invalid finish reasons and negative billable usage", () => {
+    expect(() =>
+      db
+        .insert(llmGenerations)
+        .values({
+          llmGenerationId: crypto.randomUUID(),
+          userId,
+          finishReason: sql<(typeof llmFinishReasons)[number]>`'unknown'`,
+        })
+        .run(),
+    ).toThrow(/llm_generations_finish_reason_check/)
+
+    expect(() =>
+      db
+        .insert(llmGenerations)
+        .values({
+          llmGenerationId: crypto.randomUUID(),
+          userId,
+          creditsUsed: -1,
+        })
+        .run(),
+    ).toThrow(/llm_generations_credits_used_check/)
+
+    const deepSearchJobId = insertDeepSearchJob()
+    const { deepSearchQueryId } = insertDeepSearchQuery(deepSearchJobId)
+    expect(() =>
+      db
+        .update(deepSearchQueries)
+        .set({ creditsUsed: -1 })
+        .where(eq(deepSearchQueries.deepSearchQueryId, deepSearchQueryId))
+        .run(),
+    ).toThrow(/deep_search_queries_credits_used_check/)
+
+    expect(() =>
+      db
+        .insert(deepSearchWebPages)
+        .values({
+          deepSearchWebPageId: crypto.randomUUID(),
+          deepSearchJobId,
+          url: "https://example.com/negative-credits",
+          creditsUsed: -1,
+        })
+        .run(),
+    ).toThrow(/deep_search_web_pages_credits_used_check/)
   })
 
   it("couples query, page, and selection lifecycle fields", () => {
@@ -1289,8 +1582,13 @@ describe("aggregate integrity constraints", () => {
       "debate_matches_first_idea_id_idx",
       "debate_matches_second_idea_id_idx",
       "debate_matches_winner_idea_id_idx",
+      "debate_jobs_active_user_idx",
+      "idea_jobs_active_standalone_user_idx",
+      "deep_search_jobs_active_standalone_user_idx",
+      "llm_generations_active_standalone_user_idx",
     ]) {
       expect(indexes.has(name), `missing index ${name}`).toBe(true)
     }
   })
+
 })

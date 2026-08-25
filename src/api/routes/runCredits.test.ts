@@ -219,6 +219,11 @@ describe("derived run credits", () => {
       creditsUsed: 0,
     })
     insertCompletedGeneration({
+      id: "idea-selection-generation",
+      ideaJobId,
+      creditsUsed: 0,
+    })
+    insertCompletedGeneration({
       id: "standalone-title-generation",
       creditsUsed: 1_000,
     })
@@ -271,12 +276,18 @@ describe("derived run credits", () => {
         researchPromptGenerationId: "idea-generation-one",
         researchSummaryGenerationId: "idea-generation-two",
         ideaGenerationId: "idea-generation-three",
+        selectionGenerationId: "idea-selection-generation",
         completedAt,
       })
       .where(eq(ideaJobs.ideaJobId, ideaJobId))
       .run()
     db.update(debateJobs)
-      .set({ stage: "final", status: "completed", completedAt })
+      .set({
+        stage: "final",
+        websiteGenerationId: "debate-generation-one",
+        status: "completed",
+        completedAt,
+      })
       .where(eq(debateJobs.debateJobId, debateJobId))
       .run()
 

@@ -56,6 +56,10 @@ type StartDeepSearchJobOptions = {
   workflowSignal?: AbortSignal
 }
 
+type DeepSearchJobCreationTransaction = Parameters<
+  Parameters<typeof db.transaction>[0]
+>[0]
+
 const deepSearchJobQueue = new PQueue({
   concurrency: config.deepSearch.maxConcurrentJobs,
 })
@@ -74,13 +78,19 @@ export type DeepSearchJobManager = {
   getLiveJob(deepSearchJobId: string): LiveDeepSearchJob | undefined
 }
 
-function createDeepSearchIdentity(generatedTitle: string): PromptIdentity {
-  const usedSlugs = db
-    .select({ slug: deepSearchJobsTable.slug })
-    .from(deepSearchJobsTable)
-    .all()
-    .map(({ slug }) => slug)
-  return createPromptIdentity(generatedTitle, usedSlugs)
+function createDeepSearchIdentity(
+  transaction: DeepSearchJobCreationTransaction,
+  generatedTitle: string,
+): PromptIdentity {
+  return createPromptIdentity(
+    generatedTitle,
+    (slug) =>
+      transaction
+        .select({ slug: deepSearchJobsTable.slug })
+        .from(deepSearchJobsTable)
+        .where(eq(deepSearchJobsTable.slug, slug))
+        .get() !== undefined,
+  )
 }
 
 function hasDurableTerminalState(deepSearchJobId: string): boolean {
@@ -221,7 +231,6 @@ export function createDeepSearchJobManager(): DeepSearchJobManager {
         : undefined
       const deepSearchJobId = randomUUID()
       const controller = createWorkflowController(options?.workflowSignal)
-      let identity: PromptIdentity
       try {
         const { title: suppliedTitle, ...persistedInput } = normalizedInput
         const generatedTitle =
@@ -231,26 +240,32 @@ export function createDeepSearchJobManager(): DeepSearchJobManager {
             normalizedInput.researchRequest,
             controller.signal,
           ))
-        identity = createDeepSearchIdentity(generatedTitle)
 
-        db.transaction((transaction) => {
-          if (normalizedInput.ideaJobId !== undefined) {
-            assertEffectiveResearchRootRunning(transaction, {
-              kind: "idea",
-              jobId: normalizedInput.ideaJobId,
-            })
-          }
-          transaction
-            .insert(deepSearchJobsTable)
-            .values({
-              deepSearchJobId,
-              userId,
-              ...identity,
-              ...persistedInput,
-              strictQuality: normalizedInput.ideaJobId !== undefined,
-            })
-            .run()
-        })
+        db.transaction(
+          (transaction) => {
+            if (normalizedInput.ideaJobId !== undefined) {
+              assertEffectiveResearchRootRunning(transaction, {
+                kind: "idea",
+                jobId: normalizedInput.ideaJobId,
+              })
+            }
+            const createdIdentity = createDeepSearchIdentity(
+              transaction,
+              generatedTitle,
+            )
+            transaction
+              .insert(deepSearchJobsTable)
+              .values({
+                deepSearchJobId,
+                userId,
+                ...createdIdentity,
+                ...persistedInput,
+                strictQuality: normalizedInput.ideaJobId !== undefined,
+              })
+              .run()
+          },
+          { behavior: "immediate" },
+        )
       } finally {
         releaseCapacity?.()
       }

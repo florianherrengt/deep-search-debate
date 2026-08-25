@@ -25,6 +25,50 @@ describe("idea job manager", () => {
     db.delete(ideaJobs).run()
   })
 
+  it("allocates the first free title and slug in an immediate transaction", async () => {
+    const transaction = vi.spyOn(db, "transaction")
+    db.insert(ideaJobs)
+      .values({
+        ideaJobId: crypto.randomUUID(),
+        userId: "test-user-id",
+        title: "London Energy Options",
+        slug: "london-energy-options",
+        prompt: "Existing ideas",
+        numberOfIdeas: 8,
+        deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
+        status: "failed",
+        error: "Identity fixture",
+        completedAt: new Date(),
+      })
+      .run()
+    mocks.runIdeaJob.mockReturnValue(new Promise<void>(() => undefined))
+
+    const started = await createIdeaJobManager(deepSearchManager).start(
+      "test-user-id",
+      {
+        title: "London Energy Options",
+        prompt: "Generate energy ideas",
+        numberOfIdeas: 8,
+        deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
+      },
+    )
+
+    expect(started).toMatchObject({
+      title: "London Energy Options 2",
+      slug: "london-energy-options-2",
+    })
+    expect(transaction).toHaveBeenLastCalledWith(expect.any(Function), {
+      behavior: "immediate",
+    })
+    transaction.mockRestore()
+  })
+
   it("reopens, seeds, and deduplicates a persisted interrupted idea job", async () => {
     mocks.runIdeaJob.mockReturnValue(new Promise<void>(() => undefined))
     const ideaJobId = crypto.randomUUID()
@@ -111,7 +155,7 @@ describe("idea job manager", () => {
         maxRounds: 3,
       })
       .run()
-    const generationIds = ["planning", "summary", "ideas"] as const
+    const generationIds = ["planning", "summary", "ideas", "selection"] as const
     db.insert(llmGenerations)
       .values(
         generationIds.map((llmGenerationId) => ({
@@ -130,6 +174,7 @@ describe("idea job manager", () => {
         researchPromptGenerationId: generationIds[0],
         researchSummaryGenerationId: generationIds[1],
         ideaGenerationId: generationIds[2],
+        selectionGenerationId: generationIds[3],
         stage: "ideas",
         status: "completed",
         completedAt: new Date(),

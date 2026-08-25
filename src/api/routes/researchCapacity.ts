@@ -162,7 +162,7 @@ export function reserveRootResearchCapacity(
         createdAt: now,
       })
       .run()
-  })
+  }, { behavior: "immediate" })
 
   return incrementReservation(pendingRootJobsByUser, userId)
 }

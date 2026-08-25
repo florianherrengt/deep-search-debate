@@ -103,15 +103,34 @@ describe("debate job lifecycle", () => {
 
   it("rejects reopening a completed debate", () => {
     const debateJobId = crypto.randomUUID()
+    const websiteGenerationId = crypto.randomUUID()
+    const completedAt = new Date()
     db.insert(debateJobs)
       .values({
         debateJobId,
         userId: "test-user-id",
         randomSeed: 23,
         stage: "final",
-        status: "completed",
-        completedAt: new Date(),
       })
+      .run()
+    db.insert(llmGenerations)
+      .values({
+        llmGenerationId: websiteGenerationId,
+        userId: "test-user-id",
+        debateJobId,
+        status: "completed",
+        text: "Persisted winner website",
+        reasoning: "",
+        completedAt,
+      })
+      .run()
+    db.update(debateJobs)
+      .set({
+        websiteGenerationId,
+        status: "completed",
+        completedAt,
+      })
+      .where(eq(debateJobs.debateJobId, debateJobId))
       .run()
 
     expect(() => reopenDebateJob(debateJobId)).toThrow(

@@ -22,8 +22,6 @@ function addDebate(status: "running" | "completed") {
       userId: "test-user-id",
       randomSeed: 42,
       stage: status === "completed" ? "final" : "ideas",
-      status,
-      completedAt: status === "completed" ? new Date() : null,
     })
     .run()
   db.insert(ideaJobs)
@@ -43,6 +41,29 @@ function addDebate(status: "running" | "completed") {
     })
     .run()
   const deepSearchJobId = addDeepSearch("running", ideaJobId)
+  if (status === "completed") {
+    const websiteGenerationId = crypto.randomUUID()
+    const completedAt = new Date()
+    db.insert(llmGenerations)
+      .values({
+        llmGenerationId: websiteGenerationId,
+        userId: "test-user-id",
+        debateJobId,
+        status: "completed",
+        text: "Persisted winner website",
+        reasoning: "",
+        completedAt,
+      })
+      .run()
+    db.update(debateJobs)
+      .set({
+        websiteGenerationId,
+        status: "completed",
+        completedAt,
+      })
+      .where(eq(debateJobs.debateJobId, debateJobId))
+      .run()
+  }
   return { debateJobId, ideaJobId, deepSearchJobId }
 }
 
@@ -66,7 +87,7 @@ function addIdea(status: "interrupted" | "completed") {
     })
     .run()
   if (status === "completed") {
-    const generationIds = Array.from({ length: 3 }, () => crypto.randomUUID())
+    const generationIds = Array.from({ length: 4 }, () => crypto.randomUUID())
     const completedAt = new Date()
     db.insert(llmGenerations)
       .values(
@@ -88,6 +109,7 @@ function addIdea(status: "interrupted" | "completed") {
         researchPromptGenerationId: generationIds[0],
         researchSummaryGenerationId: generationIds[1],
         ideaGenerationId: generationIds[2],
+        selectionGenerationId: generationIds[3],
         completedAt,
       })
       .where(eq(ideaJobs.ideaJobId, ideaJobId))

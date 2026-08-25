@@ -119,13 +119,16 @@ function insertCompletedAggregate(): void {
   const researchPromptGenerationId = crypto.randomUUID()
   const researchSummaryGenerationId = crypto.randomUUID()
   const ideaGenerationId = crypto.randomUUID()
+  const selectionGenerationId = crypto.randomUUID()
   const finalAnswerGenerationId = crypto.randomUUID()
+  const websiteGenerationId = crypto.randomUUID()
   db.insert(llmGenerations)
     .values([
       ...[
         researchPromptGenerationId,
         researchSummaryGenerationId,
         ideaGenerationId,
+        selectionGenerationId,
       ].map((llmGenerationId) => ({
         llmGenerationId,
         userId: ownerId,
@@ -144,6 +147,15 @@ function insertCompletedAggregate(): void {
         reasoning: "",
         completedAt,
       },
+      {
+        llmGenerationId: websiteGenerationId,
+        userId: ownerId,
+        debateJobId,
+        status: "completed" as const,
+        text: "Winner website",
+        reasoning: "",
+        completedAt,
+      },
     ])
     .run()
   db.update(deepSearchJobsTable)
@@ -159,6 +171,7 @@ function insertCompletedAggregate(): void {
       researchPromptGenerationId,
       researchSummaryGenerationId,
       ideaGenerationId,
+      selectionGenerationId,
       stage: "ideas",
       status: "completed",
       completedAt,
@@ -166,7 +179,12 @@ function insertCompletedAggregate(): void {
     .where(eq(ideaJobsTable.ideaJobId, ideaJobId))
     .run()
   db.update(debateJobsTable)
-    .set({ stage: "final", status: "completed", completedAt })
+    .set({
+      stage: "final",
+      websiteGenerationId,
+      status: "completed",
+      completedAt,
+    })
     .where(eq(debateJobsTable.debateJobId, debateJobId))
     .run()
 }

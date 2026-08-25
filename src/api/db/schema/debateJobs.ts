@@ -29,8 +29,9 @@ import { user } from "./auth.ts"
  *   only when incompatible tournament formats must coexist in the database.
  * - Wins, Elo, standings, prior pairings, and knockout qualification are
  *   derived from completed matches instead of duplicated in snapshot tables.
- * - SQL constraints protect row-local invariants. The tournament transaction
- *   validates same-job ownership, one appearance per round, no repeat Swiss
+ * - SQL constraints and migration triggers protect row-local invariants,
+ *   selected same-job membership, and immutable tournament structure. The
+ *   tournament transaction validates one appearance per round, no repeat Swiss
  *   pairing, stage match counts, pairing rules, and stage transitions.
  */
 export const debateJobs = sqliteTable(
@@ -80,6 +81,9 @@ export const debateJobs = sqliteTable(
       table.createdAt,
       table.debateJobId,
     ),
+    index("debate_jobs_active_user_idx")
+      .on(table.userId)
+      .where(sql`${table.status} = 'running'`),
     uniqueIndex("debate_jobs_id_user_id_idx").on(
       table.debateJobId,
       table.userId,
@@ -113,7 +117,7 @@ export const debateJobs = sqliteTable(
       sql`(
         (${table.status} = 'running' and ${table.completedAt} is null and ${table.error} is null)
         or
-        (${table.status} = 'completed' and ${table.stage} = 'final' and ${table.completedAt} is not null and ${table.error} is null and ${table.cancelRequestedAt} is null)
+        (${table.status} = 'completed' and ${table.stage} = 'final' and ${table.websiteGenerationId} is not null and ${table.completedAt} is not null and ${table.error} is null and ${table.cancelRequestedAt} is null)
         or
         (${table.status} = 'failed' and ${table.completedAt} is not null and ${table.error} is not null and ${table.cancelRequestedAt} is null)
         or

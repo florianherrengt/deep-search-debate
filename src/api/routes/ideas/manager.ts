@@ -71,13 +71,19 @@ export type IdeaJobManager = {
   getLiveJob(ideaJobId: string): LiveIdeaJob | undefined
 }
 
-function createIdeaIdentity(generatedTitle: string): PromptIdentity {
-  const usedSlugs = db
-    .select({ slug: ideaJobs.slug })
-    .from(ideaJobs)
-    .all()
-    .map(({ slug }) => slug)
-  return createPromptIdentity(generatedTitle, usedSlugs)
+function createIdeaIdentity(
+  transaction: IdeaJobCreationTransaction,
+  generatedTitle: string,
+): PromptIdentity {
+  return createPromptIdentity(
+    generatedTitle,
+    (slug) =>
+      transaction
+        .select({ slug: ideaJobs.slug })
+        .from(ideaJobs)
+        .where(eq(ideaJobs.slug, slug))
+        .get() !== undefined,
+  )
 }
 
 function requireCompletedIdeaJob(ideaJobId: string): void {
@@ -212,7 +218,6 @@ export function createIdeaJobManager(
       const ideaJobId = randomUUID()
       const controller = createWorkflowController(options?.workflowSignal)
       const { title: suppliedTitle } = normalizedInput
-      let identity: PromptIdentity
       try {
         const generatedTitle =
           suppliedTitle ??
@@ -221,26 +226,32 @@ export function createIdeaJobManager(
             normalizedInput.prompt,
             controller.signal,
           ))
-        identity = createIdeaIdentity(generatedTitle)
 
-        db.transaction((transaction) => {
-          const parent = options?.createParent?.(transaction, ideaJobId)
-          transaction
-            .insert(ideaJobs)
-            .values({
-              ideaJobId,
-              userId,
-              ...parent,
-              ...identity,
-              prompt: normalizedInput.prompt,
-              numberOfIdeas: normalizedInput.numberOfIdeas,
-              deepSearchCount: normalizedInput.deepSearchCount,
-              maxSearches: normalizedInput.maxSearches,
-              maxResultsPerSearch: normalizedInput.maxResultsPerSearch,
-              maxRounds: normalizedInput.maxRounds,
-            })
-            .run()
-        })
+        db.transaction(
+          (transaction) => {
+            const createdIdentity = createIdeaIdentity(
+              transaction,
+              generatedTitle,
+            )
+            const parent = options?.createParent?.(transaction, ideaJobId)
+            transaction
+              .insert(ideaJobs)
+              .values({
+                ideaJobId,
+                userId,
+                ...parent,
+                ...createdIdentity,
+                prompt: normalizedInput.prompt,
+                numberOfIdeas: normalizedInput.numberOfIdeas,
+                deepSearchCount: normalizedInput.deepSearchCount,
+                maxSearches: normalizedInput.maxSearches,
+                maxResultsPerSearch: normalizedInput.maxResultsPerSearch,
+                maxRounds: normalizedInput.maxRounds,
+              })
+              .run()
+          },
+          { behavior: "immediate" },
+        )
       } finally {
         releaseCapacity()
       }

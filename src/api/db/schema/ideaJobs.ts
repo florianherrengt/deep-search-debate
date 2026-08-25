@@ -64,6 +64,11 @@ export const ideaJobs = sqliteTable(
       table.createdAt,
       table.ideaJobId,
     ),
+    index("idea_jobs_active_standalone_user_idx")
+      .on(table.userId, table.debateJobId)
+      .where(
+        sql`${table.status} = 'running' and ${table.debateJobId} is null`,
+      ),
     uniqueIndex("idea_jobs_slug_idx").on(table.slug),
     uniqueIndex("idea_jobs_id_user_id_idx").on(
       table.ideaJobId,
@@ -138,7 +143,7 @@ export const ideaJobs = sqliteTable(
       sql`(
         (${table.status} = 'running' and ${table.completedAt} is null and ${table.error} is null)
         or
-        (${table.status} = 'completed' and ${table.stage} = 'ideas' and ${table.completedAt} is not null and ${table.error} is null and ${table.cancelRequestedAt} is null and ${table.researchPromptGenerationId} is not null and ${table.researchSummaryGenerationId} is not null and ${table.ideaGenerationId} is not null)
+        (${table.status} = 'completed' and ${table.stage} = 'ideas' and ${table.completedAt} is not null and ${table.error} is null and ${table.cancelRequestedAt} is null and ${table.researchPromptGenerationId} is not null and ${table.researchSummaryGenerationId} is not null and ${table.ideaGenerationId} is not null and ${table.selectionGenerationId} is not null)
         or
         (${table.status} = 'failed' and ${table.completedAt} is not null and ${table.error} is not null and ${table.cancelRequestedAt} is null)
         or

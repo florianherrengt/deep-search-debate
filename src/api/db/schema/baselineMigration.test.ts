@@ -10,7 +10,7 @@ const migrationsFolder = fileURLToPath(
 )
 
 describe("database migrations", () => {
-  it("creates the complete current schema from the full migration chain", () => {
+  it("creates the complete current schema from the fresh baseline", () => {
     expect(
       readdirSync(migrationsFolder).filter((name) => name.endsWith(".sql")),
     ).toEqual(["0000_fresh-baseline.sql"])
@@ -153,16 +153,32 @@ describe("database migrations", () => {
             "website_generation_id",
         ),
     ).toBe(true)
+    const debateJobForeignKeys = sqlite
+      .prepare("PRAGMA foreign_key_list('debate_jobs')")
+      .all() as Array<{
+        id: number
+        from: string
+        table: string
+        to: string
+      }>
+    const websiteGenerationForeignKeyId = debateJobForeignKeys.find(
+      (row) => row.from === "website_generation_id",
+    )?.id
     expect(
-      sqlite
-        .prepare("PRAGMA foreign_key_list('debate_jobs')")
-        .all()
-        .some(
+      debateJobForeignKeys
+        .filter(
           (row) =>
-            (row as { from?: unknown }).from === "website_generation_id" &&
-            (row as { table?: unknown }).table === "llm_generations",
-        ),
-    ).toBe(true)
+            row.from === "website_generation_id" ||
+            row.id === websiteGenerationForeignKeyId,
+        )
+        .map(({ from, table, to }) => ({ from, table, to })),
+    ).toEqual([
+      {
+        from: "website_generation_id",
+        table: "llm_generations",
+        to: "llm_generation_id",
+      },
+    ])
     expect(sqlite.pragma("foreign_key_check")).toEqual([])
     expect(sqlite.pragma("integrity_check", { simple: true })).toBe("ok")
 
@@ -183,6 +199,11 @@ describe("database migrations", () => {
         "idea_terminal_insert_guard",
         "idea_update_immutable",
         "idea_direct_delete_guard",
+        "idea_job_parent_immutable",
+        "deep_search_job_parent_immutable",
+        "debate_match_selected_ideas_insert",
+        "debate_round_structure_immutable",
+        "debate_match_structure_immutable",
       ]),
     )
     sqlite.close()

@@ -60,6 +60,7 @@ function createIdea(ideaJobId: string, position: number) {
       title: `Idea ${position + 1}`,
       description: `Description ${position + 1}`,
       evaluationGenerationId,
+      selected: true,
     })
     .run()
 
@@ -194,6 +195,40 @@ describe("debate tournament schema", () => {
     }).sync()
     expect(completedMatch?.winnerIdeaId).toBe(secondIdeaId)
     expect(completedMatch?.completedAt).toBeInstanceOf(Date)
+  })
+
+  it("keeps tournament structure within its owning debate", () => {
+    const firstDebate = createDebateJob()
+    const secondDebate = createDebateJob()
+    const firstIdeaId = createIdea(firstDebate.ideaJobId, 0)
+    const secondIdeaId = createIdea(firstDebate.ideaJobId, 1)
+    const replacementIdeaId = createIdea(firstDebate.ideaJobId, 2)
+    const foreignIdeaId = createIdea(secondDebate.ideaJobId, 0)
+    const debateRoundId = createRound(firstDebate.debateJobId)
+
+    expect(() =>
+      createMatch(debateRoundId, firstIdeaId, foreignIdeaId),
+    ).toThrow(/match ideas must belong to the debate selected field/)
+
+    const debateMatchId = createMatch(
+      debateRoundId,
+      firstIdeaId,
+      secondIdeaId,
+    )
+    expect(() =>
+      db
+        .update(debateRounds)
+        .set({ debateJobId: secondDebate.debateJobId })
+        .where(eq(debateRounds.debateRoundId, debateRoundId))
+        .run(),
+    ).toThrow(/debate-round structural columns are immutable/)
+    expect(() =>
+      db
+        .update(debateMatches)
+        .set({ firstIdeaId: replacementIdeaId })
+        .where(eq(debateMatches.debateMatchId, debateMatchId))
+        .run(),
+    ).toThrow(/debate-match structural columns are immutable/)
   })
 
   it("orders transcript messages by creation time", () => {

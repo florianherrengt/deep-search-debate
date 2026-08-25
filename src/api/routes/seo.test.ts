@@ -46,10 +46,9 @@ function seedDebate(options: {
       randomSeed: 1,
       isPublic: options.isPublic ?? false,
       stage: status === "completed" ? "final" : undefined,
-      status,
+      status: status === "completed" ? "running" : status,
       error: status === "failed" ? "Seeded failure" : undefined,
-      completedAt:
-        status === "completed" || status === "failed" ? new Date() : undefined,
+      completedAt: status === "failed" ? new Date() : undefined,
     })
     .run()
   db.insert(ideaJobsTable)
@@ -90,8 +89,32 @@ function seedDebate(options: {
           ...idea,
           ideaJobId: options.ideaJobId,
           position,
+          selected: true,
         })),
       )
+      .run()
+  }
+  if (status === "completed") {
+    const websiteGenerationId = crypto.randomUUID()
+    const completedAt = new Date()
+    db.insert(llmGenerationsTable)
+      .values({
+        llmGenerationId: websiteGenerationId,
+        userId: "test-user-id",
+        debateJobId: options.debateJobId,
+        status: "completed",
+        text: "Seeded winner website",
+        reasoning: "",
+        completedAt,
+      })
+      .run()
+    db.update(debateJobsTable)
+      .set({
+        websiteGenerationId,
+        status: "completed",
+        completedAt,
+      })
+      .where(eq(debateJobsTable.debateJobId, options.debateJobId))
       .run()
   }
 }

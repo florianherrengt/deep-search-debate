@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm"
 import { Hono } from "hono"
 import { beforeEach, describe, expect, it } from "vitest"
 
@@ -5,6 +6,7 @@ import { db } from "../../db/index.ts"
 import {
   debateJobs as debateJobsTable,
   ideaJobs as ideaJobsTable,
+  llmGenerations,
 } from "../../db/schema/index.ts"
 import type { AppEnv } from "../../types/auth.ts"
 import { DEBATE_TOURNAMENT_FORMAT } from "../debates/tournament.ts"
@@ -26,12 +28,10 @@ function insertDebate(options: {
   const completed = options.status === "completed"
   db.insert(debateJobsTable)
     .values({
-      completedAt: completed ? new Date() : undefined,
       debateJobId: options.debateJobId,
       isPublic: options.isPublic,
       randomSeed: 1,
       stage: completed ? "final" : "ideas",
-      status: options.status,
       userId: "test-user-id",
     })
     .run()
@@ -50,6 +50,29 @@ function insertDebate(options: {
       userId: "test-user-id",
     })
     .run()
+  if (completed) {
+    const websiteGenerationId = crypto.randomUUID()
+    const completedAt = new Date()
+    db.insert(llmGenerations)
+      .values({
+        llmGenerationId: websiteGenerationId,
+        userId: "test-user-id",
+        debateJobId: options.debateJobId,
+        status: "completed",
+        text: "Seeded winner website",
+        reasoning: "",
+        completedAt,
+      })
+      .run()
+    db.update(debateJobsTable)
+      .set({
+        websiteGenerationId,
+        status: "completed",
+        completedAt,
+      })
+      .where(eq(debateJobsTable.debateJobId, options.debateJobId))
+      .run()
+  }
 }
 
 describe("example debate reads", () => {

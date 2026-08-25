@@ -66,11 +66,19 @@ export const ideas = sqliteTable(
       sql`length(trim(${table.title})) > 0 and length(trim(${table.description})) > 0`,
     ),
     check(
+      "ideas_selected_check",
+      sql`${table.selected} is null or ${table.selected} in (0, 1)`,
+    ),
+    check(
+      "ideas_evaluation_selection_check",
+      sql`${table.evaluationGenerationId} is null or ${table.selected} is 1`,
+    ),
+    check(
       "ideas_refinement_lifecycle_check",
       sql`(
         (${table.refinementGenerationId} is null and ${table.refinedTitle} is null and ${table.refinedDescription} is null)
         or
-        (${table.selected} = 1 and ${table.refinementGenerationId} is not null and (
+        (${table.selected} is 1 and ${table.refinementGenerationId} is not null and (
           (${table.refinedTitle} is null and ${table.refinedDescription} is null)
           or
           (${table.refinedTitle} is not null and length(trim(${table.refinedTitle})) > 0 and ${table.refinedDescription} is not null and length(trim(${table.refinedDescription})) > 0)

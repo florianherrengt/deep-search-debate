@@ -231,6 +231,7 @@ describe("durable replay through the browser reducers", () => {
       crypto.randomUUID(),
       crypto.randomUUID(),
       crypto.randomUUID(),
+      crypto.randomUUID(),
     ]
     db.insert(llmGenerations)
       .values(
@@ -251,6 +252,7 @@ describe("durable replay through the browser reducers", () => {
         researchPromptGenerationId: generationIds[0],
         researchSummaryGenerationId: generationIds[1],
         ideaGenerationId: generationIds[2],
+        selectionGenerationId: generationIds[3],
         status: "completed",
         completedAt: completedBeforeStopAt,
       })
@@ -267,6 +269,7 @@ describe("durable replay through the browser reducers", () => {
       { type: "research-prompt-stream", streamId: generationIds[0] },
       { type: "research-summary-stream", streamId: generationIds[1] },
       { type: "idea-generation-stream", streamId: generationIds[2] },
+      { type: "idea-selection-stream", streamId: generationIds[3] },
       { type: "done" },
     ])
     expect(state).toMatchObject({
@@ -274,6 +277,7 @@ describe("durable replay through the browser reducers", () => {
       researchPromptStreamId: generationIds[0],
       researchSummaryStreamId: generationIds[1],
       ideaGenerationStreamId: generationIds[2],
+      ideaSelectionStreamId: generationIds[3],
     })
   })
 

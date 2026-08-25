@@ -63,6 +63,10 @@ export const deepSearchWebPages = sqliteTable(
       sql`length(trim(${table.url})) > 0`,
     ),
     check(
+      "deep_search_web_pages_credits_used_check",
+      sql`${table.creditsUsed} is null or ${table.creditsUsed} >= 0`,
+    ),
+    check(
       "deep_search_web_pages_extracted_content_check",
       sql`${table.extractedContent} is null or length(${table.extractedContent}) <= 100000`,
     ),

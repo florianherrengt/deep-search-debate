@@ -73,13 +73,8 @@ describe("reconstructIdeaJobEvents", () => {
     db.delete(llmGenerations).run()
   })
 
-  it("does not replay an assessment for an unselected raw idea", () => {
+  it("keeps a selection failure in the selection stage", () => {
     const ideaId = "33333333-3333-4333-8333-333333333333"
-    const evaluation = {
-      pros: ["Clear user value", "Fits the existing workflow"],
-      cons: ["Depends on clean data", "Requires behavior change"],
-      critique: "Promising, but the first release should expose uncertainty.",
-    }
     db.insert(ideaJobs)
       .values({
         userId: "test-user-id",
@@ -92,11 +87,6 @@ describe("reconstructIdeaJobEvents", () => {
         maxRounds: 3,
       })
       .run()
-    insertGeneration(
-      "evaluation-id",
-      JSON.stringify(evaluation),
-      PromptName.EvaluateIdea,
-    )
     db.insert(ideas)
       .values({
         ideaId,
@@ -104,7 +94,6 @@ describe("reconstructIdeaJobEvents", () => {
         position: 0,
         title: "Specific idea",
         description: "Concrete description",
-        evaluationGenerationId: "evaluation-id",
       })
       .run()
     db.update(ideaJobs)

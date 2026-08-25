@@ -508,7 +508,8 @@ describe("createDeepSearchJobManager", () => {
     )
   })
 
-  it("numbers repeated generated titles and slugs across users", async () => {
+  it("numbers repeated titles and slugs in an immediate transaction", async () => {
+    const transaction = vi.spyOn(db, "transaction")
     mocks.runDeepSearchJob.mockImplementation((deepSearchJobId: string) => {
       db.update(deepSearchJobs)
         .set({
@@ -536,6 +537,21 @@ describe("createDeepSearchJobManager", () => {
         emailVerified: true,
       })
       .run()
+    db.insert(deepSearchJobs)
+      .values({
+        deepSearchJobId: crypto.randomUUID(),
+        userId: "other-test-user-id",
+        title: "London Energy Options 3",
+        slug: "london-energy-options-3",
+        researchRequest: "A later suffix must not hide the first gap",
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        strictQuality: false,
+        status: "failed",
+        error: "Identity fixture",
+        completedAt: new Date(),
+      })
+      .run()
     const second = await manager.start("other-test-user-id", {
       title: "London Energy Options",
       researchRequest: "Research this again",
@@ -552,6 +568,10 @@ describe("createDeepSearchJobManager", () => {
       title: "London Energy Options 2",
       slug: "london-energy-options-2",
     })
+    expect(transaction).toHaveBeenLastCalledWith(expect.any(Function), {
+      behavior: "immediate",
+    })
+    transaction.mockRestore()
   })
 
   it("retains its terminal live log when durable terminal persistence failed", async () => {

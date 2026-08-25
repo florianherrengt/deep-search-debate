@@ -180,7 +180,7 @@ describe("aggregate deletion", () => {
         title: "Idea 2",
         description: "Description 2",
         evaluationGenerationId: evaluationGenerationIds[1],
-        selected: false,
+        selected: true,
       },
     ]
     db.insert(ideas).values(ideaRows).run()

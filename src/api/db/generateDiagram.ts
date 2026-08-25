@@ -19,10 +19,10 @@ const dbml = `${generated.replace(
 
 // SQLite checks omitted from DBML require waitlist_entries.email to equal its
 // trimmed lowercase form and contain between 1 and 254 characters.
-// The baseline migration also defines triggers that require a selected result
-// and page to share a URL and deep-search job, freeze the ownership chain used
-// by that check and every LLM generation, and freeze ideas after their job
-// completes. DBML cannot represent SQLite triggers; the migration and schema
-// regression tests are authoritative.
+// The fresh baseline migration also defines triggers that require selected
+// result/page ownership, require tournament participants to be selected ideas
+// from the debate's idea job, and freeze aggregate structure and generation
+// ownership. DBML cannot represent SQLite triggers or partial-index predicates;
+// the migration and schema regression tests are authoritative.
 `
 writeFileSync(new URL("./schema.dbml", import.meta.url), dbml)

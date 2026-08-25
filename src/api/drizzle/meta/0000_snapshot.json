@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "21c40413-4b95-4560-b7cc-4b4673fb3b52",
+  "id": "3f38ba51-30c5-4f4f-aede-45fc4300516c",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "deep_search_jobs": {
@@ -176,6 +176,15 @@
             "deep_search_job_id"
           ],
           "isUnique": false
+        },
+        "deep_search_jobs_active_standalone_user_idx": {
+          "name": "deep_search_jobs_active_standalone_user_idx",
+          "columns": [
+            "user_id",
+            "idea_job_id"
+          ],
+          "isUnique": false,
+          "where": "\"deep_search_jobs\".\"status\" = 'running' and \"deep_search_jobs\".\"idea_job_id\" is null"
         },
         "deep_search_jobs_slug_idx": {
           "name": "deep_search_jobs_slug_idx",
@@ -475,6 +484,10 @@
         "deep_search_queries_content_check": {
           "name": "deep_search_queries_content_check",
           "value": "length(trim(\"deep_search_queries\".\"query\")) > 0"
+        },
+        "deep_search_queries_credits_used_check": {
+          "name": "deep_search_queries_credits_used_check",
+          "value": "\"deep_search_queries\".\"credits_used\" is null or \"deep_search_queries\".\"credits_used\" >= 0"
         },
         "deep_search_queries_error_stage_check": {
           "name": "deep_search_queries_error_stage_check",
@@ -933,6 +946,10 @@
           "name": "deep_search_web_pages_url_content_check",
           "value": "length(trim(\"deep_search_web_pages\".\"url\")) > 0"
         },
+        "deep_search_web_pages_credits_used_check": {
+          "name": "deep_search_web_pages_credits_used_check",
+          "value": "\"deep_search_web_pages\".\"credits_used\" is null or \"deep_search_web_pages\".\"credits_used\" >= 0"
+        },
         "deep_search_web_pages_extracted_content_check": {
           "name": "deep_search_web_pages_extracted_content_check",
           "value": "\"deep_search_web_pages\".\"extracted_content\" is null or length(\"deep_search_web_pages\".\"extracted_content\") <= 100000"
@@ -1067,6 +1084,14 @@
           ],
           "isUnique": false
         },
+        "debate_jobs_active_user_idx": {
+          "name": "debate_jobs_active_user_idx",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false,
+          "where": "\"debate_jobs\".\"status\" = 'running'"
+        },
         "debate_jobs_id_user_id_idx": {
           "name": "debate_jobs_id_user_id_idx",
           "columns": [
@@ -1133,7 +1158,7 @@
         },
         "debate_jobs_terminal_fields_check": {
           "name": "debate_jobs_terminal_fields_check",
-          "value": "(\n        (\"debate_jobs\".\"status\" = 'running' and \"debate_jobs\".\"completed_at\" is null and \"debate_jobs\".\"error\" is null)\n        or\n        (\"debate_jobs\".\"status\" = 'completed' and \"debate_jobs\".\"stage\" = 'final' and \"debate_jobs\".\"completed_at\" is not null and \"debate_jobs\".\"error\" is null and \"debate_jobs\".\"cancel_requested_at\" is null)\n        or\n        (\"debate_jobs\".\"status\" = 'failed' and \"debate_jobs\".\"completed_at\" is not null and \"debate_jobs\".\"error\" is not null and \"debate_jobs\".\"cancel_requested_at\" is null)\n        or\n        (\"debate_jobs\".\"status\" = 'interrupted' and \"debate_jobs\".\"completed_at\" is not null and \"debate_jobs\".\"error\" is not null)\n      )"
+          "value": "(\n        (\"debate_jobs\".\"status\" = 'running' and \"debate_jobs\".\"completed_at\" is null and \"debate_jobs\".\"error\" is null)\n        or\n        (\"debate_jobs\".\"status\" = 'completed' and \"debate_jobs\".\"stage\" = 'final' and \"debate_jobs\".\"website_generation_id\" is not null and \"debate_jobs\".\"completed_at\" is not null and \"debate_jobs\".\"error\" is null and \"debate_jobs\".\"cancel_requested_at\" is null)\n        or\n        (\"debate_jobs\".\"status\" = 'failed' and \"debate_jobs\".\"completed_at\" is not null and \"debate_jobs\".\"error\" is not null and \"debate_jobs\".\"cancel_requested_at\" is null)\n        or\n        (\"debate_jobs\".\"status\" = 'interrupted' and \"debate_jobs\".\"completed_at\" is not null and \"debate_jobs\".\"error\" is not null)\n      )"
         }
       }
     },
@@ -1703,6 +1728,15 @@
           ],
           "isUnique": false
         },
+        "idea_jobs_active_standalone_user_idx": {
+          "name": "idea_jobs_active_standalone_user_idx",
+          "columns": [
+            "user_id",
+            "debate_job_id"
+          ],
+          "isUnique": false,
+          "where": "\"idea_jobs\".\"status\" = 'running' and \"idea_jobs\".\"debate_job_id\" is null"
+        },
         "idea_jobs_slug_idx": {
           "name": "idea_jobs_slug_idx",
           "columns": [
@@ -1850,7 +1884,7 @@
         },
         "idea_jobs_terminal_fields_check": {
           "name": "idea_jobs_terminal_fields_check",
-          "value": "(\n        (\"idea_jobs\".\"status\" = 'running' and \"idea_jobs\".\"completed_at\" is null and \"idea_jobs\".\"error\" is null)\n        or\n        (\"idea_jobs\".\"status\" = 'completed' and \"idea_jobs\".\"stage\" = 'ideas' and \"idea_jobs\".\"completed_at\" is not null and \"idea_jobs\".\"error\" is null and \"idea_jobs\".\"cancel_requested_at\" is null and \"idea_jobs\".\"research_prompt_generation_id\" is not null and \"idea_jobs\".\"research_summary_generation_id\" is not null and \"idea_jobs\".\"idea_generation_id\" is not null)\n        or\n        (\"idea_jobs\".\"status\" = 'failed' and \"idea_jobs\".\"completed_at\" is not null and \"idea_jobs\".\"error\" is not null and \"idea_jobs\".\"cancel_requested_at\" is null)\n        or\n        (\"idea_jobs\".\"status\" = 'interrupted' and \"idea_jobs\".\"completed_at\" is not null and \"idea_jobs\".\"error\" is not null)\n      )"
+          "value": "(\n        (\"idea_jobs\".\"status\" = 'running' and \"idea_jobs\".\"completed_at\" is null and \"idea_jobs\".\"error\" is null)\n        or\n        (\"idea_jobs\".\"status\" = 'completed' and \"idea_jobs\".\"stage\" = 'ideas' and \"idea_jobs\".\"completed_at\" is not null and \"idea_jobs\".\"error\" is null and \"idea_jobs\".\"cancel_requested_at\" is null and \"idea_jobs\".\"research_prompt_generation_id\" is not null and \"idea_jobs\".\"research_summary_generation_id\" is not null and \"idea_jobs\".\"idea_generation_id\" is not null and \"idea_jobs\".\"selection_generation_id\" is not null)\n        or\n        (\"idea_jobs\".\"status\" = 'failed' and \"idea_jobs\".\"completed_at\" is not null and \"idea_jobs\".\"error\" is not null and \"idea_jobs\".\"cancel_requested_at\" is null)\n        or\n        (\"idea_jobs\".\"status\" = 'interrupted' and \"idea_jobs\".\"completed_at\" is not null and \"idea_jobs\".\"error\" is not null)\n      )"
         }
       }
     },
@@ -2016,9 +2050,17 @@
           "name": "ideas_content_check",
           "value": "length(trim(\"ideas\".\"title\")) > 0 and length(trim(\"ideas\".\"description\")) > 0"
         },
+        "ideas_selected_check": {
+          "name": "ideas_selected_check",
+          "value": "\"ideas\".\"selected\" is null or \"ideas\".\"selected\" in (0, 1)"
+        },
+        "ideas_evaluation_selection_check": {
+          "name": "ideas_evaluation_selection_check",
+          "value": "\"ideas\".\"evaluation_generation_id\" is null or \"ideas\".\"selected\" is 1"
+        },
         "ideas_refinement_lifecycle_check": {
           "name": "ideas_refinement_lifecycle_check",
-          "value": "(\n        (\"ideas\".\"refinement_generation_id\" is null and \"ideas\".\"refined_title\" is null and \"ideas\".\"refined_description\" is null)\n        or\n        (\"ideas\".\"selected\" = 1 and \"ideas\".\"refinement_generation_id\" is not null and (\n          (\"ideas\".\"refined_title\" is null and \"ideas\".\"refined_description\" is null)\n          or\n          (\"ideas\".\"refined_title\" is not null and length(trim(\"ideas\".\"refined_title\")) > 0 and \"ideas\".\"refined_description\" is not null and length(trim(\"ideas\".\"refined_description\")) > 0)\n        ))\n      )"
+          "value": "(\n        (\"ideas\".\"refinement_generation_id\" is null and \"ideas\".\"refined_title\" is null and \"ideas\".\"refined_description\" is null)\n        or\n        (\"ideas\".\"selected\" is 1 and \"ideas\".\"refinement_generation_id\" is not null and (\n          (\"ideas\".\"refined_title\" is null and \"ideas\".\"refined_description\" is null)\n          or\n          (\"ideas\".\"refined_title\" is not null and length(trim(\"ideas\".\"refined_title\")) > 0 and \"ideas\".\"refined_description\" is not null and length(trim(\"ideas\".\"refined_description\")) > 0)\n        ))\n      )"
         }
       }
     },
@@ -2164,6 +2206,18 @@
           ],
           "isUnique": false
         },
+        "llm_generations_active_standalone_user_idx": {
+          "name": "llm_generations_active_standalone_user_idx",
+          "columns": [
+            "user_id",
+            "status",
+            "debate_job_id",
+            "idea_job_id",
+            "deep_search_job_id"
+          ],
+          "isUnique": false,
+          "where": "\"llm_generations\".\"status\" = 'running' and \"llm_generations\".\"debate_job_id\" is null and \"llm_generations\".\"idea_job_id\" is null and \"llm_generations\".\"deep_search_job_id\" is null"
+        },
         "llm_generations_id_user_idea_job_idx": {
           "name": "llm_generations_id_user_idea_job_idx",
           "columns": [
@@ -2290,6 +2344,14 @@
         "llm_generations_status_check": {
           "name": "llm_generations_status_check",
           "value": "\"llm_generations\".\"status\" in ('running', 'completed', 'failed', 'interrupted')"
+        },
+        "llm_generations_finish_reason_check": {
+          "name": "llm_generations_finish_reason_check",
+          "value": "\"llm_generations\".\"finish_reason\" is null or \"llm_generations\".\"finish_reason\" in ('stop', 'length', 'content-filter', 'tool-calls', 'error', 'other')"
+        },
+        "llm_generations_credits_used_check": {
+          "name": "llm_generations_credits_used_check",
+          "value": "\"llm_generations\".\"credits_used\" is null or \"llm_generations\".\"credits_used\" >= 0"
         },
         "llm_generations_output_fields_check": {
           "name": "llm_generations_output_fields_check",

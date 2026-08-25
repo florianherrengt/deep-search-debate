@@ -32,6 +32,7 @@ describe("debate job snapshot", () => {
         title: `Idea ${position + 1}`,
         description: `Description ${position + 1}`,
         evaluationGenerationId: crypto.randomUUID(),
+        selected: true,
       }),
     )
 
@@ -209,8 +210,6 @@ describe("debate job snapshot", () => {
         userId: "test-user-id",
         randomSeed: 42,
         stage: "final",
-        status: "completed",
-        completedAt: new Date(),
       })
       .run()
 
@@ -227,7 +226,11 @@ describe("debate job snapshot", () => {
       })
       .run()
     db.update(debateJobs)
-      .set({ websiteGenerationId })
+      .set({
+        websiteGenerationId,
+        status: "completed",
+        completedAt: new Date(),
+      })
       .where(eq(debateJobs.debateJobId, debateJobId))
       .run()
     db.insert(ideaJobs)

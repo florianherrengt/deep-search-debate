@@ -25,7 +25,14 @@ Use this checklist for recurring Drizzle schema, relational-model, migration, an
 - Give multiple relations between the same tables explicit, matching `relationName` values.
 - Use stable, descriptive names for tables, columns, indexes, and constraints so migrations and integrity failures are diagnosable.
 - Comment deliberate omissions and non-obvious constraints or deletion policies; do not narrate obvious column definitions.
-- Generate and review a Drizzle migration for every schema change, apply it to the development database, and regenerate `schema.dbml`.
+- Generate and review a Drizzle migration for every schema change, apply it to an ignored disposable local database, and regenerate `schema.dbml`.
+- Never edit a migration applied to a supported database; add a forward
+  migration instead. An explicitly approved fresh reset is the sole exception,
+  and every database created from the superseded history must be discarded.
+- Commit schema definitions, generated SQL, the migration journal, and its snapshot atomically so they cannot drift.
+- For generated SQLite table rebuilds, manually preserve hand-written triggers;
+  `PRAGMA foreign_keys = OFF` is ineffective inside Drizzle's migration
+  transaction.
 - Treat DBML as documentation rather than the source of truth. Preserve comments for checks, partial indexes, or other SQLite behavior DBML cannot represent.
 - When existing databases must be preserved, test migrations from the prior schema rather than only fresh creation. For an explicitly approved destructive baseline reset, test the complete fresh baseline instead. In both cases, validate SQLite foreign keys and integrity afterward.
-- Keep automated tests on the in-memory database and real migration chain; do not let tests mutate the committed development database.
+- Keep automated tests on the in-memory database and real migration chain; do not let tests reuse or mutate ignored disposable local database files.

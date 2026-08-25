@@ -6,12 +6,40 @@ import { db } from "../../db/index.ts"
 import {
   debateJobs as debateJobsTable,
   ideaJobs,
+  llmGenerations,
   user as userTable,
 } from "../../db/schema/index.ts"
 import { debateJobs } from "./index.ts"
 import type { DebateJobManager } from "./manager.ts"
 import { DEBATE_TOURNAMENT_FORMAT } from "./tournament.ts"
 import type { AppEnv } from "../../types/auth.ts"
+
+function completeDebateFixture(
+  debateJobId: string,
+  completedAt = new Date(),
+): void {
+  const websiteGenerationId = crypto.randomUUID()
+  db.insert(llmGenerations)
+    .values({
+      llmGenerationId: websiteGenerationId,
+      userId: "test-user-id",
+      debateJobId,
+      status: "completed",
+      text: "Seeded winner website",
+      reasoning: "",
+      completedAt,
+    })
+    .run()
+  db.update(debateJobsTable)
+    .set({
+      stage: "final",
+      websiteGenerationId,
+      status: "completed",
+      completedAt,
+    })
+    .where(eq(debateJobsTable.debateJobId, debateJobId))
+    .run()
+}
 
 function createApp(manager?: DebateJobManager): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
@@ -160,10 +188,9 @@ describe("debate job routes", () => {
         userId: "test-user-id",
         randomSeed: 42,
         stage: "final",
-        status: "completed",
-        completedAt: new Date(),
       })
       .run()
+    completeDebateFixture(completedDebateJobId)
     const resumeExisting = vi.fn()
     const app = createApp({
       start: vi.fn(),
@@ -208,12 +235,11 @@ describe("debate job routes", () => {
           debateJobId: newerDebateJobId,
           randomSeed: 2,
           stage: "final",
-          status: "completed",
           createdAt: newerCreatedAt,
-          completedAt: newerCompletedAt,
         },
       ])
       .run()
+    completeDebateFixture(newerDebateJobId, newerCompletedAt)
     db.insert(ideaJobs)
       .values([
         {
@@ -383,10 +409,9 @@ describe("debate job routes", () => {
         randomSeed: 1,
         isPublic: true,
         stage: "final",
-        status: "completed",
-        completedAt: new Date(),
       })
       .run()
+    completeDebateFixture(debateJobId)
 
     const response = await createApp().request(
       `/debate-jobs/${debateJobId}`,

@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({ runDebateJob: vi.fn() }))
@@ -9,6 +10,7 @@ import {
   debateJobs,
   deepSearchJobs,
   ideaJobs,
+  llmGenerations,
 } from "../../db/schema/index.ts"
 import type { IdeaJobManager } from "../ideas/manager.ts"
 import { interruptDebateJob } from "./jobLifecycle.ts"
@@ -63,12 +65,27 @@ describe("debate job manager", () => {
     }
     mocks.runDebateJob.mockImplementation(
       ({ debateJobId }: { debateJobId: string }) => {
+        const websiteGenerationId = crypto.randomUUID()
+        const completedAt = new Date()
+        db.insert(llmGenerations)
+          .values({
+            llmGenerationId: websiteGenerationId,
+            userId: "test-user-id",
+            debateJobId,
+            status: "completed",
+            text: "Generated winner website",
+            reasoning: "",
+            completedAt,
+          })
+          .run()
         db.update(debateJobs)
           .set({
             stage: "final",
+            websiteGenerationId,
             status: "completed",
-            completedAt: new Date(),
+            completedAt,
           })
+          .where(eq(debateJobs.debateJobId, debateJobId))
           .run()
         expect(debateJobId).toBeTypeOf("string")
         return Promise.resolve()
@@ -142,12 +159,33 @@ describe("debate job manager", () => {
       })
       .run()
     const completion = Promise.withResolvers<void>()
-    mocks.runDebateJob.mockImplementation(async () => {
-      await completion.promise
-      db.update(debateJobs)
-        .set({ stage: "final", status: "completed", completedAt: new Date() })
-        .run()
-    })
+    mocks.runDebateJob.mockImplementation(
+      async ({ debateJobId }: { debateJobId: string }) => {
+        await completion.promise
+        const websiteGenerationId = crypto.randomUUID()
+        const completedAt = new Date()
+        db.insert(llmGenerations)
+          .values({
+            llmGenerationId: websiteGenerationId,
+            userId: "test-user-id",
+            debateJobId,
+            status: "completed",
+            text: "Generated winner website",
+            reasoning: "",
+            completedAt,
+          })
+          .run()
+        db.update(debateJobs)
+          .set({
+            stage: "final",
+            websiteGenerationId,
+            status: "completed",
+            completedAt,
+          })
+          .where(eq(debateJobs.debateJobId, debateJobId))
+          .run()
+      },
+    )
     const ideaJobManager: IdeaJobManager = {
       start: vi.fn(),
       resumeExisting: vi.fn(),

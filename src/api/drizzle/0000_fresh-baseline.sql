@@ -49,6 +49,7 @@ CREATE TABLE `deep_search_jobs` (
 CREATE UNIQUE INDEX `deep_search_jobs_final_answer_generation_id_unique` ON `deep_search_jobs` (`final_answer_generation_id`);--> statement-breakpoint
 CREATE UNIQUE INDEX `deep_search_jobs_research_analysis_generation_id_unique` ON `deep_search_jobs` (`research_analysis_generation_id`);--> statement-breakpoint
 CREATE INDEX `deep_search_jobs_user_created_at_idx` ON `deep_search_jobs` (`user_id`,`created_at`,`deep_search_job_id`);--> statement-breakpoint
+CREATE INDEX `deep_search_jobs_active_standalone_user_idx` ON `deep_search_jobs` (`user_id`,`idea_job_id`) WHERE "deep_search_jobs"."status" = 'running' and "deep_search_jobs"."idea_job_id" is null;--> statement-breakpoint
 CREATE UNIQUE INDEX `deep_search_jobs_slug_idx` ON `deep_search_jobs` (`slug`);--> statement-breakpoint
 CREATE UNIQUE INDEX `deep_search_jobs_id_user_id_idx` ON `deep_search_jobs` (`deep_search_job_id`,`user_id`);--> statement-breakpoint
 CREATE UNIQUE INDEX `deep_search_jobs_idea_job_position_idx` ON `deep_search_jobs` (`idea_job_id`,`idea_job_position`);--> statement-breakpoint
@@ -71,6 +72,7 @@ CREATE TABLE `deep_search_queries` (
 	CONSTRAINT "deep_search_queries_status_check" CHECK("deep_search_queries"."status" in ('searching', 'selecting', 'summarizing', 'completed', 'failed')),
 	CONSTRAINT "deep_search_queries_position_check" CHECK("deep_search_queries"."position" >= 0),
 	CONSTRAINT "deep_search_queries_content_check" CHECK(length(trim("deep_search_queries"."query")) > 0),
+	CONSTRAINT "deep_search_queries_credits_used_check" CHECK("deep_search_queries"."credits_used" is null or "deep_search_queries"."credits_used" >= 0),
 	CONSTRAINT "deep_search_queries_error_stage_check" CHECK("deep_search_queries"."error_stage" is null or "deep_search_queries"."error_stage" in ('search', 'selection', 'summary')),
 	CONSTRAINT "deep_search_queries_error_fields_check" CHECK((
         ("deep_search_queries"."error_stage" is null and "deep_search_queries"."error_message" is null)
@@ -169,6 +171,7 @@ CREATE TABLE `deep_search_web_pages` (
 	FOREIGN KEY (`summary_generation_id`) REFERENCES `llm_generations`(`llm_generation_id`) ON UPDATE no action ON DELETE no action,
 	CONSTRAINT "deep_search_web_pages_status_check" CHECK("deep_search_web_pages"."status" in ('pending', 'extracting', 'summarizing', 'completed', 'failed')),
 	CONSTRAINT "deep_search_web_pages_url_content_check" CHECK(length(trim("deep_search_web_pages"."url")) > 0),
+	CONSTRAINT "deep_search_web_pages_credits_used_check" CHECK("deep_search_web_pages"."credits_used" is null or "deep_search_web_pages"."credits_used" >= 0),
 	CONSTRAINT "deep_search_web_pages_extracted_content_check" CHECK("deep_search_web_pages"."extracted_content" is null or length("deep_search_web_pages"."extracted_content") <= 100000),
 	CONSTRAINT "deep_search_web_pages_error_stage_check" CHECK("deep_search_web_pages"."error_stage" is null or "deep_search_web_pages"."error_stage" in ('extraction', 'summary')),
 	CONSTRAINT "deep_search_web_pages_error_fields_check" CHECK((
@@ -218,7 +221,7 @@ CREATE TABLE `debate_jobs` (
 	CONSTRAINT "debate_jobs_terminal_fields_check" CHECK((
         ("debate_jobs"."status" = 'running' and "debate_jobs"."completed_at" is null and "debate_jobs"."error" is null)
         or
-        ("debate_jobs"."status" = 'completed' and "debate_jobs"."stage" = 'final' and "debate_jobs"."completed_at" is not null and "debate_jobs"."error" is null and "debate_jobs"."cancel_requested_at" is null)
+        ("debate_jobs"."status" = 'completed' and "debate_jobs"."stage" = 'final' and "debate_jobs"."website_generation_id" is not null and "debate_jobs"."completed_at" is not null and "debate_jobs"."error" is null and "debate_jobs"."cancel_requested_at" is null)
         or
         ("debate_jobs"."status" = 'failed' and "debate_jobs"."completed_at" is not null and "debate_jobs"."error" is not null and "debate_jobs"."cancel_requested_at" is null)
         or
@@ -228,6 +231,7 @@ CREATE TABLE `debate_jobs` (
 --> statement-breakpoint
 CREATE UNIQUE INDEX `debate_jobs_website_generation_id_unique` ON `debate_jobs` (`website_generation_id`);--> statement-breakpoint
 CREATE INDEX `debate_jobs_user_created_at_idx` ON `debate_jobs` (`user_id`,`created_at`,`debate_job_id`);--> statement-breakpoint
+CREATE INDEX `debate_jobs_active_user_idx` ON `debate_jobs` (`user_id`) WHERE "debate_jobs"."status" = 'running';--> statement-breakpoint
 CREATE UNIQUE INDEX `debate_jobs_id_user_id_idx` ON `debate_jobs` (`debate_job_id`,`user_id`);--> statement-breakpoint
 CREATE TABLE `debate_matches` (
 	`debate_match_id` text PRIMARY KEY NOT NULL,
@@ -322,7 +326,7 @@ CREATE TABLE `idea_jobs` (
 	CONSTRAINT "idea_jobs_terminal_fields_check" CHECK((
         ("idea_jobs"."status" = 'running' and "idea_jobs"."completed_at" is null and "idea_jobs"."error" is null)
         or
-        ("idea_jobs"."status" = 'completed' and "idea_jobs"."stage" = 'ideas' and "idea_jobs"."completed_at" is not null and "idea_jobs"."error" is null and "idea_jobs"."cancel_requested_at" is null and "idea_jobs"."research_prompt_generation_id" is not null and "idea_jobs"."research_summary_generation_id" is not null and "idea_jobs"."idea_generation_id" is not null)
+        ("idea_jobs"."status" = 'completed' and "idea_jobs"."stage" = 'ideas' and "idea_jobs"."completed_at" is not null and "idea_jobs"."error" is null and "idea_jobs"."cancel_requested_at" is null and "idea_jobs"."research_prompt_generation_id" is not null and "idea_jobs"."research_summary_generation_id" is not null and "idea_jobs"."idea_generation_id" is not null and "idea_jobs"."selection_generation_id" is not null)
         or
         ("idea_jobs"."status" = 'failed' and "idea_jobs"."completed_at" is not null and "idea_jobs"."error" is not null and "idea_jobs"."cancel_requested_at" is null)
         or
@@ -336,6 +340,7 @@ CREATE UNIQUE INDEX `idea_jobs_research_summary_generation_id_unique` ON `idea_j
 CREATE UNIQUE INDEX `idea_jobs_idea_generation_id_unique` ON `idea_jobs` (`idea_generation_id`);--> statement-breakpoint
 CREATE UNIQUE INDEX `idea_jobs_selection_generation_id_unique` ON `idea_jobs` (`selection_generation_id`);--> statement-breakpoint
 CREATE INDEX `idea_jobs_user_created_at_idx` ON `idea_jobs` (`user_id`,`created_at`,`idea_job_id`);--> statement-breakpoint
+CREATE INDEX `idea_jobs_active_standalone_user_idx` ON `idea_jobs` (`user_id`,`debate_job_id`) WHERE "idea_jobs"."status" = 'running' and "idea_jobs"."debate_job_id" is null;--> statement-breakpoint
 CREATE UNIQUE INDEX `idea_jobs_slug_idx` ON `idea_jobs` (`slug`);--> statement-breakpoint
 CREATE UNIQUE INDEX `idea_jobs_id_user_id_idx` ON `idea_jobs` (`idea_job_id`,`user_id`);--> statement-breakpoint
 CREATE TABLE `ideas` (
@@ -355,10 +360,12 @@ CREATE TABLE `ideas` (
 	FOREIGN KEY (`refinement_generation_id`,`idea_job_id`) REFERENCES `llm_generations`(`llm_generation_id`,`idea_job_id`) ON UPDATE no action ON DELETE no action,
 	CONSTRAINT "ideas_position_check" CHECK("ideas"."position" >= 0),
 	CONSTRAINT "ideas_content_check" CHECK(length(trim("ideas"."title")) > 0 and length(trim("ideas"."description")) > 0),
+	CONSTRAINT "ideas_selected_check" CHECK("ideas"."selected" is null or "ideas"."selected" in (0, 1)),
+	CONSTRAINT "ideas_evaluation_selection_check" CHECK("ideas"."evaluation_generation_id" is null or "ideas"."selected" is 1),
 	CONSTRAINT "ideas_refinement_lifecycle_check" CHECK((
         ("ideas"."refinement_generation_id" is null and "ideas"."refined_title" is null and "ideas"."refined_description" is null)
         or
-        ("ideas"."selected" = 1 and "ideas"."refinement_generation_id" is not null and (
+        ("ideas"."selected" is 1 and "ideas"."refinement_generation_id" is not null and (
           ("ideas"."refined_title" is null and "ideas"."refined_description" is null)
           or
           ("ideas"."refined_title" is not null and length(trim("ideas"."refined_title")) > 0 and "ideas"."refined_description" is not null and length(trim("ideas"."refined_description")) > 0)
@@ -398,6 +405,8 @@ CREATE TABLE `llm_generations` (
         + ("llm_generations"."deep_search_job_id" is not null)
       ) <= 1),
 	CONSTRAINT "llm_generations_status_check" CHECK("llm_generations"."status" in ('running', 'completed', 'failed', 'interrupted')),
+	CONSTRAINT "llm_generations_finish_reason_check" CHECK("llm_generations"."finish_reason" is null or "llm_generations"."finish_reason" in ('stop', 'length', 'content-filter', 'tool-calls', 'error', 'other')),
+	CONSTRAINT "llm_generations_credits_used_check" CHECK("llm_generations"."credits_used" is null or "llm_generations"."credits_used" >= 0),
 	CONSTRAINT "llm_generations_output_fields_check" CHECK((
         ("llm_generations"."text" is null and "llm_generations"."reasoning" is null)
         or
@@ -413,6 +422,7 @@ CREATE TABLE `llm_generations` (
 );
 --> statement-breakpoint
 CREATE INDEX `llm_generations_user_started_at_idx` ON `llm_generations` (`user_id`,`started_at`,`llm_generation_id`);--> statement-breakpoint
+CREATE INDEX `llm_generations_active_standalone_user_idx` ON `llm_generations` (`user_id`,`status`,`debate_job_id`,`idea_job_id`,`deep_search_job_id`) WHERE "llm_generations"."status" = 'running' and "llm_generations"."debate_job_id" is null and "llm_generations"."idea_job_id" is null and "llm_generations"."deep_search_job_id" is null;--> statement-breakpoint
 CREATE UNIQUE INDEX `llm_generations_id_user_idea_job_idx` ON `llm_generations` (`llm_generation_id`,`user_id`,`idea_job_id`);--> statement-breakpoint
 CREATE UNIQUE INDEX `llm_generations_id_idea_job_idx` ON `llm_generations` (`llm_generation_id`,`idea_job_id`);--> statement-breakpoint
 CREATE UNIQUE INDEX `llm_generations_id_debate_job_idx` ON `llm_generations` (`llm_generation_id`,`debate_job_id`);--> statement-breakpoint
@@ -650,4 +660,59 @@ WHEN EXISTS (
 )
 BEGIN
 	SELECT RAISE(ABORT, 'idea rows are immutable; delete the owning job');
+END;
+--> statement-breakpoint
+CREATE TRIGGER `idea_job_parent_immutable`
+BEFORE UPDATE OF `debate_job_id` ON `idea_jobs`
+WHEN NEW.`debate_job_id` IS NOT OLD.`debate_job_id`
+BEGIN
+	SELECT RAISE(ABORT, 'Idea-job parent columns are immutable');
+END;
+--> statement-breakpoint
+CREATE TRIGGER `deep_search_job_parent_immutable`
+BEFORE UPDATE OF `idea_job_id`, `idea_job_position` ON `deep_search_jobs`
+WHEN NEW.`idea_job_id` IS NOT OLD.`idea_job_id`
+	OR NEW.`idea_job_position` IS NOT OLD.`idea_job_position`
+BEGIN
+	SELECT RAISE(ABORT, 'Deep-search parent columns are immutable');
+END;
+--> statement-breakpoint
+CREATE TRIGGER `debate_match_selected_ideas_insert`
+BEFORE INSERT ON `debate_matches`
+WHEN NOT EXISTS (
+	SELECT 1
+	FROM `debate_rounds`
+	INNER JOIN `idea_jobs`
+		ON `idea_jobs`.`debate_job_id` = `debate_rounds`.`debate_job_id`
+	INNER JOIN `ideas` AS `first_idea`
+		ON `first_idea`.`idea_job_id` = `idea_jobs`.`idea_job_id`
+		AND `first_idea`.`idea_id` = NEW.`first_idea_id`
+		AND `first_idea`.`selected` IS 1
+	INNER JOIN `ideas` AS `second_idea`
+		ON `second_idea`.`idea_job_id` = `idea_jobs`.`idea_job_id`
+		AND `second_idea`.`idea_id` = NEW.`second_idea_id`
+		AND `second_idea`.`selected` IS 1
+	WHERE `debate_rounds`.`debate_round_id` = NEW.`debate_round_id`
+)
+BEGIN
+	SELECT RAISE(ABORT, 'match ideas must belong to the debate selected field');
+END;
+--> statement-breakpoint
+CREATE TRIGGER `debate_round_structure_immutable`
+BEFORE UPDATE OF `debate_job_id`, `stage`, `stage_round_number` ON `debate_rounds`
+WHEN NEW.`debate_job_id` IS NOT OLD.`debate_job_id`
+	OR NEW.`stage` IS NOT OLD.`stage`
+	OR NEW.`stage_round_number` IS NOT OLD.`stage_round_number`
+BEGIN
+	SELECT RAISE(ABORT, 'debate-round structural columns are immutable');
+END;
+--> statement-breakpoint
+CREATE TRIGGER `debate_match_structure_immutable`
+BEFORE UPDATE OF `debate_round_id`, `position`, `first_idea_id`, `second_idea_id` ON `debate_matches`
+WHEN NEW.`debate_round_id` IS NOT OLD.`debate_round_id`
+	OR NEW.`position` IS NOT OLD.`position`
+	OR NEW.`first_idea_id` IS NOT OLD.`first_idea_id`
+	OR NEW.`second_idea_id` IS NOT OLD.`second_idea_id`
+BEGIN
+	SELECT RAISE(ABORT, 'debate-match structural columns are immutable');
 END;
