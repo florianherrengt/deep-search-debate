@@ -4,7 +4,7 @@ title: Idea UI shows improved while refinement research is still running
 status: review
 priority: high
 created: 2026-08-24T12:11:45.292312+01:00
-updated: 2026-08-25T11:57:39.730953+01:00
+updated: 2026-08-25T12:20:04.168202+01:00
 started: 2026-08-25T11:09:02.758286+01:00
 tags:
     - bug
@@ -32,3 +32,11 @@ User confirmed the recommended direction: keep the current backend pipeline; add
 
 [[2026-08-25]] Tue 11:57
 Implemented in /Users/florian/projects/deep-search-debate-ticket-14 on branch codex/ticket-14-idea-ui-flow. Added a durable idea-research-completed boundary plus per-idea evaluation-start events; provisional Researching/Waiting/Assessing states; Improved only after final evaluation; honest split progress and interrupted states; SSR/client SEO parity; and hidden debate candidates during idea preparation while preserving the idea-generation link. Updated live/replay contracts, docs, Storybook states, and regressions. Verified: npm run gatekeep passed (API 613 tests, web 308 tests), focused API/UI suites passed, Storybook build passed, rendered researching/waiting/assessing/completed states inspected with no current browser errors, independent architecture/documentation/simplification/final verification passed. No commit created.
+
+[[2026-08-25]] Tue 12:20
+## Review follow-up
+- Worktree and branch: /Users/florian/projects/deep-search-debate-ticket-14 on codex/ticket-14-idea-ui-flow.
+- Code review fixes: authoritative partial-refinement labels; persisted evaluation validation for SSR/client SEO parity; retained idea-job navigation after terminal idea preparation.
+- Story coverage: added selected, improving, waiting-to-refine, waiting-for-assessment, interrupted-assessment, preparing-ideas, and interrupted-preparation stories; corrected impossible/outdated fixtures.
+- Verified: focused API 33 tests and web 77 tests passed; npm run gatekeep passed (API 613, web 311); Storybook production build passed; all new lifecycle stories rendered in-browser with no console errors.
+- Review notes: independent whole-diff and story-matrix audits completed; no remaining confirmed findings. Task code remains uncommitted.
