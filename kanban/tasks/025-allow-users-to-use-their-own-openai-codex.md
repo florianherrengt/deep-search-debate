@@ -4,10 +4,10 @@ title: Allow users to use their own OpenAI Codex subscription
 status: review
 priority: medium
 created: 2026-08-25T14:16:35.14541+01:00
-updated: 2026-08-25T20:39:57.851814+01:00
+updated: 2026-08-25T22:56:55.566532+01:00
 started: 2026-08-25T14:32:31.054817+01:00
 blocked: true
-block_reason: Waiting on user approval for public Codex execution risk, credential storage, isolation strategy, device-code behavior, fallback and credit semantics, UI behavior, and two new dependencies.
+block_reason: Waiting on user decisions for device-code authentication, external search/extraction credit charging, and Codex output-limit behavior.
 class: standard
 ---
 
@@ -81,3 +81,13 @@ Let signed-in users supply their own OpenAI Codex subscription as the LLM creden
 - Runtime impact: add exact provider and exact official Codex dependencies, roughly 300–350 MB image growth, final-image CLI/protocol smoke tests, lifecycle cleanup, and persistence/isolation tests.
 - Generation seam: resolve provider by userId in generateText.ts; keep streams.ts persistence and server-funded DeepSeek pricing intact; connected Codex calls persist usage with zero product credits.
 - Product decisions requested from user: accept public/community-package risk; at-rest credential policy; isolation level; external search/extraction credits and zero-balance admission; fallback behavior; model/output-limit policy; signout/disconnect behavior and active jobs; Settings account details; dependency approval.
+
+[[2026-08-25]] Tue 22:56
+## Additional user-confirmed decisions
+
+- Store OpenAI Codex credentials encrypted in the application database. Hydrate a private temporary CODEX_HOME only while Codex is active, persist any rotated credential state back to encrypted storage before cleanup, then delete the temporary directory.
+- Lock Codex down as far as the runtime permits. Environment scrubbing, minimal filesystem permissions, disabled unnecessary tools and tool network access, fail-closed approvals, process limits, and negative isolation tests are release requirements.
+- If a saved OpenAI connection is expired, broken, or rate-limited, return an actionable error; do not silently fall back to DeepSeek. DeepSeek is selected only when no OpenAI connection is configured.
+- Adding exact pinned ai-sdk-provider-codex-cli and OpenAI Codex dependencies is approved.
+
+Still awaiting decisions on device-code authentication UX, whether existing search and extraction credit charges remain, and the Codex output-limit policy.
