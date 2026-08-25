@@ -1,13 +1,15 @@
 ---
 id: 17
 title: Investigate AI SDK responseFormat JSON schema compatibility warning
-status: review
+status: in-progress
 priority: medium
 created: 2026-08-24T12:11:53.779676+01:00
-updated: 2026-08-25T12:07:46.880545+01:00
+updated: 2026-08-25T12:10:46.176398+01:00
 started: 2026-08-25T11:26:09.368999+01:00
 tags:
     - investigation
+claimed_by: simlin-enjoying
+claimed_at: 2026-08-25T12:10:46.176398+01:00
 class: standard
 ---
 
