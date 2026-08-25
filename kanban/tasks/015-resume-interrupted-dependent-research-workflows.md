@@ -1,11 +1,12 @@
 ---
 id: 15
 title: Resume interrupted dependent research workflows from persisted state
-status: review
+status: done
 priority: medium
 created: 2026-08-24T12:11:48.069418+01:00
-updated: 2026-08-25T01:46:07.039167+01:00
+updated: 2026-08-25T10:43:34.908197+01:00
 started: 2026-08-24T12:21:24.380397+01:00
+completed: 2026-08-25T10:43:34.909121+01:00
 tags:
     - feature
 class: standard
