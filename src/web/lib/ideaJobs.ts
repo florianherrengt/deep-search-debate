@@ -91,6 +91,12 @@ const ideaJobEventSchema = z.discriminatedUnion("type", [
     slug: z.string().min(1),
     researchRequest: z.string().min(1),
   }),
+  z.object({
+    type: z.literal("idea-evaluation-stream"),
+    ideaId: z.string().min(1),
+    streamId: z.string().min(1),
+  }),
+  z.object({ type: z.literal("idea-research-completed") }),
   z.object({ type: z.literal("stop-requested") }),
   z.object({
     type: z.literal("interrupted"),

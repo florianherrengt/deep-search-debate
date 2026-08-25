@@ -41,6 +41,12 @@ export const Completed: Story = {
   },
 }
 
+export const Incomplete: Story = {
+  args: {
+    status: "incomplete",
+  },
+}
+
 export const Failed: Story = {
   args: {
     status: "failed",
@@ -56,13 +62,12 @@ export const NotRun: Story = {
 export const LongContent: Story = {
   args: {
     status: "completed",
-    title: "Improve, research, and assess selected ideas",
+    title: "Research improved ideas",
     children: (
       <Typography color="text.secondary">
-        The selected ideas are refined, given supporting research, and assessed
-        in parallel. Refined idea research opens the source searches that
-        informed each improved concept, while the final evaluation compares the
-        candidate on operational fit, differentiation, and evidence strength.
+        Each improved draft receives a focused research job. When all research
+        is complete, final assessments enter the queue and the evidence becomes
+        available from each idea detail page.
       </Typography>
     ),
   },

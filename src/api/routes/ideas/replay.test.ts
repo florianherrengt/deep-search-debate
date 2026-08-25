@@ -180,6 +180,11 @@ describe("reconstructIdeaJobEvents", () => {
     expect(reconstructIdeaJobEvents(ideaJobId)).toEqual(
       expect.arrayContaining([
         {
+          type: "idea-evaluation-stream",
+          ideaId,
+          streamId: "invalid-evaluation-id",
+        },
+        {
         type: "error",
         message: "Structured output was invalid",
         stage: "evaluation",
@@ -323,6 +328,12 @@ describe("reconstructIdeaJobEvents", () => {
         slug: "selected-search",
         researchRequest: "Research the improved idea",
       },
+      { type: "idea-research-completed" },
+      {
+        type: "idea-evaluation-stream",
+        ideaId: "33333333-3333-4333-8333-333333333333",
+        streamId: "evaluation-id",
+      },
       {
         type: "idea-evaluated",
         ideaId: "33333333-3333-4333-8333-333333333333",
@@ -376,6 +387,7 @@ describe("reconstructIdeaJobEvents", () => {
 
     expect(reconstructIdeaJobEvents(ideaJobId)).toEqual(
       expect.arrayContaining([
+        { type: "idea-research-completed" },
         {
         type: "error",
         message: "Evaluation failed before streaming",

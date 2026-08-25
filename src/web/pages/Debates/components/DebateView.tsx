@@ -123,10 +123,28 @@ export function DebateView({
                   Research and idea preparation are still running. The debate
                   rounds will start automatically when the candidates are ready.
                 </Typography>
+                <Button
+                  component={Link}
+                  startIcon={<LightbulbOutlined />}
+                  sx={{ alignSelf: "flex-start" }}
+                  to={`/ideas/${tournament.slug}`}
+                >
+                  View the underlying idea generation
+                </Button>
               </Stack>
             </Stack>
           </CardContent>
         </Card>
+      )}
+      {tournament.stage === "ideas" && !preparingIdeas && (
+        <Button
+          component={Link}
+          startIcon={<LightbulbOutlined />}
+          sx={{ alignSelf: "flex-start" }}
+          to={`/ideas/${tournament.slug}`}
+        >
+          View the underlying idea generation
+        </Button>
       )}
       {winner && (
         <WinnerIdeaCard
@@ -146,18 +164,20 @@ export function DebateView({
         />
       )}
 
-      <TournamentBoard
-        standingsAction={
-          <Button
-            component={Link}
-            startIcon={<LightbulbOutlined />}
-            to={`/ideas/${tournament.slug}`}
-          >
-            View the underlying idea generation
-          </Button>
-        }
-        tournament={tournament}
-      />
+      {tournament.stage !== "ideas" && (
+        <TournamentBoard
+          standingsAction={
+            <Button
+              component={Link}
+              startIcon={<LightbulbOutlined />}
+              to={`/ideas/${tournament.slug}`}
+            >
+              View the underlying idea generation
+            </Button>
+          }
+          tournament={tournament}
+        />
+      )}
     </Stack>
   )
 }

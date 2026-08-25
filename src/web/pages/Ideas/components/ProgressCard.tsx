@@ -17,6 +17,7 @@ export type ProgressStatus =
   | "waiting"
   | "running"
   | "completed"
+  | "incomplete"
   | "failed"
   | "not-run"
 
@@ -32,6 +33,7 @@ const statusPresentation: Record<
   waiting: { label: "Waiting", color: "default" },
   running: { label: "Running", color: "primary" },
   completed: { label: "Complete", color: "success" },
+  incomplete: { label: "Incomplete", color: "default" },
   failed: { label: "Failed", color: "error" },
   "not-run": { label: "Not run", color: "default" },
 }
@@ -87,7 +89,7 @@ export function ProgressCard({
       <AccordionDetails>
         {status === "not-run" ? (
           <Typography color="text.secondary">
-            This stage did not run because an earlier stage failed.
+            This stage did not run because the workflow ended earlier.
           </Typography>
         ) : (
           children

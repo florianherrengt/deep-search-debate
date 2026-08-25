@@ -23,6 +23,7 @@ const baseRun: IdeaJobRunState = {
   refinementGenerationStreamIds: {},
   refinedIdeas: {},
   refinedIdeaResearch: {},
+  ideaEvaluationStreamIds: {},
   error: null,
 }
 
@@ -98,18 +99,6 @@ const ideaEvaluations: IdeaJobRunState["ideaEvaluations"] = {
     critique:
       "The concept is accessible but needs automatic bundle creation and till integration to be meaningfully differentiated.",
   },
-  "manual-waste-diary": {
-    pros: [
-      "Requires little technical integration to launch.",
-      "Creates a basic record of discarded stock.",
-    ],
-    cons: [
-      "Manual logging creates substantial staff friction.",
-      "The resulting data is likely to be incomplete and inconsistent.",
-    ],
-    critique:
-      "The operational burden is high and the product offers little differentiation from existing waste diaries.",
-  },
 }
 
 const refinementGenerationStreamIds = {
@@ -153,10 +142,7 @@ const selectedIdeaRun: IdeaJobRunState = {
   researchSummaryStreamId: "summary",
   ideaGenerationStreamId: "ideas",
   ideas: selectedIdeas,
-  ideaEvaluations: {
-    "prep-forecast": ideaEvaluations["prep-forecast"],
-    "last-hour-bundles": ideaEvaluations["last-hour-bundles"],
-  },
+  ideaEvaluations: {},
   ideaSelectionStreamId: "selection",
 }
 
@@ -262,7 +248,7 @@ export const GeneratingIdeas: Story = {
   },
 }
 
-export const EvaluatingIdeas: Story = {
+export const SelectingIdeas: Story = {
   args: {
     prompt,
     title,
@@ -272,11 +258,13 @@ export const EvaluatingIdeas: Story = {
       researchSummaryStreamId: "summary",
       ideaGenerationStreamId: "ideas",
       ideas,
-      ideaEvaluations: {
-        "prep-forecast": ideaEvaluations["prep-forecast"],
-      },
+      ideaSelectionStreamId: "selection",
     },
   },
+}
+
+export const WaitingToRefineSelectedIdeas: Story = {
+  args: { prompt, title, run: selectedIdeaRun },
 }
 
 export const RefiningSelectedIdeas: Story = {
@@ -310,6 +298,57 @@ export const ResearchingRefinedIdeas: Story = {
           deepSearchJobId: "bundles-research-pending",
         },
       },
+    },
+  },
+}
+
+export const WaitingForAssessments: Story = {
+  args: {
+    prompt,
+    title,
+    run: {
+      ...selectedIdeaRun,
+      refinementGenerationStreamIds,
+      refinedIdeas,
+      refinedIdeaResearch: completedRefinedIdeaResearch,
+      refinedIdeaResearchCompleted: true,
+    },
+  },
+}
+
+export const AssessingRefinedIdeas: Story = {
+  args: {
+    prompt,
+    title,
+    run: {
+      ...selectedIdeaRun,
+      refinementGenerationStreamIds,
+      refinedIdeas,
+      refinedIdeaResearch: completedRefinedIdeaResearch,
+      refinedIdeaResearchCompleted: true,
+      ideaEvaluationStreamIds: {
+        "prep-forecast": "prep-evaluation",
+        "last-hour-bundles": "bundles-evaluation",
+      },
+    },
+  },
+}
+
+export const InterruptedDuringAssessment: Story = {
+  args: {
+    prompt,
+    title,
+    run: {
+      ...selectedIdeaRun,
+      status: "interrupted",
+      refinementGenerationStreamIds,
+      refinedIdeas,
+      refinedIdeaResearch: completedRefinedIdeaResearch,
+      refinedIdeaResearchCompleted: true,
+      ideaEvaluationStreamIds: {
+        "prep-forecast": "prep-evaluation",
+      },
+      error: "Workflow interrupted during final assessment",
     },
   },
 }
@@ -368,6 +407,11 @@ export const Completed: Story = {
       refinementGenerationStreamIds,
       refinedIdeas,
       refinedIdeaResearch: completedRefinedIdeaResearch,
+      refinedIdeaResearchCompleted: true,
+      ideaEvaluationStreamIds: {
+        "prep-forecast": "prep-evaluation",
+        "last-hour-bundles": "bundles-evaluation",
+      },
     },
   },
 }

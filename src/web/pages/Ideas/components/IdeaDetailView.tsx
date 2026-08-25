@@ -11,7 +11,12 @@ import Typography from "@mui/material/Typography"
 import { useEffect } from "react"
 import { Link, useLocation } from "react-router-dom"
 import { ExternalLink } from "../../../components/ExternalLink.tsx"
-import type { IdeaJobRunState, IdeaResearchState } from "../ideaJobState.ts"
+import {
+  getIdeaPresentation,
+  hasRefinedIdeaResearchCompleted,
+  type IdeaJobRunState,
+  type IdeaResearchState,
+} from "../ideaJobState.ts"
 import { IdeaAssessment } from "./IdeaAssessment.tsx"
 
 function WaitingStatus({ children }: { children: string }) {
@@ -31,7 +36,15 @@ function WaitingStatus({ children }: { children: string }) {
   )
 }
 
-function IdeaResearch({ research }: { research: IdeaResearchState }) {
+function IdeaResearch({
+  available,
+  running,
+  research,
+}: {
+  available: boolean
+  running: boolean
+  research: IdeaResearchState
+}) {
   return (
     <Card component="section" variant="outlined">
       <CardContent>
@@ -53,9 +66,21 @@ function IdeaResearch({ research }: { research: IdeaResearchState }) {
               Open full research
             </ExternalLink>
           </Stack>
-          <Typography color="text.secondary" variant="body2">
-            Read the evidence gathered specifically for this improved idea.
-          </Typography>
+          {available ? (
+            <Typography color="text.secondary" variant="body2">
+              Supporting research is complete and available for this improved
+              idea.
+            </Typography>
+          ) : running ? (
+            <WaitingStatus>
+              Supporting research is in progress for this draft…
+            </WaitingStatus>
+          ) : (
+            <Typography color="text.secondary" variant="body2">
+              The workflow ended during supporting research. Open this idea's
+              research page for its final status.
+            </Typography>
+          )}
         </Stack>
       </CardContent>
     </Card>
@@ -114,18 +139,29 @@ export function IdeaDetailView({
   const position = run.ideas.findIndex((idea) => idea.ideaId === ideaId)
   const idea = run.ideas[position]
   const refinedIdea = idea ? run.refinedIdeas[idea.ideaId] : undefined
+  const presentationRun: IdeaJobRunState =
+    status === run.status ? run : { ...run, status }
+  const presentation = idea
+    ? getIdeaPresentation(idea, presentationRun)
+    : undefined
 
   useEffect(() => {
-    if (location.hash !== "#improved-idea" || !refinedIdea) return
+    if (
+      location.hash !== "#improved-idea" ||
+      !refinedIdea ||
+      !presentation?.isFinal
+    ) {
+      return
+    }
 
     const heading = document.getElementById("improved-idea")
     if (!heading) return
     heading.tabIndex = -1
     heading.scrollIntoView({ block: "start" })
     heading.focus({ preventScroll: true })
-  }, [location.hash, refinedIdea])
+  }, [location.hash, presentation?.isFinal, refinedIdea])
 
-  if (!idea) {
+  if (!idea || !presentation) {
     return (
       <IdeaUnavailable
         jobSlug={jobSlug}
@@ -142,15 +178,10 @@ export function IdeaDetailView({
 
   const evaluation = run.ideaEvaluations[idea.ideaId]
   const research = run.refinedIdeaResearch[idea.ideaId]
-  const displayTitle = refinedIdea?.title ?? idea.title
-  const selectionPresentation =
-    idea.selection === "selected"
-      ? { color: "primary" as const, label: "Selected" }
-      : idea.selection === "rejected"
-        ? { color: "default" as const, label: "Not selected" }
-        : status === "running"
-          ? { color: "default" as const, label: "Awaiting selection" }
-          : { color: "error" as const, label: "Selection incomplete" }
+  const evaluationStarted =
+    run.ideaEvaluationStreamIds?.[idea.ideaId] !== undefined
+  const refinedResearchCompleted = hasRefinedIdeaResearchCompleted(run)
+  const researchAvailable = refinedResearchCompleted
 
   return (
     <Stack spacing={3}>
@@ -173,11 +204,11 @@ export function IdeaDetailView({
           sx={{ alignItems: { sm: "center" }, justifyContent: "space-between" }}
         >
           <Typography component="h1" variant="h4">
-            {displayTitle}
+            {presentation.displayIdea.title}
           </Typography>
           <Chip
-            color={selectionPresentation.color}
-            label={selectionPresentation.label}
+            color={presentation.color}
+            label={presentation.label}
             variant="outlined"
           />
         </Stack>
@@ -200,12 +231,20 @@ export function IdeaDetailView({
           <CardContent>
             <Stack spacing={1}>
               <Typography component="h2" id="improved-idea" variant="h6">
-                Improved idea
+                {presentation.isFinal ? "Improved idea" : "Improved idea draft"}
               </Typography>
               {refinedIdea ? (
-                <Typography color="text.secondary">
-                  {refinedIdea.description}
-                </Typography>
+                <Stack spacing={1}>
+                  <Typography color="text.secondary">
+                    {refinedIdea.description}
+                  </Typography>
+                  {presentation.isProvisional && (
+                    <Typography color="text.secondary" variant="body2">
+                      This is a provisional draft until its supporting research
+                      and final assessment are complete.
+                    </Typography>
+                  )}
+                </Stack>
               ) : status === "running" ? (
                 <WaitingStatus>
                   {run.refinementGenerationStreamIds[idea.ideaId]
@@ -237,7 +276,11 @@ export function IdeaDetailView({
 
       {idea.selection === "selected" &&
         (research ? (
-          <IdeaResearch research={research} />
+          <IdeaResearch
+            available={researchAvailable}
+            research={research}
+            running={status === "running"}
+          />
         ) : (
           <Card component="section" variant="outlined">
             <CardContent>
@@ -269,7 +312,13 @@ export function IdeaDetailView({
                 <Typography component="h2" variant="h6">
                   Assessment of improved idea
                 </Typography>
-                {status === "running" ? (
+                {status === "running" && evaluationStarted ? (
+                  <WaitingStatus>Assessing this improved idea…</WaitingStatus>
+                ) : status === "running" && refinedResearchCompleted ? (
+                  <WaitingStatus>
+                    Waiting for this improved idea's assessment to start…
+                  </WaitingStatus>
+                ) : status === "running" ? (
                   <WaitingStatus>
                     Assessment starts after supporting research completes…
                   </WaitingStatus>

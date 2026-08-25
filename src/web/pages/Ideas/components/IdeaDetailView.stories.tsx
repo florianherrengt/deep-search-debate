@@ -53,6 +53,7 @@ const run: IdeaJobRunState = {
       researchRequest: "Research the refined prep forecast.",
     },
   },
+  ideaEvaluationStreamIds: { "prep-forecast": "prep-evaluation" },
   error: null,
 }
 
@@ -104,9 +105,11 @@ export const AwaitingSelection: Story = {
       ...run,
       status: "running",
       ideas: run.ideas.map((idea) => ({ ...idea, selection: "pending" })),
+      ideaEvaluations: {},
       refinementGenerationStreamIds: {},
       refinedIdeas: {},
       refinedIdeaResearch: {},
+      ideaEvaluationStreamIds: {},
     },
   },
 }
@@ -116,9 +119,72 @@ export const Rejected: Story = {
     run: {
       ...run,
       ideas: run.ideas.map((idea) => ({ ...idea, selection: "rejected" })),
+      ideaEvaluations: {},
       refinementGenerationStreamIds: {},
       refinedIdeas: {},
       refinedIdeaResearch: {},
+      ideaEvaluationStreamIds: {},
+    },
+  },
+}
+
+export const Selected: Story = {
+  args: {
+    run: {
+      ...run,
+      status: "running",
+      ideaEvaluations: {},
+      refinementGenerationStreamIds: {},
+      refinedIdeas: {},
+      refinedIdeaResearch: {},
+      ideaEvaluationStreamIds: {},
+    },
+  },
+}
+
+export const Improving: Story = {
+  args: {
+    run: {
+      ...run,
+      status: "running",
+      ideaEvaluations: {},
+      refinedIdeas: {},
+      refinedIdeaResearch: {},
+      ideaEvaluationStreamIds: {},
+    },
+  },
+}
+
+export const ResearchingImprovedIdea: Story = {
+  args: {
+    run: {
+      ...run,
+      status: "running",
+      ideaEvaluations: {},
+      ideaEvaluationStreamIds: {},
+    },
+  },
+}
+
+export const WaitingForAssessment: Story = {
+  args: {
+    run: {
+      ...run,
+      status: "running",
+      ideaEvaluations: {},
+      refinedIdeaResearchCompleted: true,
+      ideaEvaluationStreamIds: {},
+    },
+  },
+}
+
+export const AssessingImprovedIdea: Story = {
+  args: {
+    run: {
+      ...run,
+      status: "running",
+      ideaEvaluations: {},
+      refinedIdeaResearchCompleted: true,
     },
   },
 }

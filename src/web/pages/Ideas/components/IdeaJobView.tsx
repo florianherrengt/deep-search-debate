@@ -5,7 +5,10 @@ import Stack from "@mui/material/Stack"
 import Typography from "@mui/material/Typography"
 import type { ReactNode } from "react"
 import { GenerationOutput } from "../../../components/streaming/GenerationOutput.tsx"
-import type { IdeaJobRunState } from "../ideaJobState.ts"
+import {
+  hasRefinedIdeaResearchCompleted,
+  type IdeaJobRunState,
+} from "../ideaJobState.ts"
 import { IdeaList } from "./IdeaList.tsx"
 import {
   ProgressCard,
@@ -19,18 +22,24 @@ function getProgressStatus({
   notRun,
   running,
   completed,
+  started,
   stopped,
 }: {
   failed: boolean
   notRun: boolean
   running: boolean
   completed: boolean
+  started: boolean
   stopped: boolean
 }): ProgressStatus {
   if (failed) return "failed"
+  if (stopped) {
+    if (completed) return "completed"
+    return started ? "incomplete" : "not-run"
+  }
   if (running) return "running"
   if (completed) return "completed"
-  if (notRun || stopped) return "not-run"
+  if (notRun) return "not-run"
   return "waiting"
 }
 
@@ -39,24 +48,13 @@ const progressStageOrder = {
   research: 1,
   summary: 2,
   ideas: 3,
-  improvement: 4,
+  selection: 4,
+  refinement: 5,
+  "idea-research": 6,
+  evaluation: 7,
 } as const
 
 type ProgressStage = keyof typeof progressStageOrder
-type FailedStage = NonNullable<IdeaJobRunState["failedStage"]>
-
-// Selection is part of candidate generation. Refinement, supporting research,
-// and final evaluation share one downstream progress card.
-const failedStageToProgressStage: Record<FailedStage, ProgressStage> = {
-  planning: "planning",
-  research: "research",
-  summary: "summary",
-  ideas: "ideas",
-  evaluation: "improvement",
-  selection: "ideas",
-  refinement: "improvement",
-  "idea-research": "improvement",
-}
 
 function IdeaResults({
   ideas,
@@ -72,6 +70,18 @@ function IdeaResults({
   selectionCompleted: boolean
 }) {
   const hasSelectedResults = selectionCompleted && selectedIdeaCount > 0
+  const anyAssessmentStarted =
+    Object.keys(run.ideaEvaluationStreamIds ?? {}).length > 0 ||
+    Object.keys(run.ideaEvaluations).length > 0
+  const selectedIdeaProgress = anyAssessmentStarted
+    ? "Assessing the improved ideas…"
+    : hasRefinedIdeaResearchCompleted(run)
+      ? "Waiting to assess the improved ideas…"
+      : Object.keys(run.refinedIdeaResearch).length > 0
+        ? "Researching the improved ideas…"
+        : Object.keys(run.refinementGenerationStreamIds).length > 0
+          ? "Improving the selected ideas…"
+          : "Preparing to improve the selected ideas…"
 
   return (
     <Stack component="section" spacing={2} aria-labelledby="idea-results">
@@ -99,7 +109,7 @@ function IdeaResults({
         >
           <CircularProgress aria-hidden="true" size={20} />
           <Typography color="text.secondary">
-            Improving, researching, and assessing the selected ideas…
+            {selectedIdeaProgress}
           </Typography>
         </Stack>
       )}
@@ -137,10 +147,7 @@ export function IdeaJobView({
   const presentationRun: IdeaJobRunState =
     status === run.status ? run : { ...run, status }
   const failedStage = run.failedStage
-  const failedProgressStage =
-    status === "failed" && failedStage
-      ? failedStageToProgressStage[failedStage]
-      : null
+  const failedProgressStage = status === "failed" ? failedStage : null
   // The terminal error identifies the attempted stage. Earlier sequential
   // stages therefore completed, while later ones cannot still be waiting.
   const completedBeforeFailure = (stage: ProgressStage) =>
@@ -167,13 +174,24 @@ export function IdeaJobView({
   const evaluatedIdeaCount = selectedIdeas.filter(
     ({ ideaId }) => run.ideaEvaluations[ideaId] !== undefined,
   ).length
+  const refinementStarted =
+    Object.keys(run.refinementGenerationStreamIds).length > 0 ||
+    refinedIdeaCount > 0
+  const assessmentReachedCount = selectedIdeas.filter(
+    ({ ideaId }) =>
+      run.ideaEvaluationStreamIds?.[ideaId] !== undefined ||
+      run.ideaEvaluations[ideaId] !== undefined,
+  ).length
+  const refinedResearchCompleted = hasRefinedIdeaResearchCompleted(run)
+  const workflowStopped = status === "stopping" || status === "interrupted"
   const planningStatus = getProgressStatus({
     failed: failedStage === "planning",
     notRun: notRunAfterFailure("planning"),
     running: status === "running" && run.research.length === 0,
     completed:
       Boolean(run.researchPromptStreamId) || completedBeforeFailure("planning"),
-    stopped: status === "stopping" || status === "interrupted",
+    started: Boolean(run.researchPromptStreamId),
+    stopped: workflowStopped,
   })
   const researchStatus = getProgressStatus({
     failed: failedStage === "research",
@@ -184,7 +202,8 @@ export function IdeaJobView({
       !run.researchSummaryStreamId,
     completed:
       Boolean(run.researchSummaryStreamId) || completedBeforeFailure("research"),
-    stopped: status === "stopping" || status === "interrupted",
+    started: run.research.length > 0,
+    stopped: workflowStopped,
   })
   const summaryStatus = getProgressStatus({
     failed: failedStage === "summary",
@@ -195,54 +214,80 @@ export function IdeaJobView({
       !run.ideaGenerationStreamId,
     completed:
       Boolean(run.ideaGenerationStreamId) || completedBeforeFailure("summary"),
-    stopped: status === "stopping" || status === "interrupted",
+    started: Boolean(run.researchSummaryStreamId),
+    stopped: workflowStopped,
   })
   const ideaStatus = getProgressStatus({
-    failed:
-      failedStage === "ideas" || failedStage === "selection",
+    failed: failedStage === "ideas",
     notRun: notRunAfterFailure("ideas"),
     running:
       status === "running" &&
       Boolean(run.ideaGenerationStreamId) &&
+      !run.ideaSelectionStreamId &&
       !selectionCompleted,
     completed:
+      Boolean(run.ideaSelectionStreamId) ||
       selectionCompleted ||
       completedBeforeFailure("ideas") ||
       (status === "completed" && Boolean(run.ideaGenerationStreamId)),
-    stopped: status === "stopping" || status === "interrupted",
+    started: Boolean(run.ideaGenerationStreamId),
+    stopped: workflowStopped,
   })
   const selectionStatus = getProgressStatus({
     failed: failedStage === "selection",
-    notRun: false,
+    notRun: notRunAfterFailure("selection"),
     running:
       status === "running" &&
       Boolean(run.ideaSelectionStreamId) &&
       !selectionCompleted,
     completed: selectionCompleted,
-    stopped: status === "stopping" || status === "interrupted",
+    started: Boolean(run.ideaSelectionStreamId),
+    stopped: workflowStopped,
   })
-  const improvementStatus = getProgressStatus({
-    failed:
-      failedStage === "refinement" ||
-      failedStage === "idea-research" ||
-      failedStage === "evaluation",
-    notRun: notRunAfterFailure("improvement"),
+  const refinementStatus = getProgressStatus({
+    failed: failedStage === "refinement",
+    notRun: notRunAfterFailure("refinement"),
     running:
       status === "running" &&
       selectionCompleted &&
-      selectedIdeaCount > 0,
-    stopped: status === "stopping" || status === "interrupted",
+      selectedIdeaCount > 0 &&
+      refinementStarted &&
+      refinedIdeaCount < selectedIdeaCount,
+    started: refinementStarted,
+    stopped: workflowStopped,
     completed:
-      status === "completed" &&
-      selectionCompleted &&
-      selectedIdeaCount > 0,
+      (selectedIdeaCount > 0 && refinedIdeaCount === selectedIdeaCount) ||
+      completedBeforeFailure("refinement"),
   })
-  const showImprovementStage =
+  const refinedResearchStatus = getProgressStatus({
+    failed: failedStage === "idea-research",
+    notRun: notRunAfterFailure("idea-research"),
+    running:
+      status === "running" &&
+      researchedIdeaCount > 0 &&
+      !refinedResearchCompleted,
+    completed:
+      (selectedIdeaCount > 0 && refinedResearchCompleted) ||
+      completedBeforeFailure("idea-research"),
+    started: researchedIdeaCount > 0,
+    stopped: workflowStopped,
+  })
+  const assessmentStatus = getProgressStatus({
+    failed: failedStage === "evaluation",
+    notRun: notRunAfterFailure("evaluation"),
+    running:
+      status === "running" &&
+      assessmentReachedCount > 0 &&
+      evaluatedIdeaCount < selectedIdeaCount,
+    completed:
+      (selectedIdeaCount > 0 && evaluatedIdeaCount === selectedIdeaCount) ||
+      completedBeforeFailure("evaluation"),
+    started: assessmentReachedCount > 0,
+    stopped: workflowStopped,
+  })
+  const showSelectedIdeaStages =
     selectedIdeaCount > 0 &&
-    (selectionCompleted ||
-      failedStage === "refinement" ||
-      failedStage === "idea-research" ||
-      failedStage === "evaluation")
+    (selectionCompleted || failedProgressStage === "refinement")
   return (
     <Stack spacing={3}>
       <Stack spacing={1}>
@@ -381,103 +426,135 @@ export function IdeaJobView({
 
           <ProgressCard
             autoExpandStatuses={["running", "failed"]}
-            title="Generate and select ideas"
+            title="Generate ideas"
             status={ideaStatus}
           >
-            <Stack spacing={2}>
-              {ideaStatus === "running" && !hasIdeas && (
-                <Stack
-                  aria-live="polite"
-                  direction="row"
-                  role="status"
-                  spacing={1}
-                  sx={{ alignItems: "center" }}
-                >
-                  <CircularProgress aria-hidden="true" size={20} />
-                  <Typography color="text.secondary">
-                    Generating ideas…
-                  </Typography>
-                </Stack>
-              )}
-              {failedStage === "ideas" && (
-                <Typography color="error" variant="body2">
-                  Idea generation stopped before producing a complete set.
-                </Typography>
-              )}
-              {selectionStatus === "waiting" &&
-                hasIdeas &&
-                status === "running" && (
-                  <Stack
-                    aria-live="polite"
-                    direction="row"
-                    role="status"
-                    spacing={1}
-                    sx={{ alignItems: "center" }}
-                  >
-                    <CircularProgress aria-hidden="true" size={20} />
-                    <Typography color="text.secondary">
-                      Comparing the generated ideas…
-                    </Typography>
-                  </Stack>
-                )}
-              {selectionStatus === "running" && (
-                <Stack
-                  aria-live="polite"
-                  direction="row"
-                  role="status"
-                  spacing={1}
-                  sx={{ alignItems: "center" }}
-                >
-                  <CircularProgress aria-hidden="true" size={20} />
-                  <Typography color="text.secondary">
-                    Selecting ideas…
-                  </Typography>
-                </Stack>
-              )}
-              {selectionStatus === "failed" && (
-                <Typography color="error" variant="body2">
-                  Idea selection did not complete.
-                </Typography>
-              )}
-              {selectionStatus === "completed" && (
-                <Typography color="text.secondary">
-                  {selectedIdeaCount} of {run.ideas.length}{" "}
-                  {run.ideas.length === 1 ? "idea" : "ideas"} selected for
-                  improvement.
-                </Typography>
-              )}
-            </Stack>
+            {ideaStatus === "running" && !hasIdeas ? (
+              <Stack
+                aria-live="polite"
+                direction="row"
+                role="status"
+                spacing={1}
+                sx={{ alignItems: "center" }}
+              >
+                <CircularProgress aria-hidden="true" size={20} />
+                <Typography color="text.secondary">Generating ideas…</Typography>
+              </Stack>
+            ) : failedStage === "ideas" ? (
+              <Typography color="error" variant="body2">
+                Idea generation stopped before producing a complete set.
+              </Typography>
+            ) : (
+              <Typography color="text.secondary">
+                {run.ideas.length} {run.ideas.length === 1 ? "idea" : "ideas"}{" "}
+                generated.
+              </Typography>
+            )}
           </ProgressCard>
 
-          {showImprovementStage && (
-            <ProgressCard
-              autoExpandStatuses={["running", "failed"]}
-              title="Improve, research, and assess selected ideas"
-              status={improvementStatus}
-            >
-              <Stack spacing={1}>
-                {failedStage === "refinement" && (
-                  <Typography color="error" variant="body2">
-                    One or more selected ideas could not be improved.
-                  </Typography>
-                )}
-                {failedStage === "idea-research" && (
-                  <Typography color="error" variant="body2">
-                    Supporting research did not complete for every selected idea.
-                  </Typography>
-                )}
-                {failedStage === "evaluation" && (
-                  <Typography color="error" variant="body2">
-                    One or more improved ideas could not be assessed.
-                  </Typography>
-                )}
+          <ProgressCard
+            autoExpandStatuses={
+              hasIdeas
+                ? ["waiting", "running", "failed"]
+                : ["running", "failed"]
+            }
+            title="Select ideas"
+            status={selectionStatus}
+          >
+            {selectionStatus === "waiting" && hasIdeas && status === "running" ? (
+              <Stack
+                aria-live="polite"
+                direction="row"
+                role="status"
+                spacing={1}
+                sx={{ alignItems: "center" }}
+              >
+                <CircularProgress aria-hidden="true" size={20} />
                 <Typography color="text.secondary">
-                  {`${refinedIdeaCount} of ${selectedIdeaCount} improved · ${researchedIdeaCount} of ${selectedIdeaCount} supporting research ${
-                    researchedIdeaCount === 1 ? "job" : "jobs"
-                  } started · ${evaluatedIdeaCount} of ${selectedIdeaCount} assessed`}
+                  Comparing the generated ideas…
                 </Typography>
               </Stack>
-            </ProgressCard>
+            ) : selectionStatus === "running" ? (
+              <Stack
+                aria-live="polite"
+                direction="row"
+                role="status"
+                spacing={1}
+                sx={{ alignItems: "center" }}
+              >
+                <CircularProgress aria-hidden="true" size={20} />
+                <Typography color="text.secondary">Selecting ideas…</Typography>
+              </Stack>
+            ) : selectionStatus === "failed" ? (
+              <Typography color="error" variant="body2">
+                Idea selection did not complete.
+              </Typography>
+            ) : (
+              <Typography color="text.secondary">
+                {selectedIdeaCount} of {run.ideas.length}{" "}
+                {run.ideas.length === 1 ? "idea" : "ideas"} selected for
+                improvement.
+              </Typography>
+            )}
+          </ProgressCard>
+
+          {showSelectedIdeaStages && (
+            <>
+              <ProgressCard
+                autoExpandStatuses={["running", "failed"]}
+                title="Refine selected ideas"
+                status={refinementStatus}
+              >
+                <Stack spacing={1}>
+                  {failedStage === "refinement" && (
+                    <Typography color="error" variant="body2">
+                      One or more selected ideas could not be improved.
+                    </Typography>
+                  )}
+                  <Typography color="text.secondary">
+                    {refinedIdeaCount} of {selectedIdeaCount} improved drafts ready.
+                  </Typography>
+                </Stack>
+              </ProgressCard>
+
+              <ProgressCard
+                autoExpandStatuses={["running", "failed"]}
+                title="Research improved ideas"
+                status={refinedResearchStatus}
+              >
+                <Stack spacing={1}>
+                  {failedStage === "idea-research" && (
+                    <Typography color="error" variant="body2">
+                      Supporting research did not complete for every selected idea.
+                    </Typography>
+                  )}
+                  <Typography color="text.secondary">
+                    {refinedResearchCompleted
+                      ? `Supporting research is complete for all ${selectedIdeaCount} improved ${selectedIdeaCount === 1 ? "idea" : "ideas"}.`
+                      : `${researchedIdeaCount} of ${selectedIdeaCount} supporting research ${researchedIdeaCount === 1 ? "job" : "jobs"} started. Research remains in progress until final assessment begins.`}
+                  </Typography>
+                </Stack>
+              </ProgressCard>
+
+              <ProgressCard
+                autoExpandStatuses={["running", "failed"]}
+                title="Assess improved ideas"
+                status={assessmentStatus}
+              >
+                <Stack spacing={1}>
+                  {failedStage === "evaluation" && (
+                    <Typography color="error" variant="body2">
+                      One or more improved ideas could not be assessed.
+                    </Typography>
+                  )}
+                  <Typography color="text.secondary">
+                    {assessmentReachedCount} of {selectedIdeaCount} final
+                    assessments started · {evaluatedIdeaCount} of{" "}
+                    {selectedIdeaCount} complete.
+                  </Typography>
+                </Stack>
+              </ProgressCard>
+            </>
           )}
           </Stack>
         </Stack>

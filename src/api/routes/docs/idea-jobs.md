@@ -55,12 +55,16 @@ stages and child searches, and retries only incomplete work.
 7. One successful structured refinement generation completes for each
    selected idea. It receives the original request, shared research briefing,
    and original idea. Its generation link is attached before publication;
-   validated refined title and description commit together.
+   validated refined title and description commit together. The published
+   refinement is a provisional improved draft until its supporting research
+   and final evaluation complete.
 8. One deep-search job is then created for each refined idea. These
    searches reuse the request's existing `maxSearches`,
    `maxResultsPerSearch`, and `maxRounds`. Each search's parent-scoped position is
    `deepSearchCount + idea.position`. The parent waits for every selected-idea
-   search to complete under the same strict summary policy.
+   search to complete successfully under the same strict summary policy, then
+   publishes the global research-complete boundary before final assessments
+   enter the LLM queue.
 9. One successful structured evaluation generation completes for each researched,
     refined idea. Each call receives the original request, shared research
     briefing, improved idea, and that idea's supporting-research answer. It
@@ -308,16 +312,33 @@ The event sequence is:
    selector output and every selected flag commit atomically.
 8. `idea-refinement-stream` once per selected idea, keyed by stable `ideaId`.
 9. `refined-idea` once per completed refinement, with its improved title and
-    description.
+    description. This is a provisional refinement draft, not a completed final
+    assessment.
 10. `idea-deep-search-started` once per refined idea, with the stable `ideaId`,
     child job ID, title, slug, and generated research request.
-11. `idea-evaluated` once per completed final evaluation, with the stable
+    This event reports only that the child search started; completion remains
+    authoritative in that child's `/api/deep-search-jobs/:id/events` feed.
+11. `idea-research-completed` once after every selected idea's supporting
+    research has completed successfully and before final assessments enter the
+    generation queue. Replay derives the same global boundary from the
+    completed child searches, including when assessment setup never starts.
+12. `idea-evaluation-stream` once per selected idea, keyed by stable `ideaId`
+    and carrying the evaluation generation's `streamId`. It marks that idea's
+    assessment as active and precedes the matching `idea-evaluated` event.
+13. `idea-evaluated` once per completed final evaluation, with the stable
     `ideaId`, ordered `pros`, ordered `cons`, and explanatory `critique`.
-12. On ordinary failure, one `error` with the failing stage and message.
+    Refinement, selected-idea research, and evaluation each run as a concurrent
+    fan-out within their sequential phase. Live event order across different
+    ideas inside a fan-out is not guaranteed. Durable replay emits refinement
+    and research events in idea-position order, then all persisted evaluation
+    stream links before completed evaluation results, with each evaluation
+    group in idea-position order. Clients correlate every per-idea event by
+    `ideaId`.
+14. On ordinary failure, one `error` with the failing stage and message.
     Evaluation, selection, refinement, and selected-idea research use the event
     stages `evaluation`, `selection`, `refinement`, and `idea-research`; all
     remain durable subphases of the DB's `ideas` stage.
-13. Exactly one terminal `done`.
+15. Exactly one terminal `done`.
 
 A standalone root's explicit Stop or a debate-owned job's inherited Stop
 publishes `stop-requested` after the effective root's durable timestamp commits.

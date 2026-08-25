@@ -188,8 +188,10 @@ authenticated user's debates.
 
 Returns `{ "debateJob": ... }`, containing the durable job state plus every
 round, match, transcript message, current derived Swiss standings, and expected
-match count. `expectedMatchCount` is null while idea selection is pending, then
-is derived from the selected field size. Transcript messages link to
+match count. While `stage` is `ideas`, the snapshot withholds the incomplete
+candidate field and returns empty standings with `expectedMatchCount: null`.
+After preparation completes, the expected count is derived from the selected
+field size. Transcript messages link to
 `/api/streams/:llmGenerationId` while live and contain terminal text after
 persistence. The final match's winner is the tournament winner. Detail also
 includes `isOwner`, `stopRequested`, `canStop`, and `canResume`. `canStop` is

@@ -304,9 +304,8 @@ describe("Debates", () => {
     mocks.getDebateJob.mockResolvedValue(
       tournament({
         stage: "ideas",
-        expectedMatchCount: null,
+        expectedMatchCount: 33,
         rounds: [],
-        standings: [],
       }),
     )
 
@@ -321,7 +320,46 @@ describe("Debates", () => {
     expect(
       screen.getByText(/debate rounds will start automatically/i),
     ).toBeVisible()
+    expect(
+      screen.queryByRole("heading", { name: "Debate progress" }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("region", { name: "Standings" }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("link", {
+        name: "View the underlying idea generation",
+      }),
+    ).toHaveAttribute("href", "/ideas/better-cafe-ideas")
   })
+
+  it.each(["failed", "interrupted"] as const)(
+    "keeps the idea-generation link when preparation is %s",
+    async (status) => {
+      mocks.getDebateJob.mockResolvedValue(
+        tournament({
+          stage: "ideas",
+          status,
+          canStop: false,
+          expectedMatchCount: null,
+          rounds: [],
+          standings: [],
+          error: "Idea preparation did not complete",
+        }),
+      )
+
+      renderDebates("/debates/better-cafe-ideas")
+
+      expect(
+        await screen.findByRole("link", {
+          name: "View the underlying idea generation",
+        }),
+      ).toHaveAttribute("href", "/ideas/better-cafe-ideas")
+      expect(
+        screen.queryByRole("heading", { name: "Debate progress" }),
+      ).not.toBeInTheDocument()
+    },
+  )
 
   it("prefills a question handed off from the landing page", () => {
     renderDebates("/debates?prompt=Should%20we%20enter%20this%20market%3F")

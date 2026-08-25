@@ -58,7 +58,7 @@ describe("ProgressCard", () => {
 
     expect(
       screen.getByText(
-        "This stage did not run because an earlier stage failed.",
+        "This stage did not run because the workflow ended earlier.",
       ),
     ).toBeVisible()
     expect(screen.queryByText("Unavailable summary")).not.toBeInTheDocument()

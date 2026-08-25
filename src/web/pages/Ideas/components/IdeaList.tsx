@@ -6,35 +6,10 @@ import Chip from "@mui/material/Chip"
 import Stack from "@mui/material/Stack"
 import Typography from "@mui/material/Typography"
 import { Link } from "react-router-dom"
-import type { IdeaJobRunState } from "../ideaJobState.ts"
-
-const selectionPresentation = {
-  pending: { color: "default", label: "Awaiting selection" },
-  rejected: { color: "default", label: "Not selected" },
-  selected: { color: "primary", label: "Selected" },
-} as const
-
-function getIdeaPresentation(
-  idea: IdeaJobRunState["ideas"][number],
-  run: IdeaJobRunState,
-) {
-  if (idea.selection === "pending" && run.status !== "running") {
-    return { color: "error", label: "Selection incomplete" } as const
-  }
-  if (idea.selection !== "selected") {
-    return selectionPresentation[idea.selection]
-  }
-  if (run.refinedIdeas[idea.ideaId]) {
-    return { color: "success", label: "Improved" } as const
-  }
-  if (run.status === "failed") {
-    return { color: "error", label: "Improvement failed" } as const
-  }
-  if (run.refinementGenerationStreamIds[idea.ideaId]) {
-    return { color: "primary", label: "Improving" } as const
-  }
-  return selectionPresentation.selected
-}
+import {
+  getIdeaPresentation,
+  type IdeaJobRunState,
+} from "../ideaJobState.ts"
 
 export function IdeaList({
   run,
@@ -52,9 +27,8 @@ export function IdeaList({
   return (
     <Stack component="ul" spacing={1} sx={{ listStyle: "none", m: 0, p: 0 }}>
       {ideas.map((idea) => {
-        const refinedIdea = run.refinedIdeas[idea.ideaId]
-        const displayedIdea = refinedIdea ?? idea
         const presentation = getIdeaPresentation(idea, run)
+        const displayedIdea = presentation.displayIdea
         const destination = `/ideas/${encodeURIComponent(jobSlug)}/${encodeURIComponent(idea.ideaId)}`
 
         return (
@@ -62,7 +36,7 @@ export function IdeaList({
             <CardActionArea
               aria-label={`View ${displayedIdea.title}`}
               component={Link}
-              to={refinedIdea ? `${destination}#improved-idea` : destination}
+              to={`${destination}${presentation.linkHash}`}
             >
               <CardContent>
                 <Stack
