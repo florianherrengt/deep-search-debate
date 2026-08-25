@@ -1,15 +1,14 @@
 ---
 id: 12
 title: Square screenshot of generated winner website replaces visit button
-status: in-progress
+status: done
 priority: medium
 created: 2026-08-24T02:06:11.7716+01:00
-updated: 2026-08-24T02:42:27.113181+01:00
+updated: 2026-08-24T12:18:17.721728+01:00
 started: 2026-08-24T02:06:20.878187+01:00
+completed: 2026-08-24T12:18:17.722346+01:00
 tags:
     - feature
-claimed_by: ox-alpha
-claimed_at: 2026-08-24T02:42:27.113286+01:00
 class: standard
 ---
 

@@ -99,3 +99,82 @@
 {"timestamp":"2026-08-24T02:06:22.715504+01:00","action":"move","task_id":2,"detail":"review -\u003e done"}
 {"timestamp":"2026-08-24T02:06:22.731969+01:00","action":"move","task_id":5,"detail":"review -\u003e done"}
 {"timestamp":"2026-08-24T02:42:27.113546+01:00","action":"edit","task_id":12,"detail":"Square screenshot of generated winner website replaces visit button"}
+{"timestamp":"2026-08-24T12:11:42.151389+01:00","action":"create","task_id":13,"detail":"Extract arxiv.org papers instead of returning the abstract page"}
+{"timestamp":"2026-08-24T12:11:45.293161+01:00","action":"create","task_id":14,"detail":"Idea UI shows improved while refinement research is still running"}
+{"timestamp":"2026-08-24T12:11:48.07035+01:00","action":"create","task_id":15,"detail":"Resume an interrupted idea generation from persisted DB state"}
+{"timestamp":"2026-08-24T12:11:50.588188+01:00","action":"create","task_id":16,"detail":"Remove excessive LLM logging"}
+{"timestamp":"2026-08-24T12:11:53.780572+01:00","action":"create","task_id":17,"detail":"Investigate AI SDK responseFormat JSON schema compatibility warning"}
+{"timestamp":"2026-08-24T12:18:17.705553+01:00","action":"edit","task_id":12,"detail":"Square screenshot of generated winner website replaces visit button"}
+{"timestamp":"2026-08-24T12:18:17.706777+01:00","action":"release","task_id":12,"detail":"ox-alpha"}
+{"timestamp":"2026-08-24T12:18:17.722541+01:00","action":"move","task_id":12,"detail":"in-progress -\u003e done"}
+{"timestamp":"2026-08-24T12:21:24.380659+01:00","action":"move","task_id":15,"detail":"backlog -\u003e in-progress"}
+{"timestamp":"2026-08-24T12:29:08.405331+01:00","action":"move","task_id":15,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-08-24T12:29:08.405441+01:00","action":"handoff","task_id":15,"detail":"Resume an interrupted idea generation from persisted DB state"}
+{"timestamp":"2026-08-24T12:29:08.4055+01:00","action":"block","task_id":15,"detail":"Waiting on user: confirm resume eligibility, standalone versus debate scope, deep-search retry and no-double-charge semantics, and legacy-job handling."}
+{"timestamp":"2026-08-24T12:29:08.405556+01:00","action":"release","task_id":15,"detail":"Resume an interrupted idea generation from persisted DB state"}
+{"timestamp":"2026-08-24T12:39:11.16729+01:00","action":"edit","task_id":15,"detail":"Resume an interrupted idea generation from persisted DB state"}
+{"timestamp":"2026-08-24T12:39:11.167399+01:00","action":"claim","task_id":15,"detail":"faceted-lacerate"}
+{"timestamp":"2026-08-24T12:39:11.183737+01:00","action":"edit","task_id":15,"detail":"Resume an interrupted idea generation from persisted DB state"}
+{"timestamp":"2026-08-24T12:39:11.183874+01:00","action":"unblock","task_id":15,"detail":"Resume an interrupted idea generation from persisted DB state"}
+{"timestamp":"2026-08-24T12:39:11.199972+01:00","action":"move","task_id":15,"detail":"review -\u003e in-progress"}
+{"timestamp":"2026-08-24T12:43:05.541775+01:00","action":"edit","task_id":15,"detail":"Resume an interrupted idea generation from persisted DB state"}
+{"timestamp":"2026-08-24T12:49:10.40077+01:00","action":"edit","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-24T12:49:10.400865+01:00","action":"block","task_id":15,"detail":"Awaiting product decisions required for stop semantics, legacy checkpoint gaps, retained extraction data, quality-gate repair, and execution history."}
+{"timestamp":"2026-08-24T12:49:13.348819+01:00","action":"edit","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-24T12:49:13.348921+01:00","action":"release","task_id":15,"detail":"faceted-lacerate"}
+{"timestamp":"2026-08-24T12:55:30.760629+01:00","action":"edit","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-24T12:55:30.760732+01:00","action":"claim","task_id":15,"detail":"faceted-lacerate"}
+{"timestamp":"2026-08-24T12:55:34.432679+01:00","action":"edit","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-24T12:55:34.432784+01:00","action":"unblock","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-24T12:55:34.448378+01:00","action":"move","task_id":15,"detail":"review -\u003e in-progress"}
+{"timestamp":"2026-08-24T12:56:18.463188+01:00","action":"move","task_id":15,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-08-24T12:56:18.463349+01:00","action":"handoff","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-24T12:56:18.463412+01:00","action":"block","task_id":15,"detail":"Waiting on user confirmation of the remaining quality-gate, execution-history, and temporary extraction-retention policies before implementation."}
+{"timestamp":"2026-08-24T12:56:18.46347+01:00","action":"release","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-24T17:11:52.670193+01:00","action":"edit","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-24T17:11:52.670658+01:00","action":"claim","task_id":15,"detail":"gawn-memoir"}
+{"timestamp":"2026-08-24T17:11:55.562678+01:00","action":"move","task_id":15,"detail":"review -\u003e in-progress"}
+{"timestamp":"2026-08-24T17:19:38.621251+01:00","action":"edit","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-24T17:19:38.63596+01:00","action":"move","task_id":15,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-08-24T17:19:38.63605+01:00","action":"handoff","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-24T17:19:38.636102+01:00","action":"block","task_id":15,"detail":"Waiting on approval of the Temporal proof plan and permission to add Temporal SDK dependencies."}
+{"timestamp":"2026-08-24T17:19:38.636154+01:00","action":"release","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-24T17:39:14.116464+01:00","action":"edit","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-24T17:39:14.116569+01:00","action":"claim","task_id":15,"detail":"gawn-memoir"}
+{"timestamp":"2026-08-24T17:39:14.131534+01:00","action":"edit","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-24T17:39:14.131626+01:00","action":"unblock","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-24T17:39:14.145912+01:00","action":"move","task_id":15,"detail":"review -\u003e in-progress"}
+{"timestamp":"2026-08-24T17:44:55.651745+01:00","action":"edit","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-24T17:44:55.668753+01:00","action":"move","task_id":15,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-08-24T17:44:55.668848+01:00","action":"handoff","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-24T17:44:55.668903+01:00","action":"block","task_id":15,"detail":"Waiting on approval of the SQLite reconciliation plan."}
+{"timestamp":"2026-08-24T17:44:55.668956+01:00","action":"release","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-24T18:03:48.249311+01:00","action":"move","task_id":15,"detail":"review -\u003e in-progress"}
+{"timestamp":"2026-08-24T18:03:52.934414+01:00","action":"edit","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-24T18:03:52.934505+01:00","action":"unblock","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-24T18:12:28.731285+01:00","action":"move","task_id":15,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-08-24T18:12:28.731376+01:00","action":"handoff","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-24T18:12:28.73179+01:00","action":"block","task_id":15,"detail":"Waiting on user decisions for recovery policy, API semantics, and migration handling."}
+{"timestamp":"2026-08-24T18:12:28.731904+01:00","action":"release","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-24T18:29:50.715441+01:00","action":"move","task_id":15,"detail":"review -\u003e in-progress"}
+{"timestamp":"2026-08-24T23:38:42.370017+01:00","action":"edit","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-25T00:00:00.30793+01:00","action":"edit","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-25T00:20:36.213749+01:00","action":"edit","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-25T00:20:36.214166+01:00","action":"unblock","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-25T00:31:03.483478+01:00","action":"edit","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-25T00:42:54.015617+01:00","action":"edit","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-25T01:03:34.012305+01:00","action":"edit","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-25T01:03:36.576653+01:00","action":"edit","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-25T01:03:40.423834+01:00","action":"edit","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-25T01:03:40.423929+01:00","action":"release","task_id":15,"detail":"dishorse-cell"}
+{"timestamp":"2026-08-25T01:46:06.972678+01:00","action":"edit","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-25T01:46:06.97355+01:00","action":"claim","task_id":15,"detail":"outbake-relaxer"}
+{"timestamp":"2026-08-25T01:46:07.039549+01:00","action":"edit","task_id":15,"detail":"Resume interrupted dependent research workflows from persisted state"}
+{"timestamp":"2026-08-25T01:46:07.039649+01:00","action":"release","task_id":15,"detail":"outbake-relaxer"}
+{"timestamp":"2026-08-25T08:33:46.36145+01:00","action":"create","task_id":18,"detail":"Expose RethinkLoop as an MCP server via stdio CLI"}
+{"timestamp":"2026-08-25T10:18:24.62663+01:00","action":"create","task_id":19,"detail":"Add Google Maps search as a tool for the LLM"}
+{"timestamp":"2026-08-25T10:18:30.15456+01:00","action":"create","task_id":20,"detail":"test newline"}
+{"timestamp":"2026-08-25T10:18:32.913913+01:00","action":"delete","task_id":20,"detail":"test newline"}
+{"timestamp":"2026-08-25T10:18:36.868858+01:00","action":"edit","task_id":19,"detail":"Add Google Maps search as a tool for the LLM"}
+{"timestamp":"2026-08-25T10:19:17.166102+01:00","action":"edit","task_id":19,"detail":"Add Google Maps Routes API as a tool for the LLM"}
+{"timestamp":"2026-08-25T10:43:34.909634+01:00","action":"move","task_id":15,"detail":"review -\u003e done"}
