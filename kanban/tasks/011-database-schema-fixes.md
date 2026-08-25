@@ -1,16 +1,14 @@
 ---
 id: 11
 title: Database schema fixes
-status: in-progress
+status: review
 priority: high
 created: 2026-08-24T01:34:07.363343+01:00
-updated: 2026-08-25T14:38:24.474531+01:00
+updated: 2026-08-25T14:55:36.304661+01:00
 started: 2026-08-25T11:09:28.989354+01:00
 tags:
     - database
     - schema
-claimed_by: becolme-nehiloth
-claimed_at: 2026-08-25T14:38:24.474531+01:00
 class: standard
 ---
 
@@ -130,3 +128,11 @@ All five requested fresh-schema fixes are implemented in the task worktree. Sing
 - Review finding P3: ideas/replay.test.ts now marks the selection-failure fixture selected=false, so no test protects selection-stage error reconstruction; keep selected null and restore the selection-stage expectation.
 - Review finding P3: capacity and slug concurrency tests use in-memory SQLite and transaction spies only; add a coordinated two-connection file-backed WAL regression.
 - No source changes were made during review beyond merging main; task code remains uncommitted.
+
+[[2026-08-25]] Tue 14:55
+## Final post-merge fixes
+- Restored selection-failure replay coverage so unresolved selection errors remain in the selection stage.
+- Added a deterministic file-backed WAL regression with independent connections for capacity admission and slug allocation. It exercises the production admission and manager transactions, and explicitly blocks the background job queue before provider execution.
+- Verified: focused replay/capacity tests 14/14; WAL regression stress runs 11/11; full gate passed lint, typecheck, Knip, 625 API tests, and 314 web tests; git diff check passed.
+- Independent final review found no remaining issues.
+- Task code remains uncommitted in /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-11-database-schema-fixes on codex/ticket-11-database-schema-fixes.
