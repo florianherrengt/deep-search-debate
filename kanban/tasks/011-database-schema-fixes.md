@@ -1,16 +1,14 @@
 ---
 id: 11
 title: Database schema fixes
-status: in-progress
+status: review
 priority: high
 created: 2026-08-24T01:34:07.363343+01:00
-updated: 2026-08-25T12:23:26.936802+01:00
+updated: 2026-08-25T12:26:13.474592+01:00
 started: 2026-08-25T11:09:28.989354+01:00
 tags:
     - database
     - schema
-claimed_by: laddie-catechin
-claimed_at: 2026-08-25T12:23:26.936924+01:00
 class: standard
 ---
 
@@ -112,3 +110,5 @@ Flattened the unreleased three-file migration history into one fresh 0000 baseli
 
 [[2026-08-25]] Tue 12:23
 Implemented all five fresh-schema review findings in codex-ticket-11-database-schema-fixes: SQL selection/evaluation/refinement integrity, completed-debate website-link requirement, tournament ownership and structural immutability triggers, BEGIN IMMEDIATE slug allocation, and covering partial capacity indexes. Regenerated the single 0000 baseline (18 tables, 16 triggers), snapshot, DBML, docs, and fixtures. Verified Drizzle check/no drift, focused regressions, full gate: 619 API tests and 299 web tests.
+
+All five requested fresh-schema fixes are implemented in the task worktree. Single 0000 baseline, snapshot, journal, DBML, and docs are synchronized. Full gate passes: lint, typecheck, Knip, 619 API tests, 299 web tests. Drizzle check and no-drift generation pass; independent final review found no actionable issues. Residual test note: manager regressions assert BEGIN IMMEDIATE directly; a separate two-WAL-connection reproduction verified the lock fix.
