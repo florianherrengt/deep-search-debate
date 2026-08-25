@@ -304,3 +304,4 @@
 {"timestamp":"2026-08-25T14:33:04.181166+01:00","action":"priority","task_id":23,"detail":"critical -\u003e high"}
 {"timestamp":"2026-08-25T14:34:49.769772+01:00","action":"edit","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
 {"timestamp":"2026-08-25T14:35:37.287895+01:00","action":"create","task_id":26,"detail":"Use a small/big model depending on the task"}
+{"timestamp":"2026-08-25T14:38:24.479095+01:00","action":"move","task_id":11,"detail":"review -\u003e in-progress"}

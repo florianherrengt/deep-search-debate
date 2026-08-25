@@ -1,14 +1,16 @@
 ---
 id: 11
 title: Database schema fixes
-status: review
+status: in-progress
 priority: high
 created: 2026-08-24T01:34:07.363343+01:00
-updated: 2026-08-25T14:33:03.599053+01:00
+updated: 2026-08-25T14:38:24.474531+01:00
 started: 2026-08-25T11:09:28.989354+01:00
 tags:
     - database
     - schema
+claimed_by: becolme-nehiloth
+claimed_at: 2026-08-25T14:38:24.474531+01:00
 class: standard
 ---
 
