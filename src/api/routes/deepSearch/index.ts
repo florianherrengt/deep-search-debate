@@ -165,6 +165,11 @@ export function deepSearchJobReads(
             publicDeepSearchJob.ideaJobId === null &&
             publicDeepSearchJob.status === "running" &&
             !stopRequested,
+          canResume:
+            isOwner &&
+            publicDeepSearchJob.ideaJobId === null &&
+            (publicDeepSearchJob.status === "failed" ||
+              publicDeepSearchJob.status === "interrupted"),
           isIndexable: isPublic && debateStatus === "completed",
           isPublic,
         },
@@ -365,6 +370,44 @@ export function deepSearchJobs(
             409,
           )
       }
+    },
+  )
+
+  app.post(
+    "/deep-search-jobs/:deepSearchJobId/resume",
+    zValidator("param", deepSearchJobEventParamsSchema),
+    (c) => {
+      const { deepSearchJobId } = c.req.valid("param")
+      const persisted = db
+        .select({
+          status: deepSearchJobsTable.status,
+          ideaJobId: deepSearchJobsTable.ideaJobId,
+        })
+        .from(deepSearchJobsTable)
+        .where(
+          and(
+            eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId),
+            eq(deepSearchJobsTable.userId, c.get("userId")),
+          ),
+        )
+        .get()
+      if (!persisted) {
+        return c.json({ error: "Deep search job not found" }, 404)
+      }
+      if (persisted.ideaJobId !== null) {
+        return c.json(
+          { error: "Only root deep searches can be resumed" },
+          409,
+        )
+      }
+      if (persisted.status === "completed") {
+        return c.json({ error: "Completed deep searches cannot be resumed" }, 409)
+      }
+      const { completion } = manager.resumeExisting(deepSearchJobId, {
+        userId: c.get("userId"),
+      })
+      void completion.catch(() => {})
+      return c.json({ status: "running" as const }, 202)
     },
   )
 

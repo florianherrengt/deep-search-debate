@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "980a93c7-42f9-42f4-a0a8-be258753cabf",
+  "id": "21c40413-4b95-4560-b7cc-4b4673fb3b52",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "deep_search_jobs": {
@@ -79,6 +79,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": 3
+        },
+        "strict_quality": {
+          "name": "strict_quality",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         },
         "final_answer_generation_id": {
           "name": "final_answer_generation_id",
@@ -268,6 +275,10 @@
         "deep_search_jobs_limits_check": {
           "name": "deep_search_jobs_limits_check",
           "value": "\"deep_search_jobs\".\"max_searches\" > 0 and \"deep_search_jobs\".\"max_results_per_search\" > 0 and \"deep_search_jobs\".\"max_rounds\" > 0"
+        },
+        "deep_search_jobs_strict_quality_check": {
+          "name": "deep_search_jobs_strict_quality_check",
+          "value": "\"deep_search_jobs\".\"strict_quality\" in (0, 1)"
         },
         "deep_search_jobs_research_request_content_check": {
           "name": "deep_search_jobs_research_request_content_check",
@@ -822,6 +833,13 @@
           "autoincrement": false,
           "default": "'pending'"
         },
+        "extracted_content": {
+          "name": "extracted_content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "summary_generation_id": {
           "name": "summary_generation_id",
           "type": "text",
@@ -915,6 +933,10 @@
           "name": "deep_search_web_pages_url_content_check",
           "value": "length(trim(\"deep_search_web_pages\".\"url\")) > 0"
         },
+        "deep_search_web_pages_extracted_content_check": {
+          "name": "deep_search_web_pages_extracted_content_check",
+          "value": "\"deep_search_web_pages\".\"extracted_content\" is null or length(\"deep_search_web_pages\".\"extracted_content\") <= 100000"
+        },
         "deep_search_web_pages_error_stage_check": {
           "name": "deep_search_web_pages_error_stage_check",
           "value": "\"deep_search_web_pages\".\"error_stage\" is null or \"deep_search_web_pages\".\"error_stage\" in ('extraction', 'summary')"
@@ -925,7 +947,7 @@
         },
         "deep_search_web_pages_lifecycle_check": {
           "name": "deep_search_web_pages_lifecycle_check",
-          "value": "(\n        (\"deep_search_web_pages\".\"status\" in ('pending', 'extracting') and \"deep_search_web_pages\".\"summary_generation_id\" is null and \"deep_search_web_pages\".\"completed_at\" is null and \"deep_search_web_pages\".\"error_stage\" is null and \"deep_search_web_pages\".\"error_message\" is null)\n        or\n        (\"deep_search_web_pages\".\"status\" = 'summarizing' and \"deep_search_web_pages\".\"summary_generation_id\" is not null and \"deep_search_web_pages\".\"completed_at\" is null and \"deep_search_web_pages\".\"error_stage\" is null and \"deep_search_web_pages\".\"error_message\" is null)\n        or\n        (\"deep_search_web_pages\".\"status\" = 'completed' and \"deep_search_web_pages\".\"summary_generation_id\" is not null and \"deep_search_web_pages\".\"completed_at\" is not null and \"deep_search_web_pages\".\"error_stage\" is null and \"deep_search_web_pages\".\"error_message\" is null)\n        or\n        (\"deep_search_web_pages\".\"status\" = 'failed' and \"deep_search_web_pages\".\"completed_at\" is not null and \"deep_search_web_pages\".\"error_stage\" is not null and \"deep_search_web_pages\".\"error_message\" is not null and (\"deep_search_web_pages\".\"error_stage\" = 'summary' or \"deep_search_web_pages\".\"summary_generation_id\" is null))\n      )"
+          "value": "(\n        (\"deep_search_web_pages\".\"status\" in ('pending', 'extracting') and \"deep_search_web_pages\".\"extracted_content\" is null and \"deep_search_web_pages\".\"summary_generation_id\" is null and \"deep_search_web_pages\".\"completed_at\" is null and \"deep_search_web_pages\".\"error_stage\" is null and \"deep_search_web_pages\".\"error_message\" is null)\n        or\n        (\"deep_search_web_pages\".\"status\" = 'summarizing' and \"deep_search_web_pages\".\"extracted_content\" is not null and \"deep_search_web_pages\".\"completed_at\" is null and \"deep_search_web_pages\".\"error_stage\" is null and \"deep_search_web_pages\".\"error_message\" is null)\n        or\n        (\"deep_search_web_pages\".\"status\" = 'completed' and \"deep_search_web_pages\".\"extracted_content\" is null and \"deep_search_web_pages\".\"summary_generation_id\" is not null and \"deep_search_web_pages\".\"completed_at\" is not null and \"deep_search_web_pages\".\"error_stage\" is null and \"deep_search_web_pages\".\"error_message\" is null)\n        or\n        (\"deep_search_web_pages\".\"status\" = 'failed' and \"deep_search_web_pages\".\"completed_at\" is not null and \"deep_search_web_pages\".\"error_stage\" is not null and \"deep_search_web_pages\".\"error_message\" is not null and (\n          (\"deep_search_web_pages\".\"error_stage\" = 'extraction' and \"deep_search_web_pages\".\"extracted_content\" is null and \"deep_search_web_pages\".\"summary_generation_id\" is null)\n          or\n          (\"deep_search_web_pages\".\"error_stage\" = 'summary' and \"deep_search_web_pages\".\"extracted_content\" is not null)\n        ))\n      )"
         }
       }
     },
@@ -1005,6 +1027,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "website_generation_id": {
+          "name": "website_generation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -1022,6 +1051,13 @@
         }
       },
       "indexes": {
+        "debate_jobs_website_generation_id_unique": {
+          "name": "debate_jobs_website_generation_id_unique",
+          "columns": [
+            "website_generation_id"
+          ],
+          "isUnique": true
+        },
         "debate_jobs_user_created_at_idx": {
           "name": "debate_jobs_user_created_at_idx",
           "columns": [
@@ -1052,6 +1088,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "debate_jobs_website_generation_id_llm_generations_llm_generation_id_fk": {
+          "name": "debate_jobs_website_generation_id_llm_generations_llm_generation_id_fk",
+          "tableFrom": "debate_jobs",
+          "tableTo": "llm_generations",
+          "columnsFrom": [
+            "website_generation_id"
+          ],
+          "columnsTo": [
+            "llm_generation_id"
+          ],
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -1508,6 +1557,27 @@
           "notNull": true,
           "autoincrement": false
         },
+        "max_searches": {
+          "name": "max_searches",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "max_results_per_search": {
+          "name": "max_results_per_search",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "max_rounds": {
+          "name": "max_rounds",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "research_prompt_generation_id": {
           "name": "research_prompt_generation_id",
           "type": "text",
@@ -1752,7 +1822,7 @@
       "checkConstraints": {
         "idea_jobs_limits_check": {
           "name": "idea_jobs_limits_check",
-          "value": "\"idea_jobs\".\"number_of_ideas\" > 0 and \"idea_jobs\".\"deep_search_count\" > 0"
+          "value": "\"idea_jobs\".\"number_of_ideas\" > 0 and \"idea_jobs\".\"deep_search_count\" > 0 and \"idea_jobs\".\"max_searches\" > 0 and \"idea_jobs\".\"max_results_per_search\" > 0 and \"idea_jobs\".\"max_rounds\" > 0"
         },
         "idea_jobs_stage_check": {
           "name": "idea_jobs_stage_check",
@@ -2108,6 +2178,14 @@
           "columns": [
             "llm_generation_id",
             "idea_job_id"
+          ],
+          "isUnique": true
+        },
+        "llm_generations_id_debate_job_idx": {
+          "name": "llm_generations_id_debate_job_idx",
+          "columns": [
+            "llm_generation_id",
+            "debate_job_id"
           ],
           "isUnique": true
         },
@@ -2676,6 +2754,51 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
+    },
+    "waitlist_entries": {
+      "name": "waitlist_entries",
+      "columns": {
+        "waitlist_entry_id": {
+          "name": "waitlist_entry_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {
+        "waitlist_entries_email_idx": {
+          "name": "waitlist_entries_email_idx",
+          "columns": [
+            "email"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "waitlist_entries_email_normalized_check": {
+          "name": "waitlist_entries_email_normalized_check",
+          "value": "\"waitlist_entries\".\"email\" = lower(trim(\"waitlist_entries\".\"email\")) and length(\"waitlist_entries\".\"email\") between 1 and 254"
+        }
+      }
     }
   },
   "views": {},

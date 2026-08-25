@@ -28,17 +28,19 @@ const deepSearchSlug = "feedback-search"
 
 const deepSearchManager: DeepSearchJobManager = {
   start: vi.fn(),
+  resumeExisting: vi.fn(),
   stop: vi.fn(),
-  requireParentQualityAcceptance: vi.fn(),
   getLiveJob: vi.fn(),
 }
 const ideaJobManager: IdeaJobManager = {
   start: vi.fn(),
+  resumeExisting: vi.fn(),
   stop: vi.fn(),
   getLiveJob: vi.fn(),
 }
 const debateJobManager: DebateJobManager = {
   start: vi.fn(),
+  resumeExisting: vi.fn(),
   stop: vi.fn(),
   getLiveJob: vi.fn(),
 }
@@ -93,6 +95,9 @@ function insertCompletedAggregate(): void {
       prompt: "Generate feedback test ideas",
       numberOfIdeas: 6,
       deepSearchCount: 1,
+      maxSearches: 1,
+      maxResultsPerSearch: 1,
+      maxRounds: 1,
     })
     .run()
   db.insert(deepSearchJobsTable)
@@ -107,6 +112,7 @@ function insertCompletedAggregate(): void {
       maxSearches: 1,
       maxResultsPerSearch: 1,
       maxRounds: 1,
+      strictQuality: true,
     })
     .run()
 
@@ -277,6 +283,9 @@ describe("result feedback routes", () => {
         prompt: "Generate running ideas",
         numberOfIdeas: 6,
         deepSearchCount: 1,
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+        maxRounds: 1,
       })
       .run()
     db.insert(deepSearchJobsTable)
@@ -290,6 +299,7 @@ describe("result feedback routes", () => {
         maxSearches: 1,
         maxResultsPerSearch: 1,
         maxRounds: 1,
+        strictQuality: true,
       })
       .run()
 

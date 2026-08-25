@@ -15,12 +15,14 @@ import { db } from "../../db/index.ts"
 import { config } from "../../config.ts"
 import {
   deepSearchJobs,
+  deepSearchRounds,
   deepSearchWebPages,
   ideaJobs,
   llmGenerations,
   user,
 } from "../../db/schema/index.ts"
 import { createDeepSearchJobManager } from "./manager.ts"
+import { interruptDeepSearchJob } from "./jobLifecycle.ts"
 import { reconstructDeepSearchJobEvents } from "./replay.ts"
 import type { LiveDeepSearchJob } from "./schemas.ts"
 import {
@@ -34,10 +36,7 @@ async function readEvents(job: LiveDeepSearchJob) {
   return events
 }
 
-function completeWithFailedPage(
-  deepSearchJobId: string,
-  errorStage: "extraction" | "summary",
-): void {
+function completeWithExtractionFailure(deepSearchJobId: string): void {
   db.insert(llmGenerations)
     .values({
       userId: "test-user-id",
@@ -55,9 +54,8 @@ function completeWithFailedPage(
       deepSearchJobId,
       url: "https://example.com/failed",
       status: "failed",
-      errorStage,
-      errorMessage:
-        errorStage === "extraction" ? "Extraction failed" : "Summary failed",
+      errorStage: "extraction",
+      errorMessage: "Extraction failed",
       completedAt: new Date(),
     })
     .run()
@@ -94,6 +92,123 @@ describe("createDeepSearchJobManager", () => {
     expect(db.select().from(deepSearchJobs).all()).toEqual([])
   })
 
+  it("reopens, seeds, and deduplicates a persisted interrupted job", async () => {
+    const completion = Promise.withResolvers<string>()
+    mocks.runDeepSearchJob.mockReturnValue(completion.promise)
+    const deepSearchJobId = crypto.randomUUID()
+    db.insert(deepSearchJobs)
+      .values({
+        deepSearchJobId,
+        userId: "test-user-id",
+        title: "Interrupted research",
+        slug: "interrupted-research",
+        researchRequest: "Resume this research",
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
+        strictQuality: false,
+      })
+      .run()
+    db.insert(llmGenerations)
+      .values({
+        llmGenerationId: "completed-planning",
+        userId: "test-user-id",
+        deepSearchJobId,
+        status: "completed",
+        text: "[]",
+        reasoning: "Planned",
+        completedAt: new Date(),
+      })
+      .run()
+    db.insert(deepSearchRounds)
+      .values({
+        deepSearchRoundId: crypto.randomUUID(),
+        deepSearchJobId,
+        position: 0,
+        llmGenerationId: "completed-planning",
+      })
+      .run()
+    db.update(deepSearchJobs)
+      .set({
+        status: "interrupted",
+        error: "Server stopped",
+        completedAt: new Date(),
+      })
+      .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+      .run()
+    const manager = createDeepSearchJobManager()
+
+    const first = manager.resumeExisting(deepSearchJobId, {
+      userId: "test-user-id",
+    })
+    const duplicate = manager.resumeExisting(deepSearchJobId, {
+      userId: "test-user-id",
+    })
+
+    expect(duplicate.completion).toBe(first.completion)
+    expect(mocks.runDeepSearchJob).toHaveBeenCalledOnce()
+    const liveJob = mocks.runDeepSearchJob.mock.calls[0]?.[2] as LiveDeepSearchJob
+    const events = liveJob.subscribe()
+    await expect(events.next()).resolves.toEqual({
+      done: false,
+      value: { type: "query-stream", round: 0, streamId: "completed-planning" },
+    })
+    await events.return(undefined)
+    expect(
+      db
+        .select({ status: deepSearchJobs.status })
+        .from(deepSearchJobs)
+        .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+        .get(),
+    ).toEqual({ status: "running" })
+    completion.resolve("Resumed answer")
+    await expect(first.completion).resolves.toBe("Resumed answer")
+  })
+
+  it("does not reopen a completed persisted job", () => {
+    const deepSearchJobId = crypto.randomUUID()
+    const generationId = crypto.randomUUID()
+    db.insert(deepSearchJobs)
+      .values({
+        deepSearchJobId,
+        userId: "test-user-id",
+        title: "Completed research",
+        slug: "completed-research",
+        researchRequest: "Already completed",
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
+        strictQuality: false,
+      })
+      .run()
+    db.insert(llmGenerations)
+      .values({
+        llmGenerationId: generationId,
+        userId: "test-user-id",
+        deepSearchJobId,
+        status: "completed",
+        text: "Final answer",
+        reasoning: "Reasoning",
+        completedAt: new Date(),
+      })
+      .run()
+    db.update(deepSearchJobs)
+      .set({
+        finalAnswerGenerationId: generationId,
+        status: "completed",
+        completedAt: new Date(),
+      })
+      .where(eq(deepSearchJobs.deepSearchJobId, deepSearchJobId))
+      .run()
+
+    expect(() =>
+      createDeepSearchJobManager().resumeExisting(deepSearchJobId, {
+        userId: "test-user-id",
+      }),
+    ).toThrow("Completed deep-search job cannot be reopened")
+    expect(mocks.runDeepSearchJob).not.toHaveBeenCalled()
+  })
+
   it("does not create an idea child after its effective root requested Stop", async () => {
     const parentIdeaJobId = crypto.randomUUID()
     db.insert(ideaJobs)
@@ -103,6 +218,9 @@ describe("createDeepSearchJobManager", () => {
         prompt: "Generate ideas",
         numberOfIdeas: 8,
         deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
         cancelRequestedAt: new Date(),
       })
       .run()
@@ -134,6 +252,7 @@ describe("createDeepSearchJobManager", () => {
             researchRequest: "Research this",
             maxSearches: 3,
             maxResultsPerSearch: 3,
+            strictQuality: false,
           }),
         ),
       )
@@ -165,6 +284,7 @@ describe("createDeepSearchJobManager", () => {
             researchRequest: "Research this",
             maxSearches: 3,
             maxResultsPerSearch: 3,
+            strictQuality: false,
           }),
         ),
       )
@@ -207,6 +327,9 @@ describe("createDeepSearchJobManager", () => {
         prompt: "Generate ideas",
         numberOfIdeas: 12,
         deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
       })
       .run()
     // Fill the remaining root slot. Child jobs must still be admitted because
@@ -220,6 +343,7 @@ describe("createDeepSearchJobManager", () => {
         researchRequest: "Research the root",
         maxSearches: 3,
         maxResultsPerSearch: 3,
+        strictQuality: false,
       })
       .run()
     const totalJobs = config.deepSearch.maxConcurrentJobs + 1
@@ -274,6 +398,9 @@ describe("createDeepSearchJobManager", () => {
         prompt: "Generate ideas",
         numberOfIdeas: 12,
         deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
       })
       .run()
     db.insert(user)
@@ -343,7 +470,7 @@ describe("createDeepSearchJobManager", () => {
 
   it("accepts completed research when a selected page cannot be extracted", async () => {
     mocks.runDeepSearchJob.mockImplementation((deepSearchJobId: string) => {
-      completeWithFailedPage(deepSearchJobId, "extraction")
+      completeWithExtractionFailure(deepSearchJobId)
       return Promise.resolve("Completed answer")
     })
     const manager = createDeepSearchJobManager()
@@ -354,15 +481,12 @@ describe("createDeepSearchJobManager", () => {
     })
 
     await expect(started.completion).resolves.toBe("Completed answer")
-    expect(() =>
-      manager.requireParentQualityAcceptance(started.deepSearchJobId),
-    ).not.toThrow()
     expect(manager.getLiveJob(started.deepSearchJobId)).toBeUndefined()
   })
 
   it("keeps provider retry policy out of the workflow manager", async () => {
     mocks.runDeepSearchJob.mockImplementation((deepSearchJobId: string) => {
-      completeWithFailedPage(deepSearchJobId, "extraction")
+      completeWithExtractionFailure(deepSearchJobId)
       return Promise.resolve("Completed answer")
     })
     const started = await createDeepSearchJobManager().start("test-user-id", {
@@ -428,25 +552,6 @@ describe("createDeepSearchJobManager", () => {
       title: "London Energy Options 2",
       slug: "london-energy-options-2",
     })
-  })
-
-  it("separates durable completion from stricter parent acceptance", async () => {
-    mocks.runDeepSearchJob.mockImplementation((deepSearchJobId: string) => {
-      completeWithFailedPage(deepSearchJobId, "summary")
-      return Promise.resolve("Completed answer")
-    })
-    const manager = createDeepSearchJobManager()
-    const started = await manager.start("test-user-id", {
-      researchRequest: "Research this",
-      maxSearches: 3,
-      maxResultsPerSearch: 3,
-    })
-
-    await expect(started.completion).resolves.toBe("Completed answer")
-    expect(() =>
-      manager.requireParentQualityAcceptance(started.deepSearchJobId),
-    ).toThrow("Summary failed")
-    expect(manager.getLiveJob(started.deepSearchJobId)).toBeUndefined()
   })
 
   it("retains its terminal live log when durable terminal persistence failed", async () => {
@@ -537,6 +642,45 @@ describe("createDeepSearchJobManager", () => {
     expect(manager.getLiveJob(started.deepSearchJobId)).toBeUndefined()
   })
 
+  it("waits for a stopped live execution before resuming it once", async () => {
+    const stoppedRun = Promise.withResolvers<string>()
+    const resumedRun = Promise.withResolvers<string>()
+    mocks.runDeepSearchJob
+      .mockReturnValueOnce(stoppedRun.promise)
+      .mockReturnValueOnce(resumedRun.promise)
+    const manager = createDeepSearchJobManager()
+    const started = await manager.start("test-user-id", {
+      title: "Resume after Stop",
+      researchRequest: "Resume this immediately after Stop",
+      maxSearches: 3,
+      maxResultsPerSearch: 3,
+    })
+
+    expect(manager.stop("test-user-id", started.deepSearchJobId)).toMatchObject({
+      kind: "requested",
+      newlyRequested: true,
+    })
+    const resumed = manager.resumeExisting(started.deepSearchJobId, {
+      userId: "test-user-id",
+    })
+    const duplicate = manager.resumeExisting(started.deepSearchJobId, {
+      userId: "test-user-id",
+    })
+    expect(mocks.runDeepSearchJob).toHaveBeenCalledOnce()
+
+    interruptDeepSearchJob(started.deepSearchJobId)
+    stoppedRun.reject(new WorkflowInterruptedError("user-stop"))
+    await expect(started.completion).rejects.toThrow("Workflow stopped by user")
+    await vi.waitFor(() => {
+      expect(mocks.runDeepSearchJob).toHaveBeenCalledTimes(2)
+    })
+
+    resumedRun.resolve("Resumed answer")
+    await expect(resumed.completion).resolves.toBe("Resumed answer")
+    await expect(duplicate.completion).resolves.toBe("Resumed answer")
+    expect(mocks.runDeepSearchJob).toHaveBeenCalledTimes(2)
+  })
+
   it("keeps queued inherited Stop live events identical to durable replay", async () => {
     const blockingParentIdeaJobId = crypto.randomUUID()
     const stoppedParentIdeaJobId = crypto.randomUUID()
@@ -550,6 +694,9 @@ describe("createDeepSearchJobManager", () => {
           prompt: "Keep the queue occupied",
           numberOfIdeas: 8,
           deepSearchCount: 2,
+          maxSearches: 3,
+          maxResultsPerSearch: 3,
+          maxRounds: 3,
         },
         {
           ideaJobId: stoppedParentIdeaJobId,
@@ -559,6 +706,9 @@ describe("createDeepSearchJobManager", () => {
           prompt: "Stop the queued child",
           numberOfIdeas: 8,
           deepSearchCount: 2,
+          maxSearches: 3,
+          maxResultsPerSearch: 3,
+          maxRounds: 3,
         },
       ])
       .run()
@@ -638,6 +788,9 @@ describe("createDeepSearchJobManager", () => {
         prompt: "Stop the active child",
         numberOfIdeas: 8,
         deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
       })
       .run()
     mocks.runDeepSearchJob.mockImplementation(

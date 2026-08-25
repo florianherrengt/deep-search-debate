@@ -16,7 +16,7 @@ import { ideaJobReads, ideaJobs } from "./routes/ideas/index.ts"
 import { createIdeaJobManager } from "./routes/ideas/manager.ts"
 import { debateJobReads, debateJobs } from "./routes/debates/index.ts"
 import { createDebateJobManager } from "./routes/debates/manager.ts"
-import { recoverInterruptedWork } from "./db/recovery.ts"
+import { reconcilePersistedResearchRoots } from "./db/recovery.ts"
 import { authRoutes } from "./routes/auth.ts"
 import { requireSession } from "./middleware/requireSession.ts"
 import type { AppEnv } from "./types/auth.ts"
@@ -33,8 +33,6 @@ import {
 } from "./routes/seo.ts"
 import { exampleDebateReads } from "./routes/examples/index.ts"
 import { waitlistRoutes } from "./routes/waitlist.ts"
-
-recoverInterruptedWork()
 
 export function handleRequestError(
   error: Error,
@@ -103,6 +101,16 @@ waitlistRoutes(api)
 const deepSearchManager = createDeepSearchJobManager()
 const ideaJobManager = createIdeaJobManager(deepSearchManager)
 const debateJobManager = createDebateJobManager(ideaJobManager)
+
+/** Reconciles persisted workflow roots after all dependent managers exist. */
+export function reconcilePersistedResearch(): void {
+  reconcilePersistedResearchRoots({
+    debates: debateJobManager,
+    ideas: ideaJobManager,
+    deepSearches: deepSearchManager,
+  })
+}
+
 streamReads(api)
 deepSearchJobReads(api, deepSearchManager)
 ideaJobReads(api, ideaJobManager)

@@ -42,6 +42,7 @@ function insertCompletedSearch(
       researchRequest,
       maxSearches: 3,
       maxResultsPerSearch: 3,
+      strictQuality: true,
     })
     .run()
   const finalAnswerGenerationId = `${id}-final`
@@ -86,6 +87,9 @@ describe("reconstructIdeaJobEvents", () => {
         prompt: "Generate concepts",
         numberOfIdeas: 1,
         deepSearchCount: 1,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
       })
       .run()
     insertGeneration(
@@ -133,6 +137,9 @@ describe("reconstructIdeaJobEvents", () => {
         prompt: "Generate concepts",
         numberOfIdeas: 1,
         deepSearchCount: 1,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
       })
       .run()
     insertGeneration(
@@ -190,6 +197,9 @@ describe("reconstructIdeaJobEvents", () => {
         prompt: "Generate concepts",
         numberOfIdeas: 1,
         deepSearchCount: 1,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
       })
       .run()
     insertGeneration("planning-id", '["Research this"]')
@@ -248,6 +258,7 @@ describe("reconstructIdeaJobEvents", () => {
         researchRequest: "Research this",
         maxSearches: 3,
         maxResultsPerSearch: 3,
+        strictQuality: true,
       })
       .run()
     db.insert(llmGenerations)
@@ -329,6 +340,9 @@ describe("reconstructIdeaJobEvents", () => {
         prompt: "Generate concepts",
         numberOfIdeas: 1,
         deepSearchCount: 1,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
       })
       .run()
     insertGeneration("selection-id", '{"selectedIdeaIds":[]}')
@@ -380,6 +394,9 @@ describe("reconstructIdeaJobEvents", () => {
         prompt: "Generate concepts",
         numberOfIdeas: 1,
         deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
       })
       .run()
     const createdAt = new Date("2026-01-02T00:00:00.123Z")
@@ -394,6 +411,7 @@ describe("reconstructIdeaJobEvents", () => {
           researchRequest: "Second prompt",
           maxSearches: 3,
           maxResultsPerSearch: 3,
+          strictQuality: true,
           createdAt,
         },
         {
@@ -405,6 +423,7 @@ describe("reconstructIdeaJobEvents", () => {
           researchRequest: "First prompt",
           maxSearches: 3,
           maxResultsPerSearch: 3,
+          strictQuality: true,
           createdAt,
         },
       ])
@@ -436,6 +455,9 @@ describe("reconstructIdeaJobEvents", () => {
         prompt: "Generate concepts",
         numberOfIdeas: 1,
         deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
       })
       .run()
     insertGeneration("refinement-id", '{"title":"Refined","description":"Better"}')
@@ -464,6 +486,7 @@ describe("reconstructIdeaJobEvents", () => {
         researchRequest: "Research the refined idea",
         maxSearches: 3,
         maxResultsPerSearch: 3,
+        strictQuality: true,
       })
       .run()
 

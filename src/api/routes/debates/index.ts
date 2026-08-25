@@ -231,6 +231,33 @@ export function debateJobs(app: Hono<AppEnv>, manager: DebateJobManager): void {
   )
 
   app.post(
+    "/debate-jobs/:debateJobId/resume",
+    zValidator("param", debateJobEventParamsSchema),
+    (c) => {
+      const { debateJobId } = c.req.valid("param")
+      const persisted = db
+        .select({ status: debateJobsTable.status })
+        .from(debateJobsTable)
+        .where(
+          and(
+            eq(debateJobsTable.debateJobId, debateJobId),
+            eq(debateJobsTable.userId, c.get("userId")),
+          ),
+        )
+        .get()
+      if (!persisted) return c.json({ error: "Debate job not found" }, 404)
+      if (persisted.status === "completed") {
+        return c.json({ error: "Completed debate jobs cannot be resumed" }, 409)
+      }
+      const { completion } = manager.resumeExisting(debateJobId, {
+        userId: c.get("userId"),
+      })
+      void completion.catch(() => {})
+      return c.json({ status: "running" as const }, 202)
+    },
+  )
+
+  app.post(
     "/debate-jobs",
     zValidator("json", createDebateJobInputSchema),
     async (c) => {

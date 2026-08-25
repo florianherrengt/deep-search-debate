@@ -48,7 +48,8 @@ export function StopWorkflowControl({
         </DialogTitle>
         <DialogContent sx={{ display: "grid", gap: 1 }}>
           <DialogContentText id="stop-workflow-dialog-description">
-            Stopping is irreversible. Work already completed will be kept.
+            Stopping ends the current run. Completed work is kept, and you can
+            resume it later.
           </DialogContentText>
           <DialogContentText>
             Completed usage remains charged; stopped in-progress attempts do
@@ -63,7 +64,10 @@ export function StopWorkflowControl({
             color="error"
             variant="contained"
             disabled={busy}
-            onClick={onConfirm}
+            onClick={() => {
+              setOpen(false)
+              onConfirm()
+            }}
           >
             {busy ? "Stopping…" : "Stop workflow"}
           </Button>

@@ -14,6 +14,11 @@ advocates, and judges. Closing or reloading the page does not cancel work. Live
 subscriptions replay retained events and terminal jobs rebuild their UI
 snapshot from SQLite.
 
+Failed or interrupted roots can be resumed under the same debate ID. The
+tournament coordinator resumes its idea child first, then reuses completed
+rounds, matches, transcript messages, verdicts, and website output while
+retrying only incomplete checkpoints.
+
 ## Tournament format
 
 The format is defined by `DEBATE_TOURNAMENT_FORMAT` and the participant-count
@@ -110,6 +115,8 @@ output and does not debit RethinkLoop credits. This application guarantee does
 not promise that an upstream provider will waive its own charge. Descendant idea
 or search jobs that completed before the debate's Stop timestamp remain
 completed and do not acquire Stop presentation retroactively.
+A later Resume clears the root Stop timestamp and reconciles the retained
+checkpoint tree.
 
 ## HTTP contract
 
@@ -185,9 +192,12 @@ match count. `expectedMatchCount` is null while idea selection is pending, then
 is derived from the selected field size. Transcript messages link to
 `/api/streams/:llmGenerationId` while live and contain terminal text after
 persistence. The final match's winner is the tournament winner. Detail also
-includes `isOwner`, `stopRequested`, and `canStop`. `canStop` is true only for
-the owner while the root is running and has no persisted Stop request; it is
-false for public viewers, terminal jobs, and roots already stopping. Unknown
+includes `isOwner`, `stopRequested`, `canStop`, and `canResume`. `canStop` is
+true only for the owner while the root is running and has no persisted Stop
+request; it is false for public viewers, terminal jobs, and roots already
+stopping.
+`canResume` is true only for the owner of a failed or interrupted root; it is
+false for completed roots and non-owners. Unknown
 slugs return 404. Owners receive `feedback` in every lifecycle state with the
 current nullable boolean `rating` and derived `hasWrittenFeedback`; this keeps
 owner authority available when a snapshot fetched while running is later paired
@@ -202,7 +212,7 @@ feedback thumbs.
 
 ### `POST /api/debate-jobs/:debateJobId/cancel`
 
-Requests an irreversible Stop for the authenticated owner's root debate. The
+Requests a durable Stop for the authenticated owner's root debate. The
 manager commits `cancelRequestedAt` before publishing the request update and
 aborting active work. If no live controller exists, the route settles the job
 durably as interrupted.
@@ -218,11 +228,31 @@ The browser shows a confirmed Stop action only when detail `canStop` is true.
 After the request persists, history, detail, and match views show disabled
 `Stopping…`, suppress active-tournament indicators, and retain completed rounds,
 messages, and match results during cleanup and after reload. A directly stopped
-debate is then labeled `Stopped`; a restart interruption without a Stop request
+debate is then labeled `Stopped`; an interruption without a Stop request
 remains `Interrupted`. Public and foreign viewers never receive the control.
 Completed usage remains charged; stopped in-progress attempts do not debit
 RethinkLoop credits. This application guarantee does not promise that an
 upstream provider will waive its own charge.
+
+The Stop retains the workflow checkpoint. A later owner Resume—or the next API
+startup reconciliation—can reopen the debate.
+
+### `POST /api/debate-jobs/:debateJobId/resume`
+
+Reopens the authenticated owner's failed or interrupted debate under the same
+ID. An already-running root is deduplicated against the live manager entry. Both
+cases return `202 Accepted`:
+
+```json
+{ "status": "running" }
+```
+
+The reopen transaction clears the debate's error, completion timestamp, and
+Stop timestamp before recursively resuming its idea and deep-search children.
+Unknown and foreign UUIDs return `404`; completed debates return `409`. The
+owner UI shows `Resume workflow` only when detail `canResume` is true, updates
+the snapshot to running, and reconnects its snapshot-driven event subscription
+without changing the URL or job ID.
 
 ### `PATCH /api/debate-jobs/:debateJobId/feedback`
 
@@ -293,6 +323,9 @@ resource return 404.
   winners. Round match counts derive from the selected field size.
 - `debate_messages` links ordered transcript entries to durable, same-owner LLM
   generations; ownership is validated before each transcript link is written.
+  A retry registration replaces only the exact failed, interrupted, or
+  stale-running generation link and interrupts a stale-running attempt in that
+  same transaction.
 - A judge generation's terminal output, verdict-message link, winner, and match
   completion timestamp commit in one transaction. A failed completion hook
   rolls the generation terminal write back instead of leaving a half-linked
@@ -319,10 +352,18 @@ resource return 404.
   transaction before provider work starts, so a parent-row failure cannot leave
   an orphan idea run.
 
-Provider work cannot resume after an API-process restart. Startup recovery marks
-orphaned running debate jobs and generations interrupted while preserving
-completed rounds, match results, and transcript text for replay. The exception
-is an uncancelled running job whose final verdict and winner already committed
-atomically: recovery recognizes that completed final and closes the parent
-tournament as completed. A persisted root stop request takes precedence over
-that crash-window repair and recovers the debate as interrupted.
+Provider connections cannot survive an API-process restart, but the workflow
+resumes from durable application checkpoints. Startup schedules every
+non-completed debate as an effective root before the HTTP listener opens; a
+synchronous reset or scheduling failure aborts startup. The debate first resumes
+its existing idea child, which in turn resumes incomplete deep searches. It then
+reuses completed rounds, matches, advocate messages, judge verdicts, and the
+deterministic bracket, retrying only an incomplete generation or match.
+
+If the winner website generation completed before the process died, recovery
+reuses its HTML and recreates a missing atomic file (and best-effort screenshot)
+without another model call. Otherwise registration atomically replaces the
+exact stale website-generation link. Completion still requires the final
+verdict, the recursively completed research tree, a completed website
+generation, and the stored site. The same checkpoint path runs after an
+owner-requested Resume; completed debates are never reopened.

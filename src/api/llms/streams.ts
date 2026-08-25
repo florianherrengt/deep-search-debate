@@ -342,12 +342,25 @@ async function consume(
   const completedAt = new Date()
   let terminalStatus: "completed" | "failed" | "interrupted" =
     interruptionReason ? "interrupted" : errorMessage ? "failed" : "completed"
+  let persistedOutcome: GenerationOutcome | undefined
 
   try {
     // Deliberate business policy: failed or interrupted generations never charge
     // the user, even when the provider reports billable usage; RethinkLoop
     // absorbs it.
     db.transaction((transaction) => {
+      const currentGeneration = transaction
+        .select()
+        .from(llmGenerations)
+        .where(eq(llmGenerations.llmGenerationId, id))
+        .get()
+      if (!currentGeneration) {
+        throw new Error(`Text generation ${id} was not found`)
+      }
+      if (currentGeneration.status !== "running") {
+        persistedOutcome = getPersistedGenerationOutcome(currentGeneration)
+        return
+      }
       if (!interruptionReason) {
         try {
           assertWorkflowGenerationActive(transaction, owner)
@@ -386,10 +399,24 @@ async function consume(
           creditsUsed,
           completedAt,
         })
-        .where(eq(llmGenerations.llmGenerationId, id))
+        .where(
+          and(
+            eq(llmGenerations.llmGenerationId, id),
+            eq(llmGenerations.status, "running"),
+          ),
+        )
         .run()
       if (terminalWrite.changes !== 1) {
-        throw new Error(`Text generation ${id} was not found`)
+        const persistedGeneration = transaction
+          .select()
+          .from(llmGenerations)
+          .where(eq(llmGenerations.llmGenerationId, id))
+          .get()
+        if (!persistedGeneration) {
+          throw new Error(`Text generation ${id} was not found`)
+        }
+        persistedOutcome = getPersistedGenerationOutcome(persistedGeneration)
+        return
       }
 
       if (interruptionReason) {
@@ -413,6 +440,7 @@ async function consume(
         options.onCompleted?.({ id, text, reasoning }, transaction)
       }
     })
+    if (persistedOutcome) return persistedOutcome
     logTerminalGeneration({
       id,
       owner,
@@ -440,7 +468,12 @@ async function consume(
           reasoningTokens: terminalMetadata.reasoningTokens ?? null,
           completedAt: failedAt,
         })
-        .where(eq(llmGenerations.llmGenerationId, id))
+        .where(
+          and(
+            eq(llmGenerations.llmGenerationId, id),
+            eq(llmGenerations.status, "running"),
+          ),
+        )
         .run()
     } catch (fallbackError) {
       console.error(
@@ -697,6 +730,65 @@ export function subscribeToTextStream(
 }
 
 type LlmGeneration = typeof llmGenerations.$inferSelect
+
+function getPersistedGenerationOutcome(
+  generation: LlmGeneration,
+): GenerationOutcome {
+  const finishReason = generation.finishReason
+    ? { finishReason: generation.finishReason }
+    : {}
+  const text = generation.text ?? ""
+  const reasoning = generation.reasoning ?? ""
+
+  if (generation.status === "completed") {
+    return { status: "completed", text, reasoning, ...finishReason }
+  }
+  if (generation.status === "failed") {
+    const error = generation.error ?? "Text generation failed"
+    const failureKind: GenerationFailureKind =
+      error === "Text generation returned no content"
+        ? "empty-output"
+        : error === "Text generation did not report a finish reason" ||
+            (generation.finishReason !== null &&
+              generation.finishReason !== "stop")
+          ? "finish-reason"
+          : "stream"
+    return {
+      status: "failed",
+      text,
+      reasoning,
+      error,
+      failureKind,
+      ...finishReason,
+    }
+  }
+  if (generation.status === "interrupted") {
+    const userStopMessage = new WorkflowInterruptedError("user-stop").message
+    const parentStopMessage = new WorkflowInterruptedError("parent-stop").message
+    const reason = generation.error === userStopMessage
+      ? "user-stop"
+      : generation.error === parentStopMessage
+        ? "parent-stop"
+        : undefined
+    if (!reason) {
+      throw new Error(
+        generation.error ??
+          `Text generation ${generation.llmGenerationId} was interrupted`,
+      )
+    }
+    return {
+      status: "interrupted",
+      text,
+      reasoning,
+      error: new WorkflowInterruptedError(reason).message,
+      reason,
+      ...finishReason,
+    }
+  }
+  throw new Error(
+    `Text generation ${generation.llmGenerationId} remained running after terminal settlement lost`,
+  )
+}
 
 /** Reconstructs the same public stream shape from one terminal database row. */
 async function* replayPersistedGeneration(

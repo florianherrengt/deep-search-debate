@@ -478,6 +478,47 @@ describe("generateTextStream", () => {
     )
   })
 
+  it("parses structured array output before running a terminal transaction hook", async () => {
+    const stream = { id: "raw-stream" }
+    const onCompleted = vi.fn()
+    mocks.loadPrompt.mockResolvedValue("System prompt")
+    mocks.streamText.mockReturnValue({
+      stream,
+      output: Promise.resolve(["first"]),
+    })
+    mockPreparedGeneration()
+
+    await generateArrayStream({
+      userId: "test-user-id",
+      owner: { standalone: true },
+      prompt: "Hello",
+      promptName: "generate-websearch-queries",
+      element: z.string(),
+      onCompleted,
+    })
+
+    const options = mocks.prepareTextGeneration.mock.calls[0]?.[2] as {
+      onCompleted: (
+        completed: { id: string; text: string; reasoning: string },
+        transaction: unknown,
+      ) => void
+    }
+    const transaction = {}
+    options.onCompleted(
+      {
+        id: "stream-id",
+        text: '{"elements":["first","second"]}',
+        reasoning: "",
+      },
+      transaction,
+    )
+
+    expect(onCompleted).toHaveBeenCalledWith(
+      { id: "stream-id", output: ["first", "second"] },
+      transaction,
+    )
+  })
+
   it("uses AI SDK structured object output and exposes its result", async () => {
     const stream = { id: "raw-stream" }
     const output = Promise.resolve({ winnerSlot: 0 })

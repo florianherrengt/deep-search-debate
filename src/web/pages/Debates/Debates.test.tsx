@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   createDebateJob: vi.fn(),
   getDebateJob: vi.fn(),
   getDebateJobs: vi.fn(),
+  requestResearchResume: vi.fn(),
   subscribeToDebateJob: vi.fn(),
   subscribeToIdeaJob: vi.fn(),
   subscribeToTextStream: vi.fn(),
@@ -35,6 +36,10 @@ vi.mock("../../lib/ideaJobs.ts", () => ({
 
 vi.mock("../../lib/researchCancellation.ts", () => ({
   requestResearchStop: mocks.requestResearchStop,
+}))
+
+vi.mock("../../lib/researchResumption.ts", () => ({
+  requestResearchResume: mocks.requestResearchResume,
 }))
 
 vi.mock("../../lib/resultFeedback.ts", async (importOriginal) => ({
@@ -68,6 +73,7 @@ function tournament(
     isPublic: false,
     isOwner: true,
     stopRequested: false,
+    canResume: false,
     canStop: true,
     stage: "swiss",
     status: "running",
@@ -158,6 +164,7 @@ describe("Debates", () => {
       status: "cancellation-requested",
       cancelRequestedAt: new Date("2026-08-15T00:00:00.000Z"),
     })
+    mocks.requestResearchResume.mockResolvedValue({ status: "running" })
     mocks.updateResultFeedback.mockResolvedValue({
       rating: false,
       hasWrittenFeedback: false,
@@ -503,6 +510,75 @@ describe("Debates", () => {
     expect(
       await screen.findByRole("button", { name: "Stopping…" }),
     ).toBeDisabled()
+  })
+
+  it.each(["failed", "interrupted"] as const)(
+    "resumes a %s owner root and starts its event stream",
+    async (status) => {
+      mocks.getDebateJob.mockResolvedValue(
+        tournament({
+          canResume: true,
+          canStop: false,
+          error: "Debate stopped unexpectedly",
+          status,
+        }),
+      )
+
+      renderDebates("/debates/better-cafe-ideas")
+
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Resume workflow" }),
+      )
+
+      await waitFor(() =>
+        expect(mocks.requestResearchResume).toHaveBeenCalledWith(
+          "debate",
+          "debate-id",
+        ),
+      )
+      await waitFor(() =>
+        expect(mocks.subscribeToDebateJob).toHaveBeenCalledWith(
+          "debate-id",
+          expect.any(AbortSignal),
+          expect.any(Function),
+        ),
+      )
+      await waitFor(() =>
+        expect(mocks.subscribeToIdeaJob).toHaveBeenCalledTimes(2),
+      )
+      expect(mocks.subscribeToIdeaJob).toHaveBeenLastCalledWith(
+        "idea-job-id",
+        expect.any(AbortSignal),
+        expect.any(Function),
+      )
+      expect(
+        screen.queryByRole("button", { name: "Resume workflow" }),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.getByRole("button", { name: "Stop workflow" }),
+      ).toBeEnabled()
+      expect(
+        (await screen.findAllByText("Debate in progress")).length,
+      ).toBeGreaterThan(0)
+    },
+  )
+
+  it("keeps Resume off nested match routes", async () => {
+    mocks.getDebateJob.mockResolvedValue(
+      tournament({
+        canResume: true,
+        canStop: false,
+        error: "Debate stopped unexpectedly",
+        status: "failed",
+      }),
+    )
+
+    renderDebates("/debates/better-cafe-ideas/matches/match")
+
+    await waitFor(() => expect(mocks.getDebateJob).toHaveBeenCalled())
+    expect(
+      screen.queryByRole("button", { name: "Resume workflow" }),
+    ).not.toBeInTheDocument()
   })
 
   it("presents a directly stopped debate while retaining completed work", async () => {

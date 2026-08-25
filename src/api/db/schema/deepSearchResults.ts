@@ -31,6 +31,8 @@ export const deepSearchWebPages = sqliteTable(
     status: text("status", { enum: deepSearchWebPageStatuses })
       .notNull()
       .default("pending"),
+    /** Retained after extraction until the page summary commits successfully. */
+    extractedContent: text("extracted_content"),
     summaryGenerationId: text("summary_generation_id").references(
       () => llmGenerations.llmGenerationId,
       { onDelete: "no action" },
@@ -61,6 +63,10 @@ export const deepSearchWebPages = sqliteTable(
       sql`length(trim(${table.url})) > 0`,
     ),
     check(
+      "deep_search_web_pages_extracted_content_check",
+      sql`${table.extractedContent} is null or length(${table.extractedContent}) <= 100000`,
+    ),
+    check(
       "deep_search_web_pages_error_stage_check",
       sql`${table.errorStage} is null or ${table.errorStage} in ('extraction', 'summary')`,
     ),
@@ -75,13 +81,17 @@ export const deepSearchWebPages = sqliteTable(
     check(
       "deep_search_web_pages_lifecycle_check",
       sql`(
-        (${table.status} in ('pending', 'extracting') and ${table.summaryGenerationId} is null and ${table.completedAt} is null and ${table.errorStage} is null and ${table.errorMessage} is null)
+        (${table.status} in ('pending', 'extracting') and ${table.extractedContent} is null and ${table.summaryGenerationId} is null and ${table.completedAt} is null and ${table.errorStage} is null and ${table.errorMessage} is null)
         or
-        (${table.status} = 'summarizing' and ${table.summaryGenerationId} is not null and ${table.completedAt} is null and ${table.errorStage} is null and ${table.errorMessage} is null)
+        (${table.status} = 'summarizing' and ${table.extractedContent} is not null and ${table.completedAt} is null and ${table.errorStage} is null and ${table.errorMessage} is null)
         or
-        (${table.status} = 'completed' and ${table.summaryGenerationId} is not null and ${table.completedAt} is not null and ${table.errorStage} is null and ${table.errorMessage} is null)
+        (${table.status} = 'completed' and ${table.extractedContent} is null and ${table.summaryGenerationId} is not null and ${table.completedAt} is not null and ${table.errorStage} is null and ${table.errorMessage} is null)
         or
-        (${table.status} = 'failed' and ${table.completedAt} is not null and ${table.errorStage} is not null and ${table.errorMessage} is not null and (${table.errorStage} = 'summary' or ${table.summaryGenerationId} is null))
+        (${table.status} = 'failed' and ${table.completedAt} is not null and ${table.errorStage} is not null and ${table.errorMessage} is not null and (
+          (${table.errorStage} = 'extraction' and ${table.extractedContent} is null and ${table.summaryGenerationId} is null)
+          or
+          (${table.errorStage} = 'summary' and ${table.extractedContent} is not null)
+        ))
       )`,
     ),
   ],

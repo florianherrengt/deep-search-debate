@@ -9,6 +9,7 @@ CREATE TABLE `deep_search_jobs` (
 	`max_searches` integer NOT NULL,
 	`max_results_per_search` integer NOT NULL,
 	`max_rounds` integer DEFAULT 3 NOT NULL,
+	`strict_quality` integer NOT NULL,
 	`final_answer_generation_id` text,
 	`research_analysis_generation_id` text,
 	`status` text DEFAULT 'running' NOT NULL,
@@ -28,6 +29,7 @@ CREATE TABLE `deep_search_jobs` (
         ("deep_search_jobs"."idea_job_id" is not null and "deep_search_jobs"."idea_job_position" >= 0)
       )),
 	CONSTRAINT "deep_search_jobs_limits_check" CHECK("deep_search_jobs"."max_searches" > 0 and "deep_search_jobs"."max_results_per_search" > 0 and "deep_search_jobs"."max_rounds" > 0),
+	CONSTRAINT "deep_search_jobs_strict_quality_check" CHECK("deep_search_jobs"."strict_quality" in (0, 1)),
 	CONSTRAINT "deep_search_jobs_research_request_content_check" CHECK(length(trim("deep_search_jobs"."research_request")) > 0),
 	CONSTRAINT "deep_search_jobs_status_check" CHECK("deep_search_jobs"."status" in ('running', 'completed', 'failed', 'interrupted')),
 	CONSTRAINT "deep_search_jobs_feedback_rating_check" CHECK("deep_search_jobs"."feedback_rating" is null or ("deep_search_jobs"."status" = 'completed' and "deep_search_jobs"."feedback_rating" in (0, 1))),
@@ -157,6 +159,7 @@ CREATE TABLE `deep_search_web_pages` (
 	`url` text NOT NULL,
 	`credits_used` integer,
 	`status` text DEFAULT 'pending' NOT NULL,
+	`extracted_content` text,
 	`summary_generation_id` text,
 	`error_stage` text,
 	`error_message` text,
@@ -166,6 +169,7 @@ CREATE TABLE `deep_search_web_pages` (
 	FOREIGN KEY (`summary_generation_id`) REFERENCES `llm_generations`(`llm_generation_id`) ON UPDATE no action ON DELETE no action,
 	CONSTRAINT "deep_search_web_pages_status_check" CHECK("deep_search_web_pages"."status" in ('pending', 'extracting', 'summarizing', 'completed', 'failed')),
 	CONSTRAINT "deep_search_web_pages_url_content_check" CHECK(length(trim("deep_search_web_pages"."url")) > 0),
+	CONSTRAINT "deep_search_web_pages_extracted_content_check" CHECK("deep_search_web_pages"."extracted_content" is null or length("deep_search_web_pages"."extracted_content") <= 100000),
 	CONSTRAINT "deep_search_web_pages_error_stage_check" CHECK("deep_search_web_pages"."error_stage" is null or "deep_search_web_pages"."error_stage" in ('extraction', 'summary')),
 	CONSTRAINT "deep_search_web_pages_error_fields_check" CHECK((
         ("deep_search_web_pages"."error_stage" is null and "deep_search_web_pages"."error_message" is null)
@@ -173,13 +177,17 @@ CREATE TABLE `deep_search_web_pages` (
         ("deep_search_web_pages"."error_stage" is not null and "deep_search_web_pages"."error_message" is not null)
       )),
 	CONSTRAINT "deep_search_web_pages_lifecycle_check" CHECK((
-        ("deep_search_web_pages"."status" in ('pending', 'extracting') and "deep_search_web_pages"."summary_generation_id" is null and "deep_search_web_pages"."completed_at" is null and "deep_search_web_pages"."error_stage" is null and "deep_search_web_pages"."error_message" is null)
+        ("deep_search_web_pages"."status" in ('pending', 'extracting') and "deep_search_web_pages"."extracted_content" is null and "deep_search_web_pages"."summary_generation_id" is null and "deep_search_web_pages"."completed_at" is null and "deep_search_web_pages"."error_stage" is null and "deep_search_web_pages"."error_message" is null)
         or
-        ("deep_search_web_pages"."status" = 'summarizing' and "deep_search_web_pages"."summary_generation_id" is not null and "deep_search_web_pages"."completed_at" is null and "deep_search_web_pages"."error_stage" is null and "deep_search_web_pages"."error_message" is null)
+        ("deep_search_web_pages"."status" = 'summarizing' and "deep_search_web_pages"."extracted_content" is not null and "deep_search_web_pages"."completed_at" is null and "deep_search_web_pages"."error_stage" is null and "deep_search_web_pages"."error_message" is null)
         or
-        ("deep_search_web_pages"."status" = 'completed' and "deep_search_web_pages"."summary_generation_id" is not null and "deep_search_web_pages"."completed_at" is not null and "deep_search_web_pages"."error_stage" is null and "deep_search_web_pages"."error_message" is null)
+        ("deep_search_web_pages"."status" = 'completed' and "deep_search_web_pages"."extracted_content" is null and "deep_search_web_pages"."summary_generation_id" is not null and "deep_search_web_pages"."completed_at" is not null and "deep_search_web_pages"."error_stage" is null and "deep_search_web_pages"."error_message" is null)
         or
-        ("deep_search_web_pages"."status" = 'failed' and "deep_search_web_pages"."completed_at" is not null and "deep_search_web_pages"."error_stage" is not null and "deep_search_web_pages"."error_message" is not null and ("deep_search_web_pages"."error_stage" = 'summary' or "deep_search_web_pages"."summary_generation_id" is null))
+        ("deep_search_web_pages"."status" = 'failed' and "deep_search_web_pages"."completed_at" is not null and "deep_search_web_pages"."error_stage" is not null and "deep_search_web_pages"."error_message" is not null and (
+          ("deep_search_web_pages"."error_stage" = 'extraction' and "deep_search_web_pages"."extracted_content" is null and "deep_search_web_pages"."summary_generation_id" is null)
+          or
+          ("deep_search_web_pages"."error_stage" = 'summary' and "deep_search_web_pages"."extracted_content" is not null)
+        ))
       ))
 );
 --> statement-breakpoint
@@ -196,9 +204,11 @@ CREATE TABLE `debate_jobs` (
 	`feedback_text` text,
 	`error` text,
 	`cancel_requested_at` integer,
+	`website_generation_id` text,
 	`created_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
 	`completed_at` integer,
 	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`website_generation_id`) REFERENCES `llm_generations`(`llm_generation_id`) ON UPDATE no action ON DELETE no action,
 	CONSTRAINT "debate_jobs_config_check" CHECK("debate_jobs"."random_seed" >= 0 and "debate_jobs"."random_seed" <= 4294967295),
 	CONSTRAINT "debate_jobs_visibility_check" CHECK("debate_jobs"."is_public" in (0, 1)),
 	CONSTRAINT "debate_jobs_stage_check" CHECK("debate_jobs"."stage" in ('ideas', 'swiss', 'semifinal', 'final')),
@@ -216,6 +226,7 @@ CREATE TABLE `debate_jobs` (
       ))
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX `debate_jobs_website_generation_id_unique` ON `debate_jobs` (`website_generation_id`);--> statement-breakpoint
 CREATE INDEX `debate_jobs_user_created_at_idx` ON `debate_jobs` (`user_id`,`created_at`,`debate_job_id`);--> statement-breakpoint
 CREATE UNIQUE INDEX `debate_jobs_id_user_id_idx` ON `debate_jobs` (`debate_job_id`,`user_id`);--> statement-breakpoint
 CREATE TABLE `debate_matches` (
@@ -281,6 +292,9 @@ CREATE TABLE `idea_jobs` (
 	`stage` text DEFAULT 'planning' NOT NULL,
 	`number_of_ideas` integer NOT NULL,
 	`deep_search_count` integer NOT NULL,
+	`max_searches` integer NOT NULL,
+	`max_results_per_search` integer NOT NULL,
+	`max_rounds` integer NOT NULL,
 	`research_prompt_generation_id` text,
 	`research_summary_generation_id` text,
 	`idea_generation_id` text,
@@ -298,7 +312,7 @@ CREATE TABLE `idea_jobs` (
 	FOREIGN KEY (`research_summary_generation_id`,`user_id`,`idea_job_id`) REFERENCES `llm_generations`(`llm_generation_id`,`user_id`,`idea_job_id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`idea_generation_id`,`user_id`,`idea_job_id`) REFERENCES `llm_generations`(`llm_generation_id`,`user_id`,`idea_job_id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`selection_generation_id`,`user_id`,`idea_job_id`) REFERENCES `llm_generations`(`llm_generation_id`,`user_id`,`idea_job_id`) ON UPDATE no action ON DELETE no action,
-	CONSTRAINT "idea_jobs_limits_check" CHECK("idea_jobs"."number_of_ideas" > 0 and "idea_jobs"."deep_search_count" > 0),
+	CONSTRAINT "idea_jobs_limits_check" CHECK("idea_jobs"."number_of_ideas" > 0 and "idea_jobs"."deep_search_count" > 0 and "idea_jobs"."max_searches" > 0 and "idea_jobs"."max_results_per_search" > 0 and "idea_jobs"."max_rounds" > 0),
 	CONSTRAINT "idea_jobs_stage_check" CHECK("idea_jobs"."stage" in ('planning', 'research', 'summary', 'ideas')),
 	CONSTRAINT "idea_jobs_status_check" CHECK("idea_jobs"."status" in ('running', 'completed', 'failed', 'interrupted')),
 	CONSTRAINT "idea_jobs_feedback_rating_check" CHECK("idea_jobs"."feedback_rating" is null or ("idea_jobs"."status" = 'completed' and "idea_jobs"."feedback_rating" in (0, 1))),
@@ -401,6 +415,7 @@ CREATE TABLE `llm_generations` (
 CREATE INDEX `llm_generations_user_started_at_idx` ON `llm_generations` (`user_id`,`started_at`,`llm_generation_id`);--> statement-breakpoint
 CREATE UNIQUE INDEX `llm_generations_id_user_idea_job_idx` ON `llm_generations` (`llm_generation_id`,`user_id`,`idea_job_id`);--> statement-breakpoint
 CREATE UNIQUE INDEX `llm_generations_id_idea_job_idx` ON `llm_generations` (`llm_generation_id`,`idea_job_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `llm_generations_id_debate_job_idx` ON `llm_generations` (`llm_generation_id`,`debate_job_id`);--> statement-breakpoint
 CREATE UNIQUE INDEX `llm_generations_id_user_deep_search_job_idx` ON `llm_generations` (`llm_generation_id`,`user_id`,`deep_search_job_id`);--> statement-breakpoint
 CREATE INDEX `llm_generations_debate_job_id_idx` ON `llm_generations` (`debate_job_id`);--> statement-breakpoint
 CREATE INDEX `llm_generations_idea_job_id_idx` ON `llm_generations` (`idea_job_id`);--> statement-breakpoint
@@ -471,7 +486,15 @@ CREATE TABLE `verification` (
 	`updated_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX `verification_identifier_idx` ON `verification` (`identifier`);
+CREATE INDEX `verification_identifier_idx` ON `verification` (`identifier`);--> statement-breakpoint
+CREATE TABLE `waitlist_entries` (
+	`waitlist_entry_id` text PRIMARY KEY NOT NULL,
+	`email` text NOT NULL,
+	`created_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
+	CONSTRAINT "waitlist_entries_email_normalized_check" CHECK("waitlist_entries"."email" = lower(trim("waitlist_entries"."email")) and length("waitlist_entries"."email") between 1 and 254)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `waitlist_entries_email_idx` ON `waitlist_entries` (`email`);
 --> statement-breakpoint
 CREATE TRIGGER `deep_search_results_selected_web_page_owner_insert`
 BEFORE INSERT ON `deep_search_results`
@@ -534,10 +557,9 @@ BEGIN
 END;
 --> statement-breakpoint
 CREATE TRIGGER `deep_search_round_structure_immutable`
-BEFORE UPDATE OF `deep_search_job_id`, `position`, `llm_generation_id` ON `deep_search_rounds`
+BEFORE UPDATE OF `deep_search_job_id`, `position` ON `deep_search_rounds`
 WHEN NEW.`deep_search_job_id` IS NOT OLD.`deep_search_job_id`
 	OR NEW.`position` IS NOT OLD.`position`
-	OR NEW.`llm_generation_id` IS NOT OLD.`llm_generation_id`
 BEGIN
 	SELECT RAISE(ABORT, 'deep-search structural columns are immutable');
 END;
@@ -592,7 +614,7 @@ WHEN NEW.`idea_id` IS NOT OLD.`idea_id`
 	OR NOT (
 		(
 			NEW.`evaluation_generation_id` IS OLD.`evaluation_generation_id`
-			OR (OLD.`evaluation_generation_id` IS NULL AND NEW.`evaluation_generation_id` IS NOT NULL)
+			OR NEW.`evaluation_generation_id` IS NOT NULL
 		)
 		AND
 		(
@@ -602,7 +624,7 @@ WHEN NEW.`idea_id` IS NOT OLD.`idea_id`
 		AND
 		(
 			NEW.`refinement_generation_id` IS OLD.`refinement_generation_id`
-			OR (OLD.`refinement_generation_id` IS NULL AND NEW.`refinement_generation_id` IS NOT NULL)
+			OR NEW.`refinement_generation_id` IS NOT NULL
 		)
 		AND
 		(

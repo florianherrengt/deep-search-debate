@@ -29,6 +29,7 @@ describe("aggregate deletion", () => {
         researchRequest: "Research a standalone question",
         maxSearches: 1,
         maxResultsPerSearch: 1,
+        strictQuality: false,
       })
       .run()
     db.insert(llmGenerations)
@@ -86,6 +87,9 @@ describe("aggregate deletion", () => {
         prompt: "Generate and debate products",
         numberOfIdeas: 2,
         deepSearchCount: 1,
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+        maxRounds: 1,
       })
       .run()
     db.insert(deepSearchJobs)
@@ -98,6 +102,7 @@ describe("aggregate deletion", () => {
         researchRequest: "Research the product market",
         maxSearches: 1,
         maxResultsPerSearch: 1,
+        strictQuality: true,
       })
       .run()
     db.insert(deepSearchJobs)
@@ -110,6 +115,7 @@ describe("aggregate deletion", () => {
         researchRequest: "Research the refined product idea",
         maxSearches: 1,
         maxResultsPerSearch: 1,
+        strictQuality: true,
       })
       .run()
     db.insert(llmGenerations)

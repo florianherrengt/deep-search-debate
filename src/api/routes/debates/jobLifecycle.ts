@@ -12,6 +12,40 @@ import { interruptIdeaJob } from "../ideas/jobLifecycle.ts"
 import { assertEffectiveResearchRootRunning } from "../researchCancellation.ts"
 import type { DebateJobStage } from "./schemas.ts"
 
+const stageOrder: Record<DebateJobStage, number> = {
+  ideas: 0,
+  swiss: 1,
+  semifinal: 2,
+  final: 3,
+}
+
+/** Reopens one parked root while retaining its exact linked stage attempts. */
+export function reopenDebateJob(debateJobId: string): void {
+  db.transaction((transaction) => {
+    const job = transaction
+      .select({ status: debateJobs.status })
+      .from(debateJobs)
+      .where(eq(debateJobs.debateJobId, debateJobId))
+      .get()
+    if (!job) throw new Error("Debate job was not found")
+    if (job.status === "completed") {
+      throw new Error("Completed debate jobs cannot be resumed")
+    }
+
+    const reopened = transaction
+      .update(debateJobs)
+      .set({
+        status: "running",
+        error: null,
+        completedAt: null,
+        cancelRequestedAt: null,
+      })
+      .where(eq(debateJobs.debateJobId, debateJobId))
+      .run()
+    if (reopened.changes !== 1) throw new Error("Debate job was not found")
+  })
+}
+
 export function setDebateJobStage(
   debateJobId: string,
   stage: Exclude<DebateJobStage, "ideas">,
@@ -23,6 +57,13 @@ export function setDebateJobStage(
       kind: "debate",
       jobId: debateJobId,
     })
+    const current = transaction
+      .select({ stage: debateJobs.stage })
+      .from(debateJobs)
+      .where(eq(debateJobs.debateJobId, debateJobId))
+      .get()
+    if (!current) throw new Error("Running debate job was not found")
+    if (stageOrder[current.stage] >= stageOrder[stage]) return
     const result = transaction
       .update(debateJobs)
       .set({ stage })

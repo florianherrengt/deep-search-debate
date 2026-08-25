@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { eq } from "drizzle-orm"
 import type { streamText } from "ai"
 import z from "zod"
-import { getCreditAccount } from "../credits.ts"
+import { debitCredits, getCreditAccount } from "../credits.ts"
 import { db } from "../db/index.ts"
 import {
   debateJobs,
@@ -204,6 +204,99 @@ describe("text streams", () => {
     })
   })
 
+  it("returns an earlier terminal settlement without charging or completing twice", async () => {
+    const creditsBefore = getCreditAccount("test-user-id").credits
+    const onCompleted = vi.fn()
+    const source = new AsyncQueue<SourceStreamPart>()
+    const generation = registerTextStream(
+      "test-user-id",
+      { standalone: true },
+      source,
+      {
+        metadata: {
+          modelId: "configured-model",
+          promptName: "default",
+          calculateCredits: () => 13,
+          finishReason: Promise.resolve("stop"),
+          usage: Promise.resolve({
+            inputTokens: 10,
+            inputTokenDetails: {
+              noCacheTokens: 10,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+            },
+            outputTokens: 5,
+            outputTokenDetails: {
+              textTokens: 5,
+              reasoningTokens: 0,
+            },
+            totalTokens: 15,
+          }),
+        },
+        onCompleted,
+      },
+    )
+    source.push({ type: "text-delta", id: "text", text: "Stale output" })
+
+    const persistedCompletedAt = new Date()
+    db.transaction((transaction) => {
+      transaction
+        .update(llmGenerations)
+        .set({
+          status: "completed",
+          text: "Persisted output",
+          reasoning: "Persisted reasoning",
+          finishReason: "stop",
+          inputTokens: 20,
+          outputTokens: 7,
+          reasoningTokens: 2,
+          creditsUsed: 13,
+          completedAt: persistedCompletedAt,
+        })
+        .where(eq(llmGenerations.llmGenerationId, generation.id))
+        .run()
+      debitCredits(transaction, "test-user-id", 13)
+      onCompleted()
+    })
+    source.close()
+
+    await expect(generation.completion).resolves.toEqual({
+      status: "completed",
+      text: "Persisted output",
+      reasoning: "Persisted reasoning",
+      finishReason: "stop",
+    })
+    expect(
+      db
+        .select({
+          status: llmGenerations.status,
+          text: llmGenerations.text,
+          reasoning: llmGenerations.reasoning,
+          finishReason: llmGenerations.finishReason,
+          inputTokens: llmGenerations.inputTokens,
+          outputTokens: llmGenerations.outputTokens,
+          reasoningTokens: llmGenerations.reasoningTokens,
+          creditsUsed: llmGenerations.creditsUsed,
+          completedAt: llmGenerations.completedAt,
+        })
+        .from(llmGenerations)
+        .where(eq(llmGenerations.llmGenerationId, generation.id))
+        .get(),
+    ).toEqual({
+      status: "completed",
+      text: "Persisted output",
+      reasoning: "Persisted reasoning",
+      finishReason: "stop",
+      inputTokens: 20,
+      outputTokens: 7,
+      reasoningTokens: 2,
+      creditsUsed: 13,
+      completedAt: persistedCompletedAt,
+    })
+    expect(getCreditAccount("test-user-id").credits).toBe(creditsBefore - 13)
+    expect(onCompleted).toHaveBeenCalledOnce()
+  })
+
   it("persists provider metadata and emits one privacy-safe terminal log", async () => {
     const deepSearchJobId = crypto.randomUUID()
     db.insert(deepSearchJobs)
@@ -214,6 +307,7 @@ describe("text streams", () => {
         researchRequest: "Research metadata",
         maxSearches: 1,
         maxResultsPerSearch: 1,
+        strictQuality: false,
       })
       .run()
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
@@ -873,6 +967,9 @@ describe("text streams", () => {
         prompt: "Generate ideas",
         numberOfIdeas: 8,
         deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 2,
       })
       .run()
     const source = new AsyncQueue<SourceStreamPart>()
@@ -916,6 +1013,9 @@ describe("text streams", () => {
         prompt: "Generate ideas",
         numberOfIdeas: 8,
         deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 2,
         cancelRequestedAt: new Date(),
     })
       .run()

@@ -9,7 +9,28 @@ const mocks = vi.hoisted(() => ({
   generateTextStream: vi.fn(),
   loadDebateCandidateResearch: vi.fn(),
   loadDebateContext: vi.fn(),
+  loadDebateExecutionSnapshot: vi.fn(),
+  loadDebateMatch: vi.fn(),
   replaceFailedAgentMessageGeneration: vi.fn(),
+  persistedMatches: new Map<string, {
+    debateMatchId: string
+    position: number
+    firstIdeaId: string
+    secondIdeaId: string
+    winnerIdeaId: string | null
+    completedAt: Date | null
+    messages: Array<{
+      debateMessageId: string
+      position: number
+      speakerSlot: 0 | 1 | 2
+      generation: {
+        generationId: string
+        status: "running" | "completed" | "failed" | "interrupted"
+        text: string | null
+        error: string | null
+      }
+    }>
+  }>(),
 }))
 
 vi.mock("../../llms/generateText.ts", () => ({
@@ -25,6 +46,8 @@ vi.mock("./persistence.ts", () => ({
   completeDebateMatch: mocks.completeDebateMatch,
   createAgentMessage: mocks.createAgentMessage,
   createDebateRound: mocks.createDebateRound,
+  loadDebateExecutionSnapshot: mocks.loadDebateExecutionSnapshot,
+  loadDebateMatch: mocks.loadDebateMatch,
   replaceFailedAgentMessageGeneration:
     mocks.replaceFailedAgentMessageGeneration,
 }))
@@ -122,6 +145,24 @@ function completeWinnerSiteGeneration(input: SiteCallInput): {
   }
 }
 
+function createMockMatches(
+  pairs: Array<readonly [string, string]>,
+): Array<NonNullable<ReturnType<typeof mocks.persistedMatches.get>>> {
+  return pairs.map(([firstIdeaId, secondIdeaId], position) => {
+    const match = {
+      debateMatchId: crypto.randomUUID(),
+      position,
+      firstIdeaId,
+      secondIdeaId,
+      winnerIdeaId: null,
+      completedAt: null,
+      messages: [],
+    }
+    mocks.persistedMatches.set(match.debateMatchId, match)
+    return match
+  })
+}
+
 function createRunFixture() {
   const ideaJobId = crypto.randomUUID()
   const debateJobId = crypto.randomUUID()
@@ -143,6 +184,9 @@ function createRunFixture() {
       prompt: "Choose a product",
       numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.minParticipantCount,
       deepSearchCount: 1,
+      maxSearches: 2,
+      maxResultsPerSearch: 2,
+      maxRounds: 1,
     })
     .run()
   const ideaRows = Array.from(
@@ -214,10 +258,25 @@ function createRunFixture() {
       ]),
     ),
   )
+  mocks.loadDebateExecutionSnapshot.mockImplementation((id: string) =>
+    id === debateJobId
+      ? {
+          debate: { debateJobId, userId: "test-user-id", randomSeed: 42 },
+          ideaJob: { ideaJobId, status: "completed", error: null },
+          selectedIdeas: ideaRows,
+          rounds: [],
+          websiteGeneration: null,
+        }
+      : undefined,
+  )
+  const ideaJobManager = {
+    resumeExisting: vi.fn(() => ({ completion: Promise.resolve() })),
+  }
   const job = createReplayableEventLog<DebateJobEvent>()
   return {
     debateJobId,
     ideaJobId,
+    ideaJobManager,
     job,
     events: collectEvents(job.subscribe()),
   }
@@ -246,7 +305,48 @@ describe("judge verdict contract", () => {
 describe("runDebateJob", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.persistedMatches.clear()
     db.delete(debateJobs).run()
+
+    mocks.loadDebateMatch.mockImplementation((matchId: string) =>
+      mocks.persistedMatches.get(matchId),
+    )
+    mocks.createAgentMessage.mockImplementation((input: {
+      debateMatchId: string
+      position: number
+      speakerSlot: 0 | 1 | 2
+      llmGenerationId: string
+    }) => {
+      const match = mocks.persistedMatches.get(input.debateMatchId)
+      if (!match) throw new Error("Debate match was not found")
+      match.messages.push({
+        debateMessageId: crypto.randomUUID(),
+        position: input.position,
+        speakerSlot: input.speakerSlot,
+        generation: {
+          generationId: input.llmGenerationId,
+          status: "running",
+          text: null,
+          error: null,
+        },
+      })
+    })
+    mocks.replaceFailedAgentMessageGeneration.mockImplementation((input: {
+      debateMatchId: string
+      position: number
+      retryGenerationId: string
+    }) => {
+      const message = mocks.persistedMatches
+        .get(input.debateMatchId)
+        ?.messages.find(({ position }) => position === input.position)
+      if (!message) throw new Error("Debate message was not found")
+      message.generation = {
+        generationId: input.retryGenerationId,
+        status: "running",
+        text: null,
+        error: null,
+      }
+    })
 
     let generationNumber = 0
     mocks.generateTextStream.mockImplementation((input: {
@@ -274,31 +374,39 @@ describe("runDebateJob", () => {
         }),
       })
     })
-    mocks.generateObjectStream.mockImplementation((_input) => {
+    mocks.generateObjectStream.mockImplementation((input: {
+      onRegistered?: (id: string, transaction: { kind: string }) => void
+      onCompleted?: (
+        result: {
+          id: string
+          output: { winner: "candidate_a"; explanation: string }
+        },
+        transaction: { kind: string },
+      ) => void
+    }) => {
       const id = `judge-${generationNumber += 1}`
+      const verdict = {
+        winner: "candidate_a" as const,
+        explanation: "Candidate A wins.",
+      }
+      input.onRegistered?.(id, { kind: "registration-transaction" })
+      input.onCompleted?.(
+        { id, output: verdict },
+        { kind: "completion-transaction" },
+      )
       return Promise.resolve({
         id,
-        output: Promise.resolve({
-          winner: "candidate_a",
-          explanation: "Candidate A wins.",
-        }),
+        output: Promise.resolve(verdict),
         completion: Promise.resolve({
           status: "completed" as const,
-          text: JSON.stringify({
-            winner: "candidate_a",
-            explanation: "Candidate A wins.",
-          }),
+          text: JSON.stringify(verdict),
           reasoning: "",
         }),
       })
     })
     mocks.createDebateRound.mockImplementation(
       ({ pairs }: { pairs: Array<readonly [string, string]> }) =>
-        pairs.map(([firstIdeaId, secondIdeaId], position) => ({
-          debateMatchId: `match-${generationNumber}-${position}`,
-          firstIdeaId,
-          secondIdeaId,
-        })),
+        createMockMatches(pairs),
     )
     mocks.loadDebateContext.mockReturnValue({
       userRequest: "Choose a product",
@@ -310,13 +418,10 @@ describe("runDebateJob", () => {
   })
 
   it("fails without starting another round when an advocate returns only whitespace", async () => {
-    const { debateJobId, ideaJobId, job, events } = createRunFixture()
+    const { debateJobId, ideaJobManager, job, events } = createRunFixture()
     await runDebateJob({
       debateJobId,
-      userId: "test-user-id",
-      ideaJobId,
-      randomSeed: 42,
-      ideaCompletion: Promise.resolve(),
+      ideaJobManager,
       job,
     })
 
@@ -381,14 +486,11 @@ describe("runDebateJob", () => {
         ),
       })
     })
-    const { debateJobId, ideaJobId, job, events } = createRunFixture()
+    const { debateJobId, ideaJobId, ideaJobManager, job, events } = createRunFixture()
 
     await runDebateJob({
       debateJobId,
-      userId: "test-user-id",
-      ideaJobId,
-      randomSeed: 42,
-      ideaCompletion: Promise.resolve(),
+      ideaJobManager,
       job,
     })
 
@@ -470,14 +572,11 @@ describe("runDebateJob", () => {
         }),
       })
     })
-    const { debateJobId, ideaJobId, job } = createRunFixture()
+    const { debateJobId, ideaJobManager, job } = createRunFixture()
 
     await runDebateJob({
       debateJobId,
-      userId: "test-user-id",
-      ideaJobId,
-      randomSeed: 42,
-      ideaCompletion: Promise.resolve(),
+      ideaJobManager,
       job,
     })
 
@@ -522,14 +621,11 @@ describe("runDebateJob", () => {
         }),
       })
     })
-    const { debateJobId, ideaJobId, job } = createRunFixture()
+    const { debateJobId, ideaJobManager, job } = createRunFixture()
 
     await runDebateJob({
       debateJobId,
-      userId: "test-user-id",
-      ideaJobId,
-      randomSeed: 42,
-      ideaCompletion: Promise.resolve(),
+      ideaJobManager,
       job,
     })
 
@@ -566,14 +662,11 @@ describe("runDebateJob", () => {
         }),
       })
     })
-    const { debateJobId, ideaJobId, job } = createRunFixture()
+    const { debateJobId, ideaJobManager, job } = createRunFixture()
 
     await runDebateJob({
       debateJobId,
-      userId: "test-user-id",
-      ideaJobId,
-      randomSeed: 42,
-      ideaCompletion: Promise.resolve(),
+      ideaJobManager,
       job,
     })
 
@@ -586,6 +679,104 @@ describe("runDebateJob", () => {
     )
     expect(mocks.replaceFailedAgentMessageGeneration).not.toHaveBeenCalled()
   })
+
+  it.each([
+    { checkpoint: "missing", status: null },
+    { checkpoint: "completed", status: "completed" as const },
+    { checkpoint: "failed", status: "failed" as const },
+    { checkpoint: "interrupted", status: "interrupted" as const },
+  ])(
+    "reconciles a $checkpoint advocate checkpoint without growing durable counts",
+    async ({ status }) => {
+      let advocateGenerationNumber = 0
+      mocks.generateTextStream.mockImplementation((input: {
+        promptName?: string
+        owner: { debateJobId?: string }
+        onRegistered?: (
+          id: string,
+          transaction: { kind: string },
+        ) => void
+      }) => {
+        if (input.promptName === PromptName.CreateIdeaSite) {
+          return completeWinnerSiteGeneration(
+            input as Parameters<typeof completeWinnerSiteGeneration>[0],
+          )
+        }
+        const id = `checkpoint-agent-${advocateGenerationNumber += 1}`
+        input.onRegistered?.(id, { kind: "registration-transaction" })
+        return Promise.resolve({
+          id,
+          completion: Promise.resolve({
+            status: "completed" as const,
+            text: "Recovered substantive argument",
+            reasoning: "",
+            finishReason: "stop" as const,
+          }),
+        })
+      })
+      mocks.createDebateRound.mockImplementationOnce(
+        ({ pairs }: { pairs: Array<readonly [string, string]> }) => {
+          const matches = createMockMatches(pairs)
+          if (status !== null) {
+            matches[0]?.messages.push({
+              debateMessageId: crypto.randomUUID(),
+              position: 0,
+              speakerSlot: 0,
+              generation: {
+                generationId: `persisted-${status}`,
+                status,
+                text:
+                  status === "completed"
+                    ? "Persisted opening"
+                    : "Partial opening",
+                error:
+                  status === "completed"
+                    ? null
+                    : `Persisted ${status} attempt`,
+              },
+            })
+          }
+          return matches
+        },
+      )
+      const fixture = createRunFixture()
+
+      await runDebateJob({
+        debateJobId: fixture.debateJobId,
+        ideaJobManager: fixture.ideaJobManager,
+        job: fixture.job,
+      })
+
+      expect(db.select().from(debateJobs).get()).toMatchObject({
+        status: "completed",
+      })
+      expect(fixture.ideaJobManager.resumeExisting).toHaveBeenCalledOnce()
+      const advocateCalls = mocks.generateTextStream.mock.calls.filter(
+        ([input]) =>
+          (input as { promptName?: string }).promptName !==
+          PromptName.CreateIdeaSite,
+      )
+      expect(advocateCalls).toHaveLength(
+        getTotalMatchCount(DEBATE_TOURNAMENT_FORMAT.minParticipantCount) * 4 -
+          (status === "completed" ? 1 : 0),
+      )
+      expect(mocks.replaceFailedAgentMessageGeneration).toHaveBeenCalledTimes(
+        status === "failed" || status === "interrupted" ? 1 : 0,
+      )
+      expect(mocks.persistedMatches.size).toBe(
+        getTotalMatchCount(DEBATE_TOURNAMENT_FORMAT.minParticipantCount),
+      )
+      expect(
+        [...mocks.persistedMatches.values()].reduce(
+          (count, match) => count + match.messages.length,
+          0,
+        ),
+      ).toBe(
+        getTotalMatchCount(DEBATE_TOURNAMENT_FORMAT.minParticipantCount) * 5,
+      )
+      await fixture.events
+    },
+  )
 
   it("retries one transient judge other finish", async () => {
     let advocateGenerationNumber = 0
@@ -666,14 +857,11 @@ describe("runDebateJob", () => {
         ),
       })
     })
-    const { debateJobId, ideaJobId, job } = createRunFixture()
+    const { debateJobId, ideaJobManager, job } = createRunFixture()
 
     await runDebateJob({
       debateJobId,
-      userId: "test-user-id",
-      ideaJobId,
-      randomSeed: 42,
-      ideaCompletion: Promise.resolve(),
+      ideaJobManager,
       job,
     })
 
@@ -757,10 +945,7 @@ describe("runDebateJob", () => {
 
     await runDebateJob({
       debateJobId: fixture.debateJobId,
-      userId: "test-user-id",
-      ideaJobId: fixture.ideaJobId,
-      randomSeed: 42,
-      ideaCompletion: Promise.resolve(),
+      ideaJobManager: fixture.ideaJobManager,
       job: fixture.job,
     })
 
@@ -778,7 +963,7 @@ describe("runDebateJob", () => {
   })
 
   it("persists user Stop as interruption without an ordinary error event", async () => {
-    const { debateJobId, ideaJobId, job, events } = createRunFixture()
+    const { debateJobId, ideaJobManager, job, events } = createRunFixture()
     db.update(debateJobs)
       .set({ cancelRequestedAt: new Date() })
       .where(eq(debateJobs.debateJobId, debateJobId))
@@ -788,10 +973,7 @@ describe("runDebateJob", () => {
 
     await runDebateJob({
       debateJobId,
-      userId: "test-user-id",
-      ideaJobId,
-      randomSeed: 42,
-      ideaCompletion: Promise.resolve(),
+      ideaJobManager,
       job,
       workflowSignal: controller.signal,
     })

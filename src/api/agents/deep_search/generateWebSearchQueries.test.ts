@@ -131,6 +131,45 @@ describe("generateWebSearchQueries", () => {
     expect(call.prompt).toContain("Generate exactly 3 new search queries")
   })
 
+  it("forwards registration and commits normalized query output", async () => {
+    mocks.generateArrayStream.mockResolvedValueOnce(
+      completedGeneration(Promise.resolve(["new query"])),
+    )
+    const onRegistered = vi.fn()
+    const onCompleted = vi.fn()
+
+    await generateWebSearchQueries({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
+      researchRequest: "Research this",
+      maxSearches: 2,
+      previousQueries: ["existing query"],
+      onRegistered,
+      onCompleted,
+    })
+
+    const call = mocks.generateArrayStream.mock.calls[0]?.[0] as {
+      onRegistered: typeof onRegistered
+      onCompleted: (
+        completed: { id: string; output: string[] },
+        transaction: unknown,
+      ) => void
+    }
+    expect(call.onRegistered).toBe(onRegistered)
+    const transaction = {}
+    call.onCompleted(
+      {
+        id: "stream-id",
+        output: ["EXISTING QUERY", "new query", "New Query", "second query"],
+      },
+      transaction,
+    )
+    expect(onCompleted).toHaveBeenCalledWith(
+      { id: "stream-id", output: ["new query", "second query"] },
+      transaction,
+    )
+  })
+
   it("bounds prior evidence without repeating the executed-query list", async () => {
     mocks.generateArrayStream.mockResolvedValueOnce(
       completedGeneration(Promise.resolve(["new query"])),

@@ -4,6 +4,8 @@ import { PromptName } from "../../llms/prompts.ts"
 import {
   awaitGenerationOutput,
   type GenerationOutcome,
+  type TextGenerationPersistenceCallbacks,
+  type TextStreamPersistenceTransaction,
 } from "../../llms/streams.ts"
 
 type IndexedSearchResult = {
@@ -13,7 +15,10 @@ type IndexedSearchResult = {
   snippet: string
 }
 
-type SelectWebSearchResultsInput = {
+type SelectWebSearchResultsInput = Pick<
+  TextGenerationPersistenceCallbacks,
+  "onRegistered" | "onFailed" | "onInterrupted"
+> & {
   userId: string
   deepSearchJobId: string
   userQuery: string
@@ -21,12 +26,29 @@ type SelectWebSearchResultsInput = {
   results: IndexedSearchResult[]
   maxResultsToExplore?: number
   workflowSignal?: AbortSignal
+  onCompleted?: (
+    completed: { id: string; output: string[] },
+    transaction: TextStreamPersistenceTransaction,
+  ) => void
 }
 
 export type SelectionGeneration = {
   streamId: string
   selectedIds: Promise<string[]>
   completion: Promise<GenerationOutcome>
+}
+
+function normalizeSelectedIds(
+  ids: readonly string[],
+  knownIds: ReadonlySet<string>,
+  maxResultsToExplore: number,
+): string[] {
+  // TODO: Reject unknown or duplicate selector IDs at the model boundary.
+  // For now they are ignored and do not consume the exploration quota.
+  return [...new Set(ids.filter((id) => knownIds.has(id)))].slice(
+    0,
+    maxResultsToExplore,
+  )
 }
 
 /**
@@ -49,6 +71,7 @@ export async function selectWebSearchResults(
     formattedResults,
     "</search_results>",
   ].join("\n")
+  const knownIds = new Set(params.results.map(({ id }) => id))
 
   const generation = await generateArrayStream({
     userId: params.userId,
@@ -58,22 +81,41 @@ export async function selectWebSearchResults(
     element: z.string(),
     maxOutputTokens: 1_024,
     workflowSignal: params.workflowSignal,
+    ...(params.onRegistered ? { onRegistered: params.onRegistered } : {}),
+    ...(params.onFailed ? { onFailed: params.onFailed } : {}),
+    ...(params.onInterrupted
+      ? { onInterrupted: params.onInterrupted }
+      : {}),
+    ...(params.onCompleted
+      ? {
+          onCompleted: (
+            completed: { id: string; output: string[] },
+            transaction: TextStreamPersistenceTransaction,
+          ) => {
+            params.onCompleted?.(
+              {
+                id: completed.id,
+                output: normalizeSelectedIds(
+                  completed.output,
+                  knownIds,
+                  maxResultsToExplore,
+                ),
+              },
+              transaction,
+            )
+          },
+        }
+      : {}),
   })
-  const knownIds = new Set(params.results.map(({ id }) => id))
 
   return {
     streamId: generation.id,
     selectedIds: awaitGenerationOutput(
       generation,
       generation.output,
-    ).then((ids) => {
-      // TODO: Reject unknown or duplicate selector IDs at the model boundary.
-      // For now they are ignored and do not consume the exploration quota.
-      return [...new Set(ids.filter((id) => knownIds.has(id)))].slice(
-        0,
-        maxResultsToExplore,
-      )
-    }),
+    ).then((ids) =>
+      normalizeSelectedIds(ids, knownIds, maxResultsToExplore),
+    ),
     completion: generation.completion,
   }
 }

@@ -99,6 +99,9 @@ describe("debate prompt context", () => {
         prompt: "Choose a product",
         numberOfIdeas: 1,
         deepSearchCount: 2,
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+        maxRounds: 3,
       })
       .run()
     db.insert(ideas)
@@ -121,6 +124,7 @@ describe("debate prompt context", () => {
         researchRequest: "Research candidate",
         maxSearches: 1,
         maxResultsPerSearch: 1,
+        strictQuality: true,
       })
       .run()
     db.insert(llmGenerations)

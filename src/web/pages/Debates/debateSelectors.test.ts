@@ -54,6 +54,7 @@ const tournament: DebateTournament = {
   isPublic: false,
   isOwner: true,
   stopRequested: false,
+  canResume: false,
   canStop: false,
   stage: "final",
   status: "completed",

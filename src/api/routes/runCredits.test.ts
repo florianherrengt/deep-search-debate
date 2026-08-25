@@ -110,17 +110,19 @@ function createReadApp(viewerUserId: string | null): Hono<AppEnv> {
   })
   const deepSearchManager: DeepSearchJobManager = {
     start: vi.fn(),
+    resumeExisting: vi.fn(),
     stop: vi.fn(),
-    requireParentQualityAcceptance: vi.fn(),
     getLiveJob: vi.fn(),
   }
   const ideaJobManager: IdeaJobManager = {
     start: vi.fn(),
+    resumeExisting: vi.fn(),
     stop: vi.fn(),
     getLiveJob: vi.fn(),
   }
   const debateJobManager: DebateJobManager = {
     start: vi.fn(),
+    resumeExisting: vi.fn(),
     stop: vi.fn(),
     getLiveJob: vi.fn(),
   }
@@ -157,6 +159,9 @@ describe("derived run credits", () => {
         prompt: "Count every owned charge once",
         numberOfIdeas: 6,
         deepSearchCount: 2,
+        maxSearches: 2,
+        maxResultsPerSearch: 2,
+        maxRounds: 3,
       })
       .run()
     db.insert(deepSearchJobs)
@@ -171,6 +176,7 @@ describe("derived run credits", () => {
           researchRequest: "Research the first branch",
           maxSearches: 2,
           maxResultsPerSearch: 2,
+          strictQuality: true,
         },
         {
           deepSearchJobId: secondDeepSearchJobId,
@@ -182,6 +188,7 @@ describe("derived run credits", () => {
           researchRequest: "Research the second branch",
           maxSearches: 2,
           maxResultsPerSearch: 2,
+          strictQuality: true,
         },
       ])
       .run()

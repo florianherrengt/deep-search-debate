@@ -118,6 +118,9 @@ beforeEach(() => {
         prompt: "Private debate ideas",
         numberOfIdeas: 1,
         deepSearchCount: 1,
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+        maxRounds: 3,
       },
       {
         ideaJobId: publicIdeaJobId,
@@ -127,6 +130,9 @@ beforeEach(() => {
         prompt: "Public debate ideas",
         numberOfIdeas: 1,
         deepSearchCount: 1,
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+        maxRounds: 3,
       },
       {
         ideaJobId: standaloneIdeaJobId,
@@ -135,6 +141,9 @@ beforeEach(() => {
         prompt: "Standalone ideas",
         numberOfIdeas: 1,
         deepSearchCount: 1,
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+        maxRounds: 3,
       },
     ])
     .run()
@@ -150,6 +159,7 @@ beforeEach(() => {
         researchRequest: "Private debate research",
         maxSearches: 1,
         maxResultsPerSearch: 1,
+        strictQuality: true,
       },
       {
         deepSearchJobId: publicDeepSearchJobId,
@@ -160,6 +170,7 @@ beforeEach(() => {
         researchRequest: "Public debate research",
         maxSearches: 1,
         maxResultsPerSearch: 1,
+        strictQuality: true,
       },
       {
         deepSearchJobId: standaloneDeepSearchJobId,
@@ -168,6 +179,7 @@ beforeEach(() => {
         researchRequest: "Standalone research",
         maxSearches: 1,
         maxResultsPerSearch: 1,
+        strictQuality: false,
       },
     ])
     .run()

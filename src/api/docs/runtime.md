@@ -38,6 +38,23 @@ presentation without storing their own stop timestamp. That presentation is
 causal: a descendant that reached a terminal state before the root timestamp
 does not gain `stopRequested` or a Stop event suffix after the fact.
 
+After all three dependent managers are constructed, `server.ts` reconciles
+persisted research before opening the HTTP listener. It schedules only effective
+roots: every non-completed debate, every non-completed standalone idea job, and
+every non-completed standalone deep search. Descendant idea jobs and searches
+are resumed only through their parent coordinator, so one durable workflow is
+never scheduled twice. A synchronous reset or scheduling error fails startup;
+an error after scheduling is persisted by the owning manager. Each coordinator
+loads its normalized checkpoint graph, reuses valid completed stages, and
+retries only incomplete work from the leaves back to the root. Provider streams
+themselves cannot survive a process restart.
+
+Owners may make the same reconciliation explicit with a root workflow's Resume
+route after failure or interruption. Reopening clears the root's terminal error,
+completion time, and Stop timestamp, retains its durable checkpoint prefix, and
+runs under the same job ID. Concurrent Resume requests in one process share the
+manager's existing execution rather than creating duplicate work.
+
 `routes/deepSearch/pipeline.ts`, `routes/ideas/run.ts`, and
 `routes/debates/run.ts` are the Effect-owned coordinators. Each has one
 Promise-facing runtime boundary, sequences durable stages with `Effect.gen`,

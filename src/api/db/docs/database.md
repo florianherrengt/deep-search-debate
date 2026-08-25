@@ -46,6 +46,10 @@ ignores this one documented peer-resolution shim.
   `llm_generations` for model usage, `deep_search_queries` for search-provider
   usage, and `deep_search_web_pages` for all ScrapingAnt attempts for that URL.
   Settlement writes this value and decrements `user.credits` in one transaction.
+  LLM settlement first compare-and-swaps the generation from `running` to its
+  terminal state; a stale callback that loses that transition reads the durable
+  outcome and cannot debit credits or run the owning-stage completion hook
+  again.
   Negative account balances are valid; `credits_used` is never a reservation.
   Inaccessible rows are never loaded before authorization. Nested idea searches,
   debate jobs, and all of their generations inherit the initiating user's ID
@@ -74,7 +78,10 @@ ignores this one documented peer-resolution shim.
   Stop remains completed rather than being relabeled. Lifecycle checks allow
   the timestamp on running roots and interrupted roots, while completed and
   failed jobs require it to be null. An interrupted root without the timestamp
-  remains the distinct server-restart case.
+  remains the distinct non-Stop presentation. Resuming a failed or
+  interrupted root clears its Stop timestamp, terminal error, and completion
+  time before checkpoint reconciliation; descendants are never reopened by a
+  user-facing route.
 - Workflow-created `llm_generations` rows carry exactly one debate, idea, or
   deep-search owner FK; standalone stream generations carry none. Root
   generation links include the exact job ID and user ID in their composite
@@ -99,6 +106,17 @@ ignores this one documented peer-resolution shim.
   A completed query may omit both generation links only when the provider
   returned no usable result rows; the transactional empty-result command checks
   that condition and avoids fabricating selection or summary generations.
+- Deep-search jobs persist `strict_quality` explicitly. Standalone searches set
+  it false; idea-owned searches set it true so a failed model-backed page
+  summary remains retryable instead of becoming a snippet fallback. The column
+  has no database default. A page stores at most 100,000 characters of
+  `extracted_content` after extraction settles and until its summary commits;
+  this lets a resumed summary retry avoid a second extraction and charge. The
+  content is cleared after successful summary completion.
+- Idea jobs persist `max_searches`, `max_results_per_search`, and `max_rounds`
+  alongside their other requested controls. These columns have no database
+  defaults: every creation path writes the validated values explicitly, and
+  resumed child searches reuse that durable configuration.
 - API validation requires user prompts, research requests, generated queries,
   and persisted search facts to contain non-whitespace content. Idea content is
   immutable after insertion; its nullable evaluation and refinement links can
@@ -204,8 +222,9 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
   written individually. The short preflight title call is not replayed; only
   its validated title is stored on the new job.
 - `deep_search_jobs` owns an LLM-generated title, readable slug, and deep-search
-  request and may belong to an `idea_jobs` parent. Child searches store their
-  planning-generation position. Its normalized query, result, web-page, and
+  request, search limits, and strict-quality policy and may belong to an
+  `idea_jobs` parent. Child searches store their planning-generation position.
+  Its normalized query, result, web-page, and
   generation rows preserve research progress without a JSON snapshot. Each
   search round links its candidate-answer generation. A separate structured
   generation stores facts, disagreements, gaps, and assumptions; the job links
@@ -213,10 +232,10 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
   accepted or final permitted candidate through the job's final-answer link
   without copying its text.
 - `idea_jobs` owns the LLM-generated title and slug used by both idea and debate
-  URLs, the user prompt, requested idea/search counts, current stage,
-  lifecycle, planning, briefing, idea-generation, and selection-generation
-  links. A debate-created idea job points to its owning debate; a standalone
-  idea job leaves that FK null.
+  URLs, the user prompt, requested idea/search counts and child-search limits,
+  current stage, lifecycle, planning, briefing, idea-generation, and
+  selection-generation links. A debate-created idea job points to its owning
+  debate; a standalone idea job leaves that FK null.
 - `ideas` stores validated, ordered idea output with stable IDs as soon as idea
   generation completes. Its selected flag remains null until the comparative
   selector atomically marks every idea selected or rejected. A selected row then
@@ -240,18 +259,22 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
   resolved by `(idea_job_id, idea_job_position = deepSearchCount +
   idea.position)` for debate context and UI replay.
 
-On startup, `recoverInterruptedWork()` settles all orphaned running LLM
-generations, deep-search work, idea jobs, and debate jobs in one transaction.
-Persisted root stop requests are classified before ordinary restart recovery:
-the directly stopped root retains its timestamp and user-stop explanation,
-while nested work derives a parent-stop explanation without copying the
-timestamp. Active query and page rows reuse their existing failed terminal
-states. A stopped debate is interrupted even if its final verdict already
-committed; only an otherwise running, uncancelled debate in that small crash
-window is recovered as completed. Remaining orphaned jobs use the distinct
-server-restart interruption explanation. External provider work is not
-resumable after process termination; completed debate rounds, results, and
-transcript generations remain replayable.
+On startup, `reconcilePersistedResearchRoots()` loads only effective roots:
+non-completed debates, standalone idea jobs, and standalone deep searches. It
+schedules each root through its manager before the HTTP listener opens; any
+synchronous reset or scheduling failure aborts startup. Parent coordinators
+resume their descendants, so child jobs are never independently scheduled.
+
+Each workflow loads its normalized checkpoint graph and reuses completed
+generations, searches, rounds, matches, transcript messages, and other valid
+stage output. An incomplete failed, interrupted, or stale-running generation is
+replaced only if its owning record still points to that exact attempt. The
+replacement registration transaction interrupts a stale-running attempt and
+repoints the link atomically, preventing duplicate work from rewriting a newer
+checkpoint. Search-provider work and page extraction retry only when their
+settlement did not commit; a persisted extraction result is reused for a page
+summary retry. The same recursive reconciliation runs for an owner-requested
+root Resume. Completed roots are never reopened.
 
 ## Tests
 

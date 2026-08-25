@@ -1,8 +1,5 @@
-import { and, asc, eq } from "drizzle-orm"
 import { Effect, Result } from "effect"
 
-import { db } from "../../db/index.ts"
-import { ideas as ideaRecords } from "../../db/schema/index.ts"
 import { getErrorMessage } from "../../helpers/getErrorMessage.ts"
 import {
   generateObjectStream,
@@ -28,6 +25,8 @@ import {
   completeDebateMatch,
   createAgentMessage,
   createDebateRound,
+  loadDebateExecutionSnapshot,
+  loadDebateMatch,
   replaceFailedAgentMessageGeneration,
   type DebateRoundStage,
 } from "./persistence.ts"
@@ -63,10 +62,12 @@ import {
 
 type RunDebateJobInput = {
   debateJobId: string
-  userId: string
-  ideaJobId: string
-  randomSeed: number
-  ideaCompletion: Promise<void>
+  ideaJobManager: {
+    resumeExisting(
+      ideaJobId: string,
+      options: { workflowSignal?: AbortSignal },
+    ): { completion: Promise<void> }
+  }
   job: LiveDebateJob
   workflowSignal?: AbortSignal
 }
@@ -142,23 +143,15 @@ function settleAllEffects<Value>(
   })
 }
 
-function loadIdeas(ideaJobId: string): PersistedDebateIdea[] {
-  const rows = db
-    .select({
-      ideaId: ideaRecords.ideaId,
-      position: ideaRecords.position,
-      title: ideaRecords.refinedTitle,
-      description: ideaRecords.refinedDescription,
-    })
-    .from(ideaRecords)
-    .where(
-      and(
-        eq(ideaRecords.ideaJobId, ideaJobId),
-        eq(ideaRecords.selected, true),
-      ),
-    )
-    .orderBy(asc(ideaRecords.position))
-    .all()
+function loadIdeas(debateJobId: string): PersistedDebateIdea[] {
+  const execution = loadDebateExecutionSnapshot(debateJobId)
+  if (!execution) throw new Error("Debate job was not found")
+  const rows = execution.selectedIdeas.map((idea) => ({
+    ideaId: idea.ideaId,
+    position: idea.position,
+    title: idea.refinedTitle,
+    description: idea.refinedDescription,
+  }))
   if (rows.some(({ title, description }) => !title || !description)) {
     throw new Error("Selected ideas were not refined")
   }
@@ -181,7 +174,25 @@ async function runAgentMessage(input: {
   job: LiveDebateJob
   workflowSignal?: AbortSignal
 }): Promise<string> {
-  let linkedGenerationId: string | undefined
+  const persistedMatch = loadDebateMatch(input.match.debateMatchId)
+  if (!persistedMatch) throw new Error("Debate match was not found")
+  const persistedMessage = persistedMatch.messages.find(
+    ({ position }) => position === input.position,
+  )
+  if (
+    persistedMessage &&
+    persistedMessage.speakerSlot !== input.speakerSlot
+  ) {
+    throw new Error("Persisted debate message has the wrong speaker")
+  }
+  if (persistedMessage?.generation.status === "completed") {
+    const text = persistedMessage.generation.text
+    if (!text?.trim()) {
+      throw new Error("Completed debate advocate has no message text")
+    }
+    return text
+  }
+  let linkedGenerationId = persistedMessage?.generation.generationId
   const text = await retryOtherFinish(
     async () => {
       const failedGenerationId = linkedGenerationId
@@ -232,6 +243,117 @@ async function runAgentMessage(input: {
     throw new Error("Debate advocate returned an empty message")
   }
   return text
+}
+
+async function runJudge(input: {
+  userId: string
+  debateJobId: string
+  match: CreatedMatch
+  first: DebateCandidate
+  second: DebateCandidate
+  firstResearch: DebateCandidateResearch
+  secondResearch: DebateCandidateResearch
+  context: DebateContext
+  transcript: readonly [string, string, string, string]
+  job: LiveDebateJob
+  workflowSignal?: AbortSignal
+}): Promise<DebateMatchResult> {
+  const persistedMatch = loadDebateMatch(input.match.debateMatchId)
+  if (!persistedMatch) throw new Error("Debate match was not found")
+  const persistedJudge = persistedMatch.messages.find(
+    ({ position }) => position === 4,
+  )
+  if (persistedJudge && persistedJudge.speakerSlot !== 2) {
+    throw new Error("Persisted judge message has the wrong speaker")
+  }
+  if (persistedMatch.winnerIdeaId !== null) {
+    if (persistedJudge?.generation.status !== "completed") {
+      throw new Error("Completed debate match has no completed judge verdict")
+    }
+    return {
+      firstIdeaId: persistedMatch.firstIdeaId,
+      secondIdeaId: persistedMatch.secondIdeaId,
+      winnerIdeaId: persistedMatch.winnerIdeaId,
+    }
+  }
+  if (persistedJudge?.generation.status === "completed") {
+    throw new Error("Completed judge generation has no durable match result")
+  }
+  let linkedGenerationId = persistedJudge?.generation.generationId
+  const verdict = await retryOtherFinish(
+    async () => {
+      const failedGenerationId = linkedGenerationId
+      const generation = await generateObjectStream({
+        userId: input.userId,
+        owner: { debateJobId: input.debateJobId },
+        prompt: buildJudgePrompt(
+          input.context,
+          input.first,
+          input.second,
+          input.firstResearch,
+          input.secondResearch,
+          [...input.transcript],
+        ),
+        promptName: PromptName.DebateJudge,
+        schema: judgeVerdictSchema,
+        maxOutputTokens: 1_024,
+        workflowSignal: input.workflowSignal,
+        onRegistered: (generationId, transaction) => {
+          if (failedGenerationId === undefined) {
+            createAgentMessage(
+              {
+                debateMatchId: input.match.debateMatchId,
+                position: 4,
+                speakerSlot: 2,
+                llmGenerationId: generationId,
+              },
+              transaction,
+            )
+          } else {
+            replaceFailedAgentMessageGeneration(
+              {
+                debateMatchId: input.match.debateMatchId,
+                position: 4,
+                failedGenerationId,
+                retryGenerationId: generationId,
+              },
+              transaction,
+            )
+          }
+        },
+        onCompleted: ({ id, output }, transaction) => {
+          completeDebateMatch(
+            {
+              debateMatchId: input.match.debateMatchId,
+              winnerIdeaId:
+                output.winner === "candidate_a"
+                  ? input.first.ideaId
+                  : input.second.ideaId,
+              judgeGenerationId: id,
+            },
+            transaction,
+          )
+        },
+      })
+      linkedGenerationId = generation.id
+      try {
+        input.job.publish({ type: "updated" })
+      } catch (error) {
+        await generation.completion.catch(() => undefined)
+        throw error
+      }
+      return generation
+    },
+    (generation) => awaitGenerationOutput(generation, generation.output),
+  )
+  return {
+    firstIdeaId: input.first.ideaId,
+    secondIdeaId: input.second.ideaId,
+    winnerIdeaId:
+      verdict.winner === "candidate_a"
+        ? input.first.ideaId
+        : input.second.ideaId,
+  }
 }
 
 function runMatchEffect(input: {
@@ -340,56 +462,28 @@ function runMatchEffect(input: {
         }),
       ),
     ])
-    const verdict = yield* workflowEffect(() =>
-      retryOtherFinish(
-        () =>
-          generateObjectStream({
-            userId: input.userId,
-            owner: { debateJobId: input.debateJobId },
-            prompt: buildJudgePrompt(
-              input.context,
-              first,
-              second,
-              firstResearch,
-              secondResearch,
-              [
-                firstOpening,
-                secondOpening,
-                firstRebuttal,
-                secondRebuttal,
-              ],
-            ),
-            promptName: PromptName.DebateJudge,
-            schema: judgeVerdictSchema,
-            maxOutputTokens: 1_024,
-            workflowSignal: input.workflowSignal,
-            onCompleted: ({ id, output }, transaction) => {
-              completeDebateMatch(
-                {
-                  debateMatchId: input.match.debateMatchId,
-                  winnerIdeaId:
-                    output.winner === "candidate_a"
-                      ? first.ideaId
-                      : second.ideaId,
-                  judgeGenerationId: id,
-                },
-                transaction,
-              )
-            },
-          }),
-        (generation) =>
-          awaitGenerationOutput(generation, generation.output),
-      ),
+    const result = yield* workflowEffect(() =>
+      runJudge({
+        userId: input.userId,
+        debateJobId: input.debateJobId,
+        match: input.match,
+        first,
+        second,
+        firstResearch,
+        secondResearch,
+        context: input.context,
+        transcript: [
+          firstOpening,
+          secondOpening,
+          firstRebuttal,
+          secondRebuttal,
+        ],
+        job: input.job,
+        workflowSignal: input.workflowSignal,
+      }),
     )
-    const winnerIdeaId =
-      verdict.winner === "candidate_a" ? first.ideaId : second.ideaId
-
     yield* workflowEffect(() => input.job.publish({ type: "updated" }))
-    return {
-      firstIdeaId: first.ideaId,
-      secondIdeaId: second.ideaId,
-      winnerIdeaId,
-    }
+    return result
   })
 }
 
@@ -441,12 +535,42 @@ function debateTournamentEffect(
   input: RunDebateJobInput,
 ): Effect.Effect<void, WorkflowFailure> {
   return Effect.gen(function*() {
-    yield* workflowEffect(() => input.ideaCompletion, "Debate idea pipeline failed")
+    const initialExecution = yield* workflowEffect(() => {
+      const execution = loadDebateExecutionSnapshot(input.debateJobId)
+      if (!execution) throw new Error("Debate job was not found")
+      return execution
+    })
+    const ideaJob = yield* workflowEffect(
+      () =>
+        input.ideaJobManager.resumeExisting(
+          initialExecution.ideaJob.ideaJobId,
+          { workflowSignal: input.workflowSignal },
+        ),
+      "Debate idea pipeline failed",
+    )
+    yield* workflowEffect(
+      () => ideaJob.completion,
+      "Debate idea pipeline failed",
+    )
 
-    const ideas = yield* workflowEffect(() => loadIdeas(input.ideaJobId))
-    const context = yield* workflowEffect(() => loadDebateContext(input.ideaJobId))
+    const execution = yield* workflowEffect(() => {
+      const persisted = loadDebateExecutionSnapshot(input.debateJobId)
+      if (!persisted) throw new Error("Debate job was not found")
+      if (persisted.ideaJob.status !== "completed") {
+        throw new Error(
+          persisted.ideaJob.error ?? "Debate idea pipeline did not complete",
+        )
+      }
+      return persisted
+    })
+    const userId = execution.debate.userId
+    const ideaJobId = execution.ideaJob.ideaJobId
+    const randomSeed = execution.debate.randomSeed
+
+    const ideas = yield* workflowEffect(() => loadIdeas(input.debateJobId))
+    const context = yield* workflowEffect(() => loadDebateContext(ideaJobId))
     const researchByIdeaId = yield* workflowEffect(() =>
-      loadDebateCandidateResearch(input.ideaJobId),
+      loadDebateCandidateResearch(ideaJobId),
     )
     // Tournament position is pairing metadata, not evidence. Project candidates
     // before serialization so advocates and judges cannot infer generation order.
@@ -478,10 +602,10 @@ function debateTournamentEffect(
       const pairings = createNextSwissRound({
         ideas: tournamentIdeas,
         completedRounds: completedSwissRounds,
-        randomSeed: input.randomSeed,
+        randomSeed,
       })
       const results = yield* runRoundEffect({
-        userId: input.userId,
+        userId,
         debateJobId: input.debateJobId,
         stage: "swiss",
         stageRoundNumber: roundNumber,
@@ -498,18 +622,18 @@ function debateTournamentEffect(
     const standings = deriveSwissStandings(
       tournamentIdeas,
       completedSwissRounds,
-      input.randomSeed,
+      randomSeed,
     )
     yield* workflowEffect(() =>
       setDebateJobStage(input.debateJobId, "semifinal"),
     )
     yield* workflowEffect(() => input.job.publish({ type: "updated" }))
     const semifinalResults = yield* runRoundEffect({
-      userId: input.userId,
+      userId,
       debateJobId: input.debateJobId,
       stage: "semifinal",
       stageRoundNumber: 1,
-      pairings: createSemifinalRound(standings, input.randomSeed),
+      pairings: createSemifinalRound(standings, randomSeed),
       ideasById,
       researchByIdeaId,
       context,
@@ -520,11 +644,11 @@ function debateTournamentEffect(
     yield* workflowEffect(() => setDebateJobStage(input.debateJobId, "final"))
     yield* workflowEffect(() => input.job.publish({ type: "updated" }))
     const finalResults = yield* runRoundEffect({
-      userId: input.userId,
+      userId,
       debateJobId: input.debateJobId,
       stage: "final",
       stageRoundNumber: 1,
-      pairings: [createFinalRound(semifinalResults, input.randomSeed)],
+      pairings: [createFinalRound(semifinalResults, randomSeed)],
       ideasById,
       researchByIdeaId,
       context,
@@ -543,7 +667,7 @@ function debateTournamentEffect(
     yield* workflowEffect(
       () =>
         generateWinningIdeaSite({
-          userId: input.userId,
+          userId,
           debateJobId: input.debateJobId,
           winnerIdeaId,
           workflowSignal: input.workflowSignal,

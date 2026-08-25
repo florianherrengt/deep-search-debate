@@ -4,13 +4,14 @@ import Tab from "@mui/material/Tab"
 import Tabs from "@mui/material/Tabs"
 import Typography from "@mui/material/Typography"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useCallback, type ReactNode } from "react"
+import { useCallback, useState, type ReactNode } from "react"
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { JobHistory } from "../../components/JobHistory.tsx"
 import { JobStatusBadge } from "../../components/JobStatusBadge.tsx"
 import { PromptForm } from "../../components/PromptForm.tsx"
 import { RequestError } from "../../components/RequestError.tsx"
 import { ResultFeedback } from "../../components/ResultFeedback.tsx"
+import { ResumeWorkflowControl } from "../../components/ResumeWorkflowControl.tsx"
 import { StopWorkflowControl } from "../../components/StopWorkflowControl.tsx"
 import { truncateDescription, useSeo } from "../../lib/seo.ts"
 import { getRequestErrorMessage } from "../../lib/requestErrors.ts"
@@ -32,6 +33,7 @@ import { DeepSearchRoundDetail } from "./components/DeepSearchRoundDetail.tsx"
 import { getDeepSearchRoundNumbers } from "./deepSearchPresentation.ts"
 import { useDeepSearchJob } from "../../lib/useDeepSearchJob.ts"
 import { requestResearchStop } from "../../lib/researchCancellation.ts"
+import { requestResearchResume } from "../../lib/researchResumption.ts"
 
 const deepSearchJobsQueryKey = ["deep-search-jobs"] as const
 
@@ -172,17 +174,23 @@ function DeepSearchJobContent({
   job,
   onTerminal,
   onStop,
+  onResume,
+  reconnectKey,
   routeRoundNumber,
+  resumePending,
   stopPending,
 }: {
   feedbackControl?: ReactNode
   job: DeepSearchJobDetail
   onTerminal: () => void
+  onResume: () => void
   onStop: () => void
+  reconnectKey: number
   routeRoundNumber?: string
+  resumePending: boolean
   stopPending: boolean
 }) {
-  const run = useDeepSearchJob(job.deepSearchJobId, onTerminal)
+  const run = useDeepSearchJob(job.deepSearchJobId, onTerminal, reconnectKey)
   const parentPageKey = `/deep-search/${encodeURIComponent(job.slug)}`
   const roundNumber = parseRoundNumber(routeRoundNumber)
   const roundIndex = roundNumber === null ? null : roundNumber - 1
@@ -257,16 +265,23 @@ function DeepSearchJobContent({
       researchRequest={job.researchRequest}
       run={run}
       stopControl={
-        <StopWorkflowControl
-          canStop={job.canStop && run.status === "running"}
-          pending={stopPending}
-          stopping={
-            job.stopRequested &&
-            !job.isPublic &&
-            (run.status === "running" || run.status === "stopping")
-          }
-          onConfirm={onStop}
-        />
+        <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+          <ResumeWorkflowControl
+            canResume={job.canResume}
+            pending={resumePending}
+            onResume={onResume}
+          />
+          <StopWorkflowControl
+            canStop={job.canStop && run.status === "running"}
+            pending={stopPending}
+            stopping={
+              job.stopRequested &&
+              !job.isPublic &&
+              (run.status === "running" || run.status === "stopping")
+            }
+            onConfirm={onStop}
+          />
+        </Stack>
       }
       stopRequested={job.stopRequested}
       title={job.title}
@@ -284,6 +299,7 @@ function DeepSearchDetail({
   slug: string
 }) {
   const queryClient = useQueryClient()
+  const [reconnectKey, setReconnectKey] = useState(0)
   const job = useQuery({
     queryKey: deepSearchJobDetailQueryKey(slug),
     queryFn: ({ signal }) => services.getJob(slug, signal),
@@ -305,6 +321,31 @@ function DeepSearchDetail({
             ? { ...current, canStop: false, stopRequested: true }
             : current,
       )
+      void queryClient.invalidateQueries({
+        queryKey: [...deepSearchJobsQueryKey, "list"],
+      })
+    },
+  })
+  const resume = useMutation({
+    mutationFn: (deepSearchJobId: string) =>
+      requestResearchResume("deep-search", deepSearchJobId),
+    onSuccess: () => {
+      queryClient.setQueryData<DeepSearchJobDetail>(
+        deepSearchJobDetailQueryKey(slug),
+        (current) =>
+          current
+            ? {
+                ...current,
+                canResume: false,
+                canStop: true,
+                status: "running",
+                stopRequested: false,
+                error: null,
+                completedAt: null,
+              }
+            : current,
+      )
+      setReconnectKey((current) => current + 1)
       void queryClient.invalidateQueries({
         queryKey: [...deepSearchJobsQueryKey, "list"],
       })
@@ -365,6 +406,7 @@ function DeepSearchDetail({
   return (
     <>
       {stop.error && <RequestError error={stop.error} />}
+      {resume.error && <RequestError error={resume.error} />}
       <DeepSearchJobContent
         feedbackControl={
           routeRoundNumber === undefined &&
@@ -389,9 +431,12 @@ function DeepSearchDetail({
           ) : undefined
         }
         job={job.data}
+        onResume={() => resume.mutate(job.data.deepSearchJobId)}
         onTerminal={reconcileTerminalJob}
         onStop={() => stop.mutate(job.data.deepSearchJobId)}
+        reconnectKey={reconnectKey}
         routeRoundNumber={routeRoundNumber}
+        resumePending={resume.isPending}
         stopPending={stop.isPending}
       />
     </>

@@ -12,6 +12,7 @@ import {
   completeDeepSearchJob,
   failDeepSearchJob,
   promoteRoundAnswer,
+  reopenDeepSearchJob,
 } from "./jobLifecycle.ts"
 import {
   attachFinalAnswerGeneration,
@@ -23,6 +24,7 @@ import {
   completeQuerySummaryGeneration,
   savePlannedQueries,
   saveSearchResults,
+  saveSelectedResults,
 } from "./store.ts"
 
 function insertJob(jobId: string): void {
@@ -34,6 +36,7 @@ function insertJob(jobId: string): void {
       researchRequest: "Research this",
       maxSearches: 2,
       maxResultsPerSearch: 2,
+      strictQuality: false,
     })
     .run()
 }
@@ -123,6 +126,12 @@ describe("deep-search job lifecycle", () => {
       jobId,
       queryId: queryStage.query.queryId,
       generationId: queryStage.selectionGenerationId,
+    })
+    saveSelectedResults({
+      jobId,
+      queryId: queryStage.query.queryId,
+      selectionGenerationId: queryStage.selectionGenerationId,
+      selectedResultIds: [],
     })
     db.transaction((transaction) => {
       attachQuerySummaryGeneration(transaction, {
@@ -314,6 +323,7 @@ describe("deep-search job lifecycle", () => {
         deepSearchJobId: jobId,
         url: "https://example.com/active",
         status: "summarizing",
+        extractedContent: "Bounded extracted page content",
         summaryGenerationId: pageGenerationId,
       })
       .run()
@@ -353,5 +363,69 @@ describe("deep-search job lifecycle", () => {
     })
     expect(job?.completedAt?.getTime()).toBe(query?.completedAt?.getTime())
     expect(job?.completedAt?.getTime()).toBe(page?.completedAt?.getTime())
+  })
+
+  it.each(["running", "failed", "interrupted"] as const)(
+    "reopens an owned %s job and clears terminal presentation fields",
+    (status) => {
+      const jobId = crypto.randomUUID()
+      insertJob(jobId)
+      if (status === "running") {
+        db.update(deepSearchJobs)
+          .set({ cancelRequestedAt: new Date() })
+          .where(eq(deepSearchJobs.deepSearchJobId, jobId))
+          .run()
+      } else {
+        db.update(deepSearchJobs)
+          .set({
+            status,
+            error: `${status} job`,
+            completedAt: new Date(),
+          })
+          .where(eq(deepSearchJobs.deepSearchJobId, jobId))
+          .run()
+      }
+
+      expect(reopenDeepSearchJob({
+        jobId,
+        userId: "test-user-id",
+      })).toEqual({ previousStatus: status })
+      expect(
+        db
+          .select({
+            status: deepSearchJobs.status,
+            error: deepSearchJobs.error,
+            completedAt: deepSearchJobs.completedAt,
+            cancelRequestedAt: deepSearchJobs.cancelRequestedAt,
+          })
+          .from(deepSearchJobs)
+          .where(eq(deepSearchJobs.deepSearchJobId, jobId))
+          .get(),
+      ).toEqual({
+        status: "running",
+        error: null,
+        completedAt: null,
+        cancelRequestedAt: null,
+      })
+    },
+  )
+
+  it("rejects completed and foreign jobs during reopen", () => {
+    const jobId = crypto.randomUUID()
+    const generationId = crypto.randomUUID()
+    insertJob(jobId)
+    attachFinalGeneration(jobId, generationId)
+    completeGeneration(generationId, "Final answer")
+    db.transaction((transaction) => {
+      completeDeepSearchJob(transaction, { jobId, generationId })
+    })
+
+    expect(() => reopenDeepSearchJob({ jobId })).toThrow(
+      "Completed deep-search job cannot be reopened",
+    )
+    expect(() => reopenDeepSearchJob({
+      jobId,
+      userId: "another-user",
+    })).toThrow("Deep-search job was not found for the owner")
   })
 })

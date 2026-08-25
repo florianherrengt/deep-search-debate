@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { eq, inArray } from "drizzle-orm"
 import { beforeEach, describe, expect, it } from "vitest"
 
 import { db } from "../../db/index.ts"
@@ -12,8 +12,10 @@ import {
   llmGenerations,
 } from "../../db/schema/index.ts"
 import {
+  completeDebateMatch,
   createAgentMessage,
   createDebateRound,
+  loadDebateExecutionSnapshot,
   replaceFailedAgentMessageGeneration,
   type DebateRoundStage,
   type IdeaPair,
@@ -58,6 +60,9 @@ function createFixture(stage: DebateRoundStage = "swiss"): Fixture {
       prompt: "Choose a product",
       numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
       deepSearchCount: 2,
+      maxSearches: 2,
+      maxResultsPerSearch: 2,
+      maxRounds: 1,
     })
     .run()
   db.insert(llmGenerations)
@@ -181,6 +186,41 @@ describe("debate round persistence", () => {
         pairs: repeatedPairs,
       }),
     ).toThrow("Swiss matchups cannot repeat")
+  })
+
+  it("reuses an exact deterministic round without growing rows", () => {
+    const fixture = createFixture()
+    const pairs = sequentialPairs(fixture.ideaIds)
+    const first = createDebateRound({
+      debateJobId: fixture.debateJobId,
+      stage: "swiss",
+      stageRoundNumber: 1,
+      pairs,
+    })
+    const resumed = createDebateRound({
+      debateJobId: fixture.debateJobId,
+      stage: "swiss",
+      stageRoundNumber: 1,
+      pairs,
+    })
+
+    expect(resumed).toEqual(first)
+    expect(
+      loadDebateExecutionSnapshot(fixture.debateJobId)?.rounds,
+    ).toHaveLength(1)
+    expect(db.select().from(debateMatches).all()).toHaveLength(pairs.length)
+
+    const mismatched = [...pairs]
+    mismatched[0] = [pairs[0][1], pairs[0][0]]
+    expect(() =>
+      createDebateRound({
+        debateJobId: fixture.debateJobId,
+        stage: "swiss",
+        stageRoundNumber: 1,
+        pairs: mismatched,
+      }),
+    ).toThrow("Persisted swiss round pairings do not match recomputation")
+    expect(db.select().from(debateMatches).all()).toHaveLength(pairs.length)
   })
 
   it("does not allow knockout rounds before Swiss play completes", () => {
@@ -418,7 +458,7 @@ describe("debate round persistence", () => {
           transaction,
         ),
       ),
-    ).toThrow("The replaced generation is not a failed other finish")
+    ).toThrow("The replaced generation is not retryable")
 
     const foreignDebateJobId = createFixture().debateJobId
     const foreignGenerationId = crypto.randomUUID()
@@ -442,5 +482,175 @@ describe("debate round persistence", () => {
         ),
       ),
     ).toThrow("LLM generation must belong to the debate job owner")
+  })
+
+  it.each(["running", "failed", "interrupted"] as const)(
+    "atomically replaces an exact %s attempt and preserves its history row",
+    (status) => {
+      const fixture = createFixture()
+      const [match] = createDebateRound({
+        debateJobId: fixture.debateJobId,
+        stage: "swiss",
+        stageRoundNumber: 1,
+        pairs: sequentialPairs(fixture.ideaIds),
+      })
+      const previousGenerationId = crypto.randomUUID()
+      const retryGenerationId = crypto.randomUUID()
+      db.insert(llmGenerations)
+        .values([
+          {
+            llmGenerationId: previousGenerationId,
+            userId: "test-user-id",
+            debateJobId: fixture.debateJobId,
+            status,
+            ...(status === "running"
+              ? {}
+              : {
+                  text: "Partial argument",
+                  reasoning: "",
+                  error: `Persisted ${status} attempt`,
+                  completedAt: new Date(),
+                }),
+          },
+          {
+            llmGenerationId: retryGenerationId,
+            userId: "test-user-id",
+            debateJobId: fixture.debateJobId,
+          },
+        ])
+        .run()
+      db.transaction((transaction) =>
+        createAgentMessage(
+          {
+            debateMatchId: match.debateMatchId,
+            position: 0,
+            speakerSlot: 0,
+            llmGenerationId: previousGenerationId,
+          },
+          transaction,
+        ),
+      )
+
+      db.transaction((transaction) =>
+        replaceFailedAgentMessageGeneration(
+          {
+            debateMatchId: match.debateMatchId,
+            position: 0,
+            failedGenerationId: previousGenerationId,
+            retryGenerationId,
+          },
+          transaction,
+        ),
+      )
+
+      expect(
+        db
+          .select({
+            id: llmGenerations.llmGenerationId,
+            status: llmGenerations.status,
+          })
+          .from(llmGenerations)
+          .where(
+            inArray(llmGenerations.llmGenerationId, [
+              previousGenerationId,
+              retryGenerationId,
+            ]),
+          )
+          .all(),
+      ).toEqual(
+        expect.arrayContaining([
+          {
+            id: previousGenerationId,
+            status: status === "running" ? "interrupted" : status,
+          },
+          { id: retryGenerationId, status: "running" },
+        ]),
+      )
+      expect(
+        db
+          .select({ llmGenerationId: debateMessages.llmGenerationId })
+          .from(debateMessages)
+          .where(eq(debateMessages.debateMatchId, match.debateMatchId))
+          .get(),
+      ).toEqual({ llmGenerationId: retryGenerationId })
+    },
+  )
+
+  it("rolls back judge output and winner together at the verdict boundary", () => {
+    const fixture = createFixture()
+    const [match] = createDebateRound({
+      debateJobId: fixture.debateJobId,
+      stage: "swiss",
+      stageRoundNumber: 1,
+      pairs: sequentialPairs(fixture.ideaIds),
+    })
+    const judgeGenerationId = crypto.randomUUID()
+    db.insert(llmGenerations)
+      .values({
+        llmGenerationId: judgeGenerationId,
+        userId: "test-user-id",
+        debateJobId: fixture.debateJobId,
+      })
+      .run()
+    db.transaction((transaction) =>
+      createAgentMessage(
+        {
+          debateMatchId: match.debateMatchId,
+          position: 4,
+          speakerSlot: 2,
+          llmGenerationId: judgeGenerationId,
+        },
+        transaction,
+      ),
+    )
+
+    expect(() =>
+      db.transaction((transaction) => {
+        transaction
+          .update(llmGenerations)
+          .set({
+            status: "completed",
+            text: JSON.stringify({
+              winner: "candidate_a",
+              explanation: "Candidate A wins.",
+            }),
+            reasoning: "",
+            completedAt: new Date(),
+          })
+          .where(eq(llmGenerations.llmGenerationId, judgeGenerationId))
+          .run()
+        completeDebateMatch(
+          {
+            debateMatchId: match.debateMatchId,
+            winnerIdeaId: match.firstIdeaId,
+            judgeGenerationId,
+          },
+          transaction,
+        )
+        throw new Error("Simulated coordinator crash")
+      }),
+    ).toThrow("Simulated coordinator crash")
+
+    expect(
+      db
+        .select({ status: llmGenerations.status })
+        .from(llmGenerations)
+        .where(eq(llmGenerations.llmGenerationId, judgeGenerationId))
+        .get(),
+    ).toEqual({ status: "running" })
+    expect(
+      db
+        .select({ winnerIdeaId: debateMatches.winnerIdeaId })
+        .from(debateMatches)
+        .where(eq(debateMatches.debateMatchId, match.debateMatchId))
+        .get(),
+    ).toEqual({ winnerIdeaId: null })
+    expect(
+      db
+        .select()
+        .from(debateMessages)
+        .where(eq(debateMessages.debateMatchId, match.debateMatchId))
+        .all(),
+    ).toHaveLength(1)
   })
 })

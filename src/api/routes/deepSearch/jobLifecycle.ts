@@ -105,6 +105,48 @@ function settleActiveDeepSearchRecords(
     .run()
 }
 
+/** Reopens one owned, non-completed search before its checkpoint reconciler runs. */
+export function reopenDeepSearchJob(input: {
+  jobId: string
+  userId?: string
+}): { previousStatus: "running" | "failed" | "interrupted" } {
+  return db.transaction((transaction) => {
+    const job = transaction
+      .select({
+        userId: deepSearchJobs.userId,
+        status: deepSearchJobs.status,
+      })
+      .from(deepSearchJobs)
+      .where(eq(deepSearchJobs.deepSearchJobId, input.jobId))
+      .get()
+    if (!job || (input.userId !== undefined && job.userId !== input.userId)) {
+      throw new Error("Deep-search job was not found for the owner")
+    }
+    if (job.status === "completed") {
+      throw new Error("Completed deep-search job cannot be reopened")
+    }
+    const result = transaction
+      .update(deepSearchJobs)
+      .set({
+        status: "running",
+        error: null,
+        completedAt: null,
+        cancelRequestedAt: null,
+      })
+      .where(
+        and(
+          eq(deepSearchJobs.deepSearchJobId, input.jobId),
+          eq(deepSearchJobs.status, job.status),
+        ),
+      )
+      .run()
+    if (result.changes !== 1) {
+      throw new Error("Deep-search job changed while it was being reopened")
+    }
+    return { previousStatus: job.status }
+  })
+}
+
 /**
  * Completes a job inside the final generation's terminal transaction.
  * Every generated query must have reached its own authoritative completion

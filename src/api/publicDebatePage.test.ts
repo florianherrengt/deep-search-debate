@@ -56,6 +56,9 @@ function insertDebate({
       prompt,
       numberOfIdeas: 12,
       deepSearchCount: 2,
+      maxSearches: 3,
+      maxResultsPerSearch: 3,
+      maxRounds: 3,
     })
     .run()
 }

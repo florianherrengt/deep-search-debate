@@ -264,6 +264,7 @@ describe("deep search jobs client", () => {
         Response.json({
           deepSearchJob: {
             ...job,
+            canResume: false,
             canStop: false,
             creditsUsed: 123,
             feedback: null,
@@ -293,6 +294,7 @@ describe("deep search jobs client", () => {
       completedAt: new Date(job.completedAt),
       isIndexable: true,
       isPublic: true,
+      canResume: false,
       canStop: false,
       creditsUsed: 123,
       feedback: null,
@@ -332,6 +334,7 @@ describe("deep search jobs client", () => {
             error: null,
             createdAt: "2026-08-01T12:00:00.000Z",
             completedAt: "2026-08-01T12:01:00.000Z",
+            canResume: false,
             canStop: false,
             creditsUsed: -1,
             feedback: null,

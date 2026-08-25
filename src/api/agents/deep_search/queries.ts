@@ -4,10 +4,15 @@ import { PromptName } from "../../llms/prompts.ts"
 import {
   awaitGenerationOutput,
   type GenerationOutcome,
+  type TextGenerationPersistenceCallbacks,
+  type TextStreamPersistenceTransaction,
 } from "../../llms/streams.ts"
 import { formatSearchSummaryContext } from "./searchSummaryContext.ts"
 
-type GenerateWebSearchQueriesInput = {
+type GenerateWebSearchQueriesInput = Pick<
+  TextGenerationPersistenceCallbacks,
+  "onRegistered" | "onFailed" | "onInterrupted"
+> & {
   userId: string
   deepSearchJobId: string
   researchRequest: string
@@ -22,12 +27,35 @@ type GenerateWebSearchQueriesInput = {
   previousCandidateAnswer?: string
   previousReviewReason?: string
   workflowSignal?: AbortSignal
+  onCompleted?: (
+    completed: { id: string; output: string[] },
+    transaction: TextStreamPersistenceTransaction,
+  ) => void
 }
 
 export type QueryGeneration = {
   streamId: string
   queries: Promise<string[]>
   completion: Promise<GenerationOutcome>
+}
+
+function normalizeQueries(
+  output: readonly string[],
+  previousQueries: readonly string[],
+  maxSearches: number,
+): string[] {
+  const seen = new Set(
+    previousQueries.map((query) => query.trim().toLocaleLowerCase()),
+  )
+  const uniqueQueries: string[] = []
+  for (const query of output) {
+    const normalized = query.trim().toLocaleLowerCase()
+    if (seen.has(normalized)) continue
+    seen.add(normalized)
+    uniqueQueries.push(query)
+    if (uniqueQueries.length === maxSearches) break
+  }
+  return uniqueQueries
 }
 
 /**
@@ -75,25 +103,36 @@ export async function generateWebSearchQueries(
     element: z.string().trim().min(1).max(500),
     maxOutputTokens: 2_048,
     workflowSignal: params.workflowSignal,
+    ...(params.onRegistered ? { onRegistered: params.onRegistered } : {}),
+    ...(params.onFailed ? { onFailed: params.onFailed } : {}),
+    ...(params.onInterrupted
+      ? { onInterrupted: params.onInterrupted }
+      : {}),
+    ...(params.onCompleted
+      ? {
+          onCompleted: (
+            completed: { id: string; output: string[] },
+            transaction: TextStreamPersistenceTransaction,
+          ) => {
+            params.onCompleted?.(
+              {
+                id: completed.id,
+                output: normalizeQueries(
+                  completed.output,
+                  previousQueries,
+                  params.maxSearches,
+                ),
+              },
+              transaction,
+            )
+          },
+        }
+      : {}),
   })
 
-  const queries = awaitGenerationOutput(
-    generation,
-    generation.output,
-  ).then((output) => {
-    const seen = new Set(
-      previousQueries.map((query) => query.trim().toLocaleLowerCase()),
-    )
-    const uniqueQueries: string[] = []
-    for (const query of output) {
-      const normalized = query.trim().toLocaleLowerCase()
-      if (seen.has(normalized)) continue
-      seen.add(normalized)
-      uniqueQueries.push(query)
-      if (uniqueQueries.length === params.maxSearches) break
-    }
-    return uniqueQueries
-  })
+  const queries = awaitGenerationOutput(generation, generation.output).then(
+    (output) => normalizeQueries(output, previousQueries, params.maxSearches),
+  )
 
   return {
     streamId: generation.id,

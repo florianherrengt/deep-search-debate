@@ -227,6 +227,11 @@ export function ideaJobReads(app: Hono<AppEnv>, manager: IdeaJobManager) {
             ideaJob.debateJobId === null &&
             ideaJob.status === "running" &&
             !stopRequested,
+          canResume:
+            isOwner &&
+            ideaJob.debateJobId === null &&
+            (ideaJob.status === "failed" ||
+              ideaJob.status === "interrupted"),
           isIndexable: isPublic && debateStatus === "completed",
           isPublic,
         },
@@ -343,6 +348,39 @@ export function ideaJobs(app: Hono<AppEnv>, manager: IdeaJobManager) {
         case "not-cancellable":
           return c.json({ error: `Idea job is ${result.status}` }, 409)
       }
+    },
+  )
+
+  app.post(
+    "/idea-jobs/:ideaJobId/resume",
+    zValidator("param", ideaJobEventParamsSchema),
+    (c) => {
+      const { ideaJobId } = c.req.valid("param")
+      const persisted = db
+        .select({
+          status: ideaJobsTable.status,
+          debateJobId: ideaJobsTable.debateJobId,
+        })
+        .from(ideaJobsTable)
+        .where(
+          and(
+            eq(ideaJobsTable.ideaJobId, ideaJobId),
+            eq(ideaJobsTable.userId, c.get("userId")),
+          ),
+        )
+        .get()
+      if (!persisted) return c.json({ error: "Idea job not found" }, 404)
+      if (persisted.debateJobId !== null) {
+        return c.json({ error: "Only root idea jobs can be resumed" }, 409)
+      }
+      if (persisted.status === "completed") {
+        return c.json({ error: "Completed idea jobs cannot be resumed" }, 409)
+      }
+      const { completion } = manager.resumeExisting(ideaJobId, {
+        userId: c.get("userId"),
+      })
+      void completion.catch(() => {})
+      return c.json({ status: "running" as const }, 202)
     },
   )
 

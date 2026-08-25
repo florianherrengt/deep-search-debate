@@ -32,6 +32,9 @@ function createDebateJob() {
       prompt: "Which urban transport idea should be built?",
       numberOfIdeas: 12,
       deepSearchCount: 2,
+      maxSearches: 1,
+      maxResultsPerSearch: 1,
+      maxRounds: 1,
     })
     .run()
   return { debateJobId, ideaJobId }

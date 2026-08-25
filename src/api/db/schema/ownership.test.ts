@@ -78,6 +78,9 @@ describe("database ownership constraints", () => {
           prompt: "Generate debate ideas",
           numberOfIdeas: 1,
           deepSearchCount: 1,
+          maxSearches: 1,
+          maxResultsPerSearch: 1,
+          maxRounds: 1,
         })
         .run(),
     ).toThrow(/FOREIGN KEY constraint failed/)
@@ -90,6 +93,9 @@ describe("database ownership constraints", () => {
         prompt: "Generate ideas",
         numberOfIdeas: 1,
         deepSearchCount: 1,
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+        maxRounds: 1,
       })
       .run()
 
@@ -105,6 +111,7 @@ describe("database ownership constraints", () => {
           researchRequest: "Research this",
           maxSearches: 1,
           maxResultsPerSearch: 1,
+          strictQuality: true,
         })
         .run(),
     ).toThrow(/FOREIGN KEY constraint failed/)
@@ -129,6 +136,9 @@ describe("database ownership constraints", () => {
           prompt: "Generate ideas",
           numberOfIdeas: 1,
           deepSearchCount: 1,
+          maxSearches: 1,
+          maxResultsPerSearch: 1,
+          maxRounds: 1,
           researchPromptGenerationId: llmGenerationId,
         })
         .run(),
@@ -143,6 +153,9 @@ describe("database ownership constraints", () => {
         prompt: "Select ideas",
         numberOfIdeas: 6,
         deepSearchCount: 1,
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+        maxRounds: 1,
       })
       .run()
     expect(() =>
@@ -163,6 +176,7 @@ describe("database ownership constraints", () => {
           researchRequest: "Research this",
           maxSearches: 1,
           maxResultsPerSearch: 1,
+          strictQuality: false,
           finalAnswerGenerationId: llmGenerationId,
         })
         .run(),

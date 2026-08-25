@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   generateArrayStream: vi.fn(),
   generateObjectStream: vi.fn(),
   generateTextStream: vi.fn(),
-  requireParentQualityAcceptance: vi.fn(),
+  resumeExisting: vi.fn(),
   startDeepSearch: vi.fn(),
 }))
 
@@ -32,6 +32,7 @@ import {
 import { createReplayableEventLog } from "../../helpers/replayableEventLog.ts"
 import { PromptName } from "../../llms/prompts.ts"
 import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
+import { reopenIdeaJob } from "./jobLifecycle.ts"
 import { reconstructIdeaJobEvents } from "./replay.ts"
 import { normalizeIdeaSelection, runIdeaJob } from "./run.ts"
 import type { Idea, IdeaEvaluation, IdeaJobEvent } from "./schemas.ts"
@@ -70,6 +71,12 @@ type RefinementMockInput = {
 type TestTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 type RegistrationHook = (id: string, transaction: TestTransaction) => void
 type GenerationMockInput = { onRegistered?: RegistrationHook }
+type ArrayGenerationMockInput = GenerationMockInput & {
+  onCompleted?: (
+    result: { id: string; output: Idea[] },
+    transaction: TestTransaction,
+  ) => void
+}
 
 function registerGeneration(input: GenerationMockInput, id: string): void {
   db.transaction((transaction) => input.onRegistered?.(id, transaction))
@@ -179,14 +186,18 @@ function completedGeneration(text: string) {
   })
 }
 
+function arrayGenerationText(values: unknown[]): string {
+  return JSON.stringify({ elements: values })
+}
+
 function setupGenerations(options?: {
   evaluationFailureAt?: number
   refinementFailureAt?: number
   selectionCount?: number
 }): void {
-  insertGeneration("planning-id", JSON.stringify(researchPrompts))
+  insertGeneration("planning-id", arrayGenerationText(researchPrompts))
   insertGeneration("summary-id", "Combined research briefing")
-  insertGeneration("ideas-id", JSON.stringify(generatedIdeas))
+  insertGeneration("ideas-id", arrayGenerationText(generatedIdeas))
   for (const [position, id] of evaluationGenerationIds.entries()) {
     insertGeneration(
       id,
@@ -210,15 +221,21 @@ function setupGenerations(options?: {
       return Promise.resolve({
         id: "planning-id",
         output: Promise.resolve(researchPrompts),
-        completion: completedGeneration(JSON.stringify(researchPrompts)),
+        completion: completedGeneration(arrayGenerationText(researchPrompts)),
       })
     })
-    .mockImplementationOnce((input: GenerationMockInput) => {
+    .mockImplementationOnce((input: ArrayGenerationMockInput) => {
       registerGeneration(input, "ideas-id")
+      db.transaction((transaction) => {
+        input.onCompleted?.(
+          { id: "ideas-id", output: generatedIdeas },
+          transaction,
+        )
+      })
       return Promise.resolve({
         id: "ideas-id",
         output: Promise.resolve(generatedIdeas),
-        completion: completedGeneration(JSON.stringify(generatedIdeas)),
+        completion: completedGeneration(arrayGenerationText(generatedIdeas)),
       })
     })
   mocks.generateTextStream
@@ -345,6 +362,8 @@ function persistCompletedSearch(
       researchRequest: input.researchRequest,
       maxSearches: input.maxSearches,
       maxResultsPerSearch: input.maxResultsPerSearch,
+      maxRounds: 3,
+      strictQuality: true,
     })
     .run()
   db.insert(llmGenerations)
@@ -391,13 +410,15 @@ function createInput() {
       prompt: "Generate useful concepts",
       numberOfIdeas: 8,
       deepSearchCount: 2,
+      maxSearches: 3,
+      maxResultsPerSearch: 3,
+      maxRounds: 3,
     })
     .run()
   const manager: DeepSearchJobManager = {
     start: mocks.startDeepSearch,
+    resumeExisting: mocks.resumeExisting,
     stop: vi.fn(),
-    requireParentQualityAcceptance:
-      mocks.requireParentQualityAcceptance,
     getLiveJob: vi.fn(),
   }
   return {
@@ -467,6 +488,58 @@ describe("runIdeaJob", () => {
     db.delete(llmGenerations).run()
   })
 
+  it("reopens a parked root while retaining its stale linked attempt", () => {
+    db.insert(ideaJobs)
+      .values({
+        userId: "test-user-id",
+        ideaJobId,
+        prompt: "Generate useful concepts",
+        numberOfIdeas: 8,
+        deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
+      })
+      .run()
+    db.insert(llmGenerations)
+      .values({
+        llmGenerationId: "stale-planning",
+        userId: "test-user-id",
+        ideaJobId,
+      })
+      .run()
+    db.update(ideaJobs)
+      .set({
+        researchPromptGenerationId: "stale-planning",
+        status: "interrupted",
+        error: "Workflow stopped by user",
+        cancelRequestedAt: new Date(),
+        completedAt: new Date(),
+      })
+      .where(eq(ideaJobs.ideaJobId, ideaJobId))
+      .run()
+
+    reopenIdeaJob(ideaJobId)
+
+    expect(db.select().from(ideaJobs).get()).toMatchObject({
+      status: "running",
+      error: null,
+      cancelRequestedAt: null,
+      completedAt: null,
+      researchPromptGenerationId: "stale-planning",
+    })
+    expect(
+      db
+        .select()
+        .from(llmGenerations)
+        .where(eq(llmGenerations.llmGenerationId, "stale-planning"))
+        .get(),
+    ).toMatchObject({
+      status: "running",
+      error: null,
+    })
+  })
+
   it("waits for durable generation completion after structured output fails", async () => {
     const { input, events } = createInput()
     insertGeneration("planning-id", "invalid structured output")
@@ -510,6 +583,24 @@ describe("runIdeaJob", () => {
       }).success,
     ).toBe(true)
 
+    const planningCompletion = (
+      mocks.generateArrayStream.mock.calls[0]?.[0] as {
+        onCompleted?: (
+          result: { id: string; output: typeof researchPrompts },
+          transaction: TestTransaction,
+        ) => void
+      }
+    ).onCompleted
+    expect(planningCompletion).toBeTypeOf("function")
+    expect(() =>
+      db.transaction((transaction) => {
+        planningCompletion?.(
+          { id: "planning-id", output: researchPrompts.slice(0, 1) },
+          transaction,
+        )
+      }),
+    ).toThrow("Expected 2 research prompts, received 1")
+
     await expect(events).resolves.toEqual([
       { type: "research-prompt-stream", streamId: "planning-id" },
       {
@@ -539,7 +630,6 @@ describe("runIdeaJob", () => {
     await runIdeaJob(input)
 
     expect(mocks.startDeepSearch).toHaveBeenCalledTimes(8)
-    expect(mocks.requireParentQualityAcceptance).toHaveBeenCalledTimes(8)
     expect(mocks.startDeepSearch).toHaveBeenNthCalledWith(
       1,
       "test-user-id",
@@ -865,47 +955,6 @@ describe("runIdeaJob", () => {
     })
   })
 
-  it("fails the parent quality gate after a child durably completes", async () => {
-    const { input, events } = createInput()
-    insertGeneration("planning-id", JSON.stringify(researchPrompts))
-    mocks.generateArrayStream.mockResolvedValue({
-      id: "planning-id",
-      output: Promise.resolve(researchPrompts),
-      completion: completedGeneration(JSON.stringify(researchPrompts)),
-    })
-    mocks.startDeepSearch
-      .mockReturnValueOnce({
-        deepSearchJobId: "search-one",
-        title: "Market Constraints",
-        slug: "market-constraints",
-        completion: Promise.resolve("First research result"),
-      })
-      .mockReturnValueOnce({
-        deepSearchJobId: "search-two",
-        title: "User Needs",
-        slug: "user-needs",
-        completion: Promise.resolve("Second research result"),
-      })
-    mocks.requireParentQualityAcceptance.mockImplementation((jobId: string) => {
-      if (jobId === "search-two") throw new Error("Summary failed")
-    })
-
-    await runIdeaJob(input)
-
-    expect(mocks.generateTextStream).not.toHaveBeenCalled()
-    expect(mocks.requireParentQualityAcceptance).toHaveBeenCalledTimes(2)
-    await expect(events).resolves.toContainEqual({
-      type: "error",
-      message: "Summary failed",
-      stage: "research",
-    })
-    expect(db.select().from(ideaJobs).get()).toMatchObject({
-      status: "failed",
-      error: "Summary failed",
-      stage: "research",
-    })
-  })
-
   it("waits for started sibling research when another child cannot start", async () => {
     const { input, events } = createInput()
     insertGeneration("planning-id", JSON.stringify(researchPrompts))
@@ -1112,6 +1161,8 @@ describe("runIdeaJob", () => {
             researchRequest: searchInput.researchRequest,
             maxSearches: searchInput.maxSearches,
             maxResultsPerSearch: searchInput.maxResultsPerSearch,
+            maxRounds: 3,
+            strictQuality: true,
             status: "failed",
             error: "Selected idea research failed",
             completedAt: new Date(),
@@ -1146,5 +1197,183 @@ describe("runIdeaJob", () => {
       message: "Selected idea research failed",
       stage: "idea-research",
     })
+  })
+
+  it.each(["failed", "interrupted", "running"] as const)(
+    "replaces only the exact %s planning attempt and preserves its row",
+    async (status) => {
+      const { input } = createInput()
+      const oldGenerationId = `old-planning-${status}`
+      db.insert(llmGenerations)
+        .values({
+          llmGenerationId: oldGenerationId,
+          userId: "test-user-id",
+          ideaJobId,
+          status,
+          ...(status === "running"
+            ? {}
+            : {
+                error: `${status} planning attempt`,
+                completedAt: new Date(),
+              }),
+        })
+        .run()
+      db.update(ideaJobs)
+        .set({ researchPromptGenerationId: oldGenerationId })
+        .where(eq(ideaJobs.ideaJobId, ideaJobId))
+        .run()
+
+      const replacementId = `replacement-planning-${status}`
+      mocks.generateArrayStream.mockImplementation(
+        (generationInput: GenerationMockInput) => {
+          insertGeneration(replacementId, arrayGenerationText(researchPrompts))
+          registerGeneration(generationInput, replacementId)
+          return Promise.resolve({
+            id: replacementId,
+            output: Promise.resolve(researchPrompts),
+            completion: completedGeneration(arrayGenerationText(researchPrompts)),
+          })
+        },
+      )
+      mocks.startDeepSearch.mockRejectedValue(
+        new Error("Stop after planning retry"),
+      )
+
+      await runIdeaJob(input)
+
+      expect(mocks.generateArrayStream).toHaveBeenCalledOnce()
+      expect(mocks.generateTextStream).not.toHaveBeenCalled()
+      expect(mocks.generateObjectStream).not.toHaveBeenCalled()
+      expect(
+        db
+          .select({ id: ideaJobs.researchPromptGenerationId })
+          .from(ideaJobs)
+          .get(),
+      ).toEqual({ id: replacementId })
+      expect(
+        db
+          .select({ status: llmGenerations.status })
+          .from(llmGenerations)
+          .where(eq(llmGenerations.llmGenerationId, oldGenerationId))
+          .get(),
+      ).toEqual({ status: status === "running" ? "interrupted" : status })
+    },
+  )
+
+  it("reuses completed children, resumes incomplete children, and creates only missing positions", async () => {
+    const { input } = createInput()
+    const prompts = [
+      ...researchPrompts,
+      { title: "Delivery Risks", prompt: "Research delivery risks" },
+    ]
+    db.update(ideaJobs)
+      .set({ deepSearchCount: prompts.length })
+      .where(eq(ideaJobs.ideaJobId, ideaJobId))
+      .run()
+    insertGeneration("persisted-planning", arrayGenerationText(prompts))
+    db.update(ideaJobs)
+      .set({ researchPromptGenerationId: "persisted-planning" })
+      .where(eq(ideaJobs.ideaJobId, ideaJobId))
+      .run()
+    persistCompletedSearch("completed-child", {
+      title: prompts[0].title,
+      researchRequest: prompts[0].prompt,
+      maxSearches: 3,
+      maxResultsPerSearch: 3,
+      ideaJobId,
+      ideaJobPosition: 0,
+    })
+    db.insert(deepSearchJobs)
+      .values({
+        deepSearchJobId: "failed-child",
+        userId: "test-user-id",
+        ideaJobId,
+        ideaJobPosition: 1,
+        title: prompts[1].title,
+        slug: "failed-child",
+        researchRequest: prompts[1].prompt,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
+        strictQuality: true,
+        status: "failed",
+        error: "Previous child failure",
+        completedAt: new Date(),
+      })
+      .run()
+    mocks.resumeExisting.mockReturnValue({
+      deepSearchJobId: "failed-child",
+      title: prompts[1].title,
+      slug: "failed-child",
+      completion: Promise.resolve("Resumed child answer"),
+    })
+    mocks.startDeepSearch.mockImplementation(
+      (_userId: string, searchInput: StartSearchInput) =>
+        Promise.resolve(persistCompletedSearch("missing-child", searchInput)),
+    )
+    mocks.generateTextStream.mockRejectedValue(
+      new Error("Stop after child reconciliation"),
+    )
+
+    await runIdeaJob(input)
+
+    expect(mocks.generateArrayStream).not.toHaveBeenCalled()
+    expect(mocks.resumeExisting).toHaveBeenCalledExactlyOnceWith(
+      "failed-child",
+      undefined,
+    )
+    expect(mocks.startDeepSearch).toHaveBeenCalledOnce()
+    expect(mocks.startDeepSearch.mock.calls[0]?.[1]).toMatchObject({
+      ideaJobId,
+      ideaJobPosition: 2,
+      researchRequest: prompts[2].prompt,
+    })
+    expect(
+      db
+        .select()
+        .from(deepSearchJobs)
+        .where(eq(deepSearchJobs.ideaJobId, ideaJobId))
+        .all(),
+    ).toHaveLength(3)
+  })
+
+  it("reuses a fully completed durable pipeline without provider or child-manager calls", async () => {
+    const { input } = createInput()
+    setupGenerations()
+    mocks.startDeepSearch.mockImplementation(
+      (_userId: string, searchInput: StartSearchInput) => {
+        const position = searchInput.ideaJobPosition ?? 0
+        return Promise.resolve(
+          persistCompletedSearch(`completed-search-${position}`, searchInput),
+        )
+      },
+    )
+    await runIdeaJob(input)
+    const counts = {
+      generations: db.select().from(llmGenerations).all().length,
+      ideas: db.select().from(ideas).all().length,
+      children: db.select().from(deepSearchJobs).all().length,
+    }
+    db.update(ideaJobs)
+      .set({ status: "running", completedAt: null })
+      .where(eq(ideaJobs.ideaJobId, ideaJobId))
+      .run()
+    vi.clearAllMocks()
+    const resumedJob = createReplayableEventLog<IdeaJobEvent>()
+    const resumedEvents = collectEvents(resumedJob.subscribe())
+
+    await runIdeaJob({ ...input, job: resumedJob })
+
+    expect(mocks.generateArrayStream).not.toHaveBeenCalled()
+    expect(mocks.generateTextStream).not.toHaveBeenCalled()
+    expect(mocks.generateObjectStream).not.toHaveBeenCalled()
+    expect(mocks.startDeepSearch).not.toHaveBeenCalled()
+    expect(mocks.resumeExisting).not.toHaveBeenCalled()
+    expect(await resumedEvents).toEqual([{ type: "done" }])
+    expect(db.select().from(llmGenerations).all()).toHaveLength(
+      counts.generations,
+    )
+    expect(db.select().from(ideas).all()).toHaveLength(counts.ideas)
+    expect(db.select().from(deepSearchJobs).all()).toHaveLength(counts.children)
   })
 })

@@ -1,7 +1,9 @@
 import "dotenv/config"
 import { serve } from "@hono/node-server"
 import { config } from "./config.ts"
-import { app } from "./index.ts"
+import { app, reconcilePersistedResearch } from "./index.ts"
+
+reconcilePersistedResearch()
 
 serve(
   {

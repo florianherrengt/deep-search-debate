@@ -2,16 +2,18 @@ import CircularProgress from "@mui/material/CircularProgress"
 import Stack from "@mui/material/Stack"
 import Typography from "@mui/material/Typography"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useCallback, type ReactNode } from "react"
+import { useCallback, useState, type ReactNode } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { JobHistory } from "../../components/JobHistory.tsx"
 import { JobStatusBadge } from "../../components/JobStatusBadge.tsx"
 import { PromptForm } from "../../components/PromptForm.tsx"
 import { RequestError } from "../../components/RequestError.tsx"
 import { ResultFeedback } from "../../components/ResultFeedback.tsx"
+import { ResumeWorkflowControl } from "../../components/ResumeWorkflowControl.tsx"
 import { StopWorkflowControl } from "../../components/StopWorkflowControl.tsx"
 import { getRequestErrorMessage } from "../../lib/requestErrors.ts"
 import { requestResearchStop } from "../../lib/researchCancellation.ts"
+import { requestResearchResume } from "../../lib/researchResumption.ts"
 import {
   type ResultFeedbackInput,
   updateResultFeedback,
@@ -107,7 +109,10 @@ function IdeaJobContent({
   ideaId,
   job,
   onTerminal,
+  onResume,
   onStop,
+  reconnectKey,
+  resumePending,
   stopError,
   stopPending,
 }: {
@@ -115,11 +120,14 @@ function IdeaJobContent({
   ideaId?: string
   job: IdeaJobDetail
   onTerminal: () => void
+  onResume: () => void
   onStop: () => void
+  reconnectKey: number
+  resumePending: boolean
   stopError: Error | null
   stopPending: boolean
 }) {
-  const run = useIdeaJob(job.ideaJobId, onTerminal)
+  const run = useIdeaJob(job.ideaJobId, onTerminal, reconnectKey)
   const idea = ideaId
     ? run.ideas.find((candidate) => candidate.ideaId === ideaId)
     : undefined
@@ -202,16 +210,23 @@ function IdeaJobContent({
       prompt={job.prompt}
       run={run}
       stopControl={
-        <StopWorkflowControl
-          canStop={job.canStop && run.status === "running"}
-          pending={stopPending}
-          stopping={
-            job.stopRequested &&
-            !job.isPublic &&
-            (run.status === "running" || run.status === "stopping")
-          }
-          onConfirm={onStop}
-        />
+        <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+          <ResumeWorkflowControl
+            canResume={job.canResume}
+            pending={resumePending}
+            onResume={onResume}
+          />
+          <StopWorkflowControl
+            canStop={job.canStop && run.status === "running"}
+            pending={stopPending}
+            stopping={
+              job.stopRequested &&
+              !job.isPublic &&
+              (run.status === "running" || run.status === "stopping")
+            }
+            onConfirm={onStop}
+          />
+        </Stack>
       }
       stopError={stopError}
       stopRequested={job.stopRequested}
@@ -222,6 +237,7 @@ function IdeaJobContent({
 
 function IdeaRun({ ideaId, slug }: { ideaId?: string; slug: string }) {
   const queryClient = useQueryClient()
+  const [reconnectKey, setReconnectKey] = useState(0)
   const job = useQuery({
     queryKey: [...ideaJobsQueryKey, slug],
     queryFn: ({ signal }) => getIdeaJob(slug, signal),
@@ -244,6 +260,32 @@ function IdeaRun({ ideaId, slug }: { ideaId?: string; slug: string }) {
             ? { ...current, canStop: false, stopRequested: true }
             : current,
       )
+      void queryClient.invalidateQueries({
+        queryKey: ideaJobsQueryKey,
+        exact: true,
+      })
+    },
+  })
+  const resume = useMutation({
+    mutationFn: (ideaJobId: string) =>
+      requestResearchResume("idea", ideaJobId),
+    onSuccess: () => {
+      queryClient.setQueryData<IdeaJobDetail>(
+        [...ideaJobsQueryKey, slug],
+        (current) =>
+          current
+            ? {
+                ...current,
+                canResume: false,
+                canStop: true,
+                status: "running",
+                stopRequested: false,
+                error: null,
+                completedAt: null,
+              }
+            : current,
+      )
+      setReconnectKey((current) => current + 1)
       void queryClient.invalidateQueries({
         queryKey: ideaJobsQueryKey,
         exact: true,
@@ -289,36 +331,42 @@ function IdeaRun({ ideaId, slug }: { ideaId?: string; slug: string }) {
     )
   }
   return (
-    <IdeaJobContent
-      feedbackControl={
-        ideaId === undefined &&
-        job.data.feedback !== null &&
-        job.data.creditsUsed !== null ? (
-          <ResultFeedback
-            creditsUsed={job.data.creditsUsed}
-            error={
-              feedback.error
-                ? getRequestErrorMessage(feedback.error)
-                : undefined
-            }
-            feedback={job.data.feedback}
-            onRatingChange={async (rating) => {
-              await feedback.mutateAsync({ type: "rating", rating })
-            }}
-            onSubmitText={async (text) => {
-              await feedback.mutateAsync({ type: "text", text })
-            }}
-            pending={feedback.isPending}
-          />
-        ) : undefined
-      }
-      ideaId={ideaId}
-      job={job.data}
-      onTerminal={reconcileTerminalJob}
-      onStop={() => stop.mutate(job.data.ideaJobId)}
-      stopError={stop.error}
-      stopPending={stop.isPending}
-    />
+    <>
+      {resume.error && <RequestError error={resume.error} />}
+      <IdeaJobContent
+        feedbackControl={
+          ideaId === undefined &&
+          job.data.feedback !== null &&
+          job.data.creditsUsed !== null ? (
+            <ResultFeedback
+              creditsUsed={job.data.creditsUsed}
+              error={
+                feedback.error
+                  ? getRequestErrorMessage(feedback.error)
+                  : undefined
+              }
+              feedback={job.data.feedback}
+              onRatingChange={async (rating) => {
+                await feedback.mutateAsync({ type: "rating", rating })
+              }}
+              onSubmitText={async (text) => {
+                await feedback.mutateAsync({ type: "text", text })
+              }}
+              pending={feedback.isPending}
+            />
+          ) : undefined
+        }
+        ideaId={ideaId}
+        job={job.data}
+        onResume={() => resume.mutate(job.data.ideaJobId)}
+        onTerminal={reconcileTerminalJob}
+        onStop={() => stop.mutate(job.data.ideaJobId)}
+        reconnectKey={reconnectKey}
+        resumePending={resume.isPending}
+        stopError={stop.error}
+        stopPending={stop.isPending}
+      />
+    </>
   )
 }
 

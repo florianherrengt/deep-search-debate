@@ -16,29 +16,34 @@ log and follows new events. Terminal runs evict that log and reconstruct their
 events from normalized rows and persisted LLM output. A closed log is retained
 when terminal persistence fails.
 
+Failed or interrupted standalone roots can be resumed under the same job ID.
+Debate-owned idea jobs are resumed only through their debate root. In either
+case the coordinator loads the durable checkpoint graph, reuses completed
+stages and child searches, and retries only incomplete work.
+
 ## Pipeline
 
-1. One fresh planning generation creates exactly `deepSearchCount` distinct,
+1. One successful planning generation creates exactly `deepSearchCount` distinct,
    non-empty `{ title, prompt }` research plans.
 2. One durable deep-search job is created immediately for each prompt. All
    child rows and links become visible together, while actual execution passes
    through the process-wide deep-search queue. A scoped position preserves
    prompt order for replay and briefing construction.
 3. The parent waits for every launched child to settle. Durable child
-   completion returns its committed final-answer text. The parent then applies
-   its separately named quality gate: extraction failures remain acceptable
-   snippet fallbacks, while a failed model-generated page summary rejects the
-   child. If completion or parent acceptance fails, the parent fails and no
-   summary or idea generation starts.
-4. One fresh summary generation receives the original user prompt and only each
+   completion returns its committed final-answer text. Every idea-owned search
+   persists strict summary quality: extraction failures remain acceptable
+   snippet fallbacks, while a failed model-generated page summary fails the
+   child and remains retryable from its persisted extracted content. If a child
+   fails, the parent fails and no summary or idea generation starts.
+4. One successful summary generation receives the original user prompt and only each
    child's final-answer text. Page records, source metadata, and intermediate
    output are not copied into this call. Hidden reasoning is disabled so the
    output budget is reserved for the durable research briefing.
-5. One fresh idea generation receives the original user prompt, the final
+5. One successful idea generation receives the original user prompt, the final
    research briefing, and `numberOfIdeas`. After the complete array passes
    validation, every `{ title, description }` is persisted and published in
    generation order with a stable ID and no evaluation link yet.
-6. One fresh structured selection generation receives the original user prompt,
+6. One successful structured selection generation receives the original user prompt,
    the final research briefing passed into idea generation, and every generated
    idea. Hidden selection reasoning is disabled so the bounded output is
    reserved for the required JSON. The output is an unordered array of unique
@@ -47,7 +52,7 @@ when terminal persistence fails.
    The selected ideas become `selected = true` and every other generated idea
    becomes `selected = false` in the same transaction as the selection
    generation's terminal output.
-7. One fresh structured refinement generation starts concurrently for each
+7. One successful structured refinement generation completes for each
    selected idea. It receives the original request, shared research briefing,
    and original idea. Its generation link is attached before publication;
    validated refined title and description commit together.
@@ -55,8 +60,8 @@ when terminal persistence fails.
    searches reuse the request's existing `maxSearches`,
    `maxResultsPerSearch`, and `maxRounds`. Each search's parent-scoped position is
    `deepSearchCount + idea.position`. The parent waits for every selected-idea
-   search to complete and pass the parent quality gate.
-9. One fresh structured evaluation generation starts for each researched,
+   search to complete under the same strict summary policy.
+9. One successful structured evaluation generation completes for each researched,
     refined idea. Each call receives the original request, shared research
     briefing, improved idea, and that idea's supporting-research answer. It
     returns two to four pros, two to four cons, and one concise critique of the
@@ -75,20 +80,28 @@ duplicate ID, or foreign ID is a selection failure. A final-evaluation failure
 does not erase completed improvements or assessments. Selection remains null
 when the selection transaction does not complete. Individual page-extraction
 failures inside a child search are non-fatal when the search-result description
-can be used as a fallback. A page-summary failure may likewise produce a
-durably completed standalone child using its snippet, but the idea pipeline's
-explicit parent-quality gate rejects it. Once concurrent work has started, the
+can be used as a fallback. A page-summary failure is fatal for the strict
+idea-owned child even though the equivalent standalone search may accept its
+snippet. Once concurrent work has started, the
 parent waits for all of it to finish even if one operation fails, so it never
 reports a terminal state while visible children or evaluation streams are still
 running.
 
-An explicit Stop is irreversible. The manager persists the standalone idea
+An explicit Stop ends the current execution. The manager persists the standalone idea
 root's request before aborting queued or active work, and the signal propagates
 to every initial or refined-idea child search. Every started concurrent fan-out
 settles, including durable LLM and child-search cleanup, before the parent
 becomes interrupted; no later stage or child may start after the effective root
 is stopping. A user Stop and an inherited parent Stop are interruptions.
 Provider deadlines and ordinary provider failures remain failures.
+
+On first execution each successful stage has one durable output. On Resume,
+completed planning, briefing, generation, selection, refinement, evaluation,
+and child-search checkpoints are validated and reused. Failed, interrupted, or
+stale-running generation attempts are retried only by atomically replacing the
+exact owning link during registration; a newer link cannot be overwritten.
+Existing child rows are resumed by their parent position instead of being
+duplicated.
 
 ## HTTP contract
 
@@ -162,11 +175,13 @@ Detail responses add `isPublic`, which reports inherited public-debate
 visibility, and `isIndexable`, which is true only when that debate is both
 public and completed. Standalone and private owner-readable jobs report both
 fields as false. These projections are detail-only and do not change the
-history response. Detail also includes the derived `stopRequested` flag and
-`canStop`. `canStop` is true only for the authenticated owner of a standalone
-root whose status is `running` and which has no persisted stop request. It is
-false for debate-owned jobs, public viewers, terminal jobs, and roots already
-stopping. Owners receive `feedback` in every lifecycle state with the current
+history response. Detail also includes the derived `stopRequested` flag,
+`canStop`, and `canResume`. `canStop` is true only for the authenticated owner
+of a standalone root whose status is `running` and which has no persisted stop
+request. It is false for debate-owned jobs, public viewers, terminal jobs, and
+roots already stopping. `canResume` is true only for the owner of a failed or interrupted
+standalone root; it is false for debate-owned jobs, completed roots, and
+non-owners. Owners receive `feedback` in every lifecycle state with the current
 nullable boolean `rating` and derived `hasWrittenFeedback`; this keeps owner
 authority available when a snapshot fetched while running is later paired with
 replay-derived completion. Anonymous and authenticated public non-owners receive
@@ -181,7 +196,7 @@ feedback thumbs.
 
 ### `POST /api/idea-jobs/:ideaJobId/cancel`
 
-Requests the irreversible stop of an authenticated user's standalone root idea
+Requests a durable stop of an authenticated user's standalone root idea
 job. The request timestamp commits before the manager aborts queued or active
 work. If the running job has no live controller, such as after a process
 restart, the route settles it durably as interrupted.
@@ -198,11 +213,32 @@ The browser exposes this action only when detail `canStop` is true and requires
 confirmation. After the request persists, history and detail show disabled
 `Stopping…`, suppress active-work indicators, and retain completed output during
 cleanup and after reload. Any job interrupted under an effective Stop request is
-then labeled `Stopped`; a restart interruption without a Stop request remains
+then labeled `Stopped`; an interruption without a Stop request remains
 `Interrupted`. Debate-owned jobs and public or foreign viewers never receive the
 control. Completed usage remains charged; stopped in-progress attempts do not
 debit RethinkLoop credits. This application credit guarantee is not a claim
 about how an upstream provider bills work it already received.
+
+The Stop retains the workflow checkpoint. A later owner Resume—or the next API
+startup reconciliation—can reopen the standalone root.
+
+### `POST /api/idea-jobs/:ideaJobId/resume`
+
+Reopens the authenticated owner's failed or interrupted standalone idea root
+under the same ID. An already-running root is deduplicated against the live
+manager entry. Both cases return `202 Accepted`:
+
+```json
+{ "status": "running" }
+```
+
+The reopen clears the root's error, completion timestamp, and direct Stop
+timestamp, then recursively reconciles its child searches and pipeline
+checkpoints. Unknown and foreign UUIDs return `404`. Debate-owned idea jobs and
+completed roots return `409`; a debate-owned child can be resumed only through
+its debate root. The owner UI shows `Resume workflow` only when `canResume` is
+true, then refreshes the snapshot and reconnects the event feed under the same
+URL and job ID.
 
 ### `PATCH /api/idea-jobs/:ideaJobId/feedback`
 
@@ -291,7 +327,7 @@ stage starts. Live and database-reconstructed feeds both end with exactly one
 for either Stop. A reconnect while the effective root is settling replays
 `stop-requested`; after terminal persistence it replays the same stop and
 terminal suffix. Debate-owned jobs do not store an idea-level stop timestamp.
-Restart interruption remains distinct: it publishes `interrupted`, then `done`,
+An interruption without a Stop remains distinct: it publishes `interrupted`, then `done`,
 without `stop-requested`, and the browser renders it as `Interrupted`. Explicit
 or inherited Stop renders as `Stopped`. Genuine failures retain the ordinary
 `error`, then `done` sequence. If the idea job completed before its debate root
@@ -318,8 +354,9 @@ generation still has unfinished durable cleanup.
 
 ## Persistence model
 
-- `idea_jobs` owns the generated title, slug, request, requested counts, current
-  stage, lifecycle, timestamps, and four pipeline-level LLM generation links,
+- `idea_jobs` owns the generated title, slug, request, requested counts,
+  child-search limits, stage, lifecycle, timestamps, and four pipeline-level
+  LLM generation links,
   including comparative selection, plus owner feedback. Feedback is nullable
   until completion; its text is valid only with a negative rating. A standalone
   root may also retain its `cancel_requested_at` Stop timestamp. Debate-owned
@@ -336,6 +373,8 @@ generation still has unfinished durable cleanup.
   user that own it. Evaluation links are unique foreign keys, and orchestration
   creates them only from evaluation calls owned by that same idea job. Evaluation
   and selection stay event subphases rather than adding durable DB stages.
+  Retry registration compare-and-swaps the exact prior link and, when necessary,
+  interrupts a stale-running attempt in the same transaction.
 - `ideas` is the canonical representation of the validated idea set,
   with stable IDs and generation order. The complete batch is inserted before
   selection. The nullable selected flag then transitions once from pending to
@@ -371,10 +410,12 @@ generation still has unfinished durable cleanup.
   ordinary failure. Interrupted generations preserve partial output, run their
   stage cleanup, and do not debit RethinkLoop credits.
 
-On API startup, persisted Stop requests are settled before ordinary restart
-recovery. A directly stopped standalone root retains its timestamp and user-Stop
-explanation; debate-owned idea jobs and their child searches derive the parent
-Stop without copying it. Other orphaned running idea jobs become `interrupted`
-with the distinct restart explanation because their provider calls and child
-orchestration cannot resume. Completed and failed terminal runs remain
-replayable after restart.
+On API startup, every non-completed standalone idea job is scheduled as an
+effective root. Debate-owned idea jobs are reached only through their debate
+coordinator. Reopening clears root terminal fields, then the idea runner reuses
+completed generation and child-search checkpoints and retries incomplete work
+from the children back to the parent. Completed child searches return their
+durable final answers without new provider calls; incomplete children resume
+under their existing IDs and persisted search controls. A synchronous reset or
+scheduling error aborts server startup. The same reconciliation runs after an
+owner-requested root Resume, while completed roots remain closed.

@@ -39,6 +39,9 @@ function insertDebate(options: {
     .values({
       debateJobId: options.debateJobId,
       deepSearchCount: 2,
+      maxSearches: 3,
+      maxResultsPerSearch: 3,
+      maxRounds: 3,
       ideaJobId: crypto.randomUUID(),
       numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
       prompt: `Prompt for ${options.title}`,

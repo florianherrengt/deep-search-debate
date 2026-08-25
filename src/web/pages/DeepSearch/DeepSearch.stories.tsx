@@ -97,6 +97,7 @@ const services: DeepSearchServices = {
       completedAt: new Date("2026-08-12T09:38:00.000Z"),
       createdAt,
       deepSearchJobId: slug,
+      canResume: false,
       canStop: false,
       creditsUsed: 123,
       error: null,

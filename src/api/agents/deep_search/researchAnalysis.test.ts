@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import { loadPrompt, PromptName } from "../../llms/prompts.ts"
+
 const mocks = vi.hoisted(() => ({ generateObjectStream: vi.fn() }))
 
 vi.mock("../../llms/generateText.ts", () => ({
@@ -32,6 +34,13 @@ const analysis = {
 
 describe("research answer analysis", () => {
   beforeEach(() => vi.clearAllMocks())
+
+  it("states the structured collection bounds explicitly in the prompt", async () => {
+    const prompt = await loadPrompt(PromptName.AnalyzeResearchAnswer)
+
+    expect(prompt).toContain("no more than 12 items in each collection")
+    expect(prompt).toContain("no more than 12 source URLs")
+  })
 
   it("starts a separate schema-constrained generation from the accepted answer", async () => {
     mocks.generateObjectStream.mockResolvedValueOnce({

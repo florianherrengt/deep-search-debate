@@ -27,6 +27,9 @@ describe("cancellation schema constraints", () => {
         prompt: "Generate ideas",
         numberOfIdeas: 6,
         deepSearchCount: 1,
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+        maxRounds: 1,
       })
       .run()
     db.insert(deepSearchJobs)
@@ -39,6 +42,7 @@ describe("cancellation schema constraints", () => {
         researchRequest: "Research constraints",
         maxSearches: 1,
         maxResultsPerSearch: 1,
+        strictQuality: true,
       })
       .run()
 
@@ -67,6 +71,7 @@ describe("cancellation schema constraints", () => {
         researchRequest: "Research lifecycle constraints",
         maxSearches: 1,
         maxResultsPerSearch: 1,
+        strictQuality: false,
         cancelRequestedAt,
       })
       .run()

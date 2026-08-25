@@ -32,6 +32,8 @@ export const deepSearchJobs = sqliteTable(
     maxSearches: integer("max_searches").notNull(),
     maxResultsPerSearch: integer("max_results_per_search").notNull(),
     maxRounds: integer("max_rounds").notNull().default(3),
+    /** Requires every selected page to complete its model-backed summary. */
+    strictQuality: integer("strict_quality", { mode: "boolean" }).notNull(),
     finalAnswerGenerationId: text("final_answer_generation_id").unique(),
     researchAnalysisGenerationId: text(
       "research_analysis_generation_id",
@@ -42,7 +44,7 @@ export const deepSearchJobs = sqliteTable(
     feedbackRating: integer("feedback_rating", { mode: "boolean" }),
     feedbackText: text("feedback_text"),
     error: text("error"),
-    /** Set only on a standalone root when its owner requests an irreversible stop. */
+    /** Set only on a standalone root when its owner requests a durable stop. */
     cancelRequestedAt: integer("cancel_requested_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
@@ -98,6 +100,10 @@ export const deepSearchJobs = sqliteTable(
     check(
       "deep_search_jobs_limits_check",
       sql`${table.maxSearches} > 0 and ${table.maxResultsPerSearch} > 0 and ${table.maxRounds} > 0`,
+    ),
+    check(
+      "deep_search_jobs_strict_quality_check",
+      sql`${table.strictQuality} in (0, 1)`,
     ),
     check(
       "deep_search_jobs_research_request_content_check",

@@ -5,6 +5,7 @@ import CircularProgress from "@mui/material/CircularProgress"
 import Stack from "@mui/material/Stack"
 import Typography from "@mui/material/Typography"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useState } from "react"
 import {
   Link,
   useNavigate,
@@ -14,6 +15,7 @@ import {
 import { JobHistory } from "../../components/JobHistory.tsx"
 import { RequestError } from "../../components/RequestError.tsx"
 import { ResultFeedback } from "../../components/ResultFeedback.tsx"
+import { ResumeWorkflowControl } from "../../components/ResumeWorkflowControl.tsx"
 import { StopWorkflowControl } from "../../components/StopWorkflowControl.tsx"
 import {
   createDebateJob,
@@ -24,6 +26,7 @@ import {
 } from "../../lib/debateJobs.ts"
 import { getRequestErrorMessage } from "../../lib/requestErrors.ts"
 import { requestResearchStop } from "../../lib/researchCancellation.ts"
+import { requestResearchResume } from "../../lib/researchResumption.ts"
 import {
   type ResultFeedbackInput,
   updateResultFeedback,
@@ -119,8 +122,13 @@ function DebateDetail({
   slug: string
 }) {
   const queryClient = useQueryClient()
+  const [ideaReconnectKey, setIdeaReconnectKey] = useState(0)
   const job = useDebateJob(slug)
-  const ideaRun = useIdeaJob(job.data?.ideaJobId ?? null)
+  const ideaRun = useIdeaJob(
+    job.data?.ideaJobId ?? null,
+    undefined,
+    ideaReconnectKey,
+  )
   const debatePath = `/debates/${encodeURIComponent(slug)}`
   const winner = job.data ? getWinner(job.data) : undefined
   const winnerEvaluation = winner
@@ -164,6 +172,30 @@ function DebateDetail({
             ? { ...current, canStop: false, stopRequested: true }
             : current,
       )
+      void queryClient.invalidateQueries({
+        queryKey: debateJobsQueryKey,
+        exact: true,
+      })
+    },
+  })
+  const resume = useMutation({
+    mutationFn: (id: string) => requestResearchResume("debate", id),
+    onSuccess: () => {
+      queryClient.setQueryData<DebateTournamentSnapshot>(
+        debateJobQueryKey(slug),
+        (current) =>
+          current
+            ? {
+                ...current,
+                canResume: false,
+                canStop: true,
+                status: "running",
+                stopRequested: false,
+                error: null,
+              }
+            : current,
+      )
+      setIdeaReconnectKey((current) => current + 1)
       void queryClient.invalidateQueries({
         queryKey: debateJobsQueryKey,
         exact: true,
@@ -273,6 +305,9 @@ function DebateDetail({
       {stop.error && (
         <Alert severity="error">{getRequestErrorMessage(stop.error)}</Alert>
       )}
+      {resume.error && (
+        <Alert severity="error">{getRequestErrorMessage(resume.error)}</Alert>
+      )}
       <DebateView
         feedbackControl={
           job.data.status === "completed" &&
@@ -300,6 +335,11 @@ function DebateDetail({
         ownerActions={
           job.data.isOwner ? (
             <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+              <ResumeWorkflowControl
+                canResume={job.data.canResume}
+                pending={resume.isPending}
+                onResume={() => resume.mutate(job.data.debateJobId)}
+              />
               <StopWorkflowControl
                 canStop={job.data.canStop}
                 pending={stop.isPending}

@@ -32,6 +32,7 @@ function completeJob(analysisText: string): string {
       researchRequest: "Research this",
       maxSearches: 1,
       maxResultsPerSearch: 1,
+      strictQuality: false,
     })
     .run()
   db.insert(llmGenerations)

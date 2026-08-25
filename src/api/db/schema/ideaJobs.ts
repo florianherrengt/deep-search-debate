@@ -34,6 +34,9 @@ export const ideaJobs = sqliteTable(
       .default("planning"),
     numberOfIdeas: integer("number_of_ideas").notNull(),
     deepSearchCount: integer("deep_search_count").notNull(),
+    maxSearches: integer("max_searches").notNull(),
+    maxResultsPerSearch: integer("max_results_per_search").notNull(),
+    maxRounds: integer("max_rounds").notNull(),
     researchPromptGenerationId: text(
       "research_prompt_generation_id",
     ).unique(),
@@ -48,7 +51,7 @@ export const ideaJobs = sqliteTable(
     feedbackRating: integer("feedback_rating", { mode: "boolean" }),
     feedbackText: text("feedback_text"),
     error: text("error"),
-    /** Set only on a standalone root when its owner requests an irreversible stop. */
+    /** Set only on a standalone root when its owner requests a durable stop. */
     cancelRequestedAt: integer("cancel_requested_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
@@ -101,7 +104,7 @@ export const ideaJobs = sqliteTable(
     }).onDelete("no action"),
     check(
       "idea_jobs_limits_check",
-      sql`${table.numberOfIdeas} > 0 and ${table.deepSearchCount} > 0`,
+      sql`${table.numberOfIdeas} > 0 and ${table.deepSearchCount} > 0 and ${table.maxSearches} > 0 and ${table.maxResultsPerSearch} > 0 and ${table.maxRounds} > 0`,
     ),
     check(
       "idea_jobs_stage_check",

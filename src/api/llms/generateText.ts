@@ -177,7 +177,11 @@ export async function generatePromptTitle(
 export async function generateArrayStream<Element>(
   params: GenerateStreamInput & {
     element: z.ZodType<Element>
-  } & TextGenerationPersistenceCallbacks,
+    onCompleted?: (
+      completed: { id: string; output: Element[] },
+      transaction: TextStreamPersistenceTransaction,
+    ) => void
+  } & Omit<TextGenerationPersistenceCallbacks, "onCompleted">,
 ): Promise<
   GenerationHandle & {
     output: Promise<Element[]>
@@ -202,8 +206,9 @@ export async function generateArrayStream<Element>(
       // Validate the persisted payload inside the terminal transaction. The AI
       // SDK exposes result.output on a separate promise, which can reject only
       // after stream consumption would otherwise mark the call billable.
-      onCompleted: ({ text }) => {
-        parseStructuredText(outputSchema, text)
+      onCompleted: (completed, transaction) => {
+        const output = parseStructuredText(outputSchema, completed.text).elements
+        params.onCompleted?.({ id: completed.id, output }, transaction)
       },
     })
     try {

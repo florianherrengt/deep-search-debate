@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   getDeepSearchJob: vi.fn(),
   getDeepSearchJobs: vi.fn(),
   requestResearchStop: vi.fn(),
+  requestResearchResume: vi.fn(),
   subscribeToDeepSearchJob: vi.fn(),
   subscribeToTextStream: vi.fn(),
   updateResultFeedback: vi.fn(),
@@ -34,6 +35,10 @@ vi.mock("../../lib/textStreams.ts", () => ({
 
 vi.mock("../../lib/researchCancellation.ts", () => ({
   requestResearchStop: mocks.requestResearchStop,
+}))
+
+vi.mock("../../lib/researchResumption.ts", () => ({
+  requestResearchResume: mocks.requestResearchResume,
 }))
 
 vi.mock("../../lib/resultFeedback.ts", async (importOriginal) => ({
@@ -79,6 +84,7 @@ function deepSearchJob() {
     isPublic: false,
     creditsUsed: null,
     feedback: null,
+    canResume: false,
     canStop: false,
     status: "completed" as const,
     stopRequested: false,
@@ -97,6 +103,7 @@ describe("DeepSearch", () => {
       status: "cancellation-requested",
       cancelRequestedAt: new Date(),
     })
+    mocks.requestResearchResume.mockResolvedValue({ status: "running" })
     mocks.updateResultFeedback.mockResolvedValue({
       rating: true,
       hasWrittenFeedback: false,
@@ -198,6 +205,125 @@ describe("DeepSearch", () => {
     expect(
       await screen.findByRole("button", { name: "Stopping…" }),
     ).toBeDisabled()
+  })
+
+  it.each(["failed", "interrupted"] as const)(
+    "resumes a %s root and reconnects the same job stream",
+    async (status) => {
+      mocks.getDeepSearchJob.mockResolvedValue({
+        ...deepSearchJob(),
+        canResume: true,
+        error: "Research stopped unexpectedly",
+        status,
+      })
+      mocks.subscribeToDeepSearchJob
+        .mockImplementationOnce(async function* () {
+          await Promise.resolve()
+          yield {
+            type:
+              status === "failed"
+                ? ("error" as const)
+                : ("interrupted" as const),
+            message: "Research stopped unexpectedly",
+          }
+          yield { type: "done" as const }
+        })
+        .mockImplementationOnce(async function* (
+          _jobId: string,
+          signal?: AbortSignal,
+        ) {
+          yield {
+            type: "query-stream" as const,
+            round: 0,
+            streamId: "resumed-query",
+          }
+          await new Promise<void>((resolve) => {
+            if (signal?.aborted) resolve()
+            else
+              signal?.addEventListener("abort", () => resolve(), {
+                once: true,
+              })
+          })
+        })
+
+      renderDeepSearch("/deep-search/research-this")
+
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Resume workflow" }),
+      )
+
+      await waitFor(() =>
+        expect(mocks.requestResearchResume).toHaveBeenCalledWith(
+          "deep-search",
+          "job-id",
+        ),
+      )
+      await waitFor(() =>
+        expect(mocks.subscribeToDeepSearchJob).toHaveBeenCalledTimes(2),
+      )
+      expect(mocks.subscribeToDeepSearchJob).toHaveBeenLastCalledWith(
+        "job-id",
+        expect.any(AbortSignal),
+        expect.any(Function),
+      )
+      expect(
+        screen.queryByRole("button", { name: "Resume workflow" }),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.getByRole("button", { name: "Stop workflow" }),
+      ).toBeEnabled()
+      expect(await screen.findByRole("status")).toBeVisible()
+    },
+  )
+
+  it("keeps the failed presentation available when Resume is rejected", async () => {
+    mocks.getDeepSearchJob.mockResolvedValue({
+      ...deepSearchJob(),
+      canResume: true,
+      error: "Research stopped unexpectedly",
+      status: "failed",
+    })
+    mocks.requestResearchResume.mockRejectedValue(new Error("Resume failed"))
+    mocks.subscribeToDeepSearchJob.mockImplementation(async function* () {
+      await Promise.resolve()
+      yield { type: "error" as const, message: "Research stopped unexpectedly" }
+      yield { type: "done" as const }
+    })
+
+    renderDeepSearch("/deep-search/research-this")
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Resume workflow" }),
+    )
+
+    expect(
+      await screen.findByText(
+        "Could not connect to the server. Check your connection and try again.",
+      ),
+    ).toBeVisible()
+    expect(
+      screen.getByText("Research stopped before a final answer was produced."),
+    ).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: "Resume workflow" }),
+    ).toBeEnabled()
+    expect(mocks.subscribeToDeepSearchJob).toHaveBeenCalledOnce()
+  })
+
+  it("keeps Resume off nested round routes", async () => {
+    mocks.getDeepSearchJob.mockResolvedValue({
+      ...deepSearchJob(),
+      canResume: true,
+      error: "Research stopped unexpectedly",
+      status: "failed",
+    })
+
+    renderDeepSearch("/deep-search/research-this/rounds/1")
+
+    await waitFor(() => expect(mocks.getDeepSearchJob).toHaveBeenCalled())
+    expect(
+      screen.queryByRole("button", { name: "Resume workflow" }),
+    ).not.toBeInTheDocument()
   })
 
   it.each([

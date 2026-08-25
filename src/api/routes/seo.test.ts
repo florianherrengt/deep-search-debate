@@ -61,6 +61,9 @@ function seedDebate(options: {
       prompt: `Prompt for ${options.slug}`,
       numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
       deepSearchCount: 2,
+      maxSearches: 8,
+      maxResultsPerSearch: 10,
+      maxRounds: 3,
     })
     .run()
   if (options.deepSearch) {
@@ -75,6 +78,7 @@ function seedDebate(options: {
         researchRequest: "Research request",
         maxSearches: 8,
         maxResultsPerSearch: 10,
+        strictQuality: true,
       })
       .run()
   }

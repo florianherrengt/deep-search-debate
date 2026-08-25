@@ -55,7 +55,7 @@ export const debateJobs = sqliteTable(
     feedbackRating: integer("feedback_rating", { mode: "boolean" }),
     feedbackText: text("feedback_text"),
     error: text("error"),
-    /** Set when the owner requests an irreversible stop of this root workflow. */
+    /** Set when the owner requests a durable stop of this root workflow. */
     cancelRequestedAt: integer("cancel_requested_at", { mode: "timestamp_ms" }),
     // The tournament winner's single website generation. The stored page
     // itself lives under IDEA_SITES_DIR/<idea_uuid>/websites/index.html.

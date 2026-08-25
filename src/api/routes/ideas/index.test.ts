@@ -39,8 +39,8 @@ function createApp(): Hono<AppEnv> {
   })
   const manager: DeepSearchJobManager = {
     start: vi.fn(),
+    resumeExisting: vi.fn(),
     stop: vi.fn(),
-    requireParentQualityAcceptance: vi.fn(),
     getLiveJob: vi.fn(),
   }
   const ideaJobManager = createIdeaJobManager(manager)
@@ -77,8 +77,8 @@ describe("idea job routes", () => {
   it("guards internal idea-job starts before creating a job", async () => {
     const deepSearchManager: DeepSearchJobManager = {
       start: vi.fn(),
+      resumeExisting: vi.fn(),
       stop: vi.fn(),
-      requireParentQualityAcceptance: vi.fn(),
       getLiveJob: vi.fn(),
     }
     const manager = createIdeaJobManager(deepSearchManager)
@@ -135,6 +135,9 @@ describe("idea job routes", () => {
       .values({
         debateJobId,
         deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
         ideaJobId: crypto.randomUUID(),
         numberOfIdeas: 12,
         prompt: "Foreign public ideas",
@@ -161,6 +164,7 @@ describe("idea job routes", () => {
             researchRequest: "Research this",
             maxSearches: 3,
             maxResultsPerSearch: 3,
+            strictQuality: false,
           }),
         ),
       )
@@ -198,6 +202,9 @@ describe("idea job routes", () => {
           prompt: "Generate ideas",
           numberOfIdeas: 6,
           deepSearchCount: 2,
+          maxSearches: 3,
+          maxResultsPerSearch: 3,
+          maxRounds: 3,
           status: "failed" as const,
           error: "Settled before the tournament",
           completedAt: new Date(),
@@ -230,6 +237,7 @@ describe("idea job routes", () => {
             researchRequest: "Research this",
             maxSearches: 3,
             maxResultsPerSearch: 3,
+            strictQuality: false,
           }),
         ),
       )
@@ -244,8 +252,8 @@ describe("idea job routes", () => {
     })
     const manager = createIdeaJobManager({
       start: vi.fn(),
+      resumeExisting: vi.fn(),
       stop: vi.fn(),
-      requireParentQualityAcceptance: vi.fn(),
       getLiveJob: vi.fn(),
     })
 
@@ -291,8 +299,8 @@ describe("idea job routes", () => {
   it("rolls back the idea row and does not start work when owner creation fails", async () => {
     const deepSearchManager: DeepSearchJobManager = {
       start: vi.fn(),
+      resumeExisting: vi.fn(),
       stop: vi.fn(),
-      requireParentQualityAcceptance: vi.fn(),
       getLiveJob: vi.fn(),
     }
     const manager = createIdeaJobManager(deepSearchManager)
@@ -396,6 +404,9 @@ describe("idea job routes", () => {
         prompt: "Generate stoppable ideas",
         numberOfIdeas: 8,
         deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
       })
       .run()
     const app = createApp()
@@ -499,6 +510,9 @@ describe("idea job routes", () => {
         prompt: "Generate foreign ideas",
         numberOfIdeas: 8,
         deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
       })
       .run()
 
@@ -522,6 +536,9 @@ describe("idea job routes", () => {
         prompt: "Generate root ideas",
         numberOfIdeas: 8,
         deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
       })
       .run()
     db.insert(debateJobs)
@@ -538,13 +555,16 @@ describe("idea job routes", () => {
         prompt: "Generate nested ideas",
         numberOfIdeas: 8,
         deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
       })
       .run()
     const app = createApp()
 
     const detail = await app.request("/idea-jobs/root-ideas")
     await expect(detail.json()).resolves.toMatchObject({
-      ideaJob: { canStop: true, stopRequested: false },
+      ideaJob: { canResume: false, canStop: true, stopRequested: false },
     })
     const history = await app.request("/idea-jobs")
     const historyBody = (await history.json()) as {
@@ -562,6 +582,63 @@ describe("idea job routes", () => {
       { method: "POST" },
     )
     expect(nestedStop.status).toBe(409)
+    const nestedResume = await app.request(
+      `/idea-jobs/${nestedIdeaJobId}/resume`,
+      { method: "POST" },
+    )
+    expect(nestedResume.status).toBe(409)
+    const missingResume = await app.request(
+      `/idea-jobs/${crypto.randomUUID()}/resume`,
+      { method: "POST" },
+    )
+    expect(missingResume.status).toBe(404)
+  })
+
+  it("resumes one owned root execution for concurrent requests", async () => {
+    const ideaJobId = crypto.randomUUID()
+    db.insert(ideaJobsTable)
+      .values({
+        ideaJobId,
+        userId: "test-user-id",
+        title: "Resumable ideas",
+        slug: "resumable-ideas",
+        prompt: "Resume these ideas",
+        numberOfIdeas: 2,
+        deepSearchCount: 1,
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+        maxRounds: 1,
+        status: "interrupted",
+        error: "Stopped",
+        cancelRequestedAt: new Date(),
+        completedAt: new Date(),
+      })
+      .run()
+    mocks.runIdeaJob.mockImplementation(() => new Promise<void>(() => {}))
+    const app = createApp()
+
+    const before = await app.request("/idea-jobs/resumable-ideas")
+    await expect(before.json()).resolves.toMatchObject({
+      ideaJob: { canResume: true, canStop: false },
+    })
+    const responses = await Promise.all([
+      app.request(`/idea-jobs/${ideaJobId}/resume`, { method: "POST" }),
+      app.request(`/idea-jobs/${ideaJobId}/resume`, { method: "POST" }),
+    ])
+
+    expect(responses.map(({ status }) => status)).toEqual([202, 202])
+    await vi.waitFor(() => expect(mocks.runIdeaJob).toHaveBeenCalledOnce())
+    const persisted = db
+      .select()
+      .from(ideaJobsTable)
+      .where(eq(ideaJobsTable.ideaJobId, ideaJobId))
+      .get()
+    expect(persisted).toMatchObject({
+      status: "running",
+      error: null,
+      cancelRequestedAt: null,
+      completedAt: null,
+    })
   })
 
   it("serves a generated idea website to the owning reader", async () => {
@@ -576,6 +653,9 @@ describe("idea job routes", () => {
         prompt: "Generate ideas",
         numberOfIdeas: 8,
         deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
       })
       .run()
     db.insert(ideasTable)
@@ -630,6 +710,9 @@ describe("idea job routes", () => {
         prompt: "Generate public ideas",
         numberOfIdeas: 8,
         deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
       })
       .run()
     db.insert(ideasTable)
@@ -666,6 +749,9 @@ describe("idea job routes", () => {
         prompt: "Generate ideas",
         numberOfIdeas: 8,
         deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
       })
       .run()
     db.insert(ideasTable)
@@ -706,6 +792,9 @@ describe("idea job routes", () => {
         prompt: "Generate private ideas",
         numberOfIdeas: 8,
         deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
       })
       .run()
     db.insert(ideasTable)
@@ -738,6 +827,9 @@ describe("idea job routes", () => {
         prompt: "Generate ideas",
         numberOfIdeas: 8,
         deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
       })
       .run()
     const foreignIdeaId = crypto.randomUUID()
@@ -765,6 +857,9 @@ describe("idea job routes", () => {
         prompt: "Generate ideas",
         numberOfIdeas: 8,
         deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
       })
       .run()
     db.insert(ideasTable)
@@ -802,6 +897,9 @@ describe("idea job routes", () => {
         prompt: "Generate ideas",
         numberOfIdeas: 8,
         deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
       })
       .run()
     db.insert(ideasTable)
@@ -843,6 +941,9 @@ describe("idea job routes", () => {
         prompt: "Generate private ideas",
         numberOfIdeas: 8,
         deepSearchCount: 2,
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
       })
       .run()
     db.insert(ideasTable)

@@ -70,6 +70,14 @@ a separate promotion transaction verifies the required query rows, links that
 same generation as the final answer, and completes the job. A hook or terminal-write failure rejects
 `completion`; it is not converted into an ordinary provider failure.
 
+Terminal settlement compare-and-swaps the durable generation from `running`.
+If another callback or restart reconciler has already settled that attempt, the
+losing callback returns the persisted terminal outcome and does not debit
+credits or invoke its owning-stage completion hook again. Workflow checkpoint
+retry registration likewise replaces only the exact linked failed,
+interrupted, or stale-running attempt. Interrupting a stale-running attempt and
+repointing the owning link to the replacement commit atomically.
+
 An active manager interruption preserves accumulated text and reasoning, writes
 `interrupted`, its stop explanation, and the completion timestamp, and runs the
 stage's interruption hook in that same terminal transaction. Interrupted
@@ -113,5 +121,9 @@ owner-only and return 404 to every other viewer.
 
 An interrupted durable row replays any accumulated reasoning and text, followed
 by its persisted `error` and `done`; there is no separate public text-stream
-event type for interruption. A server restart marks orphaned `running`
-generations as `interrupted`; provider streams themselves are not resumable.
+event type for interruption. Provider streams themselves are not resumable
+after a server restart. When a dependent research workflow reaches a linked
+stale-running generation during checkpoint reconciliation, registration of its
+replacement atomically marks the old attempt interrupted and repoints only that
+stage's exact generation link. Completed generation output remains directly
+replayable and is never regenerated merely because the process restarted.

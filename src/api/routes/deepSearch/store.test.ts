@@ -8,12 +8,14 @@ import {
   deepSearchResults,
   deepSearchWebPages,
   llmGenerations,
+  user,
 } from "../../db/schema/index.ts"
 import {
   attachFinalAnswerGeneration,
   attachPageSummaryGeneration,
   createSearchRound,
   attachQuerySummaryGeneration,
+  attachResearchAnalysisGeneration,
   attachRoundAnswerGeneration,
   attachRoundReviewGeneration,
   attachSelectionGeneration,
@@ -22,11 +24,23 @@ import {
   completeQuerySummaryGeneration,
   failPageSummaryGeneration,
   failQuerySummaryGeneration,
+  loadDeepSearchExecutionSnapshot,
+  replaceRoundAnswerGeneration,
+  replacePageSummaryGeneration,
+  replaceQuerySelectionGeneration,
+  replaceQuerySummaryGeneration,
+  replaceResearchAnalysisGeneration,
+  replaceRoundPlanningGeneration,
+  replaceRoundReviewGeneration,
+  resetPageExtraction,
+  resetWebSearchQuery,
   savePageFailure,
   savePlannedQueries,
   saveRoundReviewCompletion,
+  saveRoundReviewFailure,
   saveSearchResults,
   saveSelectedResults,
+  settlePageExtraction,
 } from "./store.ts"
 
 function insertJob(deepSearchJobId: string): void {
@@ -38,6 +52,7 @@ function insertJob(deepSearchJobId: string): void {
       researchRequest: "Research this",
       maxSearches: 2,
       maxResultsPerSearch: 2,
+      strictQuality: false,
     })
     .run()
 }
@@ -111,6 +126,13 @@ function createSummarizingStage(deepSearchJobId: string) {
     selectedResultIds: [result.resultId],
   })
   if (!page) throw new Error("Selected page was not returned")
+  settlePageExtraction({
+    userId: "test-user-id",
+    jobId: deepSearchJobId,
+    pageId: page.pageId,
+    content: "Bounded extracted page content",
+    creditsUsed: 1,
+  })
   db.transaction((transaction) => {
     attachPageSummaryGeneration(transaction, {
       jobId: deepSearchJobId,
@@ -135,6 +157,109 @@ describe("deep-search store", () => {
   beforeEach(() => {
     db.delete(deepSearchJobs).run()
     db.delete(llmGenerations).run()
+  })
+
+  it("writes planned queries through the supplied terminal transaction", () => {
+    const deepSearchJobId = crypto.randomUUID()
+    const queryGenerationId = crypto.randomUUID()
+    insertJob(deepSearchJobId)
+    insertGenerations(deepSearchJobId, [queryGenerationId])
+    const round = createSearchRound({
+      jobId: deepSearchJobId,
+      position: 0,
+      generationId: queryGenerationId,
+    })
+
+    expect(() =>
+      db.transaction((transaction) => {
+        savePlannedQueries(transaction, {
+          jobId: deepSearchJobId,
+          roundId: round.roundId,
+          queries: ["rolled back query"],
+        })
+        throw new Error("roll back terminal settlement")
+      }),
+    ).toThrow("roll back terminal settlement")
+
+    expect(
+      db
+        .select()
+        .from(deepSearchQueries)
+        .where(eq(deepSearchQueries.deepSearchRoundId, round.roundId))
+        .all(),
+    ).toEqual([])
+  })
+
+  it("writes selected results through the supplied terminal transaction", () => {
+    const deepSearchJobId = crypto.randomUUID()
+    const planningGenerationId = crypto.randomUUID()
+    const selectionGenerationId = crypto.randomUUID()
+    insertJob(deepSearchJobId)
+    insertGenerations(deepSearchJobId, [
+      planningGenerationId,
+      selectionGenerationId,
+    ])
+    const round = createSearchRound({
+      jobId: deepSearchJobId,
+      position: 0,
+      generationId: planningGenerationId,
+    })
+    const [plannedQuery] = savePlannedQueries({
+      jobId: deepSearchJobId,
+      roundId: round.roundId,
+      queries: ["stable query"],
+    })
+    if (!plannedQuery) throw new Error("Planned query was not returned")
+    const [executedQuery] = saveSearchResults({
+      jobId: deepSearchJobId,
+      roundId: round.roundId,
+      searches: [
+        {
+          plannedQuery,
+          results: [
+            {
+              title: "Stable result",
+              shortText: "Stable evidence",
+              link: "https://example.com/stable",
+            },
+          ],
+        },
+      ],
+    })
+    const resultId = executedQuery?.results[0]?.resultId
+    if (!executedQuery || !resultId) throw new Error("Result was not returned")
+    attachSelectionGeneration({
+      jobId: deepSearchJobId,
+      queryId: executedQuery.queryId,
+      generationId: selectionGenerationId,
+    })
+
+    expect(() =>
+      db.transaction((transaction) => {
+        saveSelectedResults(transaction, {
+          jobId: deepSearchJobId,
+          queryId: executedQuery.queryId,
+          selectionGenerationId,
+          selectedResultIds: [resultId],
+        })
+        throw new Error("roll back terminal settlement")
+      }),
+    ).toThrow("roll back terminal settlement")
+
+    expect(
+      db
+        .select({ status: deepSearchQueries.status })
+        .from(deepSearchQueries)
+        .where(eq(deepSearchQueries.deepSearchQueryId, executedQuery.queryId))
+        .get(),
+    ).toEqual({ status: "selecting" })
+    expect(
+      db
+        .select()
+        .from(deepSearchWebPages)
+        .where(eq(deepSearchWebPages.deepSearchJobId, deepSearchJobId))
+        .all(),
+    ).toEqual([])
   })
 
   it("rejects new durable work after the effective root requests Stop", () => {
@@ -259,6 +384,13 @@ describe("deep-search store", () => {
       url: "https://example.com/stable",
     })
 
+    settlePageExtraction({
+      userId: "test-user-id",
+      jobId: deepSearchJobId,
+      pageId: page.pageId,
+      content: "Bounded extracted page content",
+      creditsUsed: 1,
+    })
     db.transaction((transaction) => {
       attachPageSummaryGeneration(transaction, {
         jobId: deepSearchJobId,
@@ -333,7 +465,7 @@ describe("deep-search store", () => {
     ).toEqual({ finalAnswerGenerationId })
   })
 
-  it("rolls back a result batch when any generated query is foreign", () => {
+  it("keeps a settled sibling when another provider search is foreign", () => {
     const deepSearchJobId = crypto.randomUUID()
     const queryGenerationId = crypto.randomUUID()
     insertJob(deepSearchJobId)
@@ -349,6 +481,11 @@ describe("deep-search store", () => {
       queries: ["valid query"],
     })
     if (!plannedQuery) throw new Error("Planned query was not returned")
+    const creditsBefore = db
+      .select({ credits: user.credits })
+      .from(user)
+      .where(eq(user.id, "test-user-id"))
+      .get()!.credits
 
     expect(() =>
       saveSearchResults({
@@ -358,6 +495,7 @@ describe("deep-search store", () => {
           {
             plannedQuery,
             results: [],
+            creditsUsed: 2,
           },
           {
             plannedQuery: {
@@ -370,7 +508,27 @@ describe("deep-search store", () => {
         ],
       }),
     ).toThrow("Search query was not persisted for this round")
-    expect(db.select().from(deepSearchQueries).all()).toHaveLength(1)
+    expect(db.select().from(deepSearchQueries).all()).toEqual([
+      expect.objectContaining({
+        deepSearchQueryId: plannedQuery.queryId,
+        status: "selecting",
+        creditsUsed: 2,
+      }),
+    ])
+
+    const [retried] = saveSearchResults({
+      jobId: deepSearchJobId,
+      roundId: round.roundId,
+      searches: [{ plannedQuery, results: [], creditsUsed: 2 }],
+    })
+    expect(retried).toMatchObject({ queryId: plannedQuery.queryId, results: [] })
+    expect(
+      db
+        .select({ credits: user.credits })
+        .from(user)
+        .where(eq(user.id, "test-user-id"))
+        .get()!.credits,
+    ).toBe(creditsBefore - 2)
   })
 
   it("marks page and query summaries completed in their generation transactions", () => {
@@ -891,6 +1049,491 @@ describe("deep-search store", () => {
         )
         .get(),
     ).toEqual({ reviewGenerationId })
+  })
+
+  it("loads ordered durable stages and every linked generation outcome", () => {
+    const deepSearchJobId = crypto.randomUUID()
+    const stage = createSummarizingStage(deepSearchJobId)
+    db.update(llmGenerations)
+      .set({
+        status: "failed",
+        error: "Page summary failed",
+        completedAt: new Date(),
+      })
+      .where(
+        eq(
+          llmGenerations.llmGenerationId,
+          stage.pageSummaryGenerationId,
+        ),
+      )
+      .run()
+
+    const snapshot = loadDeepSearchExecutionSnapshot(deepSearchJobId)
+
+    expect(snapshot).toMatchObject({
+      jobId: deepSearchJobId,
+      researchRequest: "Research this",
+      maxSearches: 2,
+      maxResultsPerSearch: 2,
+      maxRounds: 3,
+      strictQuality: false,
+      status: "running",
+      rounds: [{
+        position: 0,
+        queries: [{
+          position: 0,
+          query: "stable query",
+          status: "summarizing",
+          summaryGeneration: {
+            generationId: stage.querySummaryGenerationId,
+            status: "running",
+          },
+          results: [{
+            position: 0,
+            selectedWebPageId: stage.pageId,
+          }],
+        }],
+      }],
+      pages: [{
+        pageId: stage.pageId,
+        status: "summarizing",
+        extractedContent: "Bounded extracted page content",
+        summaryGeneration: {
+          generationId: stage.pageSummaryGenerationId,
+          status: "failed",
+          error: "Page summary failed",
+        },
+      }],
+    })
+  })
+
+  it("settles extraction once and clears retained content only on summary completion", () => {
+    const deepSearchJobId = crypto.randomUUID()
+    const stage = createSummarizingStage(deepSearchJobId)
+    const creditsBeforeRetry = db
+      .select({ credits: user.credits })
+      .from(user)
+      .where(eq(user.id, "test-user-id"))
+      .get()!.credits
+
+    expect(settlePageExtraction({
+      userId: "test-user-id",
+      jobId: deepSearchJobId,
+      pageId: stage.pageId,
+      content: "Bounded extracted page content",
+      creditsUsed: 1,
+    })).toEqual({
+      content: "Bounded extracted page content",
+      creditsUsed: 1,
+    })
+    expect(
+      db
+        .select({ credits: user.credits })
+        .from(user)
+        .where(eq(user.id, "test-user-id"))
+        .get()!.credits,
+    ).toBe(creditsBeforeRetry)
+
+    db.transaction((transaction) => {
+      transaction
+        .update(llmGenerations)
+        .set({
+          status: "completed",
+          text: "Page summary",
+          reasoning: "",
+          completedAt: new Date(),
+        })
+        .where(
+          eq(
+            llmGenerations.llmGenerationId,
+            stage.pageSummaryGenerationId,
+          ),
+        )
+        .run()
+      completePageSummaryGeneration(transaction, {
+        jobId: deepSearchJobId,
+        pageId: stage.pageId,
+        generationId: stage.pageSummaryGenerationId,
+      })
+    })
+    expect(
+      db
+        .select({
+          status: deepSearchWebPages.status,
+          extractedContent: deepSearchWebPages.extractedContent,
+          creditsUsed: deepSearchWebPages.creditsUsed,
+        })
+        .from(deepSearchWebPages)
+        .where(eq(deepSearchWebPages.deepSearchWebPageId, stage.pageId))
+        .get(),
+    ).toEqual({ status: "completed", extractedContent: null, creditsUsed: 1 })
+  })
+
+  it("resets only unsettled search and extraction provider failures", () => {
+    const deepSearchJobId = crypto.randomUUID()
+    const planningGenerationId = crypto.randomUUID()
+    insertJob(deepSearchJobId)
+    insertGenerations(deepSearchJobId, [planningGenerationId])
+    const round = createSearchRound({
+      jobId: deepSearchJobId,
+      position: 0,
+      generationId: planningGenerationId,
+    })
+    const [query] = savePlannedQueries({
+      jobId: deepSearchJobId,
+      roundId: round.roundId,
+      queries: ["retry query"],
+    })
+    if (!query) throw new Error("Planned query was not returned")
+    const pageId = crypto.randomUUID()
+    db.update(deepSearchQueries)
+      .set({
+        status: "failed",
+        errorStage: "search",
+        errorMessage: "Provider failed",
+        completedAt: new Date(),
+      })
+      .where(eq(deepSearchQueries.deepSearchQueryId, query.queryId))
+      .run()
+    db.insert(deepSearchWebPages)
+      .values({
+        deepSearchWebPageId: pageId,
+        deepSearchJobId,
+        url: "https://example.com/retry",
+        status: "failed",
+        errorStage: "extraction",
+        errorMessage: "Extraction failed",
+        completedAt: new Date(),
+      })
+      .run()
+
+    resetWebSearchQuery({ jobId: deepSearchJobId, queryId: query.queryId })
+    resetWebSearchQuery({ jobId: deepSearchJobId, queryId: query.queryId })
+    resetPageExtraction({ jobId: deepSearchJobId, pageId })
+    resetPageExtraction({ jobId: deepSearchJobId, pageId })
+
+    expect(
+      db
+        .select({
+          status: deepSearchQueries.status,
+          errorStage: deepSearchQueries.errorStage,
+          completedAt: deepSearchQueries.completedAt,
+        })
+        .from(deepSearchQueries)
+        .where(eq(deepSearchQueries.deepSearchQueryId, query.queryId))
+        .get(),
+    ).toEqual({ status: "searching", errorStage: null, completedAt: null })
+    expect(
+      db
+        .select({
+          status: deepSearchWebPages.status,
+          errorStage: deepSearchWebPages.errorStage,
+          completedAt: deepSearchWebPages.completedAt,
+        })
+        .from(deepSearchWebPages)
+        .where(eq(deepSearchWebPages.deepSearchWebPageId, pageId))
+        .get(),
+    ).toEqual({ status: "extracting", errorStage: null, completedAt: null })
+  })
+
+  it.each([
+    { oldState: "missing", succeeds: false },
+    { oldState: "running", succeeds: true },
+    { oldState: "failed", succeeds: true },
+    { oldState: "interrupted", succeeds: true },
+    { oldState: "completed", succeeds: false },
+  ] as const)(
+    "compares the exact old attempt when its link is $oldState",
+    ({ oldState, succeeds }) => {
+      const deepSearchJobId = crypto.randomUUID()
+      const planningGenerationId = crypto.randomUUID()
+      const oldGenerationId = crypto.randomUUID()
+      const newGenerationId = crypto.randomUUID()
+      insertJob(deepSearchJobId)
+      insertGenerations(deepSearchJobId, [
+        planningGenerationId,
+        oldGenerationId,
+        newGenerationId,
+      ])
+      const round = createSearchRound({
+        jobId: deepSearchJobId,
+        position: 0,
+        generationId: planningGenerationId,
+      })
+      if (oldState !== "missing") {
+        db.transaction((transaction) => {
+          attachRoundAnswerGeneration(transaction, {
+            jobId: deepSearchJobId,
+            roundId: round.roundId,
+            generationId: oldGenerationId,
+          })
+        })
+      }
+      if (oldState === "completed") {
+        db.update(llmGenerations)
+          .set({
+            status: "completed",
+            text: "Completed answer",
+            reasoning: "",
+            completedAt: new Date(),
+          })
+          .where(eq(llmGenerations.llmGenerationId, oldGenerationId))
+          .run()
+      } else if (oldState === "failed" || oldState === "interrupted") {
+        db.update(llmGenerations)
+          .set({
+            status: oldState,
+            error: `${oldState} attempt`,
+            completedAt: new Date(),
+          })
+          .where(eq(llmGenerations.llmGenerationId, oldGenerationId))
+          .run()
+      }
+
+      const replace = () => db.transaction((transaction) => {
+        replaceRoundAnswerGeneration(transaction, {
+          jobId: deepSearchJobId,
+          roundId: round.roundId,
+          oldGenerationId,
+          newGenerationId,
+          ...(oldState === "running"
+            ? { staleRunningMessage: "Interrupted during startup reconciliation" }
+            : {}),
+        })
+      })
+      let replacementError: unknown
+      try {
+        replace()
+      } catch (error) {
+        replacementError = error
+      }
+      expect(replacementError === undefined).toBe(succeeds)
+
+      expect(
+        db
+          .select({ generationId: deepSearchRounds.answerGenerationId })
+          .from(deepSearchRounds)
+          .where(eq(deepSearchRounds.deepSearchRoundId, round.roundId))
+          .get(),
+      ).toEqual({
+        generationId: succeeds
+          ? newGenerationId
+          : oldState === "missing" ? null : oldGenerationId,
+      })
+      expect(
+        db
+          .select({ status: llmGenerations.status })
+          .from(llmGenerations)
+          .where(eq(llmGenerations.llmGenerationId, oldGenerationId))
+          .get(),
+      ).toEqual({
+        status: oldState === "running" && succeeds
+          ? "interrupted"
+          : oldState === "missing" ? "running" : oldState,
+      })
+    },
+  )
+
+  it("replaces failed attempts for every deep-search owning generation link", () => {
+    const deepSearchJobId = crypto.randomUUID()
+    const attempts = Object.fromEntries(
+      [
+        "planningOld", "planningNew",
+        "answerOld", "answerNew",
+        "reviewOld", "reviewNew",
+        "selectionOld", "selectionNew",
+        "querySummaryOld", "querySummaryNew",
+        "pageSummaryOld", "pageSummaryNew",
+        "analysisOld", "analysisNew",
+      ].map((name) => [name, crypto.randomUUID()]),
+    ) as Record<string, string>
+    insertJob(deepSearchJobId)
+    insertGenerations(deepSearchJobId, Object.values(attempts))
+    const round = createSearchRound({
+      jobId: deepSearchJobId,
+      position: 0,
+      generationId: attempts.planningOld,
+    })
+    const [plannedQuery] = savePlannedQueries({
+      jobId: deepSearchJobId,
+      roundId: round.roundId,
+      queries: ["stable query"],
+    })
+    if (!plannedQuery) throw new Error("Planned query was not returned")
+    const [query] = saveSearchResults({
+      jobId: deepSearchJobId,
+      roundId: round.roundId,
+      searches: [{
+        plannedQuery,
+        results: [{
+          title: "Stable result",
+          shortText: "Useful evidence",
+          link: "https://example.com/replacement",
+        }],
+      }],
+    })
+    if (!query) throw new Error("Settled query was not returned")
+    attachSelectionGeneration({
+      jobId: deepSearchJobId,
+      queryId: query.queryId,
+      generationId: attempts.selectionOld,
+    })
+    db.transaction((transaction) => {
+      attachRoundAnswerGeneration(transaction, {
+        jobId: deepSearchJobId,
+        roundId: round.roundId,
+        generationId: attempts.answerOld,
+      })
+      attachRoundReviewGeneration(transaction, {
+        jobId: deepSearchJobId,
+        roundId: round.roundId,
+        generationId: attempts.reviewOld,
+      })
+      attachResearchAnalysisGeneration(transaction, {
+        jobId: deepSearchJobId,
+        generationId: attempts.analysisOld,
+      })
+    })
+    for (const generationId of [
+      attempts.planningOld,
+      attempts.answerOld,
+      attempts.reviewOld,
+      attempts.selectionOld,
+      attempts.analysisOld,
+    ]) {
+      db.update(llmGenerations)
+        .set({ status: "failed", error: "Failed attempt", completedAt: new Date() })
+        .where(eq(llmGenerations.llmGenerationId, generationId))
+        .run()
+    }
+    saveRoundReviewFailure({
+      jobId: deepSearchJobId,
+      roundId: round.roundId,
+      generationId: attempts.reviewOld,
+      message: "Failed attempt",
+    })
+    db.transaction((transaction) => {
+      replaceRoundPlanningGeneration(transaction, {
+        jobId: deepSearchJobId,
+        roundId: round.roundId,
+        oldGenerationId: attempts.planningOld,
+        newGenerationId: attempts.planningNew,
+      })
+      replaceRoundAnswerGeneration(transaction, {
+        jobId: deepSearchJobId,
+        roundId: round.roundId,
+        oldGenerationId: attempts.answerOld,
+        newGenerationId: attempts.answerNew,
+      })
+      replaceRoundReviewGeneration(transaction, {
+        jobId: deepSearchJobId,
+        roundId: round.roundId,
+        oldGenerationId: attempts.reviewOld,
+        newGenerationId: attempts.reviewNew,
+      })
+      replaceQuerySelectionGeneration(transaction, {
+        jobId: deepSearchJobId,
+        queryId: query.queryId,
+        oldGenerationId: attempts.selectionOld,
+        newGenerationId: attempts.selectionNew,
+      })
+      replaceResearchAnalysisGeneration(transaction, {
+        jobId: deepSearchJobId,
+        oldGenerationId: attempts.analysisOld,
+        newGenerationId: attempts.analysisNew,
+      })
+    })
+
+    const [result] = query.results
+    if (!result) throw new Error("Search result was not returned")
+    const [page] = saveSelectedResults({
+      jobId: deepSearchJobId,
+      queryId: query.queryId,
+      selectionGenerationId: attempts.selectionNew,
+      selectedResultIds: [result.resultId],
+    })
+    if (!page) throw new Error("Selected page was not returned")
+    settlePageExtraction({
+      userId: "test-user-id",
+      jobId: deepSearchJobId,
+      pageId: page.pageId,
+      content: "Bounded extracted page content",
+      creditsUsed: 1,
+    })
+    db.transaction((transaction) => {
+      attachQuerySummaryGeneration(transaction, {
+        jobId: deepSearchJobId,
+        queryId: query.queryId,
+        generationId: attempts.querySummaryOld,
+      })
+      attachPageSummaryGeneration(transaction, {
+        jobId: deepSearchJobId,
+        pageId: page.pageId,
+        generationId: attempts.pageSummaryOld,
+      })
+    })
+    for (const generationId of [
+      attempts.querySummaryOld,
+      attempts.pageSummaryOld,
+    ]) {
+      db.update(llmGenerations)
+        .set({ status: "failed", error: "Failed attempt", completedAt: new Date() })
+        .where(eq(llmGenerations.llmGenerationId, generationId))
+        .run()
+    }
+    db.transaction((transaction) => {
+      failQuerySummaryGeneration(transaction, {
+        jobId: deepSearchJobId,
+        queryId: query.queryId,
+        generationId: attempts.querySummaryOld,
+        message: "Failed attempt",
+      })
+      failPageSummaryGeneration(transaction, {
+        jobId: deepSearchJobId,
+        pageId: page.pageId,
+        generationId: attempts.pageSummaryOld,
+        message: "Failed attempt",
+      })
+    })
+    db.transaction((transaction) => {
+      replaceQuerySummaryGeneration(transaction, {
+        jobId: deepSearchJobId,
+        queryId: query.queryId,
+        oldGenerationId: attempts.querySummaryOld,
+        newGenerationId: attempts.querySummaryNew,
+      })
+      replacePageSummaryGeneration(transaction, {
+        jobId: deepSearchJobId,
+        pageId: page.pageId,
+        oldGenerationId: attempts.pageSummaryOld,
+        newGenerationId: attempts.pageSummaryNew,
+      })
+    })
+
+    expect(loadDeepSearchExecutionSnapshot(deepSearchJobId)).toMatchObject({
+      researchAnalysisGeneration: {
+        generationId: attempts.analysisNew,
+        status: "running",
+      },
+      rounds: [{
+        planningGeneration: { generationId: attempts.planningNew },
+        answerGeneration: { generationId: attempts.answerNew },
+        reviewGeneration: { generationId: attempts.reviewNew },
+        reviewError: null,
+        queries: [{
+          status: "summarizing",
+          selectionGeneration: { generationId: attempts.selectionNew },
+          summaryGeneration: { generationId: attempts.querySummaryNew },
+          errorMessage: null,
+        }],
+      }],
+      pages: [{
+        status: "summarizing",
+        extractedContent: "Bounded extracted page content",
+        summaryGeneration: { generationId: attempts.pageSummaryNew },
+        errorMessage: null,
+      }],
+    })
   })
 
   it("rejects generations owned by another job", () => {

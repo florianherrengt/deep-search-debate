@@ -1,31 +1,92 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
-  analyzeResearchAnswer: vi.fn(),
-  answerResearchRequest: vi.fn(),
-  attachPageSummaryGeneration: vi.fn(),
-  createSearchRound: vi.fn(),
-  attachQuerySummaryGeneration: vi.fn(),
-  attachRoundAnswerGeneration: vi.fn(),
-  attachRoundReviewGeneration: vi.fn(),
-  attachResearchAnalysisGeneration: vi.fn(),
-  attachSelectionGeneration: vi.fn(),
-  completePageSummaryGeneration: vi.fn(),
-  completeEmptySearchQuery: vi.fn(),
-  completeQuerySummaryGeneration: vi.fn(),
+  analyzeResearchAnswer: vi.fn<
+    typeof import("../../agents/deep_search/researchAnalysis.ts").analyzeResearchAnswer
+  >(),
+  answerResearchRequest: vi.fn<
+    typeof import("../../agents/deep_search/finalAnswer.ts").answerResearchRequest
+  >(),
+  attachPageSummaryGeneration: vi.fn<
+    typeof import("./store.ts").attachPageSummaryGeneration
+  >(),
+  attachQuerySummaryGeneration: vi.fn<
+    typeof import("./store.ts").attachQuerySummaryGeneration
+  >(),
+  attachRoundAnswerGeneration: vi.fn<
+    typeof import("./store.ts").attachRoundAnswerGeneration
+  >(),
+  attachRoundReviewGeneration: vi.fn<
+    typeof import("./store.ts").attachRoundReviewGeneration
+  >(),
+  attachResearchAnalysisGeneration: vi.fn<
+    typeof import("./store.ts").attachResearchAnalysisGeneration
+  >(),
+  completePageSummaryGeneration: vi.fn<
+    typeof import("./store.ts").completePageSummaryGeneration
+  >(),
+  completeEmptySearchQuery: vi.fn<
+    typeof import("./store.ts").completeEmptySearchQuery
+  >(),
+  completeQuerySummaryGeneration: vi.fn<
+    typeof import("./store.ts").completeQuerySummaryGeneration
+  >(),
   failPageSummaryGeneration: vi.fn(),
   failQuerySummaryGeneration: vi.fn(),
-  generateWebSearchQueries: vi.fn(),
+  generateWebSearchQueries: vi.fn<
+    typeof import("../../agents/deep_search/queries.ts").generateWebSearchQueries
+  >(),
+  interruptPageSummaryGeneration: vi.fn(),
+  interruptQuerySummaryGeneration: vi.fn(),
+  interruptRoundReviewGeneration: vi.fn(),
+  loadDeepSearchExecutionSnapshot: vi.fn<
+    typeof import("./store.ts").loadDeepSearchExecutionSnapshot
+  >(),
   promoteRoundAnswer: vi.fn(),
-  savePageFailure: vi.fn(),
-  savePlannedQueries: vi.fn(),
-  saveRoundReviewCompletion: vi.fn(),
-  saveRoundReviewFailure: vi.fn(),
-  saveSearchResults: vi.fn(),
-  saveSelectedResults: vi.fn(),
-  selectWebSearchResults: vi.fn(),
-  startPageSummary: vi.fn(),
-  startRoundReview: vi.fn(),
+  registerSearchRound: vi.fn<
+    typeof import("./store.ts").registerSearchRound
+  >(),
+  registerSelectionGeneration: vi.fn<
+    typeof import("./store.ts").registerSelectionGeneration
+  >(),
+  replacePageSummaryGeneration: vi.fn<
+    typeof import("./store.ts").replacePageSummaryGeneration
+  >(),
+  replaceQuerySelectionGeneration: vi.fn(),
+  replaceQuerySummaryGeneration: vi.fn(),
+  replaceResearchAnalysisGeneration: vi.fn(),
+  replaceRoundAnswerGeneration: vi.fn(),
+  replaceRoundPlanningGeneration: vi.fn(),
+  replaceRoundReviewGeneration: vi.fn(),
+  resetPageExtraction: vi.fn(),
+  resetWebSearchQuery: vi.fn(),
+  savePageFailure: vi.fn<typeof import("./store.ts").savePageFailure>(),
+  savePlannedQueries: vi.fn<typeof import("./store.ts").savePlannedQueries>(),
+  saveRoundReviewCompletion: vi.fn<
+    typeof import("./store.ts").saveRoundReviewCompletion
+  >(),
+  saveRoundReviewFailure: vi.fn<
+    typeof import("./store.ts").saveRoundReviewFailure
+  >(),
+  saveSelectedResults: vi.fn<typeof import("./store.ts").saveSelectedResults>(),
+  selectWebSearchResults: vi.fn<
+    typeof import("../../agents/deep_search/selection.ts").selectWebSearchResults
+  >(),
+  settlePageExtraction: vi.fn<
+    typeof import("./store.ts").settlePageExtraction
+  >(),
+  settleWebSearchQuery: vi.fn<
+    typeof import("./store.ts").settleWebSearchQuery
+  >(),
+  startPageSummary: vi.fn<
+    typeof import("../../agents/deep_search/summaries.ts").startPageSummary
+  >(),
+  startRoundReview: vi.fn<
+    typeof import("../../agents/deep_search/reviewRound.ts").startRoundReview
+  >(),
+  summarizePage: vi.fn<
+    typeof import("../../agents/deep_search/summaries.ts").summarizePage
+  >(),
   summarizeSearchQuery: vi.fn(),
   webSearch: vi.fn(),
 }))
@@ -48,6 +109,7 @@ vi.mock("../../agents/deep_search/selection.ts", () => ({
 
 vi.mock("../../agents/deep_search/summaries.ts", () => ({
   startPageSummary: mocks.startPageSummary,
+  summarizePage: mocks.summarizePage,
 }))
 
 vi.mock("../../agents/deep_search/querySummaries.ts", () => ({
@@ -64,23 +126,37 @@ vi.mock("../../web_search/index.ts", () => ({
 
 vi.mock("./store.ts", () => ({
   attachPageSummaryGeneration: mocks.attachPageSummaryGeneration,
-  createSearchRound: mocks.createSearchRound,
   attachQuerySummaryGeneration: mocks.attachQuerySummaryGeneration,
   attachRoundAnswerGeneration: mocks.attachRoundAnswerGeneration,
   attachRoundReviewGeneration: mocks.attachRoundReviewGeneration,
   attachResearchAnalysisGeneration: mocks.attachResearchAnalysisGeneration,
-  attachSelectionGeneration: mocks.attachSelectionGeneration,
   completePageSummaryGeneration: mocks.completePageSummaryGeneration,
   completeEmptySearchQuery: mocks.completeEmptySearchQuery,
   completeQuerySummaryGeneration: mocks.completeQuerySummaryGeneration,
   failPageSummaryGeneration: mocks.failPageSummaryGeneration,
   failQuerySummaryGeneration: mocks.failQuerySummaryGeneration,
+  interruptPageSummaryGeneration: mocks.interruptPageSummaryGeneration,
+  interruptQuerySummaryGeneration: mocks.interruptQuerySummaryGeneration,
+  interruptRoundReviewGeneration: mocks.interruptRoundReviewGeneration,
+  loadDeepSearchExecutionSnapshot: mocks.loadDeepSearchExecutionSnapshot,
+  registerSearchRound: mocks.registerSearchRound,
+  registerSelectionGeneration: mocks.registerSelectionGeneration,
+  replacePageSummaryGeneration: mocks.replacePageSummaryGeneration,
+  replaceQuerySelectionGeneration: mocks.replaceQuerySelectionGeneration,
+  replaceQuerySummaryGeneration: mocks.replaceQuerySummaryGeneration,
+  replaceResearchAnalysisGeneration: mocks.replaceResearchAnalysisGeneration,
+  replaceRoundAnswerGeneration: mocks.replaceRoundAnswerGeneration,
+  replaceRoundPlanningGeneration: mocks.replaceRoundPlanningGeneration,
+  replaceRoundReviewGeneration: mocks.replaceRoundReviewGeneration,
+  resetPageExtraction: mocks.resetPageExtraction,
+  resetWebSearchQuery: mocks.resetWebSearchQuery,
   savePageFailure: mocks.savePageFailure,
   savePlannedQueries: mocks.savePlannedQueries,
   saveRoundReviewCompletion: mocks.saveRoundReviewCompletion,
   saveRoundReviewFailure: mocks.saveRoundReviewFailure,
-  saveSearchResults: mocks.saveSearchResults,
   saveSelectedResults: mocks.saveSelectedResults,
+  settlePageExtraction: mocks.settlePageExtraction,
+  settleWebSearchQuery: mocks.settleWebSearchQuery,
 }))
 
 vi.mock("./jobLifecycle.ts", () => ({
@@ -89,7 +165,6 @@ vi.mock("./jobLifecycle.ts", () => ({
 
 import type {
   DeepSearchEvent,
-  DeepSearchSearch,
 } from "../../agents/deep_search/schemas.ts"
 import type { RoundReview } from "../../agents/deep_search/reviewRound.ts"
 import { config } from "../../config.ts"
@@ -97,12 +172,52 @@ import type {
   TextGenerationPersistenceCallbacks,
   TextStreamPersistenceTransaction,
 } from "../../llms/streams.ts"
-import type { ExecutedQuery, PlannedQuery } from "./records.ts"
+import type {
+  DeepSearchExecutionSnapshot,
+  ExecutedQuery,
+  PlannedQuery,
+} from "./records.ts"
 import { runDeepSearchPipeline as deepSearch } from "./pipeline.ts"
 
 const ignoreEvent = (_event: DeepSearchEvent) => undefined
 const transaction = {} as TextStreamPersistenceTransaction
 const resultsByQueryId = new Map<string, ExecutedQuery["results"]>()
+let executionSnapshot: DeepSearchExecutionSnapshot
+
+function emptySnapshot(): DeepSearchExecutionSnapshot {
+  return {
+    jobId: "deep-search-job-id",
+    userId: "test-user-id",
+    ideaJobId: null,
+    researchRequest: "Research this",
+    maxSearches: 3,
+    maxResultsPerSearch: 3,
+    maxRounds: 3,
+    strictQuality: false,
+    status: "running",
+    error: null,
+    cancelRequestedAt: null,
+    completedAt: null,
+    finalAnswerGeneration: null,
+    researchAnalysisGeneration: null,
+    rounds: [],
+    pages: [],
+  }
+}
+
+function persistedGeneration(
+  generationId: string,
+  status: "running" | "completed" | "failed" | "interrupted" = "running",
+  text: string | null = null,
+) {
+  return {
+    generationId,
+    status,
+    text,
+    reasoning: status === "completed" ? "" : null,
+    error: status === "failed" || status === "interrupted" ? "failed" : null,
+  }
+}
 
 const results = [
   {
@@ -155,6 +270,61 @@ function selectionGeneration(
   }
 }
 
+function registeredQueryGeneration(
+  input: Parameters<typeof import("../../agents/deep_search/queries.ts").generateWebSearchQueries>[0],
+  queries: string[],
+  streamId = "query-stream-id",
+) {
+  const generation = queryGeneration(queries, streamId)
+  input.onRegistered?.(streamId, transaction)
+  void generation.queries.then((output) => {
+    const round = executionSnapshot.rounds.find(
+      ({ planningGeneration }) =>
+        planningGeneration.generationId === streamId,
+    )
+    if (round) {
+      round.planningGeneration = persistedGeneration(
+        streamId,
+        "completed",
+        JSON.stringify(output),
+      )
+    }
+    input.onCompleted?.({ id: streamId, output }, transaction)
+  })
+  return Promise.resolve(generation)
+}
+
+function registeredSelectionGeneration(
+  input: Parameters<typeof import("../../agents/deep_search/selection.ts").selectWebSearchResults>[0],
+  ids: string[],
+  streamId = "selection-stream-id",
+) {
+  const knownIds = new Set(input.results.map(({ id }) => id))
+  const normalizedIds = [...new Set(ids.filter((id) => knownIds.has(id)))].slice(
+    0,
+    input.maxResultsToExplore ?? 3,
+  )
+  const generation = selectionGeneration(normalizedIds, streamId)
+  input.onRegistered?.(streamId, transaction)
+  void generation.selectedIds.then((output) => {
+    const query = executionSnapshot.rounds
+      .flatMap(({ queries }) => queries)
+      .find(
+        ({ selectionGeneration }) =>
+          selectionGeneration?.generationId === streamId,
+      )
+    if (query) {
+      query.selectionGeneration = persistedGeneration(
+        streamId,
+        "completed",
+        JSON.stringify(output),
+      )
+    }
+    input.onCompleted?.({ id: streamId, output }, transaction)
+  })
+  return Promise.resolve(generation)
+}
+
 function pageSummaryStart(
   summary: string | undefined,
   streamId = "summary-stream-id",
@@ -185,79 +355,356 @@ describe("deepSearch", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     resultsByQueryId.clear()
+    executionSnapshot = emptySnapshot()
+    mocks.loadDeepSearchExecutionSnapshot.mockImplementation(
+      () => executionSnapshot,
+    )
+    mocks.registerSearchRound.mockImplementation(
+      (_transaction, { position, generationId }) => {
+        const storedRound = {
+          roundId: `round-${position}`,
+          position,
+          planningGeneration: persistedGeneration(generationId),
+          answerGeneration: null,
+          reviewGeneration: null,
+          reviewDecision: null,
+          reviewReason: null,
+          reviewError: null,
+          reviewCompletedAt: null,
+          queries: [],
+        }
+        executionSnapshot.rounds.push(storedRound)
+        return {
+          roundId: storedRound.roundId,
+          position,
+          generationId,
+        }
+      },
+    )
+    mocks.registerSelectionGeneration.mockImplementation(
+      (_transaction, { queryId, generationId }) => {
+        const query = executionSnapshot.rounds
+          .flatMap(({ queries }) => queries)
+          .find((candidate) => candidate.queryId === queryId)
+        if (!query) throw new Error("Missing query")
+        query.selectionGeneration = persistedGeneration(generationId)
+      },
+    )
+    mocks.settleWebSearchQuery.mockImplementation(
+      ({ plannedQuery, results: searchResults, creditsUsed = 0 }) => {
+        const query = executionSnapshot.rounds
+          .flatMap(({ queries }) => queries)
+          .find((candidate) => candidate.queryId === plannedQuery.queryId)
+        if (!query) throw new Error("Missing query")
+        const storedResults = searchResults.map((result, position) => ({
+          resultId: `result:${plannedQuery.query}:${result.link}`,
+          position,
+          title: result.title,
+          shortText: result.shortText,
+          url: result.link,
+          selectedWebPageId: null,
+        }))
+        query.creditsUsed = creditsUsed
+        query.status = "selecting"
+        query.results = storedResults
+        resultsByQueryId.set(
+          plannedQuery.queryId,
+          storedResults.map(({ selectedWebPageId: _, ...result }) => result),
+        )
+        return {
+          ...plannedQuery,
+          creditsUsed,
+          results: storedResults.map(({ selectedWebPageId: _, ...result }) => result),
+        }
+      },
+    )
+    mocks.settlePageExtraction.mockImplementation(
+      ({ pageId, content, creditsUsed }) => {
+        const page = executionSnapshot.pages.find(
+          (candidate) => candidate.pageId === pageId,
+        )
+        if (!page) throw new Error("Missing page")
+        page.status = "summarizing"
+        page.extractedContent = content
+        page.creditsUsed = creditsUsed
+        return { content, creditsUsed }
+      },
+    )
+    mocks.attachPageSummaryGeneration.mockImplementation(
+      (_transaction, { pageId, generationId }) => {
+        const page = executionSnapshot.pages.find(
+          (candidate) => candidate.pageId === pageId,
+        )
+        if (!page) throw new Error("Missing page")
+        page.status = "summarizing"
+        page.summaryGeneration = persistedGeneration(generationId)
+      },
+    )
+    mocks.replacePageSummaryGeneration.mockImplementation(
+      (_transaction, { pageId, newGenerationId }) => {
+        const page = executionSnapshot.pages.find(
+          (candidate) => candidate.pageId === pageId,
+        )
+        if (!page) throw new Error("Missing page")
+        page.status = "summarizing"
+        page.errorStage = null
+        page.errorMessage = null
+        page.summaryGeneration = persistedGeneration(newGenerationId)
+      },
+    )
+    mocks.completePageSummaryGeneration.mockImplementation(
+      (_transaction, { pageId }) => {
+        const page = executionSnapshot.pages.find(
+          (candidate) => candidate.pageId === pageId,
+        )
+        if (!page) throw new Error("Missing page")
+        page.status = "completed"
+        page.completedAt = new Date()
+      },
+    )
+    mocks.attachQuerySummaryGeneration.mockImplementation(
+      (_transaction, { queryId, generationId }) => {
+        const query = executionSnapshot.rounds
+          .flatMap(({ queries }) => queries)
+          .find((candidate) => candidate.queryId === queryId)
+        if (!query) throw new Error("Missing query")
+        query.summaryGeneration = persistedGeneration(generationId)
+      },
+    )
+    mocks.completeQuerySummaryGeneration.mockImplementation(
+      (_transaction, { queryId }) => {
+        const query = executionSnapshot.rounds
+          .flatMap(({ queries }) => queries)
+          .find((candidate) => candidate.queryId === queryId)
+        if (!query) throw new Error("Missing query")
+        query.status = "completed"
+        query.completedAt = new Date()
+      },
+    )
+    mocks.attachRoundAnswerGeneration.mockImplementation(
+      (_transaction, { roundId, generationId }) => {
+        const round = executionSnapshot.rounds.find(
+          (candidate) => candidate.roundId === roundId,
+        )
+        if (!round) throw new Error("Missing round")
+        round.answerGeneration = persistedGeneration(generationId)
+      },
+    )
+    mocks.attachRoundReviewGeneration.mockImplementation(
+      (_transaction, { roundId, generationId }) => {
+        const round = executionSnapshot.rounds.find(
+          (candidate) => candidate.roundId === roundId,
+        )
+        if (!round) throw new Error("Missing round")
+        round.reviewGeneration = persistedGeneration(generationId)
+      },
+    )
+    mocks.saveRoundReviewCompletion.mockImplementation(
+      (_transaction, { roundId, review }) => {
+        const round = executionSnapshot.rounds.find(
+          (candidate) => candidate.roundId === roundId,
+        )
+        if (!round) throw new Error("Missing round")
+        round.reviewDecision = review.decision
+        round.reviewReason = review.reason
+        round.reviewCompletedAt = new Date()
+      },
+    )
+    mocks.saveRoundReviewFailure.mockImplementation(
+      ({ roundId, message }) => {
+        const round = executionSnapshot.rounds.find(
+          (candidate) => candidate.roundId === roundId,
+        )
+        if (!round) throw new Error("Missing round")
+        round.reviewError = message
+        round.reviewCompletedAt = new Date()
+      },
+    )
+    mocks.attachResearchAnalysisGeneration.mockImplementation(
+      (_transaction, { generationId }) => {
+        executionSnapshot.researchAnalysisGeneration =
+          persistedGeneration(generationId)
+      },
+    )
+    mocks.completeEmptySearchQuery.mockImplementation(({ queryId }) => {
+      const query = executionSnapshot.rounds
+        .flatMap(({ queries }) => queries)
+        .find((candidate) => candidate.queryId === queryId)
+      if (!query) throw new Error("Missing query")
+      query.status = "completed"
+      query.completedAt = new Date()
+    })
+    mocks.savePageFailure.mockImplementation(({ pageId, stage, message }) => {
+      const page = executionSnapshot.pages.find(
+        (candidate) => candidate.pageId === pageId,
+      )
+      if (!page) throw new Error("Missing page")
+      page.status = "failed"
+      page.errorStage = stage
+      page.errorMessage = message
+      page.completedAt = new Date()
+    })
 
-    mocks.generateWebSearchQueries.mockResolvedValue(
-      queryGeneration(["test query"]),
-    )
-    mocks.createSearchRound.mockImplementation(
-      ({ position, generationId }: { position: number; generationId: string }) => ({
-        roundId: `round-${position}`,
-        position,
-        generationId,
-      }),
-    )
+    mocks.generateWebSearchQueries.mockImplementation((input) => {
+      const generation = queryGeneration(["test query"])
+      input.onRegistered?.(generation.streamId, transaction)
+      void generation.queries.then((queries) => {
+        const round = executionSnapshot.rounds.at(-1)
+        if (round) {
+          round.planningGeneration = persistedGeneration(
+            generation.streamId,
+            "completed",
+            JSON.stringify(queries),
+          )
+        }
+        input.onCompleted?.(
+          { id: generation.streamId, output: queries },
+          transaction,
+        )
+      })
+      return Promise.resolve(generation)
+    })
     mocks.savePlannedQueries.mockImplementation(
-      ({ queries }: { queries: string[] }): PlannedQuery[] =>
-        queries.map((query, position) => ({
+      (
+        transactionOrInput:
+          | TextStreamPersistenceTransaction
+          | { roundId: string; queries: string[] },
+        transactionalInput?: { roundId: string; queries: string[] },
+      ): PlannedQuery[] => {
+        const { roundId, queries } = transactionalInput ??
+          transactionOrInput as { roundId: string; queries: string[] }
+        const planned = queries.map((query, position) => ({
           queryId: `query:${query}`,
           position,
           query,
-        })),
+        }))
+        const round = executionSnapshot.rounds.find(
+          (candidate) => candidate.roundId === roundId,
+        )
+        if (!round) throw new Error("Missing round")
+        round.queries = planned.map((query) => ({
+          ...query,
+          creditsUsed: null,
+          status: "searching" as const,
+          selectionGeneration: null,
+          summaryGeneration: null,
+          errorStage: null,
+          errorMessage: null,
+          completedAt: null,
+          results: [],
+        }))
+        return planned
+      },
     )
     mocks.webSearch.mockResolvedValue(results)
-    mocks.saveSearchResults.mockImplementation(
-      ({
-        searches,
-      }: {
-        searches: Array<{
-          plannedQuery: PlannedQuery
-          results: DeepSearchSearch["results"]
-        }>
-      }): ExecutedQuery[] =>
-        searches.map(({ plannedQuery, results: searchResults }) => {
-          const queryId = plannedQuery.queryId
-          const storedResults = searchResults.map((result, position) => ({
-            resultId: `result:${plannedQuery.query}:${result.link}`,
-            position,
-            title: result.title,
-            shortText: result.shortText,
-            url: result.link,
-          }))
-          resultsByQueryId.set(queryId, storedResults)
-          return { ...plannedQuery, results: storedResults }
-        }),
-    )
-    mocks.selectWebSearchResults.mockImplementation(
-      ({ results }: { results: Array<{ id: string }> }) =>
-        Promise.resolve(selectionGeneration(results.slice(0, 1).map(({ id }) => id))),
-    )
+    mocks.selectWebSearchResults.mockImplementation((input) => {
+      const generation = selectionGeneration(
+        input.results.slice(0, 1).map(({ id }) => id),
+      )
+      input.onRegistered?.(generation.streamId, transaction)
+      void generation.selectedIds.then((selectedIds) => {
+        const query = executionSnapshot.rounds
+          .flatMap(({ queries }) => queries)
+          .find(
+            (candidate) =>
+              candidate.selectionGeneration?.generationId === generation.streamId,
+          )
+        if (query) {
+          query.selectionGeneration = persistedGeneration(
+            generation.streamId,
+            "completed",
+            JSON.stringify(selectedIds),
+          )
+        }
+        input.onCompleted?.(
+          { id: generation.streamId, output: selectedIds },
+          transaction,
+        )
+      })
+      return Promise.resolve(generation)
+    })
     mocks.saveSelectedResults.mockImplementation(
-      ({
-        queryId,
-        selectedResultIds,
-      }: {
-        queryId: string
-        selectedResultIds: string[]
-      }) => {
+      (
+        transactionOrInput:
+          | TextStreamPersistenceTransaction
+          | { queryId: string; selectedResultIds: string[] },
+        transactionalInput?: {
+          queryId: string
+          selectedResultIds: string[]
+        },
+      ) => {
+        const { queryId, selectedResultIds } = transactionalInput ??
+          transactionOrInput as {
+            queryId: string
+            selectedResultIds: string[]
+          }
         const storedResults = resultsByQueryId.get(queryId) ?? []
         const urlsById = new Map(
           storedResults.map((result) => [result.resultId, result.url]),
         )
-        return selectedResultIds.flatMap((resultId) => {
+        const pages = selectedResultIds.flatMap((resultId) => {
           const url = urlsById.get(resultId)
           return url ? [{ pageId: `page:${url}`, url }] : []
         })
+        const query = executionSnapshot.rounds
+          .flatMap(({ queries }) => queries)
+          .find((candidate) => candidate.queryId === queryId)
+        if (!query) throw new Error("Missing query")
+        query.status = "summarizing"
+        for (const page of pages) {
+          let storedPage = executionSnapshot.pages.find(
+            ({ pageId }) => pageId === page.pageId,
+          )
+          if (!storedPage) {
+            storedPage = {
+              ...page,
+              creditsUsed: null,
+              status: "extracting",
+              extractedContent: null,
+              summaryGeneration: null,
+              errorStage: null,
+              errorMessage: null,
+              completedAt: null,
+            }
+            executionSnapshot.pages.push(storedPage)
+          }
+          const result = query.results.find(({ resultId }) =>
+            selectedResultIds.includes(resultId),
+          )
+          if (result) result.selectedWebPageId = storedPage.pageId
+        }
+        return pages
       },
     )
     mocks.startPageSummary.mockImplementation(
-      (input: TextGenerationPersistenceCallbacks) => {
+      (input: TextGenerationPersistenceCallbacks & {
+        onExtractionSettled?: (settlement: {
+          content: string
+          creditsUsed: number
+        }) => void
+      }) => {
         const streamId = "summary-stream-id"
+        input.onExtractionSettled?.({
+          content: "Extracted page content",
+          creditsUsed: 0,
+        })
         input.onRegistered?.(streamId, transaction)
         const completion = completedOutcome("Completed page summary")
         return Promise.resolve({
           status: "started" as const,
           streamId,
           summary: completion.then((outcome) => {
+            const page = executionSnapshot.pages.find(
+              ({ summaryGeneration }) =>
+                summaryGeneration?.generationId === streamId,
+            )
+            if (page) {
+              page.summaryGeneration = persistedGeneration(
+                streamId,
+                "completed",
+                outcome.text,
+              )
+            }
             input.onCompleted?.(
               { id: streamId, text: outcome.text, reasoning: outcome.reasoning },
               transaction,
@@ -265,6 +712,34 @@ describe("deepSearch", () => {
             return outcome.text
           }),
           completion,
+        })
+      },
+    )
+    mocks.summarizePage.mockImplementation(
+      (input: TextGenerationPersistenceCallbacks) => {
+        const streamId = "retried-page-summary-stream-id"
+        input.onRegistered?.(streamId, transaction)
+        const completion = completedOutcome("Retried page summary")
+        return Promise.resolve({
+          streamId,
+          completion: completion.then((outcome) => {
+            const page = executionSnapshot.pages.find(
+              ({ summaryGeneration }) =>
+                summaryGeneration?.generationId === streamId,
+            )
+            if (page) {
+              page.summaryGeneration = persistedGeneration(
+                streamId,
+                "completed",
+                outcome.text,
+              )
+            }
+            input.onCompleted?.(
+              { id: streamId, text: outcome.text, reasoning: outcome.reasoning },
+              transaction,
+            )
+            return outcome
+          }),
         })
       },
     )
@@ -276,6 +751,19 @@ describe("deepSearch", () => {
         return Promise.resolve({
           streamId,
           summary: completion.then((outcome) => {
+            const query = executionSnapshot.rounds
+              .flatMap(({ queries }) => queries)
+              .find(
+                ({ summaryGeneration }) =>
+                  summaryGeneration?.generationId === streamId,
+              )
+            if (query) {
+              query.summaryGeneration = persistedGeneration(
+                streamId,
+                "completed",
+                outcome.text,
+              )
+            }
             input.onCompleted?.(
               { id: streamId, text: outcome.text, reasoning: outcome.reasoning },
               transaction,
@@ -306,6 +794,17 @@ describe("deepSearch", () => {
         return Promise.resolve({
           streamId,
           review: Promise.resolve().then(() => {
+            const round = executionSnapshot.rounds.find(
+              ({ reviewGeneration }) =>
+                reviewGeneration?.generationId === streamId,
+            )
+            if (round) {
+              round.reviewGeneration = persistedGeneration(
+                streamId,
+                "completed",
+                JSON.stringify(decision),
+              )
+            }
             input.onCompleted?.(
               { id: streamId, output: decision },
               transaction,
@@ -325,6 +824,17 @@ describe("deepSearch", () => {
         return Promise.resolve({
           streamId,
           answer: completion.then(({ text, reasoning }) => {
+            const storedRound = executionSnapshot.rounds.find(
+              ({ answerGeneration }) =>
+                answerGeneration?.generationId === streamId,
+            )
+            if (storedRound) {
+              storedRound.answerGeneration = persistedGeneration(
+                streamId,
+                "completed",
+                text,
+              )
+            }
             input.onCompleted?.(
               { id: streamId, text, reasoning },
               transaction,
@@ -336,9 +846,14 @@ describe("deepSearch", () => {
       },
     )
     mocks.analyzeResearchAnswer.mockImplementation(
-      (input: TextGenerationPersistenceCallbacks) => {
+      (input) => {
         const generationId = "research-analysis-generation-id"
         input.onRegistered?.(generationId, transaction)
+        executionSnapshot.researchAnalysisGeneration = persistedGeneration(
+          generationId,
+          "completed",
+          JSON.stringify(researchAnalysis),
+        )
         return Promise.resolve({
           generationId,
           analysis: Promise.resolve(researchAnalysis),
@@ -413,16 +928,16 @@ describe("deepSearch", () => {
       { type: "research-analysis", analysis: researchAnalysis },
     ])
 
-    expect(mocks.createSearchRound.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(mocks.registerSearchRound.mock.invocationCallOrder[0]).toBeLessThan(
       getPublishOrder(publish, "query-stream"),
     )
     expect(mocks.savePlannedQueries.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.webSearch.mock.invocationCallOrder[0] ?? 0,
     )
-    expect(mocks.saveSearchResults.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(mocks.settleWebSearchQuery.mock.invocationCallOrder[0]).toBeLessThan(
       getPublishOrder(publish, "search-results"),
     )
-    expect(mocks.attachSelectionGeneration.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(mocks.registerSelectionGeneration.mock.invocationCallOrder[0]).toBeLessThan(
       getPublishOrder(publish, "selection-stream"),
     )
     expect(mocks.saveSelectedResults.mock.invocationCallOrder[0]).toBeLessThan(
@@ -529,7 +1044,9 @@ describe("deepSearch", () => {
   )
 
   it("generates an explicit final answer when no queries are returned", async () => {
-    mocks.generateWebSearchQueries.mockResolvedValueOnce(queryGeneration([]))
+    mocks.generateWebSearchQueries.mockImplementationOnce((input) =>
+      registeredQueryGeneration(input, []),
+    )
     const publish = vi.fn()
 
     await deepSearch({
@@ -539,17 +1056,15 @@ describe("deepSearch", () => {
       publish,
     })
 
-    expect(mocks.savePlannedQueries).toHaveBeenCalledWith({
-      jobId: "deep-search-job-id",
-      roundId: "round-0",
-      queries: [],
-    })
-    expect(mocks.saveSearchResults).toHaveBeenCalledWith({
-      userId: "test-user-id",
-      jobId: "deep-search-job-id",
-      roundId: "round-0",
-      searches: [],
-    })
+    expect(mocks.savePlannedQueries).toHaveBeenCalledWith(
+      transaction,
+      {
+        jobId: "deep-search-job-id",
+        roundId: "round-0",
+        queries: [],
+      },
+    )
+    expect(mocks.settleWebSearchQuery).not.toHaveBeenCalled()
     expect(mocks.webSearch).not.toHaveBeenCalled()
     expect(mocks.selectWebSearchResults).not.toHaveBeenCalled()
     expect(mocks.startPageSummary).not.toHaveBeenCalled()
@@ -566,6 +1081,7 @@ describe("deepSearch", () => {
   })
 
   it("completes an empty provider result without selection or summary model calls", async () => {
+    executionSnapshot.maxRounds = 1
     mocks.webSearch.mockResolvedValueOnce([])
     const publish = createPublisher()
 
@@ -605,6 +1121,8 @@ describe("deepSearch", () => {
   })
 
   it("passes configured limits to each pipeline stage", async () => {
+    executionSnapshot.maxSearches = 5
+    executionSnapshot.maxResultsPerSearch = 2
     await deepSearch({
       userId: "test-user-id",
       deepSearchJobId: "deep-search-job-id",
@@ -651,11 +1169,12 @@ describe("deepSearch", () => {
     }
     const publish = createPublisher()
     mocks.webSearch.mockResolvedValueOnce([...results, secondResult])
-    mocks.selectWebSearchResults.mockImplementationOnce(
-      ({ results }: { results: Array<{ id: string }> }) =>
-        Promise.resolve(
-          selectionGeneration(["unknown", results[1]?.id ?? "", results[0]?.id ?? ""]),
-        ),
+    mocks.selectWebSearchResults.mockImplementationOnce((input) =>
+      registeredSelectionGeneration(input, [
+        "unknown",
+        input.results[1]?.id ?? "",
+        input.results[0]?.id ?? "",
+      ]),
     )
 
     await deepSearch({
@@ -682,15 +1201,18 @@ describe("deepSearch", () => {
         snippet: "Second snippet",
       },
     ])
-    expect(mocks.saveSelectedResults).toHaveBeenCalledWith({
-      jobId: "deep-search-job-id",
-      queryId: "query:test query",
-      selectionGenerationId: "selection-stream-id",
-      selectedResultIds: [
-        "result:test query:https://example.com/second",
-        "result:test query:https://example.com/result",
-      ],
-    })
+    expect(mocks.saveSelectedResults).toHaveBeenCalledWith(
+      transaction,
+      {
+        jobId: "deep-search-job-id",
+        queryId: "query:test query",
+        selectionGenerationId: "selection-stream-id",
+        selectedResultIds: [
+          "result:test query:https://example.com/second",
+          "result:test query:https://example.com/result",
+        ],
+      },
+    )
     expect(publish).toHaveBeenCalledWith({
       type: "selected-search-results",
       round: 0,
@@ -703,8 +1225,8 @@ describe("deepSearch", () => {
   })
 
   it("starts a page summary only once for duplicate selected URLs", async () => {
-    mocks.generateWebSearchQueries.mockResolvedValueOnce(
-      queryGeneration(["first query", "second query"]),
+    mocks.generateWebSearchQueries.mockImplementationOnce((input) =>
+      registeredQueryGeneration(input, ["first query", "second query"]),
     )
 
     await deepSearch({
@@ -730,8 +1252,13 @@ describe("deepSearch", () => {
 
   it("runs another bounded round when the review requests more research", async () => {
     mocks.generateWebSearchQueries
-      .mockResolvedValueOnce(queryGeneration(["first query"], "query-stream-0"))
-      .mockResolvedValueOnce(queryGeneration(["second query"], "query-stream-1"))
+      .mockImplementationOnce((input) =>
+        registeredQueryGeneration(input, ["first query"], "query-stream-0"),
+      )
+      .mockImplementationOnce((input) =>
+        registeredQueryGeneration(input, ["second query"], "query-stream-1"),
+      )
+    executionSnapshot.maxRounds = 2
     mocks.startRoundReview.mockResolvedValueOnce({
       streamId: "round-review-stream-id",
       review: Promise.resolve({
@@ -800,6 +1327,7 @@ describe("deepSearch", () => {
         text: "",
         reasoning: "",
         error: "Review unavailable",
+        failureKind: "stream",
       }),
     })
 
@@ -813,6 +1341,7 @@ describe("deepSearch", () => {
     expect(mocks.saveRoundReviewFailure).toHaveBeenCalledWith({
       jobId: "deep-search-job-id",
       roundId: "round-0",
+      generationId: "round-review-stream-id",
       message: "Review unavailable",
     })
     expect(mocks.saveRoundReviewFailure.mock.invocationCallOrder[0]).toBeLessThan(
@@ -863,10 +1392,13 @@ describe("deepSearch", () => {
       shortText: `Snippet ${position}`,
       link: `https://example.com/result-${position}`,
     }))
+    executionSnapshot.maxResultsPerSearch = pageCount
     mocks.webSearch.mockResolvedValueOnce(selectedResults)
-    mocks.selectWebSearchResults.mockImplementationOnce(
-      ({ results }: { results: Array<{ id: string }> }) =>
-        Promise.resolve(selectionGeneration(results.map(({ id }) => id))),
+    mocks.selectWebSearchResults.mockImplementationOnce((input) =>
+      registeredSelectionGeneration(
+        input,
+        input.results.map(({ id }) => id),
+      ),
     )
     const pageStarts = Array.from({ length: pageCount }, () =>
       Promise.withResolvers<ReturnType<typeof pageSummaryStart>>(),
@@ -912,9 +1444,11 @@ describe("deepSearch", () => {
       link: "https://example.com/second",
     }
     mocks.webSearch.mockResolvedValueOnce([...results, secondResult])
-    mocks.selectWebSearchResults.mockImplementationOnce(
-      ({ results }: { results: Array<{ id: string }> }) =>
-        Promise.resolve(selectionGeneration(results.map(({ id }) => id))),
+    mocks.selectWebSearchResults.mockImplementationOnce((input) =>
+      registeredSelectionGeneration(
+        input,
+        input.results.map(({ id }) => id),
+      ),
     )
     const secondSummary = Promise.withResolvers<string>()
     let pipelineTerminal = false
@@ -989,9 +1523,11 @@ describe("deepSearch", () => {
       },
     ]
     mocks.webSearch.mockResolvedValueOnce(mixedResults)
-    mocks.selectWebSearchResults.mockImplementationOnce(
-      ({ results }: { results: Array<{ id: string }> }) =>
-        Promise.resolve(selectionGeneration(results.slice(0, 2).map(({ id }) => id))),
+    mocks.selectWebSearchResults.mockImplementationOnce((input) =>
+      registeredSelectionGeneration(
+        input,
+        input.results.slice(0, 2).map(({ id }) => id),
+      ),
     )
     mocks.startPageSummary.mockImplementation(({ url }: { url: string }) =>
       Promise.resolve(
@@ -1127,6 +1663,7 @@ describe("deepSearch", () => {
         text: "",
         reasoning: "",
         error: "Research analysis failed",
+        failureKind: "stream",
       }),
     })
 
@@ -1179,8 +1716,8 @@ describe("deepSearch", () => {
   })
 
   it("settles every web search and reports failures in query order", async () => {
-    mocks.generateWebSearchQueries.mockResolvedValueOnce(
-      queryGeneration(["first query", "second query"]),
+    mocks.generateWebSearchQueries.mockImplementationOnce((input) =>
+      registeredQueryGeneration(input, ["first query", "second query"]),
     )
     const firstSearch = Promise.withResolvers<typeof results>()
     const secondSearch = Promise.withResolvers<typeof results>()
@@ -1210,17 +1747,20 @@ describe("deepSearch", () => {
     await expect(run).rejects.toThrow("First query failure")
 
     expect(pipelineTerminal).toBe(true)
-    expect(mocks.saveSearchResults).not.toHaveBeenCalled()
+    expect(mocks.settleWebSearchQuery).not.toHaveBeenCalled()
     expect(mocks.selectWebSearchResults).not.toHaveBeenCalled()
   })
 
   it("finishes every source selection before starting page work", async () => {
-    mocks.generateWebSearchQueries.mockResolvedValueOnce(
-      queryGeneration(["first query", "second query"]),
+    mocks.generateWebSearchQueries.mockImplementationOnce((input) =>
+      registeredQueryGeneration(input, ["first query", "second query"]),
     )
     mocks.selectWebSearchResults
-      .mockImplementationOnce(({ results }: { results: Array<{ id: string }> }) =>
-        Promise.resolve(selectionGeneration(results.map(({ id }) => id))),
+      .mockImplementationOnce((input) =>
+        registeredSelectionGeneration(
+          input,
+          input.results.map(({ id }) => id),
+        ),
       )
       .mockRejectedValueOnce(new Error("Source selection failed"))
 
@@ -1240,8 +1780,8 @@ describe("deepSearch", () => {
   })
 
   it("settles every query summary before exposing a fatal failure", async () => {
-    mocks.generateWebSearchQueries.mockResolvedValueOnce(
-      queryGeneration(["first query", "second query"]),
+    mocks.generateWebSearchQueries.mockImplementationOnce((input) =>
+      registeredQueryGeneration(input, ["first query", "second query"]),
     )
     const secondSummary = Promise.withResolvers<string>()
     let pipelineTerminal = false
@@ -1313,6 +1853,7 @@ describe("deepSearch", () => {
         text: "",
         reasoning: "",
         error: "Final answer failed",
+        failureKind: "stream",
       }),
     })
 
@@ -1325,4 +1866,177 @@ describe("deepSearch", () => {
       }),
     ).rejects.toThrow("Final answer failed")
   })
+
+  it("resumes mixed query fan-out without repeating settled provider or selection work", async () => {
+    executionSnapshot.maxRounds = 1
+    executionSnapshot.rounds.push({
+      roundId: "round-0",
+      position: 0,
+      planningGeneration: persistedGeneration(
+        "persisted-planning",
+        "completed",
+        JSON.stringify(["settled query", "pending query"]),
+      ),
+      answerGeneration: null,
+      reviewGeneration: null,
+      reviewDecision: null,
+      reviewReason: null,
+      reviewError: null,
+      reviewCompletedAt: null,
+      queries: [
+        {
+          queryId: "settled-query-id",
+          position: 0,
+          query: "settled query",
+          creditsUsed: 0,
+          status: "selecting",
+          selectionGeneration: persistedGeneration(
+            "settled-selection",
+            "completed",
+            JSON.stringify(["settled-result-id"]),
+          ),
+          summaryGeneration: null,
+          errorStage: null,
+          errorMessage: null,
+          completedAt: null,
+          results: [
+            {
+              resultId: "settled-result-id",
+              position: 0,
+              title: "Settled result",
+              shortText: "Settled snippet",
+              url: "https://example.com/settled",
+              selectedWebPageId: null,
+            },
+          ],
+        },
+        {
+          queryId: "pending-query-id",
+          position: 1,
+          query: "pending query",
+          creditsUsed: null,
+          status: "searching",
+          selectionGeneration: null,
+          summaryGeneration: null,
+          errorStage: null,
+          errorMessage: null,
+          completedAt: null,
+          results: [],
+        },
+      ],
+    })
+    mocks.webSearch.mockResolvedValueOnce(results)
+
+    await deepSearch({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
+      researchRequest: "Research this",
+      publish: ignoreEvent,
+    })
+
+    expect(mocks.generateWebSearchQueries).not.toHaveBeenCalled()
+    expect(mocks.webSearch).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ query: "pending query" }),
+    )
+    expect(mocks.settleWebSearchQuery).toHaveBeenCalledOnce()
+    expect(mocks.selectWebSearchResults).toHaveBeenCalledOnce()
+    expect(mocks.saveSelectedResults).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queryId: "settled-query-id",
+        selectionGenerationId: "settled-selection",
+      }),
+    )
+  })
+
+  it.each([
+    { strictQuality: false, expectedRetries: 0 },
+    { strictQuality: true, expectedRetries: 1 },
+  ])(
+    "retries a persisted failed page summary only when strictQuality=$strictQuality",
+    async ({ strictQuality, expectedRetries }) => {
+      executionSnapshot.maxRounds = 1
+      executionSnapshot.strictQuality = strictQuality
+      executionSnapshot.rounds.push({
+        roundId: "round-0",
+        position: 0,
+        planningGeneration: persistedGeneration(
+          "persisted-planning",
+          "completed",
+          JSON.stringify(["persisted query"]),
+        ),
+        answerGeneration: null,
+        reviewGeneration: null,
+        reviewDecision: null,
+        reviewReason: null,
+        reviewError: null,
+        reviewCompletedAt: null,
+        queries: [
+          {
+            queryId: "persisted-query-id",
+            position: 0,
+            query: "persisted query",
+            creditsUsed: 0,
+            status: "summarizing",
+            selectionGeneration: persistedGeneration(
+              "persisted-selection",
+              "completed",
+              JSON.stringify(["persisted-result-id"]),
+            ),
+            summaryGeneration: null,
+            errorStage: null,
+            errorMessage: null,
+            completedAt: null,
+            results: [
+              {
+                resultId: "persisted-result-id",
+                position: 0,
+                title: "Persisted result",
+                shortText: "Snippet fallback",
+                url: "https://example.com/persisted",
+                selectedWebPageId: "persisted-page-id",
+              },
+            ],
+          },
+        ],
+      })
+      executionSnapshot.pages.push({
+        pageId: "persisted-page-id",
+        url: "https://example.com/persisted",
+        creditsUsed: 1,
+        status: "failed",
+        extractedContent: "Durably extracted content",
+        summaryGeneration: persistedGeneration(
+          "failed-page-summary",
+          "failed",
+        ),
+        errorStage: "summary",
+        errorMessage: "Previous summary failed",
+        completedAt: new Date(),
+      })
+
+      await deepSearch({
+        userId: "test-user-id",
+        deepSearchJobId: "deep-search-job-id",
+        researchRequest: "Research this",
+        publish: ignoreEvent,
+      })
+
+      expect(mocks.startPageSummary).not.toHaveBeenCalled()
+      expect(mocks.summarizePage).toHaveBeenCalledTimes(expectedRetries)
+      expect(mocks.replacePageSummaryGeneration).toHaveBeenCalledTimes(
+        expectedRetries,
+      )
+      expect(mocks.summarizeSearchQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          results: [
+            expect.objectContaining({
+              content: strictQuality
+                ? "Retried page summary"
+                : "Snippet fallback",
+            }),
+          ],
+        }),
+      )
+    },
+  )
 })

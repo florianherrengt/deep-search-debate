@@ -21,6 +21,7 @@ function createApp(manager?: DebateJobManager): Hono<AppEnv> {
   })
   const debateManager: DebateJobManager = manager ?? {
     start: vi.fn(),
+    resumeExisting: vi.fn(),
     stop: vi.fn(),
     getLiveJob: vi.fn(),
   }
@@ -37,6 +38,7 @@ describe("debate job routes", () => {
     const start = vi.fn()
     const manager: DebateJobManager = {
       start,
+      resumeExisting: vi.fn(),
       stop: vi.fn(),
       getLiveJob: vi.fn(),
     }
@@ -95,7 +97,12 @@ describe("debate job routes", () => {
     },
   ])("maps debate Stop result to HTTP $status", async ({ result, status, body }) => {
     const stop = vi.fn().mockReturnValue(result)
-    const app = createApp({ start: vi.fn(), stop, getLiveJob: vi.fn() })
+    const app = createApp({
+      start: vi.fn(),
+      resumeExisting: vi.fn(),
+      stop,
+      getLiveJob: vi.fn(),
+    })
     const debateJobId = crypto.randomUUID()
 
     const response = await app.request(`/debate-jobs/${debateJobId}/cancel`, {
@@ -105,6 +112,78 @@ describe("debate job routes", () => {
     expect(response.status).toBe(status)
     await expect(response.json()).resolves.toEqual(body)
     expect(stop).toHaveBeenCalledWith("test-user-id", debateJobId)
+  })
+
+  it("resumes an owned non-completed debate root", async () => {
+    const debateJobId = crypto.randomUUID()
+    db.insert(debateJobsTable)
+      .values({
+        debateJobId,
+        userId: "test-user-id",
+        randomSeed: 42,
+        status: "interrupted",
+        error: "Stopped",
+        cancelRequestedAt: new Date(),
+        completedAt: new Date(),
+      })
+      .run()
+    const completion = new Promise<void>(() => {})
+    const resumeExisting = vi.fn(() => ({
+      debateJobId,
+      title: "Debate",
+      slug: "debate",
+      completion,
+    }))
+    const app = createApp({
+      start: vi.fn(),
+      resumeExisting,
+      stop: vi.fn(),
+      getLiveJob: vi.fn(),
+    })
+
+    const response = await app.request(`/debate-jobs/${debateJobId}/resume`, {
+      method: "POST",
+    })
+
+    expect(response.status).toBe(202)
+    await expect(response.json()).resolves.toEqual({ status: "running" })
+    expect(resumeExisting).toHaveBeenCalledExactlyOnceWith(debateJobId, {
+      userId: "test-user-id",
+    })
+  })
+
+  it("returns 404 for a foreign Resume target and 409 for a completed one", async () => {
+    const completedDebateJobId = crypto.randomUUID()
+    db.insert(debateJobsTable)
+      .values({
+        debateJobId: completedDebateJobId,
+        userId: "test-user-id",
+        randomSeed: 42,
+        stage: "final",
+        status: "completed",
+        completedAt: new Date(),
+      })
+      .run()
+    const resumeExisting = vi.fn()
+    const app = createApp({
+      start: vi.fn(),
+      resumeExisting,
+      stop: vi.fn(),
+      getLiveJob: vi.fn(),
+    })
+
+    const completed = await app.request(
+      `/debate-jobs/${completedDebateJobId}/resume`,
+      { method: "POST" },
+    )
+    const foreign = await app.request(
+      `/debate-jobs/${crypto.randomUUID()}/resume`,
+      { method: "POST" },
+    )
+
+    expect(completed.status).toBe(409)
+    expect(foreign.status).toBe(404)
+    expect(resumeExisting).not.toHaveBeenCalled()
   })
 
   it("lists newest debate summaries with their idea prompts", async () => {
@@ -145,6 +224,9 @@ describe("debate job routes", () => {
           prompt: "Older prompt",
           numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
           deepSearchCount: 2,
+          maxSearches: 3,
+          maxResultsPerSearch: 3,
+          maxRounds: 3,
         },
         {
           userId: "test-user-id",
@@ -154,6 +236,9 @@ describe("debate job routes", () => {
           prompt: "Newer prompt",
           numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
           deepSearchCount: 2,
+          maxSearches: 3,
+          maxResultsPerSearch: 3,
+          maxRounds: 3,
         },
       ])
       .run()
@@ -209,6 +294,9 @@ describe("debate job routes", () => {
         prompt: "A public debate owned by somebody else",
         slug: "foreign-public-debate",
         userId: "other-user-id",
+        maxSearches: 3,
+        maxResultsPerSearch: 3,
+        maxRounds: 3,
       })
       .run()
 

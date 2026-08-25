@@ -53,6 +53,7 @@ import {
   saveRoundReviewCompletion,
   saveSearchResults,
   saveSelectedResults,
+  settlePageExtraction,
 } from "./store.ts"
 import type { AppEnv } from "../../types/auth.ts"
 
@@ -268,6 +269,13 @@ function persistPageSummary(
 ): void {
   const page = selection.pages.get(params.url)
   if (!page) throw new Error("Selected page was not persisted")
+  settlePageExtraction({
+    userId: "test-user-id",
+    jobId: input.deepSearchJobId,
+    pageId: page.pageId,
+    content: `Extracted content for ${params.url}`,
+    creditsUsed: 0,
+  })
   db.transaction((transaction) => {
     attachPageSummaryGeneration(transaction, {
       jobId: input.deepSearchJobId,
@@ -501,6 +509,7 @@ function insertHistoryFixtures(): void {
       researchRequest: "Manual research",
       maxSearches: 1,
       maxResultsPerSearch: 1,
+      strictQuality: false,
     })
     .run()
   db.insert(debateJobs)
@@ -518,6 +527,9 @@ function insertHistoryFixtures(): void {
         prompt: "Standalone ideas",
         numberOfIdeas: 1,
         deepSearchCount: 1,
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+        maxRounds: 3,
         title: "Standalone Idea Title",
         slug: "standalone-idea-slug",
       },
@@ -528,6 +540,9 @@ function insertHistoryFixtures(): void {
         prompt: "Debate ideas",
         numberOfIdeas: 1,
         deepSearchCount: 1,
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+        maxRounds: 3,
         title: "Debate Idea Title",
         slug: "debate-idea-slug",
       },
@@ -545,6 +560,7 @@ function insertHistoryFixtures(): void {
         researchRequest: "Debate research",
         maxSearches: 1,
         maxResultsPerSearch: 1,
+        strictQuality: true,
       },
       {
         deepSearchJobId: "standalone-child-id",
@@ -556,6 +572,7 @@ function insertHistoryFixtures(): void {
         researchRequest: "Standalone research",
         maxSearches: 1,
         maxResultsPerSearch: 1,
+        strictQuality: true,
       },
     ])
     .run()
@@ -581,13 +598,18 @@ describe("deep search job routes", () => {
         researchRequest: "Research this",
         maxSearches: 1,
         maxResultsPerSearch: 1,
+        strictQuality: false,
       })
       .run()
     const app = createApp()
 
     const detailBefore = await app.request("/deep-search-jobs/stoppable-search")
     await expect(detailBefore.json()).resolves.toMatchObject({
-      deepSearchJob: { canStop: true, stopRequested: false },
+      deepSearchJob: {
+        canResume: false,
+        canStop: true,
+        stopRequested: false,
+      },
     })
 
     const requested = await app.request(`/deep-search-jobs/${rootId}/cancel`, {
@@ -621,10 +643,68 @@ describe("deep search job routes", () => {
     const detailAfter = await app.request("/deep-search-jobs/stoppable-search")
     await expect(detailAfter.json()).resolves.toMatchObject({
       deepSearchJob: {
+        canResume: true,
         canStop: false,
         status: "interrupted",
         stopRequested: true,
       },
+    })
+  })
+
+  it("resumes one owned root execution for concurrent requests", async () => {
+    const deepSearchJobId = "00000000-0000-4000-8000-000000000031"
+    db.insert(deepSearchJobsTable)
+      .values({
+        deepSearchJobId,
+        userId: "test-user-id",
+        title: "Resumable search",
+        slug: "resumable-search",
+        researchRequest: "Resume this research",
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+        maxRounds: 1,
+        strictQuality: false,
+        status: "interrupted",
+        error: "Stopped",
+        cancelRequestedAt: new Date(),
+        completedAt: new Date(),
+      })
+      .run()
+    mocks.deepSearch.mockImplementation(
+      () => new Promise<string>(() => {}),
+    )
+    const app = createApp()
+
+    const before = await app.request("/deep-search-jobs/resumable-search")
+    await expect(before.json()).resolves.toMatchObject({
+      deepSearchJob: { canResume: true, canStop: false },
+    })
+    const responses = await Promise.all([
+      app.request(`/deep-search-jobs/${deepSearchJobId}/resume`, {
+        method: "POST",
+      }),
+      app.request(`/deep-search-jobs/${deepSearchJobId}/resume`, {
+        method: "POST",
+      }),
+    ])
+
+    expect(responses.map(({ status }) => status)).toEqual([202, 202])
+    await Promise.all(
+      responses.map((response) =>
+        expect(response.json()).resolves.toEqual({ status: "running" }),
+      ),
+    )
+    await vi.waitFor(() => expect(mocks.deepSearch).toHaveBeenCalledOnce())
+    const persisted = db
+      .select()
+      .from(deepSearchJobsTable)
+      .where(eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId))
+      .get()
+    expect(persisted).toMatchObject({
+      status: "running",
+      error: null,
+      cancelRequestedAt: null,
+      completedAt: null,
     })
   })
 
@@ -636,6 +716,11 @@ describe("deep search job routes", () => {
       { method: "POST" },
     )
     expect(missing.status).toBe(404)
+    const missingResume = await app.request(
+      `/deep-search-jobs/${unknownId}/resume`,
+      { method: "POST" },
+    )
+    expect(missingResume.status).toBe(404)
 
     db.insert(ideaJobs)
       .values({
@@ -644,6 +729,9 @@ describe("deep search job routes", () => {
         prompt: "Ideas",
         numberOfIdeas: 1,
         deepSearchCount: 1,
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+        maxRounds: 3,
       })
       .run()
     const childId = "00000000-0000-4000-8000-000000000002"
@@ -658,17 +746,28 @@ describe("deep search job routes", () => {
         researchRequest: "Research this",
         maxSearches: 1,
         maxResultsPerSearch: 1,
+        strictQuality: true,
       })
       .run()
     const child = await app.request(`/deep-search-jobs/${childId}/cancel`, {
       method: "POST",
     })
     expect(child.status).toBe(409)
+    const childResume = await app.request(
+      `/deep-search-jobs/${childId}/resume`,
+      { method: "POST" },
+    )
+    expect(childResume.status).toBe(409)
     const foreign = await createApp("foreign-user").request(
       `/deep-search-jobs/${childId}/cancel`,
       { method: "POST" },
     )
     expect(foreign.status).toBe(404)
+    const foreignResume = await createApp("foreign-user").request(
+      `/deep-search-jobs/${childId}/resume`,
+      { method: "POST" },
+    )
+    expect(foreignResume.status).toBe(404)
 
     const failedId = "00000000-0000-4000-8000-000000000003"
     db.insert(deepSearchJobsTable)
@@ -680,6 +779,7 @@ describe("deep search job routes", () => {
         researchRequest: "Research this",
         maxSearches: 1,
         maxResultsPerSearch: 1,
+        strictQuality: false,
         status: "failed",
         error: "Provider failed",
         completedAt: new Date(),

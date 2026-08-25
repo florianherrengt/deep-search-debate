@@ -155,6 +155,46 @@ describe("selectWebSearchResults", () => {
     ])
   })
 
+  it("forwards registration and commits normalized selected IDs", async () => {
+    mocks.generateArrayStream.mockResolvedValueOnce(
+      completedGeneration(Promise.resolve(["result-0"])),
+    )
+    const onRegistered = vi.fn()
+    const onCompleted = vi.fn()
+
+    await selectWebSearchResults({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
+      userQuery: "test",
+      searchQuery: "test",
+      results: sampleResults,
+      maxResultsToExplore: 2,
+      onRegistered,
+      onCompleted,
+    })
+
+    const call = mocks.generateArrayStream.mock.calls[0]?.[0] as {
+      onRegistered: typeof onRegistered
+      onCompleted: (
+        completed: { id: string; output: string[] },
+        transaction: unknown,
+      ) => void
+    }
+    expect(call.onRegistered).toBe(onRegistered)
+    const transaction = {}
+    call.onCompleted(
+      {
+        id: "stream-id",
+        output: ["unknown", "result-2", "result-2", "result-0", "result-1"],
+      },
+      transaction,
+    )
+    expect(onCompleted).toHaveBeenCalledWith(
+      { id: "stream-id", output: ["result-2", "result-0"] },
+      transaction,
+    )
+  })
+
   it("returns empty array when no results selected", async () => {
     mocks.generateArrayStream.mockResolvedValueOnce(
       completedGeneration(Promise.resolve([])),

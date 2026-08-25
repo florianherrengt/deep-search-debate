@@ -112,18 +112,24 @@ describe("page summaries", () => {
 
   it("extracts a page and returns its registered summary handle", async () => {
     mocks.generateTextStream.mockResolvedValueOnce(completedGeneration())
+    const onExtractionSettled = vi.fn()
 
     const result = await startPageSummary({
       userId: "test-user-id",
       deepSearchJobId: "deep-search-job-id",
       researchRequest: "Research this",
       url: "https://example.com/page",
+      onExtractionSettled,
     })
 
     expect(result.status).toBe("started")
     if (result.status !== "started") throw new Error("Summary did not start")
     expect(result.streamId).toBe("summary-stream-id")
     await expect(result.summary).resolves.toBe("Completed page summary")
+    expect(onExtractionSettled).toHaveBeenCalledWith({
+      content: "Extracted page content",
+      creditsUsed: 0,
+    })
   })
 
   it("returns extraction failures without starting a summary stream or charging credits", async () => {
@@ -145,7 +151,7 @@ describe("page summaries", () => {
       stage: "extraction",
       message: "Extraction failed",
     })
-    expect(onExtractionSettled).toHaveBeenCalledWith(0)
+    expect(onExtractionSettled).not.toHaveBeenCalled()
     expect(mocks.generateTextStream).not.toHaveBeenCalled()
   })
 

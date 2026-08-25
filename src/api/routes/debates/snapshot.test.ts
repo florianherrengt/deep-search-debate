@@ -50,8 +50,11 @@ describe("debate job snapshot", () => {
         debateJobId,
         slug: `ideas-${ideaJobId}`,
         prompt: "Choose an energy-saving product",
-        numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
-        deepSearchCount: 2,
+      numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
+      deepSearchCount: 2,
+      maxSearches: 2,
+      maxResultsPerSearch: 2,
+      maxRounds: 1,
       })
       .run()
     db.insert(llmGenerations)
@@ -167,6 +170,7 @@ describe("debate job snapshot", () => {
       isOwner: true,
       stopRequested: false,
       canStop: true,
+      canResume: false,
       expectedMatchCount: DEBATE_TOURNAMENT_FORMAT.totalMatchCount,
       stage: "swiss",
       status: "running",
@@ -233,8 +237,11 @@ describe("debate job snapshot", () => {
         debateJobId,
         slug: `ideas-${ideaJobId}`,
         prompt: "Choose an energy-saving product",
-        numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
-        deepSearchCount: 2,
+      numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
+      deepSearchCount: 2,
+      maxSearches: 2,
+      maxResultsPerSearch: 2,
+      maxRounds: 1,
       })
       .run()
     db.insert(ideas)
@@ -358,8 +365,11 @@ describe("debate job snapshot", () => {
         debateJobId,
         slug: `ideas-${ideaJobId}`,
         prompt: "Generate then debate ideas",
-        numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
-        deepSearchCount: 2,
+      numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
+      deepSearchCount: 2,
+      maxSearches: 2,
+      maxResultsPerSearch: 2,
+      maxRounds: 1,
       })
       .run()
     expect(getDebateJobSnapshot(debateJobId, "test-user-id")).toMatchObject({
@@ -367,6 +377,94 @@ describe("debate job snapshot", () => {
       rounds: [],
       standings: [],
     })
+  })
+
+  it("ignores a pre-registered failed judge message before match completion", () => {
+    const ideaJobId = crypto.randomUUID()
+    const debateJobId = crypto.randomUUID()
+    const debateRoundId = crypto.randomUUID()
+    const firstIdeaId = crypto.randomUUID()
+    const secondIdeaId = crypto.randomUUID()
+    const debateMatchId = crypto.randomUUID()
+    const judgeGenerationId = crypto.randomUUID()
+    db.insert(debateJobs)
+      .values({
+        debateJobId,
+        userId: "test-user-id",
+        randomSeed: 11,
+        stage: "swiss",
+      })
+      .run()
+    db.insert(ideaJobs)
+      .values({
+        userId: "test-user-id",
+        ideaJobId,
+        debateJobId,
+        slug: `judge-checkpoint-${ideaJobId}`,
+        prompt: "Resume a judge safely",
+        numberOfIdeas: 6,
+        deepSearchCount: 1,
+        maxSearches: 2,
+        maxResultsPerSearch: 2,
+        maxRounds: 1,
+      })
+      .run()
+    db.insert(ideas)
+      .values(
+        [firstIdeaId, secondIdeaId, ...Array.from({ length: 4 }, () => crypto.randomUUID())]
+          .map((ideaId, position) => ({
+            ideaId,
+            ideaJobId,
+            position,
+            title: `Idea ${position + 1}`,
+            description: `Description ${position + 1}`,
+            selected: true,
+          })),
+      )
+      .run()
+    db.insert(debateRounds)
+      .values({
+        debateRoundId,
+        debateJobId,
+        stage: "swiss",
+        stageRoundNumber: 1,
+      })
+      .run()
+    db.insert(debateMatches)
+      .values({
+        debateMatchId,
+        debateRoundId,
+        position: 0,
+        firstIdeaId,
+        secondIdeaId,
+      })
+      .run()
+    db.insert(llmGenerations)
+      .values({
+        llmGenerationId: judgeGenerationId,
+        userId: "test-user-id",
+        debateJobId,
+        status: "failed",
+        text: "{",
+        reasoning: "",
+        error: "Incomplete judge JSON",
+        completedAt: new Date(),
+      })
+      .run()
+    db.insert(debateMessages)
+      .values({
+        debateMessageId: crypto.randomUUID(),
+        debateMatchId,
+        position: 4,
+        speakerSlot: 2,
+        llmGenerationId: judgeGenerationId,
+      })
+      .run()
+
+    expect(
+      getDebateJobSnapshot(debateJobId, "test-user-id")
+        ?.rounds[0]?.matches[0],
+    ).toMatchObject({ status: "pending", messages: [] })
   })
 
   it("derives Stop controls without exposing an owner control publicly", () => {
@@ -388,8 +486,11 @@ describe("debate job snapshot", () => {
         debateJobId,
         slug: `stopping-${ideaJobId}`,
         prompt: "Stop this debate",
-        numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
-        deepSearchCount: 1,
+      numberOfIdeas: DEBATE_TOURNAMENT_FORMAT.participantCount,
+      deepSearchCount: 1,
+      maxSearches: 2,
+      maxResultsPerSearch: 2,
+      maxRounds: 1,
       })
       .run()
 
@@ -397,11 +498,13 @@ describe("debate job snapshot", () => {
       isOwner: true,
       stopRequested: true,
       canStop: false,
+      canResume: false,
     })
     expect(getDebateJobSnapshot(debateJobId, null)).toMatchObject({
       isOwner: false,
       stopRequested: true,
       canStop: false,
+      canResume: false,
     })
   })
 })

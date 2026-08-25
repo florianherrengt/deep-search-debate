@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   createIdeaJob: vi.fn(),
   getIdeaJob: vi.fn(),
   getIdeaJobs: vi.fn(),
+  requestResearchResume: vi.fn(),
   requestResearchStop: vi.fn(),
   subscribeToDeepSearchJob: vi.fn(),
   subscribeToIdeaJob: vi.fn(),
@@ -38,6 +39,10 @@ vi.mock("../../lib/deepSearchJobs.ts", () => ({
 
 vi.mock("../../lib/researchCancellation.ts", () => ({
   requestResearchStop: mocks.requestResearchStop,
+}))
+
+vi.mock("../../lib/researchResumption.ts", () => ({
+  requestResearchResume: mocks.requestResearchResume,
 }))
 
 vi.mock("../../lib/resultFeedback.ts", async (importOriginal) => ({
@@ -78,6 +83,7 @@ describe("Ideas", () => {
       status: "cancellation-requested",
       cancelRequestedAt: new Date(),
     })
+    mocks.requestResearchResume.mockResolvedValue({ status: "running" })
     mocks.getIdeaJob.mockResolvedValue({
       ideaJobId: "idea-job-id",
       title: "Independent Café Ideas",
@@ -90,6 +96,7 @@ describe("Ideas", () => {
       stage: "planning",
       status: "running",
       stopRequested: false,
+      canResume: false,
       canStop: true,
       error: null,
       creditsUsed: null,
@@ -286,6 +293,102 @@ describe("Ideas", () => {
       await screen.findByRole("button", { name: "Stopping…" }),
     ).toBeDisabled()
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument()
+  })
+
+  it.each(["failed", "interrupted"] as const)(
+    "resumes a %s root and reconnects the same job stream",
+    async (status) => {
+      mocks.getIdeaJob.mockResolvedValue({
+        ...(await mocks.getIdeaJob()),
+        canResume: true,
+        canStop: false,
+        completedAt: new Date(),
+        error: "Option generation stopped unexpectedly",
+        status,
+      })
+      mocks.subscribeToIdeaJob
+        .mockImplementationOnce(async function* () {
+          await Promise.resolve()
+          if (status === "failed") {
+            yield {
+              type: "error" as const,
+              message: "Option generation stopped unexpectedly",
+              stage: "planning" as const,
+            }
+          } else {
+            yield {
+              type: "interrupted" as const,
+              message: "Option generation stopped unexpectedly",
+            }
+          }
+          yield { type: "done" as const }
+        })
+        .mockImplementationOnce(async function* (
+          _jobId: string,
+          signal?: AbortSignal,
+        ) {
+          yield {
+            type: "research-prompt-stream" as const,
+            streamId: "resumed-planning",
+          }
+          await new Promise<void>((resolve) => {
+            if (signal?.aborted) resolve()
+            else
+              signal?.addEventListener("abort", () => resolve(), {
+                once: true,
+              })
+          })
+        })
+
+      renderIdeas("/ideas/independent-cafe-ideas")
+
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Resume workflow" }),
+      )
+
+      await waitFor(() =>
+        expect(mocks.requestResearchResume).toHaveBeenCalledWith(
+          "idea",
+          "idea-job-id",
+        ),
+      )
+      await waitFor(() =>
+        expect(mocks.subscribeToIdeaJob).toHaveBeenCalledTimes(2),
+      )
+      expect(mocks.subscribeToIdeaJob).toHaveBeenLastCalledWith(
+        "idea-job-id",
+        expect.any(AbortSignal),
+        expect.any(Function),
+      )
+      expect(
+        screen.queryByRole("button", { name: "Resume workflow" }),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.getByRole("button", { name: "Stop workflow" }),
+      ).toBeEnabled()
+      expect(
+        screen.getByText(
+          "Follow the current stage or expand an earlier stage for details.",
+        ),
+      ).toBeVisible()
+    },
+  )
+
+  it("keeps Resume off nested idea routes", async () => {
+    mocks.getIdeaJob.mockResolvedValue({
+      ...(await mocks.getIdeaJob()),
+      canResume: true,
+      canStop: false,
+      error: "Option generation stopped unexpectedly",
+      status: "failed",
+    })
+
+    renderIdeas("/ideas/independent-cafe-ideas/missing-idea")
+
+    await waitFor(() => expect(mocks.getIdeaJob).toHaveBeenCalled())
+    expect(
+      screen.queryByRole("button", { name: "Resume workflow" }),
+    ).not.toBeInTheDocument()
   })
 
   it.each([

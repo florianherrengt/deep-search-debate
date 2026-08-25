@@ -118,6 +118,13 @@ wait in the process-wide deep-search queue when both execution slots are busy.
 Admission is reserved before title generation. Newly admitted roots take
 priority over queued children, while running work is never pre-empted.
 
+On startup, the server schedules every non-completed standalone deep search as
+an effective root. The same checkpoint reconciler runs when an owner resumes a
+failed or interrupted root. It reconstructs normalized rounds, queries, pages,
+and generation links, reuses every valid completed checkpoint, and retries only
+incomplete work. Idea-owned searches are never scheduled as roots; their idea
+or debate coordinator resumes them recursively.
+
 The owner may explicitly stop a running standalone root. The manager first
 persists the root stop timestamp, publishes `stop-requested`, then aborts queued
 or active work through its workflow controller. Child searches cannot be
@@ -256,10 +263,16 @@ separate reasoning policy.
 Page content is capped at 100,000 characters before it is sent to the model. If
 it is longer, the pipeline preserves roughly the first 75% and last 25%, with an
 omission marker between them. This retains introductions and conclusions while
-keeping the request bounded.
+keeping the request bounded. That bounded content and the extraction credit
+settlement commit before summary generation. SQLite retains the content until
+the summary succeeds, then clears it; a summary retry after restart therefore
+does not repeat extraction or charge it again.
 
 If summary creation or generation fails, or the model returns no usable text,
-the query-summary stage uses the search snippet instead.
+the standalone query-summary stage uses the search snippet instead. Idea-owned
+searches persist `strictQuality = true`; for them, a model-backed summary
+failure fails the current run and remains retryable from the retained extracted
+content. Extraction failures remain accepted snippet fallbacks in both modes.
 
 Prompt: [summarize-web-page.md](../../llms/prompts/summarize-web-page.md)
 
@@ -315,9 +328,13 @@ untrusted data. A `continue` decision starts the next round with prior queries,
 summaries, the candidate, and this reason as context. The final allowed round
 skips review because no decision can exceed `maxRounds`.
 
-Review is optional control logic. If registration, generation, parsing, or
-persistence fails, exploration stops and the current candidate is promoted.
-The wider job does not fail.
+Review is optional control logic after its generation has been registered. If
+that attempt then fails during generation or parsing, the failure and the
+decision to stop exploring are persisted before the current candidate is
+promoted. A later process restart or Resume preserves that durable fallback and
+does not retry the optional review. Failure before registration, or failure to
+persist the fallback checkpoint, fails the current run so Resume can retry the
+unfinished stage.
 
 Prompt: [review-deep-search-round.md](../../llms/prompts/review-deep-search-round.md)
 
@@ -425,7 +442,7 @@ The terminal job feed emits `interrupted`, then `done`, without an ordinary
 | Web search | Job fails; selection does not start |
 | Result selection | Query and job fail; page extraction does not start |
 | Page extraction | Page fails; query synthesis uses its snippet |
-| Page summary | Page fails; query synthesis uses its snippet |
+| Page summary | Standalone search uses its snippet; strict idea-owned search fails until the summary is retried |
 | Query summary | Job fails; candidate generation does not start |
 | Candidate answer | Job fails |
 | Structured research analysis | Job fails; the candidate is not promoted |
@@ -472,12 +489,21 @@ terminal error. Stop cleanup settles active generation, query, and page records
 before publishing the interrupted terminal suffix; interrupted generation
 attempts retain partial durable output and do not debit RethinkLoop credits.
 
+Checkpoint retries never mutate a newer attempt opportunistically. Registration
+of a replacement generation compare-and-swaps the owning round, query, page, or
+job link from the exact failed, interrupted, or stale-running generation. When
+the old attempt is still `running`, its interruption and the link replacement
+commit in that same registration transaction. Completed attempts are parsed and
+reused. Generation terminal settlement also compare-and-swaps from `running`;
+a stale callback that loses that transition observes the persisted outcome and
+cannot debit credits or run the owning-stage completion hook twice.
+
 Live deltas stay in memory. Completed text, reasoning, status, and errors are
 stored in SQLite. Structural state—rounds, reviews, generated queries, executed
 searches, results, selections, pages, and generation links—is stored in
-normalized tables at stage boundaries. This lets completed jobs be
-reconstructed after restart without storing a duplicate JSON snapshot or
-database event log.
+normalized tables at stage boundaries. This lets completed jobs be reconstructed
+and incomplete jobs resumed after restart without storing a duplicate JSON
+snapshot or database event log.
 
 Those structural writes are exposed as explicit persistence commands that use
 stable database IDs and transactional multi-row updates. The pipeline calls

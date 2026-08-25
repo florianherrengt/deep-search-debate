@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm"
+import { and, eq, inArray, isNull } from "drizzle-orm"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -83,16 +83,7 @@ export async function generateIdeaSite(
   })
   const html = await awaitGenerationText(generation)
   await writeIdeaSite(input.idea.ideaId, html)
-  try {
-    await captureIdeaSiteScreenshot(input.idea.ideaId)
-  } catch (error) {
-    // The preview is presentation-only: a headless-browser failure must not
-    // fail the workflow that already persisted its website.
-    console.warn(
-      `Idea site screenshot for ${input.idea.ideaId} failed`,
-      error,
-    )
-  }
+  await captureIdeaSiteScreenshotBestEffort(input.idea.ideaId)
 }
 
 
@@ -129,6 +120,16 @@ async function captureIdeaSiteScreenshot(ideaId: string): Promise<void> {
     await writeFileAtomically(ideaSiteScreenshotPath(ideaId), png)
   } finally {
     await browser.close()
+  }
+}
+
+async function captureIdeaSiteScreenshotBestEffort(ideaId: string): Promise<void> {
+  try {
+    await captureIdeaSiteScreenshot(ideaId)
+  } catch (error) {
+    // The preview is presentation-only: a headless-browser failure must not
+    // fail the workflow that already persisted its website.
+    console.warn(`Idea site screenshot for ${ideaId} failed`, error)
   }
 }
 
@@ -232,6 +233,48 @@ export async function generateWinningIdeaSite(input: {
     )
   }
 
+  const debate = db
+    .select({ websiteGenerationId: debateJobs.websiteGenerationId })
+    .from(debateJobs)
+    .where(eq(debateJobs.debateJobId, input.debateJobId))
+    .get()
+  if (!debate) throw new Error("Debate job was not found")
+  const existingWebsiteGeneration = debate.websiteGenerationId === null
+    ? null
+    : db
+        .select({
+          generationId: llmGenerations.llmGenerationId,
+          status: llmGenerations.status,
+          text: llmGenerations.text,
+        })
+        .from(llmGenerations)
+        .where(
+          and(
+            eq(
+              llmGenerations.llmGenerationId,
+              debate.websiteGenerationId,
+            ),
+            eq(llmGenerations.debateJobId, input.debateJobId),
+          ),
+        )
+        .get()
+  if (debate.websiteGenerationId !== null && !existingWebsiteGeneration) {
+    throw new Error("Linked winner website generation was not found")
+  }
+  if (existingWebsiteGeneration?.status === "completed") {
+    if (existingWebsiteGeneration.text === null) {
+      throw new Error("Completed winner website generation has no HTML")
+    }
+    if ((await readIdeaSite(input.winnerIdeaId)) === undefined) {
+      await writeIdeaSite(input.winnerIdeaId, existingWebsiteGeneration.text)
+    }
+    if ((await readIdeaSiteScreenshot(input.winnerIdeaId)) === undefined) {
+      await captureIdeaSiteScreenshotBestEffort(input.winnerIdeaId)
+    }
+    return
+  }
+  const replacedGenerationId = existingWebsiteGeneration?.generationId
+
   await generateIdeaSite({
     userId: input.userId,
     owner: { debateJobId: input.debateJobId },
@@ -244,17 +287,76 @@ export async function generateWinningIdeaSite(input: {
     },
     workflowSignal: input.workflowSignal,
     onRegistered: (generationId, transaction) => {
+      if (replacedGenerationId !== undefined) {
+        const currentLink = transaction
+          .select({ id: debateJobs.debateJobId })
+          .from(debateJobs)
+          .where(
+            and(
+              eq(debateJobs.debateJobId, input.debateJobId),
+              eq(debateJobs.websiteGenerationId, replacedGenerationId),
+            ),
+          )
+          .get()
+        if (!currentLink) {
+          throw new Error("The winner website generation link changed")
+        }
+        const retryableAttempt = transaction
+          .select({ status: llmGenerations.status })
+          .from(llmGenerations)
+          .where(
+            and(
+              eq(llmGenerations.llmGenerationId, replacedGenerationId),
+              eq(llmGenerations.debateJobId, input.debateJobId),
+              inArray(llmGenerations.status, [
+                "running",
+                "failed",
+                "interrupted",
+              ]),
+            ),
+          )
+          .get()
+        if (!retryableAttempt) {
+          throw new Error("The replaced website generation is not retryable")
+        }
+        if (retryableAttempt.status === "running") {
+          const interruption = transaction
+            .update(llmGenerations)
+            .set({
+              status: "interrupted",
+              error: "Interrupted by a server restart",
+              completedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(llmGenerations.llmGenerationId, replacedGenerationId),
+                eq(llmGenerations.status, "running"),
+              ),
+            )
+            .run()
+          if (interruption.changes !== 1) {
+            throw new Error("The stale website generation status changed")
+          }
+        }
+      }
       const result = transaction
         .update(debateJobs)
         .set({ websiteGenerationId: generationId })
         .where(
           and(
             eq(debateJobs.debateJobId, input.debateJobId),
-            isNull(debateJobs.websiteGenerationId),
+            replacedGenerationId === undefined
+              ? isNull(debateJobs.websiteGenerationId)
+              : eq(
+                  debateJobs.websiteGenerationId,
+                  replacedGenerationId,
+                ),
           ),
         )
         .run()
-      if (result.changes !== 1) throw new Error("Running debate was not found")
+      if (result.changes !== 1) {
+        throw new Error("The winner website generation link changed")
+      }
     },
   })
 }

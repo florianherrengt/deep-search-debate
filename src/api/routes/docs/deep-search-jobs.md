@@ -19,6 +19,11 @@ Jobs with a durable terminal state evict that in-memory log and reconstruct
 reducer-compatible state from normalized rows and persisted LLM output. A
 closed log is retained when terminal persistence fails.
 
+Failed or interrupted standalone roots can be resumed under the same job ID.
+The manager reopens the root, reconstructs its durable event prefix, reuses
+completed checkpoints, and retries incomplete work. Idea-owned searches are
+resumed only by their idea or debate root.
+
 ## HTTP contract
 
 Creation and history require a Better Auth session. Creation records the
@@ -109,11 +114,14 @@ timestamps as `{ "deepSearchJob": ... }`. The detail projection also includes
 true only when the owning debate is both public and completed. Standalone and
 private owner-readable jobs report both fields as false. These fields are not
 part of the standalone history response. Detail also includes the derived
-`stopRequested` flag and `canStop`. `canStop` is true only for the authenticated
-owner of a standalone root whose status is `running` and which has no persisted
-stop request. It is false for children, public viewers, terminal jobs, and roots
-already stopping. Owners receive `feedback` in every lifecycle state with the
-current nullable boolean `rating` and derived `hasWrittenFeedback`; this keeps
+`stopRequested` flag, `canStop`, and `canResume`. `canStop` is true only for the
+authenticated owner of a standalone root whose status is `running` and which
+has no persisted stop request. It is false for children, public viewers,
+terminal jobs, and roots already stopping. `canResume` is true only for that
+owner when the standalone root is `failed` or `interrupted`; it is false for
+completed and child jobs and for non-owners. Owners receive `feedback` in every
+lifecycle state with the current nullable boolean `rating` and derived
+`hasWrittenFeedback`; this keeps
 owner authority available when a snapshot fetched while running is later paired
 with replay-derived completion. Anonymous and authenticated public non-owners
 receive `feedback: null`. Written feedback is never returned.
@@ -126,7 +134,7 @@ feedback thumbs.
 
 ### `POST /api/deep-search-jobs/:deepSearchJobId/cancel`
 
-Requests the irreversible stop of an authenticated user's standalone root
+Requests a durable stop of an authenticated user's standalone root
 search. The request is persisted before the manager aborts queued or active
 work. It is valid for the active job to have no live controller—for example,
 after a process restart—in which case the route settles it durably as
@@ -144,11 +152,32 @@ The browser exposes this action only when detail `canStop` is true and requires
 confirmation. After the request persists, history and detail show disabled
 `Stopping…`, suppress active-work indicators, and retain completed output during
 cleanup and after reload. Any job interrupted under an effective Stop request is
-then labeled `Stopped`; a restart interruption without a Stop request remains
+then labeled `Stopped`; an interruption without a Stop request remains
 `Interrupted`. Children and public or foreign viewers never receive the control.
 Completed usage remains charged; stopped in-progress attempts do not debit
 RethinkLoop credits. This is an application credit guarantee, not a claim about
 how an upstream provider bills work it already received.
+
+The Stop ends the current execution rather than deleting its checkpoint. A
+later owner Resume—or the next API startup reconciliation—can reopen it.
+
+### `POST /api/deep-search-jobs/:deepSearchJobId/resume`
+
+Reopens the authenticated owner's failed or interrupted standalone root under
+the same ID. The route also deduplicates an already-running root against its
+live manager entry. It returns `202 Accepted` in both cases:
+
+```json
+{ "status": "running" }
+```
+
+The reopen transaction clears the root's terminal error, completion timestamp,
+and any direct Stop timestamp while preserving its completed checkpoint prefix.
+Unknown and foreign UUIDs return `404`. Idea-owned children and completed roots
+return `409`; descendants must be resumed through their effective root. The
+browser shows `Resume workflow` only when detail `canResume` is true, then
+reconnects the event feed and refreshes the durable snapshot without changing
+the URL or job ID.
 
 ### `PATCH /api/deep-search-jobs/:deepSearchJobId/feedback`
 
@@ -201,8 +230,9 @@ hard round limit promotes the current candidate. Normal completion publishes
 analysis payload contains `facts`, `disagreements`, `gaps`, and `assumptions`;
 all but gaps carry source URL arrays. Ordinary failure publishes `error`, then
 `done`; it may already have published a final-answer stream if terminal
-persistence was the failing boundary. A durable restart interruption publishes
-`interrupted`, then `done`, without `stop-requested`.
+persistence was the failing boundary. An interrupted durable root publishes
+`interrupted`, then `done`; it has `stop-requested` only when an effective root
+Stop caused that interruption.
 
 A standalone root's explicit Stop or an active child's inherited idea/debate
 Stop publishes `stop-requested` after the effective root's durable timestamp commits.
@@ -212,7 +242,7 @@ database-reconstructed feeds both end with exactly one `interrupted`, then
 exactly one `done`, and do not publish an ordinary `error` for either Stop. A
 reconnect while the effective root is still settling replays `stop-requested`;
 after terminal persistence it replays the same stop and terminal suffix.
-Restart interruption remains distinct: it has no stop timestamp, publishes no
+An interruption without a Stop remains distinct: it has no stop timestamp, publishes no
 `stop-requested`, and the browser renders it as `Interrupted`; explicit or
 inherited Stop renders as `Stopped`. A child that completed before the root
 request keeps its normal completed replay without either Stop event.
@@ -228,8 +258,10 @@ separate structured research-analysis generation. Promotion verifies every
 planned query has a completed row, verifies the candidate generation's
 persisted text and the schema-valid analysis, attaches the candidate as the
 job's final answer, and marks the job completed in one transaction.
-Page-summary failures stay attached to their web-page row and fall back to
-search snippets; a query-summary, candidate-answer, research-analysis, or wider
+Page-summary failures stay attached to their web-page row. A standalone search
+keeps the failure as its accepted snippet fallback; an idea-owned search uses
+its persisted strict-quality flag and retries that model-backed summary before
+it can complete. A query-summary, candidate-answer, research-analysis, or wider
 pipeline failure marks the job failed.
 
 Internally, model-backed stages return their stream ID, durable completion, and
@@ -279,12 +311,12 @@ The failure policy is:
 | Web search | Job fails; selection does not start | Parent fails |
 | Result selection | Query and job fail; extraction does not start | Parent fails |
 | Page extraction | Page fails at `extraction`; the query uses its search snippet | Parent accepts the completed child |
-| Page-summary registration or generation | Page fails at `summary`; the query uses its search snippet and the standalone job may complete | Parent rejects the child through its stricter model-generation quality gate |
+| Page-summary registration or generation | Page fails at `summary`; the query uses its search snippet and the standalone job may complete | The strict child fails and retries the summary from persisted extracted content when its root resumes |
 | Query summary | Query and job fail; candidate-answer generation does not start | Parent fails |
 | Candidate answer | Job fails | Parent fails |
 | Structured research analysis | Job fails; candidate is not promoted | Parent fails |
 | Round review | Exploration stops and the current candidate is promoted | Parent accepts the completed child |
-| Terminal database persistence | The live feed emits `error` then `done` and remains retained; restart recovery later interrupts any still-running durable row | Parent fails |
+| Terminal database persistence | The live feed emits `error` then `done` and remains retained; Resume reconciles the still-durable checkpoint | Parent fails until its root is resumed |
 
 An empty validated query list is not a failure. It skips retrieval work for
 that round and asks the candidate-answer agent to answer from the accumulated
@@ -330,10 +362,11 @@ event-to-persistence adapter: events are published only after their owning store
 command commits. Job lifecycle writes remain in `jobLifecycle.ts`.
 
 - `deep_search_jobs` owns request, per-round breadth limits, the hard round
-  limit, lifecycle, timestamps, the final-answer and structured
-  research-analysis generation links, owner feedback, and an optional
-  parent-scoped position for idea-pipeline searches. Feedback is nullable until
-  completion; its text is valid only with a negative rating.
+  limit, the explicit strict-quality policy, lifecycle, timestamps, the
+  final-answer and structured research-analysis generation links, owner
+  feedback, and an optional parent-scoped position for idea-pipeline searches.
+  Feedback is nullable until completion; its text is valid only with a negative
+  rating.
 - The same row owns the generated title and slug used for history and browser
   navigation. They have no update route.
 - `deep_search_rounds` stores one ordered round, links its query-plan and
@@ -350,7 +383,10 @@ command commits. Job lifecycle writes remain in `jobLifecycle.ts`.
   so a retry cannot rewrite replay history or orphan an earlier selected page.
 - `deep_search_web_pages` deduplicates selected URLs within a job, links its
   page-summary generation, and records the product-credit cost of every reported
-  ScrapingAnt attempt for that URL, including unsuccessful attempts.
+  ScrapingAnt attempt for that URL, including unsuccessful attempts. After
+  extraction settles it retains the bounded extracted content until summary
+  success clears it, so a resumed summary retry does not extract or charge the
+  page again.
 - `llm_generations` stores one terminal text/reasoning pair per invocation.
 
 Every workflow generation points back to the deep-search job that created it.
@@ -385,7 +421,13 @@ Fatal cleanup uses the existing failed query/page states and marks every
 nonterminal record plus the job failed with one root error and completion
 timestamp.
 
-On API startup, orphaned running jobs, LLM generations, round reviews, queries,
-and web pages are converted to typed interrupted or failed terminal states
-because external provider/search work cannot be resumed after a process
-restart.
+On API startup, every non-completed standalone search is scheduled as an
+effective root. Idea-owned searches are reached only through their parent. The
+pipeline reconstructs its normalized checkpoint graph, reuses completed stage
+output, and retries only incomplete provider or model work. A failed or
+interrupted generation link is replaced by compare-and-swap; if the linked
+attempt was still `running` when the process died, its interruption and exact
+link replacement occur in the new generation's registration transaction.
+Completed generations and settled credit charges are reused rather than run or
+debited again. A synchronous root reset or scheduling failure aborts server
+startup.

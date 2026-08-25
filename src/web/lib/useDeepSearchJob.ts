@@ -38,6 +38,7 @@ export function DeepSearchJobStreamProvider({
 export function useDeepSearchJob(
   deepSearchJobId: string,
   onTerminal?: () => void,
+  reconnectKey = 0,
 ) {
   const subscribe = use(DeepSearchJobStreamContext)
   const [state, dispatch] = useReducer(
@@ -79,7 +80,7 @@ export function useDeepSearchJob(
     })
 
     return () => controller.abort()
-  }, [deepSearchJobId, onTerminal, subscribe])
+  }, [deepSearchJobId, onTerminal, reconnectKey, subscribe])
 
   return { ...state, subscriptionError }
 }

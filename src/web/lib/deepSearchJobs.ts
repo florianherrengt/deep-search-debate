@@ -154,6 +154,7 @@ const deepSearchJobsResponseSchema = z.object({
   deepSearchJobs: z.array(deepSearchJobListItemSchema),
 })
 const deepSearchJobDetailSchema = deepSearchJobSchema.extend({
+  canResume: z.boolean(),
   canStop: z.boolean(),
   creditsUsed: z.number().int().nonnegative().nullable(),
   feedback: resultFeedbackSchema.nullable(),

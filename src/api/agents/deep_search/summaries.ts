@@ -88,7 +88,10 @@ type StartPageSummaryInput = TextGenerationPersistenceCallbacks & {
   deepSearchJobId: string
   researchRequest: string
   url: string
-  onExtractionSettled?: (creditsUsed: number) => void
+  onExtractionSettled?: (settlement: {
+    content: string
+    creditsUsed: number
+  }) => void
   workflowSignal?: AbortSignal
 }
 
@@ -143,16 +146,17 @@ export async function startPageSummary(
 ): Promise<PageSummaryStart> {
   const extraction = await extractPage(params)
   if (extraction.status === "failed") {
-    // Product policy: failed provider calls are not charged to the user, even
-    // when the provider reports that it consumed credits for the attempt.
-    params.onExtractionSettled?.(0)
     return {
       status: "failed",
       stage: "extraction",
       message: extraction.message,
     }
   }
-  params.onExtractionSettled?.(extraction.creditsUsed)
+  const content = fitPageContent(extraction.content)
+  params.onExtractionSettled?.({
+    content,
+    creditsUsed: extraction.creditsUsed,
+  })
 
   try {
     const generation = await summarizePage({
@@ -160,7 +164,7 @@ export async function startPageSummary(
       deepSearchJobId: params.deepSearchJobId,
       researchRequest: params.researchRequest,
       url: params.url,
-      content: extraction.content,
+      content,
       workflowSignal: params.workflowSignal,
       ...(params.onRegistered ? { onRegistered: params.onRegistered } : {}),
       ...(params.onCompleted ? { onCompleted: params.onCompleted } : {}),

@@ -109,6 +109,7 @@ table deep_search_jobs {
   max_searches integer [not null]
   max_results_per_search integer [not null]
   max_rounds integer [not null, default: 3]
+  strict_quality integer [not null]
   final_answer_generation_id text [unique]
   research_analysis_generation_id text [unique]
   status text [not null, default: 'running']
@@ -124,6 +125,7 @@ table deep_search_jobs {
     slug [name: 'deep_search_jobs_slug_idx', unique]
     (deep_search_job_id, user_id) [name: 'deep_search_jobs_id_user_id_idx', unique]
     (idea_job_id, idea_job_position) [name: 'deep_search_jobs_idea_job_position_idx', unique]
+
 
 
 
@@ -210,6 +212,7 @@ table deep_search_web_pages {
   url text [not null]
   credits_used integer
   status text [not null, default: 'pending']
+  extracted_content text
   summary_generation_id text
   error_stage text
   error_message text
@@ -219,6 +222,7 @@ table deep_search_web_pages {
   indexes {
     (deep_search_job_id, url) [name: 'deep_search_web_pages_job_url_idx', unique]
     summary_generation_id [name: 'deep_search_web_pages_summary_generation_id_idx']
+
 
 
 
@@ -237,6 +241,9 @@ table idea_jobs {
   stage text [not null, default: 'planning']
   number_of_ideas integer [not null]
   deep_search_count integer [not null]
+  max_searches integer [not null]
+  max_results_per_search integer [not null]
+  max_rounds integer [not null]
   research_prompt_generation_id text [unique]
   research_summary_generation_id text [unique]
   idea_generation_id text [unique]

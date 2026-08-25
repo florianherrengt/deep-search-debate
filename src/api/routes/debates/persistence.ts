@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { and, eq, isNull } from "drizzle-orm"
+import { and, asc, eq, inArray, isNull } from "drizzle-orm"
 
 import { db } from "../../db/index.ts"
 import {
@@ -26,6 +26,253 @@ type CreatedMatch = {
   position: number
   firstIdeaId: string
   secondIdeaId: string
+}
+
+type PersistedDebateGeneration = {
+  generationId: string
+  status: "running" | "completed" | "failed" | "interrupted"
+  text: string | null
+  error: string | null
+}
+
+type PersistedDebateMessage = {
+  debateMessageId: string
+  position: number
+  speakerSlot: 0 | 1 | 2
+  generation: PersistedDebateGeneration
+}
+
+export type PersistedDebateMatch = CreatedMatch & {
+  winnerIdeaId: string | null
+  completedAt: Date | null
+  messages: PersistedDebateMessage[]
+}
+
+type PersistedDebateRound = {
+  debateRoundId: string
+  stage: DebateRoundStage
+  stageRoundNumber: number
+  matches: PersistedDebateMatch[]
+}
+
+export type DebateExecutionSnapshot = {
+  debate: typeof debateJobs.$inferSelect
+  ideaJob: typeof ideaJobs.$inferSelect
+  selectedIdeas: (typeof ideas.$inferSelect)[]
+  rounds: PersistedDebateRound[]
+  websiteGeneration: PersistedDebateGeneration | null
+}
+
+const stageOrder = { swiss: 0, semifinal: 1, final: 2 } as const
+
+function toPersistedGeneration(
+  generation: typeof llmGenerations.$inferSelect,
+): PersistedDebateGeneration {
+  return {
+    generationId: generation.llmGenerationId,
+    status: generation.status,
+    text: generation.text,
+    error: generation.error,
+  }
+}
+
+/** Loads the complete durable checkpoint graph for one debate execution. */
+export function loadDebateExecutionSnapshot(
+  debateJobId: string,
+): DebateExecutionSnapshot | undefined {
+  const debate = db
+    .select()
+    .from(debateJobs)
+    .where(eq(debateJobs.debateJobId, debateJobId))
+    .get()
+  if (!debate) return
+  const ideaJob = db
+    .select()
+    .from(ideaJobs)
+    .where(eq(ideaJobs.debateJobId, debateJobId))
+    .get()
+  if (!ideaJob) throw new Error("Debate job has no owned idea job")
+
+  const selectedIdeas = db
+    .select()
+    .from(ideas)
+    .where(
+      and(
+        eq(ideas.ideaJobId, ideaJob.ideaJobId),
+        eq(ideas.selected, true),
+      ),
+    )
+    .orderBy(asc(ideas.position), asc(ideas.ideaId))
+    .all()
+  const roundRows = db
+    .select()
+    .from(debateRounds)
+    .where(eq(debateRounds.debateJobId, debateJobId))
+    .all()
+    .sort(
+      (first, second) =>
+        stageOrder[first.stage] - stageOrder[second.stage] ||
+        first.stageRoundNumber - second.stageRoundNumber ||
+        first.debateRoundId.localeCompare(second.debateRoundId),
+    )
+  const roundIds = roundRows.map(({ debateRoundId }) => debateRoundId)
+  const matchRows = roundIds.length === 0
+    ? []
+    : db
+        .select()
+        .from(debateMatches)
+        .where(inArray(debateMatches.debateRoundId, roundIds))
+        .orderBy(
+          asc(debateMatches.debateRoundId),
+          asc(debateMatches.position),
+          asc(debateMatches.debateMatchId),
+        )
+        .all()
+  const matchIds = matchRows.map(({ debateMatchId }) => debateMatchId)
+  const messageRows = matchIds.length === 0
+    ? []
+    : db
+        .select({
+          debateMessageId: debateMessages.debateMessageId,
+          debateMatchId: debateMessages.debateMatchId,
+          position: debateMessages.position,
+          speakerSlot: debateMessages.speakerSlot,
+          generation: llmGenerations,
+        })
+        .from(debateMessages)
+        .innerJoin(
+          llmGenerations,
+          eq(debateMessages.llmGenerationId, llmGenerations.llmGenerationId),
+        )
+        .where(inArray(debateMessages.debateMatchId, matchIds))
+        .orderBy(
+          asc(debateMessages.debateMatchId),
+          asc(debateMessages.position),
+          asc(debateMessages.debateMessageId),
+        )
+        .all()
+
+  const messagesByMatch = new Map<string, PersistedDebateMessage[]>()
+  for (const message of messageRows) {
+    if (
+      message.speakerSlot !== 0 &&
+      message.speakerSlot !== 1 &&
+      message.speakerSlot !== 2
+    ) {
+      throw new Error(
+        `Debate message ${message.debateMessageId} has an invalid speaker`,
+      )
+    }
+    const messages = messagesByMatch.get(message.debateMatchId) ?? []
+    messages.push({
+      debateMessageId: message.debateMessageId,
+      position: message.position,
+      speakerSlot: message.speakerSlot,
+      generation: toPersistedGeneration(message.generation),
+    })
+    messagesByMatch.set(message.debateMatchId, messages)
+  }
+  const matchesByRound = new Map<string, PersistedDebateMatch[]>()
+  for (const match of matchRows) {
+    const matches = matchesByRound.get(match.debateRoundId) ?? []
+    matches.push({
+      debateMatchId: match.debateMatchId,
+      position: match.position,
+      firstIdeaId: match.firstIdeaId,
+      secondIdeaId: match.secondIdeaId,
+      winnerIdeaId: match.winnerIdeaId,
+      completedAt: match.completedAt,
+      messages: messagesByMatch.get(match.debateMatchId) ?? [],
+    })
+    matchesByRound.set(match.debateRoundId, matches)
+  }
+
+  const websiteGeneration = debate.websiteGenerationId === null
+    ? null
+    : db
+        .select()
+        .from(llmGenerations)
+        .where(
+          eq(
+            llmGenerations.llmGenerationId,
+            debate.websiteGenerationId,
+          ),
+        )
+        .get()
+  if (debate.websiteGenerationId !== null && !websiteGeneration) {
+    throw new Error("Linked winner website generation was not found")
+  }
+
+  return {
+    debate,
+    ideaJob,
+    selectedIdeas,
+    rounds: roundRows.map((round) => ({
+      debateRoundId: round.debateRoundId,
+      stage: round.stage,
+      stageRoundNumber: round.stageRoundNumber,
+      matches: matchesByRound.get(round.debateRoundId) ?? [],
+    })),
+    websiteGeneration: websiteGeneration
+      ? toPersistedGeneration(websiteGeneration)
+      : null,
+  }
+}
+
+export function loadDebateMatch(
+  debateMatchId: string,
+): PersistedDebateMatch | undefined {
+  const match = db
+    .select({
+      debateJobId: debateRounds.debateJobId,
+      debateMatchId: debateMatches.debateMatchId,
+      position: debateMatches.position,
+      firstIdeaId: debateMatches.firstIdeaId,
+      secondIdeaId: debateMatches.secondIdeaId,
+      winnerIdeaId: debateMatches.winnerIdeaId,
+      completedAt: debateMatches.completedAt,
+    })
+    .from(debateMatches)
+    .innerJoin(
+      debateRounds,
+      eq(debateMatches.debateRoundId, debateRounds.debateRoundId),
+    )
+    .where(eq(debateMatches.debateMatchId, debateMatchId))
+    .get()
+  if (!match) return
+  const messages = db
+    .select({
+      debateMessageId: debateMessages.debateMessageId,
+      position: debateMessages.position,
+      speakerSlot: debateMessages.speakerSlot,
+      generation: llmGenerations,
+    })
+    .from(debateMessages)
+    .innerJoin(
+      llmGenerations,
+      eq(debateMessages.llmGenerationId, llmGenerations.llmGenerationId),
+    )
+    .where(eq(debateMessages.debateMatchId, debateMatchId))
+    .orderBy(asc(debateMessages.position), asc(debateMessages.debateMessageId))
+    .all()
+    .map((message): PersistedDebateMessage => {
+      if (
+        message.speakerSlot !== 0 &&
+        message.speakerSlot !== 1 &&
+        message.speakerSlot !== 2
+      ) {
+        throw new Error(
+          `Debate message ${message.debateMessageId} has an invalid speaker`,
+        )
+      }
+      return {
+        debateMessageId: message.debateMessageId,
+        position: message.position,
+        speakerSlot: message.speakerSlot,
+        generation: toPersistedGeneration(message.generation),
+      }
+    })
+  return { ...match, messages }
 }
 
 function assertDebateActive(
@@ -215,7 +462,7 @@ export function createDebateRound(input: {
       .where(eq(debateJobs.debateJobId, input.debateJobId))
       .get()
     if (!job) throw new Error("Debate job was not found")
-    if (job.status !== "running" || job.stage !== input.stage) {
+    if (job.status !== "running") {
       throw new Error(`Debate job is not running the ${input.stage} stage`)
     }
     const admittedIdeas = new Set(
@@ -245,6 +492,49 @@ export function createDebateRound(input: {
     }
     if (participantIds.some((ideaId) => !admittedIdeas.has(ideaId))) {
       throw new Error("Every match idea must be selected for this debate")
+    }
+
+    const existingRound = transaction
+      .select({ debateRoundId: debateRounds.debateRoundId })
+      .from(debateRounds)
+      .where(
+        and(
+          eq(debateRounds.debateJobId, input.debateJobId),
+          eq(debateRounds.stage, input.stage),
+          eq(debateRounds.stageRoundNumber, input.stageRoundNumber),
+        ),
+      )
+      .get()
+    if (existingRound) {
+      const existingMatches = transaction
+        .select({
+          debateMatchId: debateMatches.debateMatchId,
+          position: debateMatches.position,
+          firstIdeaId: debateMatches.firstIdeaId,
+          secondIdeaId: debateMatches.secondIdeaId,
+        })
+        .from(debateMatches)
+        .where(eq(debateMatches.debateRoundId, existingRound.debateRoundId))
+        .orderBy(asc(debateMatches.position), asc(debateMatches.debateMatchId))
+        .all()
+      const pairingsMatch =
+        existingMatches.length === input.pairs.length &&
+        existingMatches.every(
+          (match, position) =>
+            match.position === position &&
+            match.firstIdeaId === input.pairs[position]?.[0] &&
+            match.secondIdeaId === input.pairs[position]?.[1],
+        )
+      if (!pairingsMatch) {
+        throw new Error(
+          `Persisted ${input.stage} round pairings do not match recomputation`,
+        )
+      }
+      return existingMatches
+    }
+
+    if (job.stage !== input.stage) {
+      throw new Error(`Debate job is not running the ${input.stage} stage`)
     }
 
     validatePriorRounds(
@@ -319,7 +609,7 @@ export function createDebateRound(input: {
 export function createAgentMessage(input: {
   debateMatchId: string
   position: number
-  speakerSlot: 0 | 1
+  speakerSlot: 0 | 1 | 2
   llmGenerationId: string
 }, transaction: TextStreamPersistenceTransaction): void {
   requireActiveMatch(transaction, input.debateMatchId)
@@ -334,7 +624,7 @@ export function createAgentMessage(input: {
     .run()
 }
 
-/** Repoints only the exact failed `other` attempt that authorized a retry. */
+/** Interrupts a stale attempt and repoints only its exact durable message link. */
 export function replaceFailedAgentMessageGeneration(input: {
   debateMatchId: string
   position: number
@@ -347,19 +637,60 @@ export function replaceFailedAgentMessageGeneration(input: {
     input.debateMatchId,
     input.retryGenerationId,
   )
-  const failedAttempt = transaction
-    .select({ llmGenerationId: llmGenerations.llmGenerationId })
+  assertGenerationOwnedByMatch(
+    transaction,
+    input.debateMatchId,
+    input.failedGenerationId,
+  )
+  const linkedAttempt = transaction
+    .select({ id: debateMessages.debateMessageId })
+    .from(debateMessages)
+    .where(
+      and(
+        eq(debateMessages.debateMatchId, input.debateMatchId),
+        eq(debateMessages.position, input.position),
+        eq(debateMessages.llmGenerationId, input.failedGenerationId),
+      ),
+    )
+    .get()
+  if (!linkedAttempt) {
+    throw new Error("The failed debate message generation link changed")
+  }
+  const retryableAttempt = transaction
+    .select({ status: llmGenerations.status })
     .from(llmGenerations)
     .where(
       and(
         eq(llmGenerations.llmGenerationId, input.failedGenerationId),
-        eq(llmGenerations.status, "failed"),
-        eq(llmGenerations.finishReason, "other"),
+        inArray(llmGenerations.status, [
+          "running",
+          "failed",
+          "interrupted",
+        ]),
       ),
     )
     .get()
-  if (!failedAttempt) {
-    throw new Error("The replaced generation is not a failed other finish")
+  if (!retryableAttempt) {
+    throw new Error("The replaced generation is not retryable")
+  }
+  if (retryableAttempt.status === "running") {
+    const interruption = transaction
+      .update(llmGenerations)
+      .set({
+        status: "interrupted",
+        error: "Interrupted by a server restart",
+        completedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(llmGenerations.llmGenerationId, input.failedGenerationId),
+          eq(llmGenerations.status, "running"),
+        ),
+      )
+      .run()
+    if (interruption.changes !== 1) {
+      throw new Error("The stale debate generation status changed")
+    }
   }
   const replacement = transaction
     .update(debateMessages)
@@ -377,7 +708,7 @@ export function replaceFailedAgentMessageGeneration(input: {
   }
 }
 
-/** Adds the judge link and machine result to the generation's terminal transaction. */
+/** Commits the durable verdict and machine result in the terminal transaction. */
 export function completeDebateMatch(input: {
   debateMatchId: string
   winnerIdeaId: string
@@ -395,16 +726,21 @@ export function completeDebateMatch(input: {
     input.debateMatchId,
     input.judgeGenerationId,
   )
-  transaction
-    .insert(debateMessages)
-    .values({
-      debateMessageId: randomUUID(),
-      debateMatchId: input.debateMatchId,
-      position: 4,
-      speakerSlot: 2,
-      llmGenerationId: input.judgeGenerationId,
-    })
-    .run()
+  const currentJudge = transaction
+    .select({ llmGenerationId: debateMessages.llmGenerationId })
+    .from(debateMessages)
+    .where(
+      and(
+        eq(debateMessages.debateMatchId, input.debateMatchId),
+        eq(debateMessages.position, 4),
+        eq(debateMessages.speakerSlot, 2),
+        eq(debateMessages.llmGenerationId, input.judgeGenerationId),
+      ),
+    )
+    .get()
+  if (!currentJudge) {
+    throw new Error("The judge generation link changed before completion")
+  }
   const completion = transaction
     .update(debateMatches)
     .set({ winnerIdeaId: input.winnerIdeaId, completedAt: new Date() })

@@ -127,6 +127,7 @@ describe("root research admission", () => {
             researchRequest: "Research this",
             maxSearches: 1,
             maxResultsPerSearch: 1,
+            strictQuality: false,
           }),
         ),
       )

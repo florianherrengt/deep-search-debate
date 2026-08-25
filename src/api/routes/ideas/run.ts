@@ -41,8 +41,11 @@ import {
   failIdeaJob,
   insertIdeaBatch,
   interruptIdeaJob,
+  loadIdeaExecutionSnapshot,
+  setIdeaGeneration,
   setIdeaJobGeneration,
   setIdeaJobStage,
+  type PersistedIdeaGeneration,
   type PersistedIdea,
 } from "./jobLifecycle.ts"
 import {
@@ -60,7 +63,7 @@ type RunIdeaJobInput = {
   deepSearchCount: number
   maxSearches: number
   maxResultsPerSearch: number
-  maxRounds?: number
+  maxRounds: number
   job: LiveIdeaJob
   deepSearchManager: DeepSearchJobManager
   workflowSignal?: AbortSignal
@@ -295,12 +298,43 @@ function setGenerationId(
     | "ideaGenerationId"
     | "selectionGenerationId",
   id: string,
+  expectedGenerationId: string | null,
 ): void {
   setIdeaJobGeneration(transaction, {
     ideaJobId,
     field,
     generationId: id,
+    expectedGenerationId,
   })
+}
+
+function getCompletedGenerationText(
+  generation: PersistedIdeaGeneration,
+  stage: string,
+): string {
+  if (generation.status !== "completed") {
+    throw new Error(`${stage} generation is not completed`)
+  }
+  if (!generation.text?.trim()) {
+    throw new Error(`${stage} generation has no persisted output`)
+  }
+  return generation.text
+}
+
+function parsePersistedArray<Element>(
+  generation: PersistedIdeaGeneration,
+  stage: string,
+  element: z.ZodType<Element>,
+): Element[] {
+  return z
+    .object({ elements: z.array(element) })
+    .parse(JSON.parse(getCompletedGenerationText(generation, stage))).elements
+}
+
+function loadSnapshot(ideaJobId: string) {
+  const snapshot = loadIdeaExecutionSnapshot(ideaJobId)
+  if (!snapshot) throw new Error("Idea job was not found")
+  return snapshot
 }
 
 async function publishStartedGeneration(
@@ -355,9 +389,31 @@ function unwrapSettled<Value>(
   })
 }
 
-async function generateResearchPrompts(
+function validateResearchPrompts(
+  prompts: ResearchPrompt[],
+  expectedCount: number,
+): ResearchPrompt[] {
+  if (prompts.length !== expectedCount) {
+    throw new Error(
+      `Expected ${expectedCount} research prompts, received ${prompts.length}`,
+    )
+  }
+  if (new Set(prompts.map(({ prompt }) => prompt)).size !== prompts.length) {
+    throw new Error("Research prompts must be distinct")
+  }
+  return prompts
+}
+
+async function ensureResearchPrompts(
   input: RunIdeaJobInput,
 ): Promise<ResearchPrompt[]> {
+  const checkpoint = loadSnapshot(input.ideaJobId).researchPromptGeneration
+  if (checkpoint?.status === "completed") {
+    return validateResearchPrompts(
+      parsePersistedArray(checkpoint, "Planning", researchPromptSchema),
+      input.deepSearchCount,
+    )
+  }
   const generation = await generateArrayStream({
     userId: input.userId,
     owner: { ideaJobId: input.ideaJobId },
@@ -372,7 +428,11 @@ async function generateResearchPrompts(
         input.ideaJobId,
         "researchPromptGenerationId",
         generationId,
+        checkpoint?.generationId ?? null,
       )
+    },
+    onCompleted: ({ output }) => {
+      validateResearchPrompts(output, input.deepSearchCount)
     },
   })
   await publishStartedGeneration(generation, () => {
@@ -382,16 +442,10 @@ async function generateResearchPrompts(
     })
   })
 
-  const prompts = await awaitGenerationOutput(generation, generation.output)
-  if (prompts.length !== input.deepSearchCount) {
-    throw new Error(
-      `Expected ${input.deepSearchCount} research prompts, received ${prompts.length}`,
-    )
-  }
-  if (new Set(prompts.map(({ prompt }) => prompt)).size !== prompts.length) {
-    throw new Error("Research prompts must be distinct")
-  }
-  return prompts
+  return validateResearchPrompts(
+    await awaitGenerationOutput(generation, generation.output),
+    input.deepSearchCount,
+  )
 }
 
 function runResearchEffect(
@@ -399,25 +453,55 @@ function runResearchEffect(
   prompts: ResearchPrompt[],
 ): Effect.Effect<string[], WorkflowFailure> {
   return Effect.gen(function*() {
-    // All child rows are launched before any completion is awaited. Result
-    // mode then keeps every successfully launched child joined to the parent.
+    const childrenByPosition = new Map(
+      loadSnapshot(input.ideaJobId).children.map((child) => [
+        child.position,
+        child,
+      ]),
+    )
     const starts = yield* settleEffects(
       prompts.map(({ title, prompt: researchRequest }, ideaJobPosition) =>
         workflowEffect(() => {
+          const existing = childrenByPosition.get(ideaJobPosition)
+          if (existing?.status === "completed") {
+            if (!existing.finalAnswer?.trim()) {
+              throw new Error("Completed idea research has no final answer")
+            }
+            return {
+              deepSearchJobId: existing.deepSearchJobId,
+              title: existing.title,
+              slug: existing.slug,
+              completion: Promise.resolve(existing.finalAnswer),
+              publishStarted: false,
+            }
+          }
+          if (existing) {
+            const resumed = input.deepSearchManager.resumeExisting(
+              existing.deepSearchJobId,
+              input.workflowSignal
+                ? { workflowSignal: input.workflowSignal }
+                : undefined,
+            )
+            return { ...resumed, publishStarted: false }
+          }
           const childInput = {
             title,
             researchRequest,
             maxSearches: input.maxSearches,
             maxResultsPerSearch: input.maxResultsPerSearch,
-            maxRounds: input.maxRounds ?? 3,
+            maxRounds: input.maxRounds,
             ideaJobId: input.ideaJobId,
             ideaJobPosition,
           }
-          return input.workflowSignal
+          const started = input.workflowSignal
             ? input.deepSearchManager.start(input.userId, childInput, {
                 workflowSignal: input.workflowSignal,
               })
             : input.deepSearchManager.start(input.userId, childInput)
+          return Promise.resolve(started).then((search) => ({
+            ...search,
+            publishStarted: true,
+          }))
         }, "Starting idea research failed"),
       ),
     )
@@ -425,6 +509,7 @@ function runResearchEffect(
     starts.forEach((started, index) => {
       if (Result.isFailure(started)) return
       const search = started.success
+      if (!search.publishStarted) return
       try {
         input.job.publish({
           type: "deep-search-started",
@@ -441,13 +526,10 @@ function runResearchEffect(
       starts.map((started) =>
         Result.isFailure(started)
           ? Effect.fail(started.failure)
-          : workflowEffect(async () => {
-              const value = await started.success.completion
-              input.deepSearchManager.requireParentQualityAcceptance(
-                started.success.deepSearchJobId,
-              )
-              return value
-            }, "Idea research failed"),
+          : workflowEffect(
+              () => started.success.completion,
+              "Idea research failed",
+            ),
       ),
     )
     if (publicationErrors.length > 0) {
@@ -466,10 +548,14 @@ function runResearchEffect(
   })
 }
 
-async function summarizeResearch(
+async function ensureResearchSummary(
   input: RunIdeaJobInput,
   research: string[],
 ): Promise<string> {
+  const checkpoint = loadSnapshot(input.ideaJobId).researchSummaryGeneration
+  if (checkpoint?.status === "completed") {
+    return getCompletedGenerationText(checkpoint, "Research summary")
+  }
   // Only the child jobs' final answer texts enter this call. Their intermediate
   // pages and source records remain available through the nested job views.
   const generation = await generateTextStream({
@@ -486,6 +572,7 @@ async function summarizeResearch(
         input.ideaJobId,
         "researchSummaryGenerationId",
         generationId,
+        checkpoint?.generationId ?? null,
       )
     },
   })
@@ -498,10 +585,49 @@ async function summarizeResearch(
   return awaitGenerationText(generation)
 }
 
-async function generateIdeas(
+function validateGeneratedIdeas(
+  generated: Idea[],
+  expectedCount: number,
+): Idea[] {
+  if (generated.length !== expectedCount) {
+    throw new Error(
+      `Expected ${expectedCount} ideas, received ${generated.length}`,
+    )
+  }
+  return generated
+}
+
+function assertPersistedIdeasMatch(
+  persisted: PersistedIdea[],
+  generated: Idea[],
+): void {
+  if (
+    persisted.length !== generated.length ||
+    persisted.some(
+      (idea, position) =>
+        idea.position !== position ||
+        idea.title !== generated[position]?.title ||
+        idea.description !== generated[position]?.description,
+    )
+  ) {
+    throw new Error("Persisted ideas conflict with completed generation output")
+  }
+}
+
+async function ensureIdeas(
   input: RunIdeaJobInput,
   researchSummary: string,
-): Promise<Idea[]> {
+): Promise<{ ideas: PersistedIdea[]; publish: boolean }> {
+  const before = loadSnapshot(input.ideaJobId)
+  const checkpoint = before.ideaGeneration
+  if (checkpoint?.status === "completed") {
+    const generated = validateGeneratedIdeas(
+      parsePersistedArray(checkpoint, "Idea", ideaSchema),
+      input.numberOfIdeas,
+    )
+    assertPersistedIdeasMatch(before.ideas, generated)
+    return { ideas: before.ideas, publish: false }
+  }
   const generation = await generateArrayStream({
     userId: input.userId,
     owner: { ideaJobId: input.ideaJobId },
@@ -520,6 +646,14 @@ async function generateIdeas(
         input.ideaJobId,
         "ideaGenerationId",
         generationId,
+        checkpoint?.generationId ?? null,
+      )
+    },
+    onCompleted: ({ output }, transaction) => {
+      insertIdeaBatch(
+        transaction,
+        input.ideaJobId,
+        validateGeneratedIdeas(output, input.numberOfIdeas),
       )
     },
   })
@@ -530,21 +664,20 @@ async function generateIdeas(
     })
   })
 
-  const ideas = await awaitGenerationOutput(generation, generation.output)
-  if (ideas.length !== input.numberOfIdeas) {
-    throw new Error(
-      `Expected ${input.numberOfIdeas} ideas, received ${ideas.length}`,
-    )
-  }
+  const generated = validateGeneratedIdeas(
+    await awaitGenerationOutput(generation, generation.output),
+    input.numberOfIdeas,
+  )
   // Deliberate tradeoff: distinctness remains a prompt-level quality target.
   // Rejecting duplicates needs a product definition of whether equality means
   // identical fields, matching titles, or semantic similarity.
-  return ideas
+  const persisted = loadSnapshot(input.ideaJobId).ideas
+  assertPersistedIdeasMatch(persisted, generated)
+  return { ideas: persisted, publish: true }
 }
 
-function persistIdeas(input: RunIdeaJobInput, ideas: Idea[]): PersistedIdea[] {
-  const persistedIdeas = insertIdeaBatch(input.ideaJobId, ideas)
-  for (const idea of persistedIdeas) {
+function publishIdeas(input: RunIdeaJobInput, ideas: PersistedIdea[]): void {
+  for (const idea of ideas) {
     input.job.publish({
       type: "idea",
       ideaId: idea.ideaId,
@@ -552,7 +685,6 @@ function persistIdeas(input: RunIdeaJobInput, ideas: Idea[]): PersistedIdea[] {
       description: idea.description,
     })
   }
-  return persistedIdeas
 }
 
 async function evaluateIdea(
@@ -560,6 +692,14 @@ async function evaluateIdea(
   researchSummary: string,
   idea: ResearchedRefinedIdea,
 ): Promise<IdeaEvaluation> {
+  const checkpoint = loadSnapshot(input.ideaJobId).ideas.find(
+    ({ ideaId }) => ideaId === idea.ideaId,
+  )?.evaluationGeneration
+  if (checkpoint?.status === "completed") {
+    return ideaEvaluationSchema.parse(
+      JSON.parse(getCompletedGenerationText(checkpoint, "Idea evaluation")),
+    )
+  }
   const generation = await generateObjectStream({
     userId: input.userId,
     owner: { ideaJobId: input.ideaJobId },
@@ -575,18 +715,13 @@ async function evaluateIdea(
     maxOutputTokens: 1_024,
     workflowSignal: input.workflowSignal,
     onRegistered: (generationId, transaction) => {
-      const result = transaction
-        .update(ideaRecords)
-        .set({ evaluationGenerationId: generationId })
-        .where(
-          and(
-            eq(ideaRecords.ideaId, idea.ideaId),
-            eq(ideaRecords.ideaJobId, input.ideaJobId),
-            isNull(ideaRecords.evaluationGenerationId),
-          ),
-        )
-        .run()
-      if (result.changes !== 1) throw new Error("Generated idea was not found")
+      setIdeaGeneration(transaction, {
+        ideaJobId: input.ideaJobId,
+        ideaId: idea.ideaId,
+        field: "evaluationGenerationId",
+        generationId,
+        expectedGenerationId: checkpoint?.generationId ?? null,
+      })
     },
   })
   const evaluation = await awaitGenerationOutput(
@@ -624,6 +759,26 @@ async function selectIdeas(
   researchSummary: string,
   ideas: PersistedIdea[],
 ): Promise<PersistedIdea[]> {
+  const before = loadSnapshot(input.ideaJobId)
+  const checkpoint = before.selectionGeneration
+  if (checkpoint?.status === "completed") {
+    const proposal = ideaSelectionProposalSchema.parse(
+      JSON.parse(getCompletedGenerationText(checkpoint, "Idea selection")),
+    )
+    const selection = normalizeIdeaSelection(proposal, ideas)
+    const selectedIdeaIds = new Set(selection.selectedIdeaIds)
+    if (before.ideas.some(({ selected }) => selected === null)) {
+      throw new Error("Completed idea selection is not durably applied")
+    }
+    if (
+      before.ideas.some(
+        ({ ideaId, selected }) => selected !== selectedIdeaIds.has(ideaId),
+      )
+    ) {
+      throw new Error("Persisted idea selection conflicts with generation output")
+    }
+    return loadSnapshot(input.ideaJobId).ideas.filter(({ selected }) => selected)
+  }
   const generation = await generateObjectStream({
     userId: input.userId,
     owner: { ideaJobId: input.ideaJobId },
@@ -642,6 +797,7 @@ async function selectIdeas(
         input.ideaJobId,
         "selectionGenerationId",
         generationId,
+        checkpoint?.generationId ?? null,
       )
     },
     onCompleted: ({ output }, transaction) => {
@@ -687,6 +843,36 @@ async function refineIdea(
   researchSummary: string,
   idea: PersistedIdea,
 ): Promise<RefinedIdea> {
+  const persisted = loadSnapshot(input.ideaJobId).ideas.find(
+    ({ ideaId }) => ideaId === idea.ideaId,
+  )
+  if (!persisted) throw new Error("Selected idea was not found")
+  const checkpoint = persisted.refinementGeneration
+  if (checkpoint?.status === "completed") {
+    const refined = ideaSchema.parse(
+      JSON.parse(getCompletedGenerationText(checkpoint, "Idea refinement")),
+    )
+    if (
+      (persisted.refinedTitle === null) !==
+      (persisted.refinedDescription === null)
+    ) {
+      throw new Error("Idea refinement is only partially persisted")
+    }
+    if (persisted.refinedTitle === null) {
+      throw new Error("Completed idea refinement is not durably applied")
+    }
+    if (
+      persisted.refinedTitle !== refined.title ||
+      persisted.refinedDescription !== refined.description
+    ) {
+      throw new Error("Persisted refinement conflicts with generation output")
+    }
+    return {
+      ...persisted,
+      refinedTitle: refined.title,
+      refinedDescription: refined.description,
+    }
+  }
   const generation = await generateObjectStream({
     userId: input.userId,
     owner: { ideaJobId: input.ideaJobId },
@@ -696,19 +882,13 @@ async function refineIdea(
     maxOutputTokens: 2_048,
     workflowSignal: input.workflowSignal,
     onRegistered: (generationId, transaction) => {
-      const result = transaction
-        .update(ideaRecords)
-        .set({ refinementGenerationId: generationId })
-        .where(
-          and(
-            eq(ideaRecords.ideaId, idea.ideaId),
-            eq(ideaRecords.ideaJobId, input.ideaJobId),
-            eq(ideaRecords.selected, true),
-            isNull(ideaRecords.refinementGenerationId),
-          ),
-        )
-        .run()
-      if (result.changes !== 1) throw new Error("Selected idea was not found")
+      setIdeaGeneration(transaction, {
+        ideaJobId: input.ideaJobId,
+        ideaId: idea.ideaId,
+        field: "refinementGenerationId",
+        generationId,
+        expectedGenerationId: checkpoint?.generationId ?? null,
+      })
     },
     onCompleted: ({ id, output }, transaction) => {
       const result = transaction
@@ -771,19 +951,42 @@ function refineIdeasEffect(
   })
 }
 
-async function startRefinedIdeaResearch(
+async function ensureRefinedIdeaResearch(
   input: RunIdeaJobInput,
   idea: RefinedIdea,
 ): ReturnType<DeepSearchJobManager["start"]> {
+  const position = input.deepSearchCount + idea.position
+  const existing = loadSnapshot(input.ideaJobId).children.find(
+    (child) => child.position === position,
+  )
+  if (existing?.status === "completed") {
+    if (!existing.finalAnswer?.trim()) {
+      throw new Error("Completed selected-idea research has no final answer")
+    }
+    return {
+      deepSearchJobId: existing.deepSearchJobId,
+      title: existing.title,
+      slug: existing.slug,
+      completion: Promise.resolve(existing.finalAnswer),
+    }
+  }
+  if (existing) {
+    return input.deepSearchManager.resumeExisting(
+      existing.deepSearchJobId,
+      input.workflowSignal
+        ? { workflowSignal: input.workflowSignal }
+        : undefined,
+    )
+  }
   const researchRequest = buildRefinedIdeaResearchRequest(input.prompt, idea)
   const childInput = {
     title: idea.refinedTitle,
     researchRequest,
     maxSearches: input.maxSearches,
     maxResultsPerSearch: input.maxResultsPerSearch,
-    maxRounds: input.maxRounds ?? 3,
+    maxRounds: input.maxRounds,
     ideaJobId: input.ideaJobId,
-    ideaJobPosition: input.deepSearchCount + idea.position,
+    ideaJobPosition: position,
   }
   const search = await (input.workflowSignal
     ? input.deepSearchManager.start(input.userId, childInput, {
@@ -814,7 +1017,7 @@ function researchRefinedIdeasEffect(
     const starts = yield* settleEffects(
       ideas.map((idea) =>
         workflowEffect(
-          () => startRefinedIdeaResearch(input, idea),
+          () => ensureRefinedIdeaResearch(input, idea),
           "Starting selected-idea research failed",
         ),
       ),
@@ -823,13 +1026,10 @@ function researchRefinedIdeasEffect(
       starts.map((started, index) =>
         Result.isFailure(started)
           ? Effect.fail(started.failure)
-          : workflowEffect(async () => {
-              const supportingResearch = await started.success.completion
-              input.deepSearchManager.requireParentQualityAcceptance(
-                started.success.deepSearchJobId,
-              )
-              return { ...ideas[index], supportingResearch }
-            }, "Selected-idea research failed"),
+          : workflowEffect(async () => ({
+              ...ideas[index],
+              supportingResearch: await started.success.completion,
+            }), "Selected-idea research failed"),
       ),
     )
     return yield* unwrapSettled(completions)
@@ -841,7 +1041,7 @@ function ideaPipelineEffect(
   setEventStage: (stage: IdeaEventStage) => void,
 ): Effect.Effect<void, WorkflowFailure> {
   return Effect.gen(function*() {
-    const prompts = yield* workflowEffect(() => generateResearchPrompts(input))
+    const prompts = yield* workflowEffect(() => ensureResearchPrompts(input))
 
     setEventStage("research")
     yield* workflowEffect(() => setIdeaJobStage(input.ideaJobId, "research"))
@@ -849,16 +1049,17 @@ function ideaPipelineEffect(
 
     setEventStage("summary")
     yield* workflowEffect(() => setIdeaJobStage(input.ideaJobId, "summary"))
-    const summary = yield* workflowEffect(() => summarizeResearch(input, research))
+    const summary = yield* workflowEffect(() =>
+      ensureResearchSummary(input, research),
+    )
 
     setEventStage("ideas")
     yield* workflowEffect(() => setIdeaJobStage(input.ideaJobId, "ideas"))
-    const generatedIdeas = yield* workflowEffect(() =>
-      generateIdeas(input, summary),
-    )
-    const persistedIdeas = yield* workflowEffect(() =>
-      persistIdeas(input, generatedIdeas),
-    )
+    const ensuredIdeas = yield* workflowEffect(() => ensureIdeas(input, summary))
+    if (ensuredIdeas.publish) {
+      yield* workflowEffect(() => publishIdeas(input, ensuredIdeas.ideas))
+    }
+    const persistedIdeas = ensuredIdeas.ideas
 
     setEventStage("selection")
     const selectedIdeas = yield* workflowEffect(() =>
@@ -910,16 +1111,34 @@ function durableIdeaStage(stage: IdeaEventStage): IdeaJobStage {
 
 /** Runs the Effect-owned pipeline and owns the exact terminal event suffix. */
 export async function runIdeaJob(input: RunIdeaJobInput): Promise<void> {
+  let executionInput = input
   let stage: IdeaEventStage = "planning"
   try {
+    const persisted = loadSnapshot(input.ideaJobId)
+    if (persisted.status !== "running") {
+      throw new Error("Idea job must be reopened before execution")
+    }
+    executionInput = {
+      ...input,
+      userId: persisted.userId,
+      prompt: persisted.prompt,
+      numberOfIdeas: persisted.numberOfIdeas,
+      deepSearchCount: persisted.deepSearchCount,
+      maxSearches: persisted.maxSearches,
+      maxResultsPerSearch: persisted.maxResultsPerSearch,
+      maxRounds: persisted.maxRounds,
+    }
     await runWorkflowEffect(
-      ideaPipelineEffect(input, (nextStage) => {
+      ideaPipelineEffect(executionInput, (nextStage) => {
         stage = nextStage
       }),
-      input.workflowSignal,
+      executionInput.workflowSignal,
     )
   } catch (error) {
-    let cancellationReason = getCancellationReason(error, input.workflowSignal)
+    let cancellationReason = getCancellationReason(
+      error,
+      executionInput.workflowSignal,
+    )
     const message = getErrorMessage(error, "Idea generation failed")
     if (!cancellationReason) {
       try {
@@ -927,7 +1146,7 @@ export async function runIdeaJob(input: RunIdeaJobInput): Promise<void> {
       } catch (persistenceError) {
         cancellationReason = getCancellationReason(
           persistenceError,
-          input.workflowSignal,
+          executionInput.workflowSignal,
         )
         if (!cancellationReason) {
           console.error(

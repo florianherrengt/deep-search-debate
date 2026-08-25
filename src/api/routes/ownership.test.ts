@@ -66,21 +66,41 @@ function createApp(viewerUserId: string | null = ownerId): Hono<AppEnv> {
   streamReads(app)
   deepSearchJobReads(app, {
     start: deepSearchStart,
+    resumeExisting: vi.fn(),
     stop: vi.fn(),
-    requireParentQualityAcceptance: vi.fn(),
     getLiveJob: () => undefined,
   })
-  ideaJobReads(app, { start: ideaStart, stop: vi.fn(), getLiveJob: () => undefined })
-  debateJobReads(app, { start: debateStart, stop: vi.fn(), getLiveJob: () => undefined })
+  ideaJobReads(app, {
+    start: ideaStart,
+    resumeExisting: vi.fn(),
+    stop: vi.fn(),
+    getLiveJob: () => undefined,
+  })
+  debateJobReads(app, {
+    start: debateStart,
+    resumeExisting: vi.fn(),
+    stop: vi.fn(),
+    getLiveJob: () => undefined,
+  })
   streams(app)
   deepSearchJobs(app, {
     start: deepSearchStart,
+    resumeExisting: vi.fn(),
     stop: vi.fn(),
-    requireParentQualityAcceptance: vi.fn(),
     getLiveJob: () => undefined,
   })
-  ideaJobs(app, { start: ideaStart, stop: vi.fn(), getLiveJob: () => undefined })
-  debateJobs(app, { start: debateStart, stop: vi.fn(), getLiveJob: () => undefined })
+  ideaJobs(app, {
+    start: ideaStart,
+    resumeExisting: vi.fn(),
+    stop: vi.fn(),
+    getLiveJob: () => undefined,
+  })
+  debateJobs(app, {
+    start: debateStart,
+    resumeExisting: vi.fn(),
+    stop: vi.fn(),
+    getLiveJob: () => undefined,
+  })
   return app
 }
 
@@ -115,6 +135,9 @@ beforeEach(() => {
       prompt: "Foreign ideas",
       numberOfIdeas: 12,
       deepSearchCount: 2,
+      maxSearches: 3,
+      maxResultsPerSearch: 3,
+      maxRounds: 3,
     })
     .run()
   db.insert(deepSearchJobsTable)
@@ -128,6 +151,7 @@ beforeEach(() => {
       researchRequest: "Foreign research",
       maxSearches: 3,
       maxResultsPerSearch: 3,
+      strictQuality: true,
     })
     .run()
   db.insert(llmGenerations)

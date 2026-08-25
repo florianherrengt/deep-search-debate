@@ -38,6 +38,7 @@ function insertDeepSearch(input: {
       researchRequest: "Research cancellation",
       maxSearches: 1,
       maxResultsPerSearch: 1,
+      strictQuality: input.ideaJobId !== undefined,
       status,
       cancelRequestedAt: input.cancelRequestedAt,
       completedAt: status === "running" ? undefined : new Date(),
@@ -61,6 +62,9 @@ function insertIdea(input: {
       prompt: "Generate ideas",
       numberOfIdeas: 6,
       deepSearchCount: 1,
+      maxSearches: 1,
+      maxResultsPerSearch: 1,
+      maxRounds: 3,
     })
     .run()
   return ideaJobId

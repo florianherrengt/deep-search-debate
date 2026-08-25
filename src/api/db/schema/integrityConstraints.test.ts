@@ -27,6 +27,9 @@ function insertIdeaJob(): string {
       prompt: "Generate ideas",
       numberOfIdeas: 1,
       deepSearchCount: 1,
+      maxSearches: 1,
+      maxResultsPerSearch: 1,
+      maxRounds: 1,
     })
     .run()
   return ideaJobId
@@ -42,6 +45,7 @@ function insertDeepSearchJob(): string {
       researchRequest: "Research this",
       maxSearches: 1,
       maxResultsPerSearch: 1,
+      strictQuality: false,
     })
     .run()
   return deepSearchJobId
@@ -98,6 +102,9 @@ describe("aggregate integrity constraints", () => {
         prompt: "First ideas",
         numberOfIdeas: 1,
         deepSearchCount: 1,
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+        maxRounds: 1,
       })
       .run()
     expect(() =>
@@ -110,6 +117,9 @@ describe("aggregate integrity constraints", () => {
           prompt: "Second ideas",
           numberOfIdeas: 1,
           deepSearchCount: 1,
+          maxSearches: 1,
+          maxResultsPerSearch: 1,
+          maxRounds: 1,
         })
         .run(),
     ).toThrow(/UNIQUE constraint failed/)
@@ -123,6 +133,7 @@ describe("aggregate integrity constraints", () => {
         researchRequest: "First search",
         maxSearches: 1,
         maxResultsPerSearch: 1,
+        strictQuality: false,
       })
       .run()
     expect(() =>
@@ -135,6 +146,7 @@ describe("aggregate integrity constraints", () => {
           researchRequest: "Second search",
           maxSearches: 1,
           maxResultsPerSearch: 1,
+          strictQuality: false,
         })
         .run(),
     ).toThrow(/UNIQUE constraint failed/)
@@ -262,6 +274,38 @@ describe("aggregate integrity constraints", () => {
 
     expect(() =>
       db
+        .update(deepSearchRounds)
+        .set({ llmGenerationId: generationIds[2] })
+        .where(
+          and(
+            eq(deepSearchRounds.deepSearchJobId, deepSearchJobId),
+            eq(deepSearchRounds.position, 0),
+          ),
+        )
+        .run(),
+    ).not.toThrow()
+    expect(
+      db
+        .select({ llmGenerationId: deepSearchRounds.llmGenerationId })
+        .from(deepSearchRounds)
+        .where(
+          and(
+            eq(deepSearchRounds.deepSearchJobId, deepSearchJobId),
+            eq(deepSearchRounds.position, 0),
+          ),
+        )
+        .get(),
+    ).toEqual({ llmGenerationId: generationIds[2] })
+    expect(
+      db
+        .select({ llmGenerationId: llmGenerations.llmGenerationId })
+        .from(llmGenerations)
+        .where(eq(llmGenerations.llmGenerationId, generationIds[0]))
+        .get(),
+    ).toEqual({ llmGenerationId: generationIds[0] })
+
+    expect(() =>
+      db
         .insert(deepSearchRounds)
         .values({
           deepSearchRoundId: crypto.randomUUID(),
@@ -298,6 +342,7 @@ describe("aggregate integrity constraints", () => {
           maxSearches: 1,
           maxResultsPerSearch: 1,
           maxRounds: 0,
+          strictQuality: false,
         })
         .run(),
     ).toThrow(/deep_search_jobs_limits_check/)
@@ -376,8 +421,16 @@ describe("aggregate integrity constraints", () => {
   it("allows ideas before evaluation and resolves pipeline links only once", () => {
     const ideaJobId = insertIdeaJob()
     const evaluationGenerationId = crypto.randomUUID()
+    const replacementEvaluationGenerationId = crypto.randomUUID()
     db.insert(llmGenerations)
-      .values({ llmGenerationId: evaluationGenerationId, userId, ideaJobId })
+      .values([
+        { llmGenerationId: evaluationGenerationId, userId, ideaJobId },
+        {
+          llmGenerationId: replacementEvaluationGenerationId,
+          userId,
+          ideaJobId,
+        },
+      ])
       .run()
     const firstIdeaId = crypto.randomUUID()
     const secondIdeaId = crypto.randomUUID()
@@ -429,6 +482,25 @@ describe("aggregate integrity constraints", () => {
         .where(sql`${ideas.ideaId} = ${firstIdeaId}`)
         .run(),
     ).toThrow(/one-time pipeline linkage/)
+
+    db.update(ideas)
+      .set({ evaluationGenerationId: replacementEvaluationGenerationId })
+      .where(sql`${ideas.ideaId} = ${firstIdeaId}`)
+      .run()
+    expect(
+      db
+        .select({ evaluationGenerationId: ideas.evaluationGenerationId })
+        .from(ideas)
+        .where(sql`${ideas.ideaId} = ${firstIdeaId}`)
+        .get(),
+    ).toEqual({ evaluationGenerationId: replacementEvaluationGenerationId })
+    expect(
+      db
+        .select({ llmGenerationId: llmGenerations.llmGenerationId })
+        .from(llmGenerations)
+        .where(eq(llmGenerations.llmGenerationId, evaluationGenerationId))
+        .get(),
+    ).toEqual({ llmGenerationId: evaluationGenerationId })
 
     db.update(ideas)
       .set({ selected: true })
@@ -512,6 +584,10 @@ describe("aggregate integrity constraints", () => {
       .set({ refinementGenerationId: refinementGenerationIds[0] })
       .where(sql`${ideas.ideaId} = ${selectedIdeaId}`)
       .run()
+    db.update(ideas)
+      .set({ refinementGenerationId: refinementGenerationIds[1] })
+      .where(sql`${ideas.ideaId} = ${selectedIdeaId}`)
+      .run()
     expect(() =>
       db
         .update(ideas)
@@ -541,7 +617,7 @@ describe("aggregate integrity constraints", () => {
         .where(sql`${ideas.ideaId} = ${selectedIdeaId}`)
         .get(),
     ).toMatchObject({
-      refinementGenerationId: refinementGenerationIds[0],
+      refinementGenerationId: refinementGenerationIds[1],
       refinedTitle: "Improved selected idea",
       refinedDescription: "Improved selected description",
     })
@@ -557,6 +633,9 @@ describe("aggregate integrity constraints", () => {
           prompt: "   ",
           numberOfIdeas: 1,
           deepSearchCount: 1,
+          maxSearches: 1,
+          maxResultsPerSearch: 1,
+          maxRounds: 1,
         })
         .run(),
     ).toThrow(/idea_jobs_prompt_content_check/)
@@ -570,6 +649,7 @@ describe("aggregate integrity constraints", () => {
           researchRequest: "   ",
           maxSearches: 1,
           maxResultsPerSearch: 1,
+          strictQuality: false,
         })
         .run(),
     ).toThrow(/deep_search_jobs_research_request_content_check/)
@@ -941,17 +1021,52 @@ describe("aggregate integrity constraints", () => {
     expect(() =>
       db
         .update(deepSearchWebPages)
-        .set({ status: "extracting", summaryGenerationId })
+        .set({ status: "summarizing", extractedContent: "x".repeat(100_001) })
+        .where(
+          sql`${deepSearchWebPages.deepSearchWebPageId} = ${deepSearchWebPageId}`,
+        )
+        .run(),
+    ).toThrow(/deep_search_web_pages_extracted_content_check/)
+
+    db.update(deepSearchWebPages)
+      .set({ status: "summarizing", extractedContent: "Extracted evidence" })
+      .where(
+        sql`${deepSearchWebPages.deepSearchWebPageId} = ${deepSearchWebPageId}`,
+      )
+      .run()
+    db.update(deepSearchWebPages)
+      .set({ summaryGenerationId })
+      .where(
+        sql`${deepSearchWebPages.deepSearchWebPageId} = ${deepSearchWebPageId}`,
+      )
+      .run()
+    expect(() =>
+      db
+        .update(deepSearchWebPages)
+        .set({
+          status: "completed",
+          completedAt: new Date(),
+        })
         .where(
           sql`${deepSearchWebPages.deepSearchWebPageId} = ${deepSearchWebPageId}`,
         )
         .run(),
     ).toThrow(/deep_search_web_pages_lifecycle_check/)
+    db.update(deepSearchWebPages)
+      .set({
+        status: "completed",
+        extractedContent: null,
+        completedAt: new Date(),
+      })
+      .where(
+        sql`${deepSearchWebPages.deepSearchWebPageId} = ${deepSearchWebPageId}`,
+      )
+      .run()
 
     expect(() =>
       db
         .update(deepSearchWebPages)
-        .set({ status: "completed", completedAt: new Date() })
+        .set({ status: "extracting", summaryGenerationId })
         .where(
           sql`${deepSearchWebPages.deepSearchWebPageId} = ${deepSearchWebPageId}`,
         )

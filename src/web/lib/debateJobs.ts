@@ -50,6 +50,7 @@ const debateTournamentSchema = z.object({
   isPublic: z.boolean(),
   isOwner: z.boolean(),
   stopRequested: z.boolean(),
+  canResume: z.boolean(),
   canStop: z.boolean(),
   stage: z.enum(["ideas", "swiss", "semifinal", "final"]),
   status: z.enum(["running", "completed", "failed", "interrupted"]),

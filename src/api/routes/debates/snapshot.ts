@@ -71,6 +71,7 @@ export type DebateJobSnapshot = {
   creditsUsed: number | null
   stopRequested: boolean
   canStop: boolean
+  canResume: boolean
   stage: "ideas" | "swiss" | "semifinal" | "final"
   status: "running" | "completed" | "failed" | "interrupted"
   expectedMatchCount: number | null
@@ -209,6 +210,7 @@ export function getDebateJobSnapshot(
             llmGenerationId: debateMessages.llmGenerationId,
             createdAt: debateMessages.createdAt,
             text: llmGenerations.text,
+            generationStatus: llmGenerations.status,
           })
           .from(debateMessages)
           .innerJoin(
@@ -221,6 +223,9 @@ export function getDebateJobSnapshot(
           .where(inArray(debateMessages.debateMatchId, matchIds))
           .all()
 
+  const matchesById = new Map(
+    matchRows.map((match) => [match.debateMatchId, match]),
+  )
   const messagesByMatch = new Map<string, DebateMessageSnapshot[]>()
   for (const message of messageRows) {
     if (
@@ -229,6 +234,15 @@ export function getDebateJobSnapshot(
       message.speakerSlot !== 2
     ) {
       throw new Error(`Debate message ${message.debateMessageId} has an invalid speaker`)
+    }
+    const match = matchesById.get(message.debateMatchId)
+    if (
+      message.speakerSlot === 2 &&
+      (message.generationStatus !== "completed" ||
+        match === undefined ||
+        match.winnerIdeaId === null)
+    ) {
+      continue
     }
     const messages = messagesByMatch.get(message.debateMatchId) ?? []
     messages.push({
@@ -339,6 +353,9 @@ export function getDebateJobSnapshot(
       isOwner &&
       job.status === "running" &&
       job.cancelRequestedAt === null,
+    canResume:
+      isOwner &&
+      (job.status === "failed" || job.status === "interrupted"),
     stage: job.stage,
     status: job.status,
     expectedMatchCount:

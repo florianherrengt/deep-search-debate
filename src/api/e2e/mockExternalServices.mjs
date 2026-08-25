@@ -1,6 +1,7 @@
-import { rmSync } from "node:fs"
+import { createReadStream, rmSync, writeSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { createInterface } from "node:readline"
 import { fileURLToPath } from "node:url"
 import Database from "better-sqlite3"
 import { drizzle } from "drizzle-orm/better-sqlite3"
@@ -8,28 +9,41 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator"
 
 globalThis.AI_SDK_LOG_WARNINGS = false
 
-const databasePath = join(
+const restartControlEnabled = process.env.RETHINKLOOP_RESTART_CONTROL === "1"
+const sharedDatabasePath = restartControlEnabled
+  ? process.env.DATABASE_URL
+  : undefined
+const databasePath = sharedDatabasePath ?? join(
   tmpdir(),
   `rethinkloop-e2e-${process.pid}.db`,
 )
 const databaseFiles = [databasePath, `${databasePath}-shm`, `${databasePath}-wal`]
-for (const path of databaseFiles) rmSync(path, { force: true })
+if (!sharedDatabasePath) {
+  for (const path of databaseFiles) rmSync(path, { force: true })
+}
 
 // Generated idea websites are real files; keep E2E output out of the repo.
-const ideaSitesDir = join(tmpdir(), `rethinkloop-e2e-${process.pid}-idea-sites`)
-rmSync(ideaSitesDir, { force: true, recursive: true })
+const ideaSitesDir = restartControlEnabled && process.env.IDEA_SITES_DIR
+  ? process.env.IDEA_SITES_DIR
+  : join(tmpdir(), `rethinkloop-e2e-${process.pid}-idea-sites`)
+if (!restartControlEnabled) {
+  rmSync(ideaSitesDir, { force: true, recursive: true })
+}
 process.env.IDEA_SITES_DIR = ideaSitesDir
 
-process.env.DATABASE_URL = databasePath
-const sqlite = new Database(databasePath)
-migrate(drizzle(sqlite), {
-  migrationsFolder: fileURLToPath(new URL("../drizzle", import.meta.url)),
-})
-sqlite.close()
+if (!sharedDatabasePath) {
+  process.env.DATABASE_URL = databasePath
+  const sqlite = new Database(databasePath)
+  migrate(drizzle(sqlite), {
+    migrationsFolder: fileURLToPath(new URL("../drizzle", import.meta.url)),
+  })
+  sqlite.close()
+}
 let cleanupComplete = false
 function cleanupTestFiles() {
   if (cleanupComplete) return
   cleanupComplete = true
+  if (restartControlEnabled) return
   for (const path of databaseFiles) rmSync(path, { force: true })
   rmSync(ideaSitesDir, { force: true, recursive: true })
 }
@@ -84,6 +98,238 @@ const debateFailureMarker = "[E2E_FAIL_DEBATE_OPENING:"
 const debateFailureMessage = "Injected debate opening failure"
 const debateFailureCandidateOrdinal = 8
 const debateFailureAttempts = new Map()
+
+const providerOccurrences = new Map()
+const providerReleaseWaiters = new Map()
+const releasedProviderOccurrences = new Set()
+const postCommitOccurrences = new Map()
+const heldProviderOccurrences = restartControlEnabled
+  ? JSON.parse(process.env.RETHINKLOOP_RESTART_HOLD ?? "{}")
+  : {}
+const heldAfterSuccessOccurrences = restartControlEnabled
+  ? JSON.parse(process.env.RETHINKLOOP_RESTART_HOLD_AFTER_SUCCESS ?? "{}")
+  : {}
+const postCommitHold = restartControlEnabled
+  ? JSON.parse(process.env.RETHINKLOOP_RESTART_POST_COMMIT ?? "null")
+  : null
+
+if (restartControlEnabled) {
+  const commands = createInterface({ input: createReadStream(null, { fd: 4 }) })
+  commands.on("line", (line) => {
+    const command = JSON.parse(line)
+    if (command.type !== "release-provider") return
+    const id = `${command.key}#${command.occurrence}`
+    const release = providerReleaseWaiters.get(id)
+    if (release) release()
+    else releasedProviderOccurrences.add(id)
+  })
+}
+
+function reportRestartControl(message) {
+  if (!restartControlEnabled) return
+  writeSync(3, `${JSON.stringify(message)}\n`)
+}
+
+function nextProviderOccurrence(key) {
+  const occurrence = (providerOccurrences.get(key) ?? 0) + 1
+  providerOccurrences.set(key, occurrence)
+  return occurrence
+}
+
+function isHeldProviderOccurrence(key, occurrence) {
+  const configured = heldProviderOccurrences[key]
+  return Array.isArray(configured) && configured.includes(occurrence)
+}
+
+function isHeldAfterSuccessOccurrence(key, occurrence) {
+  const configured = heldAfterSuccessOccurrences[key]
+  return Array.isArray(configured) && configured.includes(occurrence)
+}
+
+async function waitForProviderReleaseOrAbort(
+  request,
+  key,
+  occurrence,
+  type = "provider-held",
+) {
+  reportRestartControl({ type, key, occurrence })
+  await new Promise((resolve, reject) => {
+    const id = `${key}#${occurrence}`
+    const rejectWithAbort = () =>
+      reject(new DOMException("The operation was aborted", "AbortError"))
+    if (request.signal.aborted) {
+      rejectWithAbort()
+      return
+    }
+    if (releasedProviderOccurrences.delete(id)) {
+      resolve()
+      return
+    }
+    providerReleaseWaiters.set(id, resolve)
+    request.signal.addEventListener("abort", rejectWithAbort, { once: true })
+  }).finally(() => {
+    providerReleaseWaiters.delete(`${key}#${occurrence}`)
+  })
+}
+
+async function controlledProviderResponse(request, key, createResponse) {
+  const occurrence = nextProviderOccurrence(key)
+  reportRestartControl({ type: "provider-request", key, occurrence })
+  if (isHeldProviderOccurrence(key, occurrence)) {
+    await waitForProviderReleaseOrAbort(request, key, occurrence)
+  }
+  const response = await createResponse()
+  reportRestartControl({ type: "provider-success", key, occurrence })
+  if (isHeldAfterSuccessOccurrence(key, occurrence)) {
+    await waitForProviderReleaseOrAbort(
+      request,
+      key,
+      occurrence,
+      "provider-success-held",
+    )
+  }
+  return response
+}
+
+function captureCommittedState(database) {
+  return {
+    completedGenerations: new Map(
+      database.prepare(
+        `select llm_generation_id as id, prompt_name as promptName,
+                deep_search_job_id as deepSearchJobId,
+                idea_job_id as ideaJobId, debate_job_id as debateJobId
+         from llm_generations where status = 'completed'`,
+      ).all().map((row) => [row.id, row]),
+    ),
+    completedDeepSearches: new Set(
+      database.prepare(
+        "select deep_search_job_id as id from deep_search_jobs where status = 'completed'",
+      ).all().map(({ id }) => id),
+    ),
+    completedIdeaJobs: new Map(
+      database.prepare(
+        `select idea_job_id as id, debate_job_id as debateJobId
+         from idea_jobs where status = 'completed'`,
+      ).all().map((row) => [row.id, row]),
+    ),
+    settledSearchQueries: new Map(
+      database.prepare(
+        `select q.deep_search_query_id as id, q.query,
+                r.deep_search_job_id as deepSearchJobId
+         from deep_search_queries q
+         inner join deep_search_rounds r
+           on r.deep_search_round_id = q.deep_search_round_id
+         where q.credits_used is not null`,
+      ).all().map((row) => [row.id, row]),
+    ),
+    finalVerdicts: new Map(
+      database.prepare(
+        `select m.debate_match_id as id, r.debate_job_id as debateJobId,
+                m.winner_idea_id as winnerIdeaId
+         from debate_matches m
+         inner join debate_rounds r
+           on r.debate_round_id = m.debate_round_id
+         where r.stage = 'final' and m.winner_idea_id is not null
+           and m.completed_at is not null`,
+      ).all().map((row) => [row.id, row]),
+    ),
+    completedDebates: new Set(
+      database.prepare(
+        "select debate_job_id as id from debate_jobs where status = 'completed'",
+      ).all().map(({ id }) => id),
+    ),
+  }
+}
+
+function committedTransitions(previous, current) {
+  return [
+    ...[...current.completedGenerations]
+      .filter(([id]) => !previous.completedGenerations.has(id))
+      .map(([, generation]) => ({
+        checkpoint: "generation-settled",
+        ...generation,
+      })),
+    ...[...current.completedDeepSearches]
+      .filter((id) => !previous.completedDeepSearches.has(id))
+      .map((deepSearchJobId) => ({
+        checkpoint: "deep-search-completed",
+        deepSearchJobId,
+      })),
+    ...[...current.completedIdeaJobs]
+      .filter(([id]) => !previous.completedIdeaJobs.has(id))
+      .map(([, ideaJob]) => ({
+        checkpoint: "idea-job-completed",
+        ideaJobId: ideaJob.id,
+        debateJobId: ideaJob.debateJobId,
+      })),
+    ...[...current.settledSearchQueries]
+      .filter(([id]) => !previous.settledSearchQueries.has(id))
+      .map(([, query]) => ({
+        checkpoint: "search-query-settled",
+        ...query,
+      })),
+    ...[...current.finalVerdicts]
+      .filter(([id]) => !previous.finalVerdicts.has(id))
+      .map(([, verdict]) => ({ checkpoint: "final-verdict", ...verdict })),
+    ...[...current.completedDebates]
+      .filter((id) => !previous.completedDebates.has(id))
+      .map((debateJobId) => ({
+        checkpoint: "debate-completed",
+        debateJobId,
+      })),
+  ]
+}
+
+function transitionMatchesPostCommitHold(transition, occurrence) {
+  if (!postCommitHold || transition.checkpoint !== postCommitHold.checkpoint) {
+    return false
+  }
+  if (
+    postCommitHold.promptName !== undefined &&
+    transition.promptName !== postCommitHold.promptName
+  ) {
+    return false
+  }
+  return occurrence === (postCommitHold.occurrence ?? 1)
+}
+
+if (restartControlEnabled) {
+  const originalTransaction = Database.prototype.transaction
+  const committedStates = new WeakMap()
+  Database.prototype.transaction = function controlledTransaction(callback) {
+    const database = this
+    const nativeTransaction = originalTransaction.call(database, callback)
+    const run = (nativeRun, args) => {
+      const previous = committedStates.get(database) ?? captureCommittedState(database)
+      const result = nativeRun(...args)
+      const current = captureCommittedState(database)
+      committedStates.set(database, current)
+      for (const transition of committedTransitions(previous, current)) {
+        const occurrenceKey = `${transition.checkpoint}:${transition.promptName ?? ""}`
+        const occurrence = (postCommitOccurrences.get(occurrenceKey) ?? 0) + 1
+        postCommitOccurrences.set(occurrenceKey, occurrence)
+        reportRestartControl({
+          type: "db-commit",
+          occurrence,
+          ...transition,
+        })
+        if (!transitionMatchesPostCommitHold(transition, occurrence)) continue
+        reportRestartControl({
+          type: "db-commit-held",
+          occurrence,
+          ...transition,
+        })
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0)
+      }
+      return result
+    }
+    const wrapped = (...args) => run(nativeTransaction, args)
+    wrapped.deferred = (...args) => run(nativeTransaction.deferred, args)
+    wrapped.immediate = (...args) => run(nativeTransaction.immediate, args)
+    wrapped.exclusive = (...args) => run(nativeTransaction.exclusive, args)
+    return wrapped
+  }
+}
 
 function parseTaggedJson(text, tag) {
   const match = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(text)
@@ -378,6 +624,59 @@ function messageText(body, role) {
     .join("\n")
 }
 
+function deepSeekRequestKey(body) {
+  const system = messageText(body, "system")
+  const user = messageText(body, "user")
+  const stage = system.includes("You create short, descriptive titles")
+    ? "generate-prompt-title"
+    : system.includes("You plan research that will help another model")
+      ? "generate-idea-research-prompts"
+      : system.includes("You generate search-engine queries")
+        ? "generate-websearch-queries"
+        : system.includes("You are a search-result selection agent")
+          ? "select-websearch-results"
+          : system.includes("You decide whether a deep-research job")
+            ? "review-deep-search-round"
+            : system.includes("You summarize an extracted web page")
+              ? "summarize-web-page"
+              : system.includes("You summarize the results returned for one web search")
+                ? "summarize-search-query"
+                : system.includes("You write the current candidate answer for a deep research run")
+                  ? "answer-research-request"
+                  : system.includes("You analyse a completed deep-research answer")
+                    ? "analyze-research-answer"
+                    : system.includes("Combine the supplied research texts")
+                      ? "summarize-idea-research"
+                      : system.includes("Generate exactly the requested number of distinct")
+                        ? "generate-ideas"
+                        : system.includes("Evaluate the improved idea against")
+                          ? "evaluate-idea"
+                          : system.includes("Select the strongest generated ideas")
+                            ? "select-ideas"
+                            : system.includes("Improve the selected idea using the supplied research")
+                              ? "refine-idea"
+                              : system.includes("Create a single self-contained HTML page")
+                                ? "create-idea-site"
+                                : /independent judge/i.test(system)
+                                  ? "debate-judge"
+                                  : /rebuttal|rebut/i.test(system)
+                                    ? "debate-rebuttal"
+                                    : /debate|opening argument/i.test(system)
+                                      ? "debate-opening"
+                                      : "unknown"
+  const angle = [
+    "generate-websearch-queries",
+    "select-websearch-results",
+    "summarize-web-page",
+    "summarize-search-query",
+    "answer-research-request",
+    "analyze-research-answer",
+  ].includes(stage)
+    ? `:${researchAngle(user)}`
+    : ""
+  return `llm:${stage}${angle}`
+}
+
 function researchAngle(userMessage) {
   const refinedIdeaOrdinal = /Improved Renter Energy Idea (\d+)/.exec(
     userMessage,
@@ -465,10 +764,14 @@ function deepSeekOutput(body) {
   }
   if (system.includes("You generate search-engine queries")) {
     const angle = researchAngle(user)
+    const query = `London renter household energy ${angle} evidence`
     return {
       reasoning: `Use one focused ${angle} query for the deterministic test.`,
       text: JSON.stringify({
-        elements: [`London renter household energy ${angle} evidence`],
+        elements:
+          restartControlEnabled && user.includes("[E2E_RESTART_TWO_QUERIES]")
+            ? [`${query} primary`, `${query} secondary`]
+            : [query],
       }),
       ...(user.includes(deepSearchStopMarker) || user.includes(ideaStopMarker)
         ? { delayMs: 20, secondTextDelayMs: 2_000 }
@@ -754,7 +1057,7 @@ function deepSeekResponse(body) {
           index === secondTextIndex
             ? (output.secondTextDelayMs ?? delayMs)
             : delayMs
-        if (chunkDelayMs > 0) {
+        if (!restartControlEnabled && chunkDelayMs > 0) {
           await new Promise((resolve) => setTimeout(resolve, chunkDelayMs))
         }
         controller.enqueue(encoder.encode(chunk))
@@ -847,13 +1150,26 @@ globalThis.fetch = async (input, init) => {
         `Unexpected DeepSeek request: ${request.method} ${url.pathname}`,
       )
     }
-    return deepSeekResponse(await request.json())
+    const body = await request.json()
+    return controlledProviderResponse(
+      request,
+      deepSeekRequestKey(body),
+      () => deepSeekResponse(body),
+    )
   }
   if (url.hostname === "e2e-search.test") {
-    return searXngResponse(url)
+    return controlledProviderResponse(
+      request,
+      `search:${url.searchParams.get("q") ?? "unknown query"}`,
+      () => searXngResponse(url),
+    )
   }
   if (url.hostname === "api.scrapingant.com") {
-    return scrapingAntResponse(request, url)
+    return controlledProviderResponse(
+      request,
+      `extract:${url.searchParams.get("url") ?? "unknown url"}`,
+      () => scrapingAntResponse(request, url),
+    )
   }
 
   throw new Error(`Unmocked outbound E2E request: ${request.method} ${url.href}`)
