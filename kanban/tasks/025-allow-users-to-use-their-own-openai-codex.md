@@ -1,11 +1,13 @@
 ---
 id: 25
 title: Allow users to use their own OpenAI Codex subscription
-status: todo
+status: in-progress
 priority: medium
 created: 2026-08-25T14:16:35.14541+01:00
-updated: 2026-08-25T14:34:49.76939+01:00
+updated: 2026-08-25T16:07:51.871509+01:00
 started: 2026-08-25T14:32:31.054817+01:00
+claimed_by: becramp-moneybag
+claimed_at: 2026-08-25T16:07:51.871509+01:00
 class: standard
 ---
 

@@ -310,3 +310,4 @@
 {"timestamp":"2026-08-25T14:55:36.307345+01:00","action":"release","task_id":11,"detail":"Database schema fixes"}
 {"timestamp":"2026-08-25T14:58:42.948728+01:00","action":"edit","task_id":11,"detail":"Database schema fixes"}
 {"timestamp":"2026-08-25T14:58:42.966033+01:00","action":"move","task_id":11,"detail":"review -\u003e done"}
+{"timestamp":"2026-08-25T16:07:51.873524+01:00","action":"move","task_id":25,"detail":"todo -\u003e in-progress"}
