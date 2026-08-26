@@ -1,13 +1,11 @@
 ---
 id: 25
 title: Allow users to use their own OpenAI Codex subscription
-status: in-progress
+status: review
 priority: medium
 created: 2026-08-25T14:16:35.14541+01:00
-updated: 2026-08-27T00:04:37.552299+01:00
+updated: 2026-08-27T00:18:18.632975+01:00
 started: 2026-08-25T14:32:31.054817+01:00
-claimed_by: bromism-dropping
-claimed_at: 2026-08-27T00:04:37.552299+01:00
 class: standard
 ---
 
@@ -153,3 +151,12 @@ Approved implementation defaults (2026-08-25):
 - Branch: codex/ticket-25-openai-subscription; feature code remains uncommitted.
 - Fixed: fail-closed credential-home rollback and teardown; abortable same-user reservation before global LLM admission; raw Codex interrupted/unknown finishes fail closed; stable actionable Codex codes survive durable completion; device-login expiry reports timeout while explicit cancel remains disconnected.
 - Verified: npm run gatekeep (83 API files / 694 tests; 53 web files / 337 tests), focused 7 files / 91 tests, Playwright OpenAI auth/text/structured/zero-credit/disconnect/fallback flow, git diff --check, and three independent PASS reviews.
+
+[[2026-08-27]] Thu 00:18
+## Handoff — DeepSeek error redaction fixed
+- Worktree: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-25-openai-subscription
+- Branch: codex/ticket-25-openai-subscription; feature code remains uncommitted.
+- Fixed: emitted and thrown server-provider errors, including synchronous stream startup failures, are replaced with Text generation failed before live publication, durable persistence, owning-stage propagation, or replay. Codex actionable errors and untagged internal diagnostics remain unchanged.
+- Regression coverage: llm_generations row, completion outcome, failure hook, replay, persisted debate snapshot, and browser UI all reject the injected raw DeepSeek payload.
+- Verified: npm run gatekeep (83 API files / 696 tests; 53 web files / 337 tests), focused 3 files / 54 tests, headed Playwright DeepSeek retry-exhaustion workflow, git diff --check, and independent verifier PASS.
+- Remaining live check: user will connect a real ChatGPT account and run the previously planned minimal zero-LLM-credit generation test.
