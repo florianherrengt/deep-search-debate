@@ -1,13 +1,11 @@
 ---
 id: 25
 title: Allow users to use their own OpenAI Codex subscription
-status: in-progress
+status: review
 priority: medium
 created: 2026-08-25T14:16:35.14541+01:00
-updated: 2026-08-27T00:20:16.866423+01:00
+updated: 2026-08-27T00:52:38.415576+01:00
 started: 2026-08-25T14:32:31.054817+01:00
-claimed_by: autoist-lackland
-claimed_at: 2026-08-27T00:20:16.866423+01:00
 class: standard
 ---
 
@@ -162,3 +160,12 @@ Approved implementation defaults (2026-08-25):
 - Regression coverage: llm_generations row, completion outcome, failure hook, replay, persisted debate snapshot, and browser UI all reject the injected raw DeepSeek payload.
 - Verified: npm run gatekeep (83 API files / 696 tests; 53 web files / 337 tests), focused 3 files / 54 tests, headed Playwright DeepSeek retry-exhaustion workflow, git diff --check, and independent verifier PASS.
 - Remaining live check: user will connect a real ChatGPT account and run the previously planned minimal zero-LLM-credit generation test.
+
+[[2026-08-27]] Thu 00:52
+## Handoff — entire OpenAI subscription implementation simplified
+
+- Simplified provider resolution, generation cleanup, stream error capture, Codex finish classification, process-slot acquisition, pending-login state, auth response parsing, credential file reads, Coolify configuration lookup, and test-only production surface.
+- Removed unused connection timestamps/indexes and redundant plaintext credential copies while preserving explicit AES-GCM fields, authenticated identity, credential zeroing, revision/CAS, disconnect/startup race protection, and all containment controls.
+- Preserved product behavior: use Codex for every LLM call when connected; use DeepSeek only with no saved connection; connected failures do not fall back; Codex LLM usage records zero product credits; search/extraction charges remain unchanged.
+- Verification: npm run gatekeep passed (83 API files / 699 tests; 53 web files / 337 tests); headed subscription and DeepSeek-redaction browser workflows passed; Docker isolation probe and real Codex launcher smoke passed; exact pinned Codex dependency is deduplicated; independent verifier PASS; git diff --check passed.
+- Feature worktree: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-25-openai-subscription. Branch codex/ticket-25-openai-subscription remains uncommitted for review. Remaining live check: connect the user’s real ChatGPT account and run one minimal zero-LLM-credit generation before disconnecting.

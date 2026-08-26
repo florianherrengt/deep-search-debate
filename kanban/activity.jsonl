@@ -345,3 +345,6 @@
 {"timestamp":"2026-08-27T00:18:18.634727+01:00","action":"handoff","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
 {"timestamp":"2026-08-27T00:18:18.63499+01:00","action":"release","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
 {"timestamp":"2026-08-27T00:20:16.868201+01:00","action":"move","task_id":25,"detail":"review -\u003e in-progress"}
+{"timestamp":"2026-08-27T00:52:38.418314+01:00","action":"move","task_id":25,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-08-27T00:52:38.418516+01:00","action":"handoff","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
+{"timestamp":"2026-08-27T00:52:38.418611+01:00","action":"release","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
