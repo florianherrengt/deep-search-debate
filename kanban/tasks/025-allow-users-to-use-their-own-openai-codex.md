@@ -1,13 +1,11 @@
 ---
 id: 25
 title: Allow users to use their own OpenAI Codex subscription
-status: in-progress
+status: review
 priority: medium
 created: 2026-08-25T14:16:35.14541+01:00
-updated: 2026-08-26T12:20:01.647594+01:00
+updated: 2026-08-26T12:43:13.970251+01:00
 started: 2026-08-25T14:32:31.054817+01:00
-claimed_by: sirple-coletit
-claimed_at: 2026-08-26T12:20:01.647594+01:00
 class: standard
 ---
 
@@ -146,3 +144,10 @@ Approved implementation defaults (2026-08-25):
 - Verified: `npm run gatekeep` (83 API files / 686 tests; 53 web files / 337 tests), focused browser E2E for auth/text/structured output/zero credits/disconnect/fallback, negative container isolation and real Codex initialize/model-list smoke tests, independent security re-review, `git diff --check`, and one deduped Codex dependency.
 - Remaining live check: user will authenticate a real ChatGPT account, then run one minimal model call and verify zero RethinkLoop LLM credits before disconnecting the test account. Container smoke testing covered arm64; x86_64 remains untested.
 - One focused E2E invocation intermittently returned 404 on its first persisted-stream read; the unchanged test then passed four consecutive reruns and the final run. No reproducible application fault was found.
+
+[[2026-08-26]] Wed 12:43
+## Handoff — review findings fixed
+- Worktree: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-25-openai-subscription
+- Branch: codex/ticket-25-openai-subscription; feature code remains uncommitted.
+- Fixed: fail-closed credential-home rollback and teardown; abortable same-user reservation before global LLM admission; raw Codex interrupted/unknown finishes fail closed; stable actionable Codex codes survive durable completion; device-login expiry reports timeout while explicit cancel remains disconnected.
+- Verified: npm run gatekeep (83 API files / 694 tests; 53 web files / 337 tests), focused 7 files / 91 tests, Playwright OpenAI auth/text/structured/zero-credit/disconnect/fallback flow, git diff --check, and three independent PASS reviews.
