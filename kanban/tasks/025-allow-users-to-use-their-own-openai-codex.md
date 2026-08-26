@@ -1,13 +1,11 @@
 ---
 id: 25
 title: Allow users to use their own OpenAI Codex subscription
-status: in-progress
+status: review
 priority: medium
 created: 2026-08-25T14:16:35.14541+01:00
-updated: 2026-08-26T01:17:40.992373+01:00
+updated: 2026-08-26T01:40:47.842024+01:00
 started: 2026-08-25T14:32:31.054817+01:00
-claimed_by: becramp-moneybag
-claimed_at: 2026-08-26T01:17:40.992483+01:00
 class: standard
 ---
 
@@ -134,3 +132,15 @@ Approved implementation defaults (2026-08-25):
 - Use exact `@openai/codex@0.149.1` through an npm override despite `ai-sdk-provider-codex-cli@2.1.2` declaring a `0.144.x` range; explicit path selection and real protocol smoke tests are required.
 - Disconnect affects new calls immediately. An already-active Codex call may finish, but credential refresh uses compare-and-swap and cannot recreate a deleted or replaced connection.
 - Use the specified single server-held encryption key for this ticket; keyring rotation and privacy-policy wording are outside this implementation unless separately requested.
+
+[[2026-08-26]] Wed 01:40
+## Handoff — implementation ready for live-account review
+
+- Feature worktree: `/Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-25-openai-subscription`; branch: `codex/ticket-25-openai-subscription`. Feature code remains uncommitted for user review.
+- Added ChatGPT device-code authentication, AES-256-GCM encrypted per-user credentials in SQLite, private ephemeral Codex homes, and a `/settings` connection workflow.
+- Every LLM call now checks for a saved OpenAI connection: Codex uses the account default model and records zero LLM credits; absent connection uses DeepSeek and normal billing; saved-connection failures return actionable errors without fallback. Search and extraction charges remain unchanged.
+- Production Codex execution is constrained by the pinned hardened launcher, scrubbed environment, disabled tools, filesystem/syscall limits, authoritative process reaping, and fail-closed credential-home deletion. Pending device login capacity is fixed at one per API replica and separate from generation capacity.
+- Dependencies are pinned to `ai-sdk-provider-codex-cli@2.1.2` and deduped `@openai/codex@0.149.1`.
+- Verified: `npm run gatekeep` (83 API files / 686 tests; 53 web files / 337 tests), focused browser E2E for auth/text/structured output/zero credits/disconnect/fallback, negative container isolation and real Codex initialize/model-list smoke tests, independent security re-review, `git diff --check`, and one deduped Codex dependency.
+- Remaining live check: user will authenticate a real ChatGPT account, then run one minimal model call and verify zero RethinkLoop LLM credits before disconnecting the test account. Container smoke testing covered arm64; x86_64 remains untested.
+- One focused E2E invocation intermittently returned 404 on its first persisted-stream read; the unchanged test then passed four consecutive reruns and the final run. No reproducible application fault was found.
