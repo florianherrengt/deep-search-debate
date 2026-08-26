@@ -1,11 +1,13 @@
 ---
 id: 25
 title: Allow users to use their own OpenAI Codex subscription
-status: review
+status: in-progress
 priority: medium
 created: 2026-08-25T14:16:35.14541+01:00
-updated: 2026-08-27T00:18:18.632975+01:00
+updated: 2026-08-27T00:20:16.866423+01:00
 started: 2026-08-25T14:32:31.054817+01:00
+claimed_by: autoist-lackland
+claimed_at: 2026-08-27T00:20:16.866423+01:00
 class: standard
 ---
 
