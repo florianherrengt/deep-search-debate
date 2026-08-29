@@ -357,3 +357,6 @@
 {"timestamp":"2026-08-29T18:25:50.374516+01:00","action":"edit","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
 {"timestamp":"2026-08-29T18:25:50.374634+01:00","action":"claim","task_id":25,"detail":"camshaft-unfallen"}
 {"timestamp":"2026-08-29T18:25:59.185951+01:00","action":"move","task_id":25,"detail":"review -\u003e in-progress"}
+{"timestamp":"2026-08-29T18:37:13.126288+01:00","action":"move","task_id":25,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-08-29T18:37:13.12642+01:00","action":"handoff","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
+{"timestamp":"2026-08-29T18:37:13.126525+01:00","action":"release","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}

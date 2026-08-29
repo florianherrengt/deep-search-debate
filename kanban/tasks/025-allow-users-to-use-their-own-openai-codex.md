@@ -1,13 +1,11 @@
 ---
 id: 25
 title: Allow users to use their own OpenAI Codex subscription
-status: in-progress
+status: review
 priority: medium
 created: 2026-08-25T14:16:35.14541+01:00
-updated: 2026-08-29T18:25:59.184574+01:00
+updated: 2026-08-29T18:37:13.12475+01:00
 started: 2026-08-25T14:32:31.054817+01:00
-claimed_by: camshaft-unfallen
-claimed_at: 2026-08-29T18:25:59.184574+01:00
 class: standard
 ---
 
@@ -180,4 +178,16 @@ Approved implementation defaults (2026-08-25):
 - Fixed review findings: synchronous Codex startup/release errors are sanitized before completion/SQLite/replay; FatalCodexContainmentError remains fail-closed through startup, outer cleanup, and stream exhaustion; SQLite now rejects blank connection IDs plus fractional, negative, and unsafe revisions.
 - Verified exact final diff: npm run gatekeep passed (85 API files / 705 tests; 53 web files / 337 tests); headed OpenAI connection E2E passed; Docker codex-isolation-test target passed strict native compilation, negative isolation, and real launcher smoke; exact @openai/codex@0.149.1 is deduped under ai-sdk-provider-codex-cli@2.1.2; root/API/schema/web checklist reviewers all PASS; tracked and ticket-untracked whitespace checks passed.
 - Feature worktree: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-25-openai-subscription. Branch codex/ticket-25-openai-subscription remains uncommitted for user review. Unrelated user-owned .agents/skills artifacts were preserved and excluded.
+- Remaining live check: user will connect a real ChatGPT account, run a minimal Codex generation, verify zero RethinkLoop LLM credits, then disconnect.
+
+[[2026-08-29]] Sat 18:37
+## Handoff — unnecessary credential versions removed
+
+- Removed the persisted credential revision from the OpenAI connection schema, AES-GCM AAD, repository snapshot/update logic, tests, documentation, SQL migration, Drizzle snapshot, and DBML.
+- Replaced revision-based refresh with a conditional update on user_id + connection_id. Regression tests prove stale work cannot overwrite a replacement or recreate a deleted connection.
+- Removed the speculative .v1 credential-format marker while retaining a stable unversioned AES-GCM AAD domain bound to user and connection identity.
+- Preserved the dedicated optional one-to-one table because it keeps the encrypted credential bundle atomic and isolated from Better Auth generic user/account reads. Preserved connectionId and the in-memory login/disconnect race fence because both have reachable correctness roles.
+- Regenerated the unreleased 0001 migration, snapshot, journal, and DBML in place. Drizzle reports exactly five connection columns and no schema drift. Fresh and retained 0000 -> 0001 paths pass.
+- Verified: npm run gatekeep passed (85 API files / 706 tests; 53 web files / 337 tests); focused schema/encryption/repository/generation/login tests passed; headed OpenAI browser workflow passed; git diff --check passed; root/API/schema/web checklist reviewers all PASS.
+- Worktree: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-25-openai-subscription; branch codex/ticket-25-openai-subscription remains uncommitted for user review. Unrelated user-owned .agents/skills files remain untouched.
 - Remaining live check: user will connect a real ChatGPT account, run a minimal Codex generation, verify zero RethinkLoop LLM credits, then disconnect.
