@@ -348,3 +348,6 @@
 {"timestamp":"2026-08-27T00:52:38.418314+01:00","action":"move","task_id":25,"detail":"in-progress -\u003e review"}
 {"timestamp":"2026-08-27T00:52:38.418516+01:00","action":"handoff","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
 {"timestamp":"2026-08-27T00:52:38.418611+01:00","action":"release","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
+{"timestamp":"2026-08-29T17:41:31.242579+01:00","action":"edit","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
+{"timestamp":"2026-08-29T17:41:31.24298+01:00","action":"claim","task_id":25,"detail":"manila-caplin"}
+{"timestamp":"2026-08-29T17:41:40.274105+01:00","action":"move","task_id":25,"detail":"review -\u003e in-progress"}
