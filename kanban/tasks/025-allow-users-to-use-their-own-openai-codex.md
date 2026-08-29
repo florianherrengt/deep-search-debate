@@ -1,13 +1,11 @@
 ---
 id: 25
 title: Allow users to use their own OpenAI Codex subscription
-status: in-progress
+status: review
 priority: medium
 created: 2026-08-25T14:16:35.14541+01:00
-updated: 2026-08-29T17:41:40.272117+01:00
+updated: 2026-08-29T18:17:27.482377+01:00
 started: 2026-08-25T14:32:31.054817+01:00
-claimed_by: manila-caplin
-claimed_at: 2026-08-29T17:41:40.272117+01:00
 class: standard
 ---
 
@@ -171,3 +169,13 @@ Approved implementation defaults (2026-08-25):
 - Preserved product behavior: use Codex for every LLM call when connected; use DeepSeek only with no saved connection; connected failures do not fall back; Codex LLM usage records zero product credits; search/extraction charges remain unchanged.
 - Verification: npm run gatekeep passed (83 API files / 699 tests; 53 web files / 337 tests); headed subscription and DeepSeek-redaction browser workflows passed; Docker isolation probe and real Codex launcher smoke passed; exact pinned Codex dependency is deduplicated; independent verifier PASS; git diff --check passed.
 - Feature worktree: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-25-openai-subscription. Branch codex/ticket-25-openai-subscription remains uncommitted for review. Remaining live check: connect the user’s real ChatGPT account and run one minimal zero-LLM-credit generation before disconnecting.
+
+[[2026-08-29]] Sat 18:17
+## Handoff — cohesion review and final gatekeep findings fixed
+
+- Added a durable root gatekeep check for cohesive file ownership and updated AGENTS.md to require one dedicated subagent per applicable gatekeep.md checklist during final review.
+- Split the OpenAI subscription implementation by responsibility: Codex session policy/home/process, native launcher/session/Landlock/seccomp/probe, Settings orchestration/status rendering, fake app-server auth/generation, and generation text/title/structured test suites. Longer lifecycle and transaction files remain intact where splitting would scatter invariants.
+- Fixed review findings: synchronous Codex startup/release errors are sanitized before completion/SQLite/replay; FatalCodexContainmentError remains fail-closed through startup, outer cleanup, and stream exhaustion; SQLite now rejects blank connection IDs plus fractional, negative, and unsafe revisions.
+- Verified exact final diff: npm run gatekeep passed (85 API files / 705 tests; 53 web files / 337 tests); headed OpenAI connection E2E passed; Docker codex-isolation-test target passed strict native compilation, negative isolation, and real launcher smoke; exact @openai/codex@0.149.1 is deduped under ai-sdk-provider-codex-cli@2.1.2; root/API/schema/web checklist reviewers all PASS; tracked and ticket-untracked whitespace checks passed.
+- Feature worktree: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-25-openai-subscription. Branch codex/ticket-25-openai-subscription remains uncommitted for user review. Unrelated user-owned .agents/skills artifacts were preserved and excluded.
+- Remaining live check: user will connect a real ChatGPT account, run a minimal Codex generation, verify zero RethinkLoop LLM credits, then disconnect.
