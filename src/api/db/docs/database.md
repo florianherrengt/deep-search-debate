@@ -97,6 +97,15 @@ ignores this one documented peer-resolution shim.
   provider call. It deliberately has no job foreign key because a failed title
   preflight must remain chargeable; rows belong to the user and cascade only
   when that user is deleted.
+- `openai_codex_connections` stores at most one encrypted Codex credential blob
+  per user. AES-256-GCM ciphertext, nonce, and authentication tag remain in
+  separate constrained BLOB columns; the server-held key is never stored in the
+  database. Encryption authenticates a stable domain, the user, and the unique
+  connection identity. Credential refresh updates only the row matching that
+  user and connection, so stale active work cannot overwrite a reconnect or
+  recreate a row after explicit disconnect. Disconnect deletes by user without
+  first decrypting the credential, and deleting the user cascades to the
+  connection.
 - Query and page lifecycle checks couple each active or terminal stage to its
   valid timestamps, errors, and generation links. SQLite triggers require a
   selected page to share both the result URL and the query's deep-search job.
@@ -149,13 +158,14 @@ ignores this one documented peer-resolution shim.
   ```
 - The API workspace's `predev` and `prestart` lifecycle scripts apply pending
   migrations before either development or production startup.
-- Migration history is the single intentionally fresh
+- Migration history begins with the intentionally fresh
   `0000_fresh-baseline` migration. Databases created from any superseded history
   are unsupported and must be recreated; there is no data-preserving upgrade
-  path because no production data existed when this reset was approved. Once
-  the baseline supports a retained database, keep it immutable and add forward
-  migrations for later schema changes. `baselineMigration.test.ts` verifies
-  fresh creation through the same Drizzle migrator used by the application.
+  path because no production data existed when this reset was approved. The
+  retained baseline is immutable; `0001_eager_stone_men` adds encrypted Codex
+  connections as a forward migration. `baselineMigration.test.ts` verifies both
+  fresh creation through the same Drizzle migrator used by the application and
+  the retained `0000` to `0001` upgrade path.
 
 ### Known application-enforced integrity boundaries
 

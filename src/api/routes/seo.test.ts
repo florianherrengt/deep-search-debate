@@ -374,6 +374,17 @@ describe("resolveSeoPage", () => {
     })
   })
 
+  it("serves settings as a private unindexed application page", () => {
+    expect(resolveSeoPage("/settings", "user-id")).toMatchObject({
+      kind: "page",
+      metadata: {
+        canonicalUrl: null,
+        noindex: true,
+        title: "Settings — RethinkLoop",
+      },
+    })
+  })
+
   it.each([
     ["/terms", "Terms & Conditions"],
     ["/privacy", "Privacy Policy"],

@@ -33,6 +33,16 @@ const optionalEmailSchema = z.preprocess(
   z.email().max(254).optional(),
 )
 
+const canonicalBase64KeyStringSchema = z
+  .string()
+  .refine((value) => {
+    const decoded = Buffer.from(value, "base64")
+    return decoded.byteLength === 32 && decoded.toString("base64") === value
+  }, "Key must be canonical base64 encoding exactly 32 bytes")
+
+const canonicalBase64KeySchema = canonicalBase64KeyStringSchema
+  .transform((value) => Buffer.from(value, "base64"))
+
 const exampleDebateIdsSchema = z.preprocess(
   (value) => {
     if (value === undefined || value === "") return []
@@ -318,6 +328,7 @@ const nonSecretEnvironmentShape = {
   AUTH_DEBUG_USER_ENABLED: z.stringbool().default(false),
   AUTH_DEBUG_USER_EMAIL: z.email().default("debug@local.invalid"),
   EXAMPLE_DEBATE_IDS: exampleDebateIdsSchema,
+  OPENAI_CODEX_EXECUTABLE_PATH: z.string().trim().min(1).optional(),
 } as const
 
 const rawEnvironmentSchema = z.object({
@@ -329,6 +340,7 @@ const rawEnvironmentSchema = z.object({
   BETTER_AUTH_SECRET: secretSchemas.BETTER_AUTH_SECRET,
   GITHUB_CLIENT_ID: secretSchemas.GITHUB_CLIENT_ID,
   GITHUB_CLIENT_SECRET: secretSchemas.GITHUB_CLIENT_SECRET,
+  OPENAI_CODEX_CREDENTIAL_KEY: canonicalBase64KeyStringSchema,
   AUTH_DEBUG_USER_PASSWORD:
     secretSchemas.AUTH_DEBUG_USER_PASSWORD.optional(),
 })
@@ -345,6 +357,7 @@ const environmentSchema = z.object({
   BETTER_AUTH_SECRET: secretSchemas.BETTER_AUTH_SECRET,
   GITHUB_CLIENT_ID: secretSchemas.GITHUB_CLIENT_ID,
   GITHUB_CLIENT_SECRET: secretSchemas.GITHUB_CLIENT_SECRET,
+  OPENAI_CODEX_CREDENTIAL_KEY: canonicalBase64KeySchema,
   AUTH_DEBUG_USER_PASSWORD:
     secretSchemas.AUTH_DEBUG_USER_PASSWORD.optional(),
 }).superRefine((environment, context) => {
@@ -518,6 +531,16 @@ const environmentSchema = z.object({
         })
       }
     }
+  }
+  if (
+    environment.NODE_ENV === "production" &&
+    environment.OPENAI_CODEX_EXECUTABLE_PATH !== undefined
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "OPENAI_CODEX_EXECUTABLE_PATH cannot be set in production",
+      path: ["OPENAI_CODEX_EXECUTABLE_PATH"],
+    })
   }
   if (
     environment.AUTH_DEBUG_USER_ENABLED &&
@@ -705,6 +728,13 @@ export const config = {
       environment.DEBATE_MAX_SELECTED_PAGES_PER_JOB,
   },
   examples: { debateIds: environment.EXAMPLE_DEBATE_IDS },
+  openAiCodex: {
+    credentialKey: environment.OPENAI_CODEX_CREDENTIAL_KEY,
+    executablePath:
+      environment.NODE_ENV === "production"
+        ? "/usr/local/bin/rethinkloop-codex"
+        : environment.OPENAI_CODEX_EXECUTABLE_PATH,
+  },
   llm: resolveLlmConfig(),
   llmExecution: {
     totalTimeoutMs: environment.LLM_GENERATION_TIMEOUT_MS,

@@ -13,6 +13,9 @@ process.env.PLAYWRIGHT_E2E_DATABASE_URL = e2eDatabase
 const mockExternalServices = fileURLToPath(
   new URL("../api/e2e/mockExternalServices.mjs", import.meta.url),
 )
+const fakeCodexAppServer = fileURLToPath(
+  new URL("../api/e2e/fakeCodexAppServer.mjs", import.meta.url),
+)
 
 export default defineConfig({
   testDir: "./e2e",
@@ -54,6 +57,9 @@ export default defineConfig({
           "e2e-secret-that-is-at-least-thirty-two-characters",
         GITHUB_CLIENT_ID: "e2e-github-client-id",
         GITHUB_CLIENT_SECRET: "e2e-github-client-secret",
+        OPENAI_CODEX_CREDENTIAL_KEY:
+          "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        OPENAI_CODEX_EXECUTABLE_PATH: fakeCodexAppServer,
         AUTH_DEBUG_USER_ENABLED: "true",
         AUTH_DEBUG_USER_PASSWORD: "e2e-debug-password",
         NODE_OPTIONS: `--import=${mockExternalServices}`,

@@ -53,4 +53,40 @@ describe("RequestError", () => {
       "Check your connection",
     )
   })
+
+  it.each([
+    [
+      "authentication-required",
+      "Your OpenAI connection has expired. Disconnect it and connect again.",
+    ],
+    [
+      "rate-limited",
+      "Your OpenAI subscription is temporarily rate-limited. Try again after its usage limit resets.",
+    ],
+    [
+      "workspace-disabled",
+      "Codex access is disabled for this OpenAI workspace. Contact its administrator or connect another account.",
+    ],
+    [
+      "protocol-incompatible",
+      "This OpenAI connection is not compatible with the current Codex integration. Try connecting again later.",
+    ],
+    [
+      "temporarily-unavailable",
+      "OpenAI Codex is temporarily unavailable. Try again later.",
+    ],
+    ["timeout", "OpenAI Codex timed out. Try again."],
+    [
+      "tool-blocked",
+      "OpenAI Codex attempted to use a tool that RethinkLoop does not permit.",
+    ],
+  ] as const)("shows the safe client message for %s", (code, message) => {
+    render(
+      <RequestError
+        error={new ApiError("POST", "/api/streams", 503, code)}
+      />,
+    )
+
+    expect(screen.getByRole("alert")).toHaveTextContent(message)
+  })
 })

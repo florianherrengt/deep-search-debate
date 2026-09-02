@@ -5,9 +5,15 @@ import z from "zod"
 import { config } from "../config.ts"
 import { requirePositiveCreditBalance } from "../credits.ts"
 import { addAbortableQueueTask } from "../helpers/addAbortableQueueTask.ts"
+import { classifyCodexError } from "../openaiConnection/codexErrors.ts"
+import { FatalCodexContainmentError } from "../openaiConnection/codexSession/process.ts"
 import { calculateLlmCredits } from "./costs/index.ts"
 import { PromptName, loadPrompt } from "./prompts.ts"
-import { llm, type LlmCallReasoning } from "./provider.ts"
+import {
+  reserveLlmCall,
+  type LlmCallReasoning,
+  type ResolvedLlmCall,
+} from "./provider.ts"
 import {
   prepareTextGeneration,
   awaitGenerationOutput,
@@ -56,23 +62,41 @@ function boundedOutputTokens(requested?: number): number {
   )
 }
 
-function enqueueStreamingGeneration<T extends GenerationHandle>(
-  start: () => T | Promise<T>,
+async function enqueueStreamingGeneration<T extends GenerationHandle>(
+  userId: string,
+  reasoning: LlmCallReasoning,
+  modelOverride: string | undefined,
+  start: (call: ResolvedLlmCall) => T | Promise<T>,
   signal?: AbortSignal,
 ): Promise<T> {
+  const reservation = await reserveLlmCall(userId, signal)
   const ready = Promise.withResolvers<T>()
   void addAbortableQueueTask(
     llmGenerationQueue,
     async () => {
-      const generation = await start()
+      const call = await reservation.resolve(reasoning, modelOverride)
+      let generation: T
+      try {
+        generation = await start(call)
+      } catch (error) {
+        try {
+          await call.release()
+        } catch (releaseError) {
+          if (releaseError instanceof FatalCodexContainmentError) {
+            throw releaseError
+          }
+        }
+        throw error
+      }
       ready.resolve(generation)
       await generation.completion
     },
     signal,
   )
-    .catch((error: unknown) =>
-      ready.reject(asError(error, "LLM queue failed")),
-    )
+    .catch((error: unknown) => {
+      reservation.release()
+      ready.reject(asError(error, "LLM queue failed"))
+    })
   return ready.promise
 }
 
@@ -99,9 +123,10 @@ const suppressProviderErrorLogging = () => undefined
 async function loadStructuredPrompt(
   promptName: PromptName,
   schema: z.ZodType,
+  supportsStructuredOutputs: boolean,
 ): Promise<string> {
   const system = await loadPrompt(promptName)
-  if (llm.supportsStructuredOutputs) return system
+  if (supportsStructuredOutputs) return system
 
   const jsonSchema = z.toJSONSchema(schema, { target: "draft-7" })
   return [
@@ -112,48 +137,89 @@ async function loadStructuredPrompt(
   ].join("\n")
 }
 
+function generationRegistrationMetadata(
+  call: ResolvedLlmCall,
+  promptName: PromptName,
+) {
+  return {
+    modelId: call.modelId,
+    promptName,
+    provider: call.provider,
+    ...(call.provider === "server" && {
+      calculateCredits: (usage: Parameters<typeof calculateLlmCredits>[2]) =>
+        calculateLlmCredits(config.llm, call.modelId, usage),
+    }),
+  }
+}
+
+function streamTextBaseOptions(
+  call: ResolvedLlmCall,
+  params: GenerateStreamInput,
+  system: string,
+) {
+  return {
+    model: call.model,
+    prompt: params.prompt,
+    system,
+    temperature: params.temperature,
+    maxOutputTokens: boundedOutputTokens(params.maxOutputTokens),
+    maxRetries: config.llmExecution.maxRetries,
+    timeout: streamTimeout,
+    abortSignal: params.workflowSignal,
+    onError: suppressProviderErrorLogging,
+    ...call.callOptions,
+  }
+}
+
+async function releaseAfterStartFailure(
+  call: ResolvedLlmCall,
+  error: unknown,
+): Promise<unknown> {
+  let failure = error
+  try {
+    await call.release()
+  } catch (releaseError) {
+    if (releaseError instanceof FatalCodexContainmentError) throw releaseError
+    failure = releaseError
+  }
+  return call.provider === "codex" ? classifyCodexError(failure) : failure
+}
+
 export async function generateTextStream(
   params: GenerateStreamInput &
     TextGenerationPersistenceCallbacks & { reasoning: LlmCallReasoning },
 ): Promise<GenerationHandle> {
-  const model = llm.model(params.model)
-  const system = await loadPrompt(params.promptName)
-  return enqueueStreamingGeneration(() => {
-    requirePositiveCreditBalance(params.userId)
-    const prepared = prepareTextGeneration(params.userId, params.owner, {
-      onRegistered: params.onRegistered,
-      onCompleted: params.onCompleted,
-      onFailed: params.onFailed,
-      onInterrupted: params.onInterrupted,
-      workflowSignal: params.workflowSignal,
-      metadata: {
-        modelId: model.modelId,
-        promptName: params.promptName,
-        calculateCredits: (usage) =>
-          calculateLlmCredits(config.llm, model.modelId, usage),
-      },
-    })
-    try {
-      const result = streamText({
-        model,
-        prompt: params.prompt,
-        system,
-        temperature: params.temperature,
-        maxOutputTokens: boundedOutputTokens(params.maxOutputTokens),
-        maxRetries: config.llmExecution.maxRetries,
-        timeout: streamTimeout,
-        abortSignal: params.workflowSignal,
-        onError: suppressProviderErrorLogging,
-        ...llm.callOptions(params.reasoning),
+  return enqueueStreamingGeneration(
+    params.userId,
+    params.reasoning,
+    params.model,
+    async (call) => {
+      if (call.provider === "server") {
+        requirePositiveCreditBalance(params.userId)
+      }
+      const system = await loadPrompt(params.promptName)
+      const prepared = prepareTextGeneration(params.userId, params.owner, {
+        onRegistered: params.onRegistered,
+        onCompleted: params.onCompleted,
+        onFailed: params.onFailed,
+        onInterrupted: params.onInterrupted,
+        workflowSignal: params.workflowSignal,
+        metadata: generationRegistrationMetadata(call, params.promptName),
       })
-      return prepared.start(result.stream, {
+      let result: ReturnType<typeof streamText>
+      try {
+        result = streamText(streamTextBaseOptions(call, params, system))
+      } catch (error) {
+        return prepared.fail(await releaseAfterStartFailure(call, error))
+      }
+      return prepared.start(call.wrapStream(result.stream), {
         finishReason: result.finishReason,
+        rawFinishReason: result.rawFinishReason,
         usage: result.usage,
       })
-    } catch (error) {
-      return prepared.fail(error)
-    }
-  }, params.workflowSignal)
+    },
+    params.workflowSignal,
+  )
 }
 
 /** Generates the immutable display title used before a durable job starts. */
@@ -188,55 +254,58 @@ export async function generateArrayStream<Element>(
   }
 > {
   const outputSchema = z.object({ elements: z.array(params.element) })
-  const model = llm.model(params.model)
-  const system = await loadStructuredPrompt(params.promptName, outputSchema)
-  return enqueueStreamingGeneration(() => {
-    requirePositiveCreditBalance(params.userId)
-    const prepared = prepareTextGeneration(params.userId, params.owner, {
-      metadata: {
-        modelId: model.modelId,
-        promptName: params.promptName,
-        calculateCredits: (usage) =>
-          calculateLlmCredits(config.llm, model.modelId, usage),
-      },
-      onRegistered: params.onRegistered,
-      onInterrupted: params.onInterrupted,
-      onFailed: params.onFailed,
-      workflowSignal: params.workflowSignal,
-      // Validate the persisted payload inside the terminal transaction. The AI
-      // SDK exposes result.output on a separate promise, which can reject only
-      // after stream consumption would otherwise mark the call billable.
-      onCompleted: (completed, transaction) => {
-        const output = parseStructuredText(outputSchema, completed.text).elements
-        params.onCompleted?.({ id: completed.id, output }, transaction)
-      },
-    })
-    try {
-      const result = streamText({
-        model,
-        prompt: params.prompt,
-        system,
-        temperature: params.temperature,
-        maxOutputTokens: boundedOutputTokens(params.maxOutputTokens),
-        maxRetries: config.llmExecution.maxRetries,
-        timeout: streamTimeout,
-        abortSignal: params.workflowSignal,
-        onError: suppressProviderErrorLogging,
-        ...llm.callOptions("disabled"),
-        output: Output.array({ element: params.element }),
+  return enqueueStreamingGeneration(
+    params.userId,
+    "disabled",
+    params.model,
+    async (call) => {
+      if (call.provider === "server") {
+        requirePositiveCreditBalance(params.userId)
+      }
+      const system = await loadStructuredPrompt(
+        params.promptName,
+        outputSchema,
+        call.supportsStructuredOutputs,
+      )
+      const prepared = prepareTextGeneration(params.userId, params.owner, {
+        metadata: generationRegistrationMetadata(call, params.promptName),
+        onRegistered: params.onRegistered,
+        onInterrupted: params.onInterrupted,
+        onFailed: params.onFailed,
+        workflowSignal: params.workflowSignal,
+        // Validate the persisted payload inside the terminal transaction. The AI
+        // SDK exposes result.output on a separate promise, which can reject only
+        // after stream consumption would otherwise mark the call billable.
+        onCompleted: (completed, transaction) => {
+          const output = parseStructuredText(
+            outputSchema,
+            completed.text,
+          ).elements
+          params.onCompleted?.({ id: completed.id, output }, transaction)
+        },
       })
-      const generation = prepared.start(result.stream, {
+      let result: ReturnType<typeof streamText>
+      try {
+        result = streamText({
+          ...streamTextBaseOptions(call, params, system),
+          output: Output.array({ element: params.element }),
+        })
+      } catch (error) {
+        const failure = await releaseAfterStartFailure(call, error)
+        return {
+          ...prepared.fail(failure),
+          output: rejectedOutput<Element[]>(failure),
+        }
+      }
+      const generation = prepared.start(call.wrapStream(result.stream), {
         finishReason: result.finishReason,
+        rawFinishReason: result.rawFinishReason,
         usage: result.usage,
       })
       return { ...generation, output: Promise.resolve(result.output) }
-    } catch (error) {
-      return {
-        ...prepared.fail(error),
-        output: rejectedOutput<Element[]>(error),
-      }
-    }
-  }, params.workflowSignal)
+    },
+    params.workflowSignal,
+  )
 }
 
 export async function generateObjectStream<Result>(
@@ -255,50 +324,51 @@ export async function generateObjectStream<Result>(
     onInterrupted?: TextGenerationPersistenceCallbacks["onInterrupted"]
   },
 ): Promise<GenerationHandle & { output: Promise<Result> }> {
-  const model = llm.model(params.model)
-  const system = await loadStructuredPrompt(params.promptName, params.schema)
-  return enqueueStreamingGeneration(() => {
-    requirePositiveCreditBalance(params.userId)
-    const prepared = prepareTextGeneration(params.userId, params.owner, {
-      metadata: {
-        modelId: model.modelId,
-        promptName: params.promptName,
-        calculateCredits: (usage) =>
-          calculateLlmCredits(config.llm, model.modelId, usage),
-      },
-      onRegistered: params.onRegistered,
-      onFailed: params.onFailed,
-      onInterrupted: params.onInterrupted,
-      workflowSignal: params.workflowSignal,
-      onCompleted: (completed, transaction) => {
-        const output = parseStructuredText(params.schema, completed.text)
-        params.onCompleted?.({ id: completed.id, output }, transaction)
-      },
-    })
-    try {
-      const result = streamText({
-        model,
-        prompt: params.prompt,
-        system,
-        temperature: params.temperature,
-        maxOutputTokens: boundedOutputTokens(params.maxOutputTokens),
-        maxRetries: config.llmExecution.maxRetries,
-        timeout: streamTimeout,
-        abortSignal: params.workflowSignal,
-        onError: suppressProviderErrorLogging,
-        ...llm.callOptions(params.reasoning ?? "disabled"),
-        output: Output.object({ schema: params.schema }),
+  const reasoning = params.reasoning ?? "disabled"
+  return enqueueStreamingGeneration(
+    params.userId,
+    reasoning,
+    params.model,
+    async (call) => {
+      if (call.provider === "server") {
+        requirePositiveCreditBalance(params.userId)
+      }
+      const system = await loadStructuredPrompt(
+        params.promptName,
+        params.schema,
+        call.supportsStructuredOutputs,
+      )
+      const prepared = prepareTextGeneration(params.userId, params.owner, {
+        metadata: generationRegistrationMetadata(call, params.promptName),
+        onRegistered: params.onRegistered,
+        onFailed: params.onFailed,
+        onInterrupted: params.onInterrupted,
+        workflowSignal: params.workflowSignal,
+        onCompleted: (completed, transaction) => {
+          const output = parseStructuredText(params.schema, completed.text)
+          params.onCompleted?.({ id: completed.id, output }, transaction)
+        },
       })
-      const generation = prepared.start(result.stream, {
+      let result: ReturnType<typeof streamText>
+      try {
+        result = streamText({
+          ...streamTextBaseOptions(call, params, system),
+          output: Output.object({ schema: params.schema }),
+        })
+      } catch (error) {
+        const failure = await releaseAfterStartFailure(call, error)
+        return {
+          ...prepared.fail(failure),
+          output: rejectedOutput<Result>(failure),
+        }
+      }
+      const generation = prepared.start(call.wrapStream(result.stream), {
         finishReason: result.finishReason,
+        rawFinishReason: result.rawFinishReason,
         usage: result.usage,
       })
       return { ...generation, output: Promise.resolve(result.output) }
-    } catch (error) {
-      return {
-        ...prepared.fail(error),
-        output: rejectedOutput<Result>(error),
-      }
-    }
-  }, params.workflowSignal)
+    },
+    params.workflowSignal,
+  )
 }

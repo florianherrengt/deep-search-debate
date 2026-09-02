@@ -92,6 +92,48 @@ cannot be deployed over plaintext transport.
 `AUTH_ADMIN_EMAIL` is optional outside production. It is trimmed, normalized to
 lowercase, limited to 254 characters, and validated as an email address.
 
+`OPENAI_CODEX_CREDENTIAL_KEY` is always required as canonical base64 encoding
+of exactly 32 bytes. It encrypts saved user Codex credentials with AES-256-GCM;
+losing or changing it requires affected users to reconnect. Production uses the
+fixed hardened `/usr/local/bin/rethinkloop-codex` launcher and rejects
+`OPENAI_CODEX_EXECUTABLE_PATH`. Development and tests may set that optional path
+to a deterministic local executable.
+
+Signed-in users manage the connection from `/settings`. The API starts the
+ChatGPT device-code flow over a local Codex app-server stdio process and exposes
+only its pending, connected, failed, and disconnected states. Pending login
+state is process-local and expires after 15 minutes; completed credentials are
+encrypted in SQLite. One API replica permits one pending device login at a time;
+additional connection attempts fail immediately and may be retried without
+consuming any LLM generation capacity. Each authentication or generation
+process receives a new private temporary `CODEX_HOME`, work directory, and
+scrubbed environment. The API persists a credential refresh with a
+compare-and-swap before removing that temporary tree, so an older active call
+cannot recreate a connection deleted by the user.
+
+Every LLM call checks for a saved OpenAI connection before entering the shared
+generation queue. A connected call first takes an abortable per-user
+reservation without decrypting credentials or starting Codex; waiting for that
+reservation consumes no shared generation permit. After admission it rechecks
+the connection, hydrates credentials, and starts Codex. A saved OpenAI
+connection selects the account's single default Codex
+model; enabled reasoning uses its highest advertised effort and disabled
+reasoning uses its lowest. These calls bypass product-credit admission and
+persist zero LLM credits, while web-search and extraction charging is
+unchanged. With no saved connection the configured server provider and normal
+LLM charging apply. A saved connection that is expired, rate-limited, broken,
+or protocol-incompatible fails the call and never silently falls back.
+
+The production launcher pins Codex 0.149.1, runs without an app-server network
+listener, clears inherited file descriptors and environment values, confines
+filesystem access to the session directories plus required DNS/TLS files,
+disables autonomous tools and approvals, and applies process and syscall
+limits. Its network access is retained only so the parent Codex process can
+reach OpenAI; it is not a destination-level egress allowlist. The final image
+build runs negative isolation and real binary/protocol smoke tests. An OpenAI
+authentication or generation launch fails closed if the runtime host's Landlock
+ABI is outside the launcher's audited range.
+
 `NODE_ENV` also selects non-secret defaults. Development and test use
 `BETTER_AUTH_URL=http://localhost:5173` and `DATABASE_URL=data.db`; production
 uses `BETTER_AUTH_URL=https://rethinkloop.com` and
@@ -168,8 +210,10 @@ defaults are 300, 120, and 60 seconds and are configured with
 ceiling by default — a runaway-output guard rather than a cost target, sized so
 the max-reasoning winner website keeps room for the complete HTML page; stages
 send smaller explicit budgets when their outputs are
-known to be short. This avoids both provider-specific implicit limits and
-oversized structured responses. Provider-request failures use two SDK retries by default,
+known to be short. The server-funded providers enforce these AI SDK output
+budgets. The Codex community adapter ignores `maxOutputTokens`, so connected
+OpenAI calls retain only the existing deadlines and cancellation behavior and
+do not add a Codex-specific output cap. Provider-request failures use two SDK retries by default,
 configured through `LLM_MAX_RETRIES`, so dependency upgrades cannot silently
 change retry cost or latency. The short title generation retains its narrower
 per-call limit. Evidence-transformation and prose-only stages—including

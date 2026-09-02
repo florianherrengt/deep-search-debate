@@ -18,6 +18,12 @@ import {
   createReplayableEventLog,
   type ReplayableEventLog,
 } from "../helpers/replayableEventLog.ts"
+import {
+  codexFinishReasonError,
+  OpenAiCodexError,
+  type OpenAiCodexErrorCode,
+} from "../openaiConnection/codexErrors.ts"
+import { FatalCodexContainmentError } from "../openaiConnection/codexSession/process.ts"
 
 export type TextStreamEvent =
   | { type: "reasoning"; text: string }
@@ -50,6 +56,7 @@ export type GenerationOutcome =
       text: string
       reasoning: string
       error: string
+      errorCode?: OpenAiCodexErrorCode
       failureKind: GenerationFailureKind
       finishReason?: FinishReason
     }
@@ -68,12 +75,20 @@ export type GenerationHandle = {
   completion: Promise<GenerationOutcome>
 }
 
+function failedGenerationError(
+  outcome: Extract<GenerationOutcome, { status: "failed" }>,
+): Error {
+  return outcome.errorCode
+    ? new OpenAiCodexError(outcome.errorCode)
+    : new Error(outcome.error)
+}
+
 /** Returns durable text or throws the persisted provider/model failure. */
 export async function awaitGenerationText(
   generation: GenerationHandle,
 ): Promise<string> {
   const outcome = await generation.completion
-  if (outcome.status === "failed") throw new Error(outcome.error)
+  if (outcome.status === "failed") throw failedGenerationError(outcome)
   if (outcome.status === "interrupted") {
     throw new WorkflowInterruptedError(outcome.reason)
   }
@@ -95,7 +110,7 @@ export async function awaitGenerationOutput<Output>(
   ])
   if (completionResult.status === "rejected") throw completionResult.reason
   if (completionResult.value.status === "failed") {
-    throw new Error(completionResult.value.error)
+    throw failedGenerationError(completionResult.value)
   }
   if (completionResult.value.status === "interrupted") {
     throw new WorkflowInterruptedError(completionResult.value.reason)
@@ -166,11 +181,13 @@ export type TextGenerationPersistenceCallbacks = {
 type TextGenerationRegistrationMetadata = {
   modelId: string
   promptName: string
+  provider?: "server" | "codex"
   calculateCredits?: (usage: LanguageModelUsage) => number
 }
 
 type TextGenerationTerminalMetadata = {
   finishReason?: PromiseLike<FinishReason>
+  rawFinishReason?: PromiseLike<string | undefined>
   usage?: PromiseLike<LanguageModelUsage>
 }
 
@@ -199,20 +216,27 @@ export type PreparedTextGeneration = {
 type TerminalGenerationMetadata = {
   finishReason?: FinishReason
   finishReasonResolved?: boolean
+  rawFinishReason?: string
   usage?: LanguageModelUsage
   inputTokens?: number
   outputTokens?: number
   reasoningTokens?: number
 }
 
-function getUnsuccessfulFinishReasonMessage(
+function getUnsuccessfulFinishReasonError(
   finishReason: FinishReason | undefined,
-): string | undefined {
+  rawFinishReason: string | undefined,
+  provider: "server" | "codex" | undefined,
+): Error | undefined {
+  if (provider === "codex") {
+    const error = codexFinishReasonError(rawFinishReason)
+    if (error) return error
+  }
   if (finishReason === "stop") return undefined
   if (finishReason === undefined) {
-    return "Text generation did not report a finish reason"
+    return new Error("Text generation did not report a finish reason")
   }
-  return `Text generation ended with finish reason "${finishReason}"`
+  return new Error(`Text generation ended with finish reason "${finishReason}"`)
 }
 
 const streams = new Map<string, TextStream>()
@@ -278,8 +302,9 @@ function getPersistedStopReason(
 }
 
 /**
- * Translates provider deltas into public events and always terminates the retained
- * event log with `done`, even when the provider throws or emits an error.
+ * Translates provider deltas into public events and terminates the retained log
+ * with `done` for every ordinary outcome. Fatal containment failures escape
+ * without manufacturing terminal state while the API process shuts down.
  */
 async function consume(
   id: string,
@@ -292,8 +317,20 @@ async function consume(
   let text = ""
   let reasoning = ""
   let errorMessage: string | undefined
+  let errorCode: OpenAiCodexErrorCode | undefined
   let failureKind: GenerationFailureKind | undefined
   const terminalMetadataPromise = resolveTerminalMetadata(options.metadata)
+  const captureStreamError = (error: unknown): void => {
+    if (!errorMessage) {
+      if (error instanceof OpenAiCodexError) errorCode = error.code
+      errorMessage =
+        options.metadata?.provider === "server"
+          ? "Text generation failed"
+          : getErrorMessage(error, "Text generation failed")
+    }
+    failureKind ??= "stream"
+    stream.publish({ type: "error", message: errorMessage })
+  }
 
   try {
     for await (const part of source) {
@@ -307,28 +344,31 @@ async function consume(
           stream.publish({ type: "text", text: part.text })
           break
         case "error": {
-          errorMessage ??= getErrorMessage(part.error, "Text generation failed")
-          failureKind ??= "stream"
-          stream.publish({ type: "error", message: errorMessage })
+          captureStreamError(part.error)
           break
         }
       }
     }
   } catch (error) {
-    errorMessage ??= getErrorMessage(error, "Text generation failed")
-    failureKind ??= "stream"
-    stream.publish({ type: "error", message: errorMessage })
+    if (error instanceof FatalCodexContainmentError) throw error
+    captureStreamError(error)
   }
 
   const terminalMetadata = await terminalMetadataPromise
   let interruptionReason = getWorkflowStopReason(options.workflowSignal)
   if (!interruptionReason && !errorMessage && options.metadata) {
-    errorMessage = getUnsuccessfulFinishReasonMessage(
+    const finishReasonError = getUnsuccessfulFinishReasonError(
       terminalMetadata.finishReasonResolved
         ? terminalMetadata.finishReason
         : undefined,
+      terminalMetadata.rawFinishReason,
+      options.metadata.provider,
     )
-    if (errorMessage) {
+    if (finishReasonError) {
+      errorMessage = finishReasonError.message
+      if (finishReasonError instanceof OpenAiCodexError) {
+        errorCode = finishReasonError.code
+      }
       failureKind = "finish-reason"
       stream.publish({ type: "error", message: errorMessage })
     }
@@ -516,6 +556,7 @@ async function consume(
         text,
         reasoning,
         error: errorMessage,
+        ...(errorCode ? { errorCode } : {}),
         failureKind: failureKind!,
         ...finishReason,
       }
@@ -526,14 +567,19 @@ async function resolveTerminalMetadata(
   metadata: TextGenerationMetadata | undefined,
 ): Promise<TerminalGenerationMetadata> {
   if (!metadata) return {}
-  const [finishReason, usage] = await Promise.allSettled([
+  const [finishReason, rawFinishReason, usage] = await Promise.allSettled([
     metadata.finishReason ?? Promise.reject(new Error("Missing finish reason")),
+    metadata.rawFinishReason ?? Promise.resolve(undefined),
     metadata.usage ?? Promise.reject(new Error("Missing usage")),
   ])
   return {
     finishReasonResolved: finishReason.status === "fulfilled",
     finishReason:
       finishReason.status === "fulfilled" ? finishReason.value : undefined,
+    rawFinishReason:
+      rawFinishReason.status === "fulfilled"
+        ? rawFinishReason.value
+        : undefined,
     usage: usage.status === "fulfilled" ? usage.value : undefined,
     inputTokens:
       usage.status === "fulfilled" ? usage.value.inputTokens : undefined,
@@ -587,6 +633,7 @@ export function registerTextStream(
       ? {
           modelId: options.metadata.modelId,
           promptName: options.metadata.promptName,
+          provider: options.metadata.provider,
           calculateCredits: options.metadata.calculateCredits,
         }
       : undefined,
@@ -596,6 +643,7 @@ export function registerTextStream(
     options.metadata
       ? {
           finishReason: options.metadata.finishReason,
+          rawFinishReason: options.metadata.rawFinishReason,
           usage: options.metadata.usage,
         }
       : undefined,

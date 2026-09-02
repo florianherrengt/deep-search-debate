@@ -114,11 +114,7 @@ runtime_environment_value() {
         .is_literal == true
       )
     ][0] |
-    if .is_literal then
-      (.value // "")
-    else
-      (.real_value // .value // "")
-    end
+    (.real_value // .value // "")
   ' <<<"${environment_json}"
 }
 
@@ -126,6 +122,7 @@ required_runtime_keys=(
   SERPER_API_KEY
   LLM_PROVIDER
   LLM_MODEL_NAME
+  OPENAI_CODEX_CREDENTIAL_KEY
   SCRAPINGANT_API_KEY
   BETTER_AUTH_SECRET
   GITHUB_CLIENT_ID
@@ -136,6 +133,22 @@ required_runtime_keys=(
 for key in "${required_runtime_keys[@]}"; do
   check_required_runtime_key "${key}"
 done
+
+openai_codex_credential_key="$(runtime_environment_value "OPENAI_CODEX_CREDENTIAL_KEY")"
+if ! printf '%s' "${openai_codex_credential_key}" | node -e '
+  const chunks = []
+  process.stdin.on("data", (chunk) => chunks.push(chunk))
+  process.stdin.on("end", () => {
+    const encoded = Buffer.concat(chunks).toString("utf8")
+    const decoded = Buffer.from(encoded, "base64")
+    if (decoded.length !== 32 || decoded.toString("base64") !== encoded) {
+      process.exitCode = 1
+    }
+  })
+'; then
+  configuration_ok=false
+  echo "OPENAI_CODEX_CREDENTIAL_KEY must be canonical base64 encoding exactly 32 bytes." >&2
+fi
 
 llm_provider="$(runtime_environment_value "LLM_PROVIDER")"
 case "${llm_provider}" in
@@ -214,6 +227,11 @@ fi
 if jq -e 'any(.[]; .key == "SEARXNG_URL" and .is_preview == false)' >/dev/null <<<"${environment_json}"; then
   configuration_ok=false
   echo "SEARXNG_URL must not be configured in production; this deployment uses Serper." >&2
+fi
+
+if jq -e 'any(.[]; .key == "OPENAI_CODEX_EXECUTABLE_PATH" and .is_preview == false)' >/dev/null <<<"${environment_json}"; then
+  configuration_ok=false
+  echo "OPENAI_CODEX_EXECUTABLE_PATH must not be configured in production; the hardened image path is fixed." >&2
 fi
 
 if [[ "${configuration_ok}" != true ]]; then

@@ -24,6 +24,10 @@ const creditMocks = vi.hoisted(() => ({
   grantUserCredits: vi.fn(),
 }))
 
+const openAiConnectionMocks = vi.hoisted(() => ({
+  getOpenAiConnection: vi.fn(),
+}))
+
 vi.mock("./lib/authClient.ts", () => ({
   authClient: {
     signIn: { social: authMocks.signInSocial },
@@ -39,6 +43,11 @@ vi.mock("./lib/credits.ts", () => ({
   getAdminUsers: creditMocks.getAdminUsers,
   getCreditAccount: creditMocks.getCreditAccount,
   grantUserCredits: creditMocks.grantUserCredits,
+}))
+
+vi.mock("./lib/openAiConnection.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./lib/openAiConnection.ts")>()),
+  getOpenAiConnection: openAiConnectionMocks.getOpenAiConnection,
 }))
 
 const authenticatedSession = {
@@ -82,6 +91,9 @@ describe("App", () => {
       isAdmin: true,
     })
     creditMocks.getAdminUsers.mockResolvedValue({ users: [] })
+    openAiConnectionMocks.getOpenAiConnection.mockResolvedValue({
+      status: "disconnected",
+    })
     authMocks.getAuthConfig.mockResolvedValue({ debugUserEnabled: true })
     authMocks.refetch.mockResolvedValue(undefined)
     authMocks.signInSocial.mockResolvedValue({ data: null, error: null })
@@ -136,11 +148,48 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open account menu for Debug User" }))
     const accountMenu = await screen.findByRole("menu", { name: "Account menu" })
     expect(within(accountMenu).getByText("Debug User")).toBeVisible()
+    expect(
+      within(accountMenu).getByRole("menuitem", { name: "Settings" }),
+    ).toHaveAttribute("href", "/settings")
     expect(within(accountMenu).getByRole("menuitem", { name: "About" })).toHaveAttribute("href", "/about")
     expect(
       await within(accountMenu).findByRole("menuitem", { name: "Admin" }),
     ).toHaveAttribute("href", "/admin/credits")
     expect(within(accountMenu).getByRole("menuitem", { name: "Sign out" })).toBeVisible()
+  })
+
+  it("keeps settings private inside the authenticated application shell", async () => {
+    window.history.replaceState({}, "", "/settings")
+    renderApp()
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Settings" }),
+    ).toBeVisible()
+    expect(
+      screen.getByRole("navigation", { name: "Primary navigation" }),
+    ).toBeVisible()
+    expect(openAiConnectionMocks.getOpenAiConnection).toHaveBeenCalledOnce()
+  })
+
+  it("does not load settings for an anonymous visitor", () => {
+    window.history.replaceState({}, "", "/settings")
+    authMocks.useSession.mockReturnValue({
+      data: null,
+      error: null,
+      isPending: false,
+      isRefetching: false,
+      refetch: authMocks.refetch,
+    })
+
+    renderApp()
+
+    expect(
+      screen.getByRole("heading", { name: "Join the waiting list" }),
+    ).toBeVisible()
+    expect(
+      screen.queryByRole("heading", { level: 1, name: "Settings" }),
+    ).not.toBeInTheDocument()
+    expect(openAiConnectionMocks.getOpenAiConnection).not.toHaveBeenCalled()
   })
 
   it("resets scroll and moves focus into the new route", async () => {

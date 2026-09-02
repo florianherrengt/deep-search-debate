@@ -5,6 +5,7 @@ Use this checklist for mistakes and invariants that cross the API and web client
 - The root `AGENTS.md` and every relevant scoped document were read before changing code.
 - Changes stay within the requested scope and preserve unrelated tracked, untracked, and in-progress user work.
 - New libraries, tables, state, or abstractions remove more complexity than they add. Do not reintroduce a removed dependency without a new, documented reason.
+- Review changed files for cohesive ownership, not a numeric size threshold. Split files when they combine independently evolving responsibilities; keep a lifecycle or transaction together when splitting would scatter its invariants.
 - Generated files, downloaded tooling, local skills, database copies, screenshots, and other artifacts are included only when intentional.
 - Durable facts have stable identities. Never use a JSON array position as a relational identity.
 - Data which can be deterministically derived is not also persisted as a second source of truth.

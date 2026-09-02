@@ -44,6 +44,8 @@ export default defineConfig({
       AUTH_ADMIN_EMAIL: "admin@example.com",
       GITHUB_CLIENT_ID: "test-github-client-id",
       GITHUB_CLIENT_SECRET: "test-github-client-secret",
+      OPENAI_CODEX_CREDENTIAL_KEY:
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
       AUTH_DEBUG_USER_ENABLED: "true",
       AUTH_DEBUG_USER_PASSWORD: "test-debug-password",
     },

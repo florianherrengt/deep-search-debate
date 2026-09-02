@@ -35,6 +35,14 @@ The repository has living checklists for recurring engineering mistakes. Read a 
 
 Do not load unrelated checklists. These files supplement scoped documentation and the executable `npm run gatekeep` command; they replace neither. Keep checklist entries feature-independent and update or remove them when the architecture changes.
 
+During final review, spawn one dedicated subagent for every applicable root or
+scoped `gatekeep.md` checklist and have each subagent check the complete diff
+against only its assigned checklist. Run those reviews in parallel when
+possible, then verify and integrate their evidence in the main review. The main
+agent must still read every applicable checklist itself; delegation does not
+replace that responsibility. `docs/gatekeep.md` is the checklist-maintenance
+guide, not a separate code-review checklist.
+
 ## Area docs
 
 Detailed guidance lives in per-folder `docs/` files. Read the relevant one with your Read tool before working in that area — they hold gotchas you would otherwise miss:

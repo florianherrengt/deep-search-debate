@@ -6,7 +6,9 @@ import {
   createOpenAICompatible,
   type OpenAICompatibleLanguageModelChatOptions,
 } from "@ai-sdk/openai-compatible"
+import type { LanguageModel } from "ai"
 import { config, type LlmConfig } from "../config.ts"
+import { reserveCodexGeneration } from "../openaiConnection/codexGeneration.ts"
 
 export type LlmCallReasoning = "enabled" | "disabled"
 
@@ -67,4 +69,68 @@ export function createConfiguredLlm(llmConfig: LlmConfig) {
   }
 }
 
-export const llm = createConfiguredLlm(config.llm)
+const llm = createConfiguredLlm(config.llm)
+
+export type ResolvedLlmCall = {
+  provider: "server" | "codex"
+  model: LanguageModel
+  modelId: string
+  supportsStructuredOutputs: boolean
+  callOptions: Record<string, unknown>
+  wrapStream<Part>(source: AsyncIterable<Part>): AsyncIterable<Part>
+  release(): Promise<void>
+}
+
+export type LlmCallReservation = {
+  resolve(
+    reasoning: LlmCallReasoning,
+    modelOverride?: string,
+  ): Promise<ResolvedLlmCall>
+  release(): void
+}
+
+function resolveServerLlmCall(
+  reasoning: LlmCallReasoning,
+  modelOverride?: string,
+): ResolvedLlmCall {
+  const model = llm.model(modelOverride)
+  return {
+    provider: "server",
+    model,
+    modelId: model.modelId,
+    supportsStructuredOutputs: llm.supportsStructuredOutputs,
+    callOptions: llm.callOptions(reasoning),
+    wrapStream: (source) => source,
+    release: () => Promise.resolve(),
+  }
+}
+
+/** Reserves per-user Codex serialization without occupying shared LLM capacity. */
+export async function reserveLlmCall(
+  userId: string,
+  signal?: AbortSignal,
+): Promise<LlmCallReservation> {
+  const codexReservation = await reserveCodexGeneration(userId, signal)
+  let consumed = false
+  return {
+    async resolve(reasoning, modelOverride) {
+      if (consumed) throw new Error("LLM call reservation was already consumed")
+      consumed = true
+      const codex = await codexReservation?.acquire(reasoning)
+      if (codex) {
+        return {
+          ...codex,
+          provider: "codex",
+          supportsStructuredOutputs: true,
+          callOptions: {},
+        }
+      }
+      return resolveServerLlmCall(reasoning, modelOverride)
+    },
+    release() {
+      if (consumed) return
+      consumed = true
+      codexReservation?.release()
+    },
+  }
+}
