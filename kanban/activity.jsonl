@@ -367,3 +367,7 @@
 {"timestamp":"2026-09-02T16:21:19.328462+01:00","action":"handoff","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
 {"timestamp":"2026-09-02T16:21:19.328854+01:00","action":"block","task_id":25,"detail":"Waiting on user: click Connect OpenAI and complete the real ChatGPT sign-in in the open browser, then report completion."}
 {"timestamp":"2026-09-02T16:21:19.328955+01:00","action":"release","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
+{"timestamp":"2026-09-02T16:57:43.040622+01:00","action":"edit","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
+{"timestamp":"2026-09-02T16:57:43.040768+01:00","action":"unblock","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
+{"timestamp":"2026-09-02T16:57:43.040898+01:00","action":"claim","task_id":25,"detail":"flanch-exultant"}
+{"timestamp":"2026-09-02T16:57:43.057089+01:00","action":"move","task_id":25,"detail":"review -\u003e in-progress"}
