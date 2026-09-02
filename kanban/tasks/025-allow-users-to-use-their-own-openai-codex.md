@@ -1,13 +1,12 @@
 ---
 id: 25
 title: Allow users to use their own OpenAI Codex subscription
-status: in-progress
+status: done
 priority: medium
 created: 2026-08-25T14:16:35.14541+01:00
-updated: 2026-09-02T17:09:36.449452+01:00
+updated: 2026-09-02T17:10:56.549557+01:00
 started: 2026-08-25T14:32:31.054817+01:00
-claimed_by: sacellum-fipple
-claimed_at: 2026-09-02T17:09:36.449452+01:00
+completed: 2026-09-02T17:10:56.550865+01:00
 class: standard
 ---
 
@@ -217,3 +216,10 @@ Approved implementation defaults (2026-08-25):
 - Runtime: local API is using the explicitly configured pinned Codex 0.149.1 package executable; production continues using the hardened container launcher.
 - Worktree and branch: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-25-openai-subscription on codex/ticket-25-openai-subscription.
 - Next step: after action-time confirmation, disconnect the test account; task code remains uncommitted for review.
+
+[[2026-09-02]] Wed 17:10
+## Completion
+- Feature commit: dd2ab0d (feat: support OpenAI Codex subscriptions).
+- Merged into local main as 516241a.
+- Final proof: the real ChatGPT-connected standalone call completed on gpt-5.6-sol, persisted credits_used = 0, and left the user balance at 500.
+- The live test account remains connected; no credential deletion was performed as part of the Git-only merge request.

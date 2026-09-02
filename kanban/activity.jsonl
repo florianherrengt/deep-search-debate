@@ -387,3 +387,6 @@
 {"timestamp":"2026-09-02T17:09:36.435231+01:00","action":"unblock","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
 {"timestamp":"2026-09-02T17:09:36.435616+01:00","action":"claim","task_id":25,"detail":"sacellum-fipple"}
 {"timestamp":"2026-09-02T17:09:36.450997+01:00","action":"move","task_id":25,"detail":"review -\u003e in-progress"}
+{"timestamp":"2026-09-02T17:10:56.535436+01:00","action":"edit","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
+{"timestamp":"2026-09-02T17:10:56.535739+01:00","action":"release","task_id":25,"detail":"sacellum-fipple"}
+{"timestamp":"2026-09-02T17:10:56.551059+01:00","action":"move","task_id":25,"detail":"in-progress -\u003e done"}
