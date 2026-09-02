@@ -1,13 +1,13 @@
 ---
 id: 25
 title: Allow users to use their own OpenAI Codex subscription
-status: in-progress
+status: review
 priority: medium
 created: 2026-08-25T14:16:35.14541+01:00
-updated: 2026-09-02T16:17:50.148506+01:00
+updated: 2026-09-02T16:21:19.32675+01:00
 started: 2026-08-25T14:32:31.054817+01:00
-claimed_by: turnpike-anabatic
-claimed_at: 2026-09-02T16:17:50.148506+01:00
+blocked: true
+block_reason: 'Waiting on user: click Connect OpenAI and complete the real ChatGPT sign-in in the open browser, then report completion.'
 class: standard
 ---
 
@@ -193,3 +193,10 @@ Approved implementation defaults (2026-08-25):
 - Verified: npm run gatekeep passed (85 API files / 706 tests; 53 web files / 337 tests); focused schema/encryption/repository/generation/login tests passed; headed OpenAI browser workflow passed; git diff --check passed; root/API/schema/web checklist reviewers all PASS.
 - Worktree: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-25-openai-subscription; branch codex/ticket-25-openai-subscription remains uncommitted for user review. Unrelated user-owned .agents/skills files remain untouched.
 - Remaining live check: user will connect a real ChatGPT account, run a minimal Codex generation, verify zero RethinkLoop LLM credits, then disconnect.
+
+[[2026-09-02]] Wed 16:21
+## Live validation handoff
+- Current state: API and web app are running; the in-app browser is open on the private Settings page using the local debug account.
+- Worktree and branch: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-25-openai-subscription on codex/ticket-25-openai-subscription.
+- Verified: http://127.0.0.1:3002/api/health and http://127.0.0.1:5175/settings both returned 200; Settings shows OpenAI as not connected.
+- Next step: user clicks Connect OpenAI and completes the real ChatGPT device-code sign-in; then run one minimal generation, verify zero LLM-credit debit, and disconnect.
