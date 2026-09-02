@@ -1,13 +1,13 @@
 ---
 id: 25
 title: Allow users to use their own OpenAI Codex subscription
-status: review
+status: in-progress
 priority: medium
 created: 2026-08-25T14:16:35.14541+01:00
-updated: 2026-09-02T17:00:52.416842+01:00
+updated: 2026-09-02T17:02:45.822576+01:00
 started: 2026-08-25T14:32:31.054817+01:00
-blocked: true
-block_reason: 'Waiting on user: complete the real ChatGPT sign-in using the now-active device-code flow, then report completion.'
+claimed_by: athyroid-pipette
+claimed_at: 2026-09-02T17:02:45.822576+01:00
 class: standard
 ---
 

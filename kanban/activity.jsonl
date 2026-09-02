@@ -375,3 +375,7 @@
 {"timestamp":"2026-09-02T17:00:52.418625+01:00","action":"handoff","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
 {"timestamp":"2026-09-02T17:00:52.419042+01:00","action":"block","task_id":25,"detail":"Waiting on user: complete the real ChatGPT sign-in using the now-active device-code flow, then report completion."}
 {"timestamp":"2026-09-02T17:00:52.419164+01:00","action":"release","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
+{"timestamp":"2026-09-02T17:02:45.807245+01:00","action":"edit","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
+{"timestamp":"2026-09-02T17:02:45.80737+01:00","action":"unblock","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
+{"timestamp":"2026-09-02T17:02:45.80776+01:00","action":"claim","task_id":25,"detail":"athyroid-pipette"}
+{"timestamp":"2026-09-02T17:02:45.823866+01:00","action":"move","task_id":25,"detail":"review -\u003e in-progress"}
