@@ -1,13 +1,13 @@
 ---
 id: 25
 title: Allow users to use their own OpenAI Codex subscription
-status: in-progress
+status: review
 priority: medium
 created: 2026-08-25T14:16:35.14541+01:00
-updated: 2026-09-02T16:57:43.055442+01:00
+updated: 2026-09-02T17:00:52.416842+01:00
 started: 2026-08-25T14:32:31.054817+01:00
-claimed_by: flanch-exultant
-claimed_at: 2026-09-02T16:57:43.055442+01:00
+blocked: true
+block_reason: 'Waiting on user: complete the real ChatGPT sign-in using the now-active device-code flow, then report completion.'
 class: standard
 ---
 
@@ -200,3 +200,11 @@ Approved implementation defaults (2026-08-25):
 - Worktree and branch: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-25-openai-subscription on codex/ticket-25-openai-subscription.
 - Verified: http://127.0.0.1:3002/api/health and http://127.0.0.1:5175/settings both returned 200; Settings shows OpenAI as not connected.
 - Next step: user clicks Connect OpenAI and completes the real ChatGPT device-code sign-in; then run one minimal generation, verify zero LLM-credit debit, and disconnect.
+
+[[2026-09-02]] Wed 17:00
+## Live authentication retry
+- Root cause: local API used the production-only /usr/local/bin/rethinkloop-codex launcher, which is absent on this Mac.
+- Correction: restarted the API with the installed pinned Codex 0.149.1 development executable; web app remained running.
+- Verified: the same Connect OpenAI action now reaches Connection pending and displays the official OpenAI verification link and one-time code.
+- Worktree and branch: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-25-openai-subscription on codex/ticket-25-openai-subscription.
+- Next step: user completes ChatGPT sign-in; then run one minimal generation, verify zero LLM-credit debit, and disconnect.
