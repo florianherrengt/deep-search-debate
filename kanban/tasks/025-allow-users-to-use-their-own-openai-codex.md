@@ -1,13 +1,13 @@
 ---
 id: 25
 title: Allow users to use their own OpenAI Codex subscription
-status: review
+status: in-progress
 priority: medium
 created: 2026-08-25T14:16:35.14541+01:00
-updated: 2026-09-02T17:05:54.972294+01:00
+updated: 2026-09-02T17:09:36.449452+01:00
 started: 2026-08-25T14:32:31.054817+01:00
-blocked: true
-block_reason: 'Waiting on user: confirm whether to disconnect and delete the saved OpenAI connection now that the live test passed.'
+claimed_by: sacellum-fipple
+claimed_at: 2026-09-02T17:09:36.449452+01:00
 class: standard
 ---
 

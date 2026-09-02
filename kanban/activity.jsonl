@@ -383,3 +383,7 @@
 {"timestamp":"2026-09-02T17:05:54.974172+01:00","action":"handoff","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
 {"timestamp":"2026-09-02T17:05:54.974543+01:00","action":"block","task_id":25,"detail":"Waiting on user: confirm whether to disconnect and delete the saved OpenAI connection now that the live test passed."}
 {"timestamp":"2026-09-02T17:05:54.974623+01:00","action":"release","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
+{"timestamp":"2026-09-02T17:09:36.435107+01:00","action":"edit","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
+{"timestamp":"2026-09-02T17:09:36.435231+01:00","action":"unblock","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
+{"timestamp":"2026-09-02T17:09:36.435616+01:00","action":"claim","task_id":25,"detail":"sacellum-fipple"}
+{"timestamp":"2026-09-02T17:09:36.450997+01:00","action":"move","task_id":25,"detail":"review -\u003e in-progress"}
