@@ -1,13 +1,13 @@
 ---
 id: 25
 title: Allow users to use their own OpenAI Codex subscription
-status: in-progress
+status: review
 priority: medium
 created: 2026-08-25T14:16:35.14541+01:00
-updated: 2026-09-02T17:02:45.822576+01:00
+updated: 2026-09-02T17:05:54.972294+01:00
 started: 2026-08-25T14:32:31.054817+01:00
-claimed_by: athyroid-pipette
-claimed_at: 2026-09-02T17:02:45.822576+01:00
+blocked: true
+block_reason: 'Waiting on user: confirm whether to disconnect and delete the saved OpenAI connection now that the live test passed.'
 class: standard
 ---
 
@@ -208,3 +208,12 @@ Approved implementation defaults (2026-08-25):
 - Verified: the same Connect OpenAI action now reaches Connection pending and displays the official OpenAI verification link and one-time code.
 - Worktree and branch: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-25-openai-subscription on codex/ticket-25-openai-subscription.
 - Next step: user completes ChatGPT sign-in; then run one minimal generation, verify zero LLM-credit debit, and disconnect.
+
+[[2026-09-02]] Wed 17:05
+## Real-account live test passed
+- Connected state: Settings confirmed the real OpenAI account is connected.
+- Generation: standalone stream a8cc4435-cffd-47b5-a264-5bd22bf52afb returned Connected OpenAI subscription works. and completed normally.
+- Billing: RethinkLoop balance was 500 before and 500 after. SQLite records model_id gpt-5.6-sol, prompt_name default, credits_used 0, status completed.
+- Runtime: local API is using the explicitly configured pinned Codex 0.149.1 package executable; production continues using the hardened container launcher.
+- Worktree and branch: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-25-openai-subscription on codex/ticket-25-openai-subscription.
+- Next step: after action-time confirmation, disconnect the test account; task code remains uncommitted for review.
