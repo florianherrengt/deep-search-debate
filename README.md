@@ -17,6 +17,7 @@ at startup:
 | `LLM_MODEL_NAME` | Always |
 | `DEEPSEEK_API_KEY` | `LLM_PROVIDER=deepseek` |
 | `OPENCODE_ZEN_API_KEY` | Development with `LLM_PROVIDER=zen` |
+| `OPENAI_CODEX_CREDENTIAL_KEY` | Always; canonical base64 encoding of exactly 32 bytes |
 | `SCRAPINGANT_API_KEY` | Always |
 | `BETTER_AUTH_SECRET` | Always; at least 32 characters |
 | `GITHUB_CLIENT_ID` | Always |
@@ -49,7 +50,7 @@ LLM_MODEL_NAME=deepseek-v4-flash
 LLM_GENERATION_TIMEOUT_MS=300000
 LLM_FIRST_CHUNK_TIMEOUT_MS=120000
 LLM_CHUNK_TIMEOUT_MS=60000
-LLM_MAX_OUTPUT_TOKENS=32768
+LLM_MAX_OUTPUT_TOKENS=8192
 LLM_MAX_RETRIES=2
 LLM_MAX_CONCURRENT_GENERATIONS=4
 LLM_MAX_ACTIVE_STANDALONE_GENERATIONS_PER_USER=2
@@ -60,6 +61,9 @@ IDEA_JOB_MAX_ROOT_JOB_CREATIONS_PER_WINDOW=2
 DEBATE_MAX_ROOT_JOB_CREATIONS_PER_WINDOW=1
 DEEPSEEK_API_KEY=
 OPENCODE_ZEN_API_KEY=
+# Canonical base64 encoding of exactly 32 random bytes, for example: openssl rand -base64 32
+OPENAI_CODEX_CREDENTIAL_KEY=
+# OPENAI_CODEX_EXECUTABLE_PATH may be set outside production for a deterministic local test executable.
 SCRAPINGANT_API_KEY=
 SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS=120000
 SCRAPINGANT_REQUEST_TIMEOUT_MS=35000
@@ -98,7 +102,10 @@ EXAMPLE_DEBATE_IDS=
 Do not put real credentials in `.env.example`; set them only in the ignored
 `src/api/.env` or the deployment platform. The selected LLM provider's key is
 required; the unselected provider's key may be absent or blank. A missing,
-blank, or whitespace-only required secret fails startup.
+blank, or whitespace-only required secret fails startup. Generate the Codex
+credential-encryption key with `openssl rand -base64 32`; retain the same value
+while saved OpenAI connections exist, because changing or losing it makes them
+unreadable and requires affected users to reconnect.
 
 `EXAMPLE_DEBATE_IDS` is an optional, ordered, comma-separated list of up to 50
 debate job UUIDs. `/examples` shows only configured debates that still exist,
@@ -142,9 +149,15 @@ $0.001 ($1 per 1,000 credits). The local debug user is an administrator and can
 grant credits from `/admin/credits`. In production, the signed-in GitHub account
 whose email matches `AUTH_ADMIN_EMAIL` is also an administrator; matching is
 case-insensitive. Existing administrators marked in the `user.is_admin` column
-remain administrators. Provider work checks for a positive balance before
-starting and debits actual settled usage afterward, so a completed call may
-leave a negative balance. Failed provider calls are not charged.
+remain administrators. Without an OpenAI connection, LLM work checks for a
+positive balance before starting and debits actual settled usage afterward, so
+a completed call may leave a negative balance. A signed-in user can connect a
+ChatGPT subscription from `/settings`; new LLM calls then use the account's
+default Codex model without a product-credit admission check or LLM debit.
+Search and extraction keep their existing product-credit charges. A configured
+OpenAI connection that is expired, rate-limited, or otherwise broken returns an
+actionable error instead of silently falling back to the server provider.
+Failed provider calls are not charged.
 Completed usage remains charged; stopped in-progress attempts do not debit
 RethinkLoop credits. The application cannot guarantee how an upstream provider
 bills work already performed.
@@ -376,4 +389,4 @@ Run the end-to-end test separately:
 npm run test:e2e
 ```
 
-The E2E tests start isolated API and Vite servers with a migrated temporary SQLite database. Deterministic process-level mocks replace only outbound DeepSeek, SearXNG, and ScrapingAnt responses; the Hono routes, extraction pipeline, persistence, NDJSON streams, React UI, replay, and history remain real. The Deep Search scenarios cover query generation through final synthesis and root Stop. The Ideas scenarios cover planning, parallel child searches, research summarization, exact-count idea generation, child-search links, durable replay and history, plus root Stop cascading to active children and surviving refresh. The Debates scenarios cover a complete deterministic tournament, the debate-only retry and failure behavior, and root Stop during active tournament work with completed results retained after refresh. No provider credentials or network access are required.
+The E2E tests start isolated API and Vite servers with a migrated temporary SQLite database. Deterministic process-level mocks replace outbound DeepSeek, SearXNG, and ScrapingAnt responses, and a local JSONL app-server fixture exercises OpenAI device authentication and Codex generation through the community AI SDK provider. The Hono routes, extraction pipeline, persistence, NDJSON streams, React UI, replay, and history remain real. The Deep Search scenarios cover query generation through final synthesis and root Stop. The Ideas scenarios cover planning, parallel child searches, research summarization, exact-count idea generation, child-search links, durable replay and history, plus root Stop cascading to active children and surviving refresh. The Debates scenarios cover a complete deterministic tournament, the debate-only retry and failure behavior, and root Stop during active tournament work with completed results retained after refresh. No real provider credentials or network access are required.

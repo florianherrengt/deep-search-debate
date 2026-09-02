@@ -18,6 +18,7 @@ import {
 import { ideaJobs } from "./ideaJobs.ts"
 import { ideas } from "./ideas.ts"
 import { llmGenerations } from "./llmGenerations.ts"
+import { openAiCodexConnections } from "./openAiCodexConnections.ts"
 import { researchJobAdmissions } from "./researchJobAdmissions.ts"
 import { account, session, user } from "./auth.ts"
 import { waitlistEntries } from "./waitlistEntries.ts"
@@ -27,15 +28,26 @@ export const waitlistEntriesRelations = relations(
   () => ({}),
 )
 
-export const userRelations = relations(user, ({ many }) => ({
+export const userRelations = relations(user, ({ many, one }) => ({
   sessions: many(session),
   accounts: many(account),
+  openAiCodexConnection: one(openAiCodexConnections),
   deepSearchJobs: many(deepSearchJobs),
   ideaJobs: many(ideaJobs),
   debateJobs: many(debateJobs),
   llmGenerations: many(llmGenerations),
   researchJobAdmissions: many(researchJobAdmissions),
 }))
+
+export const openAiCodexConnectionsRelations = relations(
+  openAiCodexConnections,
+  ({ one }) => ({
+    user: one(user, {
+      fields: [openAiCodexConnections.userId],
+      references: [user.id],
+    }),
+  }),
+)
 
 export const researchJobAdmissionsRelations = relations(
   researchJobAdmissions,

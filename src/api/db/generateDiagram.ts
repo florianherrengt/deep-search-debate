@@ -19,6 +19,9 @@ const dbml = `${generated.replace(
 
 // SQLite checks omitted from DBML require waitlist_entries.email to equal its
 // trimmed lowercase form and contain between 1 and 254 characters.
+// openai_codex_connections requires a non-empty trimmed connection ID,
+// non-empty ciphertext, a 12-byte nonce, and a 16-byte authentication tag; its
+// three encrypted values must be BLOBs.
 // The fresh baseline migration also defines triggers that require selected
 // result/page ownership, require tournament participants to be selected ideas
 // from the debate's idea job, and freeze aggregate structure and generation

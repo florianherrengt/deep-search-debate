@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs"
+import { readFileSync, readdirSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import Database from "better-sqlite3"
 import { drizzle } from "drizzle-orm/better-sqlite3"
@@ -9,15 +9,79 @@ const migrationsFolder = fileURLToPath(
   new URL("../../drizzle", import.meta.url),
 )
 
+function applySqlMigration(sqlite: Database.Database, filename: string): void {
+  const migration = readFileSync(`${migrationsFolder}/${filename}`, "utf8")
+  for (const statement of migration.split("--> statement-breakpoint")) {
+    if (statement.trim().length > 0) sqlite.exec(statement)
+  }
+}
+
+function expectOpenAiConnectionIdentityConstraints(
+  sqlite: Database.Database,
+  prefix: string,
+): void {
+  const insertUser = sqlite.prepare(
+    "INSERT INTO user (id, name, email, email_verified) VALUES (?, ?, ?, ?)",
+  )
+  for (const suffix of ["valid", "invalid"]) {
+    insertUser.run(
+      `${prefix}-${suffix}`,
+      `Constraint ${suffix}`,
+      `${prefix}-${suffix}@example.com`,
+      1,
+    )
+  }
+
+  const insertConnection = sqlite.prepare(`
+    INSERT INTO openai_codex_connections (
+      user_id,
+      connection_id,
+      credentials_ciphertext,
+      credentials_nonce,
+      credentials_authentication_tag
+    ) VALUES (?, ?, ?, ?, ?)
+  `)
+  const validPayload = [
+    Buffer.from("ciphertext"),
+    Buffer.alloc(12),
+    Buffer.alloc(16),
+  ] as const
+
+  insertConnection.run(
+    `${prefix}-valid`,
+    "connection-valid",
+    ...validPayload,
+  )
+  expect(
+    sqlite
+      .prepare(
+        "SELECT connection_id FROM openai_codex_connections WHERE user_id LIKE ?",
+      )
+      .all(`${prefix}-%`),
+  ).toEqual([{ connection_id: "connection-valid" }])
+
+  for (const connectionId of ["", "   "]) {
+    expect(() =>
+      insertConnection.run(
+        `${prefix}-invalid`,
+        connectionId,
+        ...validPayload,
+      ),
+    ).toThrow(/openai_codex_connections_connection_id_check/)
+  }
+}
+
 describe("database migrations", () => {
   it("creates the complete current schema from the fresh baseline", () => {
     expect(
       readdirSync(migrationsFolder).filter((name) => name.endsWith(".sql")),
-    ).toEqual(["0000_fresh-baseline.sql"])
+    ).toEqual(["0000_fresh-baseline.sql", "0001_eager_stone_men.sql"])
 
     const sqlite = new Database(":memory:")
     sqlite.pragma("foreign_keys = ON")
     migrate(drizzle(sqlite), { migrationsFolder })
+
+    expectOpenAiConnectionIdentityConstraints(sqlite, "fresh")
 
     const tableNames = new Set(
       sqlite
@@ -29,12 +93,25 @@ describe("database migrations", () => {
     expect(tableNames.has("deep_search_queries")).toBe(true)
     expect(tableNames.has("research_job_admissions")).toBe(true)
     expect(tableNames.has("waitlist_entries")).toBe(true)
+    expect(tableNames.has("openai_codex_connections")).toBe(true)
     expect(
       sqlite
         .prepare("SELECT count(*) FROM __drizzle_migrations")
         .pluck()
         .get(),
-    ).toBe(1)
+    ).toBe(2)
+    expect(
+      sqlite
+        .prepare("PRAGMA table_info('openai_codex_connections')")
+        .all()
+        .map((column) => (column as { name: string }).name),
+    ).toEqual([
+      "user_id",
+      "connection_id",
+      "credentials_ciphertext",
+      "credentials_nonce",
+      "credentials_authentication_tag",
+    ])
     expect(
       sqlite
         .prepare("PRAGMA table_info('user')")
@@ -206,6 +283,106 @@ describe("database migrations", () => {
         "debate_match_structure_immutable",
       ]),
     )
+    sqlite.close()
+  })
+
+  it("upgrades the retained baseline without changing existing rows", () => {
+    const sqlite = new Database(":memory:")
+    sqlite.pragma("foreign_keys = ON")
+    applySqlMigration(sqlite, "0000_fresh-baseline.sql")
+
+    sqlite
+      .prepare(
+        "INSERT INTO user (id, name, email, credits, is_admin, email_verified) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run("retained-user", "Retained User", "retained@example.com", 321, 1, 1)
+    sqlite
+      .prepare("INSERT INTO waitlist_entries (waitlist_entry_id, email) VALUES (?, ?)")
+      .run("retained-waitlist-entry", "waitlist@example.com")
+
+    applySqlMigration(sqlite, "0001_eager_stone_men.sql")
+
+    expectOpenAiConnectionIdentityConstraints(sqlite, "upgrade")
+
+    expect(
+      sqlite
+        .prepare("SELECT id, credits, is_admin FROM user WHERE id = ?")
+        .get("retained-user"),
+    ).toEqual({ id: "retained-user", credits: 321, is_admin: 1 })
+    expect(
+      sqlite
+        .prepare("SELECT email FROM waitlist_entries WHERE waitlist_entry_id = ?")
+        .get("retained-waitlist-entry"),
+    ).toEqual({ email: "waitlist@example.com" })
+    sqlite
+      .prepare(
+        "INSERT INTO user (id, name, email, email_verified) VALUES (?, ?, ?, ?)",
+      )
+      .run("constraint-user", "Constraint User", "constraint@example.com", 1)
+
+    const insertConnection = sqlite.prepare(`
+      INSERT INTO openai_codex_connections (
+        user_id,
+        connection_id,
+        credentials_ciphertext,
+        credentials_nonce,
+        credentials_authentication_tag
+      ) VALUES (?, ?, ?, ?, ?)
+    `)
+    insertConnection.run(
+      "retained-user",
+      "connection-1",
+      Buffer.from("ciphertext"),
+      Buffer.alloc(12),
+      Buffer.alloc(16),
+    )
+    expect(() =>
+      insertConnection.run(
+        "constraint-user",
+        "connection-empty-ciphertext",
+        Buffer.alloc(0),
+        Buffer.alloc(12),
+        Buffer.alloc(16),
+      ),
+    ).toThrow(/openai_codex_connections_ciphertext_check/)
+    expect(() =>
+      insertConnection.run(
+        "constraint-user",
+        "connection-text-ciphertext",
+        "ciphertext",
+        Buffer.alloc(12),
+        Buffer.alloc(16),
+      ),
+    ).toThrow(/openai_codex_connections_ciphertext_check/)
+    expect(() =>
+      insertConnection.run(
+        "constraint-user",
+        "connection-2",
+        Buffer.from("ciphertext"),
+        Buffer.alloc(11),
+        Buffer.alloc(16),
+      ),
+    ).toThrow(/openai_codex_connections_nonce_check/)
+    expect(() =>
+      insertConnection.run(
+        "constraint-user",
+        "connection-bad-tag",
+        Buffer.from("ciphertext"),
+        Buffer.alloc(12),
+        Buffer.alloc(15),
+      ),
+    ).toThrow(/openai_codex_connections_authentication_tag_check/)
+    sqlite.prepare("DELETE FROM user WHERE id = ?").run("retained-user")
+    expect(
+      sqlite
+        .prepare(
+          "SELECT count(*) FROM openai_codex_connections WHERE user_id = ?",
+        )
+        .pluck()
+        .get("retained-user"),
+    ).toBe(0)
+    expect(sqlite.pragma("foreign_key_check")).toEqual([])
+    expect(sqlite.pragma("integrity_check", { simple: true })).toBe("ok")
     sqlite.close()
   })
 })

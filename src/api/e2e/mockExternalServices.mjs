@@ -963,6 +963,12 @@ function deepSeekOutput(body) {
   if (/debate|opening argument|rebuttal/i.test(system)) {
     return debateAgentOutput(system, user)
   }
+  if (user.includes("[E2E_STANDALONE_DEEPSEEK]")) {
+    return {
+      reasoning: "Use the configured server model after disconnect.",
+      text: "E2E DeepSeek fallback response.",
+    }
+  }
 
   throw new Error("Unhandled DeepSeek request in E2E external-service mock")
 }

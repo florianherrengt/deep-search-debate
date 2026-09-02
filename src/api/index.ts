@@ -33,6 +33,8 @@ import {
 } from "./routes/seo.ts"
 import { exampleDebateReads } from "./routes/examples/index.ts"
 import { waitlistRoutes } from "./routes/waitlist.ts"
+import { openAiConnectionRoutes } from "./routes/openAiConnection.ts"
+import { OpenAiCodexError } from "./openaiConnection/codexErrors.ts"
 
 export function handleRequestError(
   error: Error,
@@ -50,6 +52,18 @@ export function handleRequestError(
       },
       402,
     )
+  }
+  if (error instanceof OpenAiCodexError) {
+    const status = error.code === "authentication-required"
+      ? 401
+      : error.code === "rate-limited"
+        ? 429
+        : error.code === "workspace-disabled"
+          ? 403
+          : error.code === "timeout"
+            ? 504
+            : 503
+    return context.json({ error: error.message, code: error.code }, status)
   }
 
   // Provider errors can retain full prompts, response bodies, and every retry
@@ -118,6 +132,7 @@ debateJobReads(api, debateJobManager)
 exampleDebateReads(api)
 api.use("*", requireSession)
 creditRoutes(api)
+openAiConnectionRoutes(api)
 if (config.auth.debugUser.enabled) debug(api)
 streams(api)
 deepSearchJobs(api, deepSearchManager)

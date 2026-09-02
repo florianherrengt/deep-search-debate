@@ -34,6 +34,7 @@ const privatePageLabels: Readonly<Record<string, string>> = {
   "/debates": "Debates",
   "/deep-search": "Deep Search",
   "/ideas": "Ideas",
+  "/settings": "Settings",
 }
 
 export interface SeoMetadata {

@@ -11,6 +11,7 @@ import AdminPanelSettingsOutlined from "@mui/icons-material/AdminPanelSettingsOu
 import InfoOutlined from "@mui/icons-material/InfoOutlined"
 import LogoutRounded from "@mui/icons-material/LogoutRounded"
 import MenuRounded from "@mui/icons-material/MenuRounded"
+import SettingsOutlined from "@mui/icons-material/SettingsOutlined"
 import { useCallback, useEffect, useRef, useState } from "react"
 import Alert from "@mui/material/Alert"
 import AppBar from "@mui/material/AppBar"
@@ -39,6 +40,7 @@ import { Ideas } from "./pages/Ideas/index.tsx"
 import { Debates } from "./pages/Debates/index.tsx"
 import { AdminCredits } from "./pages/AdminCredits/index.ts"
 import { Examples } from "./pages/Examples/index.tsx"
+import { Settings } from "./pages/Settings/index.ts"
 import { NotFound } from "./components/NotFound.tsx"
 import { AuthGate } from "./components/auth/AuthGate.tsx"
 import type { AuthSession } from "./lib/authClient.ts"
@@ -308,6 +310,22 @@ function AppNavigation({ session, signingOut, signOut }: AppNavigationProps) {
           <Divider />
           <MenuItem
             aria-current={
+              isCurrentRoute(location.pathname, "/settings")
+                ? "page"
+                : undefined
+            }
+            component={Link}
+            onClick={closeAccountMenu}
+            selected={isCurrentRoute(location.pathname, "/settings")}
+            to="/settings"
+          >
+            <ListItemIcon>
+              <SettingsOutlined fontSize="small" />
+            </ListItemIcon>
+            Settings
+          </MenuItem>
+          <MenuItem
+            aria-current={
               isCurrentRoute(location.pathname, "/about") ? "page" : undefined
             }
             component={Link}
@@ -392,6 +410,7 @@ function RoutedContent() {
           element={<Debates />}
         />
         <Route path="/about" element={<About />} />
+        <Route path="/settings" element={<Settings />} />
         <Route path="/admin/credits" element={<AdminCredits />} />
         <Route path="*" element={<NotFound />} />
       </Routes>

@@ -1,12 +1,15 @@
 # Text streaming
 
 An admitted LLM invocation has one UUID for its complete lifecycle. Calls still
-waiting in the process-wide queue have no generation row; an internal workflow
-interruption can remove that queued work without registering an invocation. Once
-admitted, the adapter first creates an `llm_generations` row with null `text` and
-`reasoning` and commits any owning-stage registration hook. Only then may it
-construct the provider stream, consume deltas in memory, and return a handle
-containing the UUID.
+waiting for a per-user Codex reservation or in the process-wide queue have no
+generation row; an internal workflow interruption can remove that waiting work
+without registering an invocation. A Codex reservation is acquired before the
+shared queue without decrypting credentials or starting a process, so same-user
+serialization does not consume global generation capacity. Once admitted, the
+adapter first creates an `llm_generations` row with null `text` and `reasoning`
+and commits any owning-stage registration hook. Only then may it construct the
+provider stream, consume deltas in memory, and return a handle containing the
+UUID.
 
 Deltas are not written to SQLite. At the terminal boundary, the consumer performs one database update with the accumulated text, accumulated reasoning, status, error, and completion time. This keeps writes conservative while making completed output durable.
 
@@ -18,13 +21,26 @@ generation closed. Usage metadata is best-effort and remains null when
 unavailable. Duration is derived from the existing timestamps instead of being
 stored twice.
 
+Provider selection starts before shared admission so a connected user can take
+the per-user reservation. The connection is checked again after admission
+before credentials are decrypted. A user with no saved OpenAI connection uses
+the configured server provider, including the positive-credit
+admission check and normal LLM settlement. A saved connection uses the
+account-default Codex model and records zero product credits for that LLM
+generation; the caller may therefore have a zero product-credit balance.
+Search and extraction settle independently and keep their existing charges.
+An expired, rate-limited, broken, or incompatible saved connection fails the
+generation and never falls back to the server provider.
+
 Every LLM call shares one process-wide admission queue (four active generations
 by default), including text, structured output, and title generation. A permit
 is held until the durable terminal generation transaction settles; provider
 retries cannot bypass it. Every streaming provider call has configured total,
-first-content, and inter-content deadlines plus an explicit output-token
-ceiling. Individual stages use narrower budgets where appropriate instead of
-giving small structured responses the full operator ceiling. A stream
+first-content, and inter-content deadlines. Server-funded providers also apply
+an explicit output-token ceiling, with narrower stage budgets where
+appropriate. The Codex community adapter ignores `maxOutputTokens`, so OpenAI-
+connected calls intentionally have no Codex-specific output cap beyond the
+shared deadlines and cancellation behavior. A stream
 text caller must also choose `enabled` or `disabled` reasoning explicitly;
 there is no silent text-generation default. Structured array calls disable
 reasoning, while structured object calls disable it unless a stage deliberately
@@ -33,20 +49,31 @@ answer, idea briefing, idea evaluation, and debate advocacy—also disable hidde
 reasoning so it cannot exhaust the shared output budget before required text is
 emitted. A stream
 is successful only when the provider reports the normal `stop` finish reason;
+for Codex, its raw finish reason must also be `completed`. An unsolicited raw
+Codex `interrupted` finish is a safe provider failure, while a user- or
+parent-owned workflow signal remains the authoritative interruption path.
 `length`, `content-filter`, `tool-calls`, `error`, and `other` preserve their
 partial text for diagnosis but commit the generation and owning stage as
 failed. Finish-reason metadata is required and fails closed when unavailable;
 usage metadata remains best-effort. The AI SDK's default full-error
 logger is disabled so
 provider request envelopes are not written to application logs. The durable
-generation row retains the authorized failure message and all generation
-metadata, while successful and interrupted generations produce no console log.
+generation row retains only an authorized failure message and all generation
+metadata. At the stream-consumption boundary, server-funded provider errors are
+replaced with the fixed `Text generation failed` message before live
+publication, persistence, or replay; known Codex errors retain their fixed safe
+actionable messages and codes. Successful and interrupted generations produce
+no console log.
 
 A failed metadata-bearing generation emits one privacy-safe error record with
 its generation ID, owning job ID when present, prompt/stage, model ID, and finish
 reason. It deliberately excludes token counts, duration, prompt, output,
 reasoning, provider response body, page content, credentials, and error text.
-Detailed diagnostics remain available in the authorized local database row.
+The authorized local database row retains the same safe public error message,
+plus non-sensitive generation metadata. Known Codex failures also carry their
+stable safe code through the in-memory durable completion outcome so
+synchronous HTTP callers retain actionable status codes; only the fixed safe
+message is persisted.
 
 Internal registration returns `{ id, completion }`. The ID is available as
 soon as the initial `llm_generations` row and any registration hook commit.

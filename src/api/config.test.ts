@@ -44,6 +44,60 @@ describe("config", () => {
     expect(config.api.port).toBe(4321)
   })
 
+  it("decodes the canonical OpenAI Codex credential key", async () => {
+    const { config } = await import("./config.ts")
+
+    expect(config.openAiCodex.credentialKey).toEqual(Buffer.alloc(32))
+  })
+
+  it("requires a canonical base64 OpenAI Codex credential key", async () => {
+    vi.stubEnv(
+      "OPENAI_CODEX_CREDENTIAL_KEY",
+      "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    )
+    vi.resetModules()
+
+    await expect(import("./config.ts")).rejects.toThrow(
+      "OPENAI_CODEX_CREDENTIAL_KEY",
+    )
+  })
+
+  it("requires the OpenAI Codex credential key", async () => {
+    vi.stubEnv("OPENAI_CODEX_CREDENTIAL_KEY", undefined)
+    vi.resetModules()
+
+    await expect(import("./config.ts")).rejects.toThrow(
+      "OPENAI_CODEX_CREDENTIAL_KEY",
+    )
+  })
+
+  it("allows a custom OpenAI Codex executable only outside production", async () => {
+    vi.stubEnv("OPENAI_CODEX_EXECUTABLE_PATH", "/tmp/fake-codex")
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.openAiCodex.executablePath).toBe("/tmp/fake-codex")
+  })
+
+  it("rejects a custom OpenAI Codex executable in production", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("OPENAI_CODEX_EXECUTABLE_PATH", "/tmp/fake-codex")
+    vi.stubEnv("SERPER_API_KEY", "production-serper-key")
+    vi.stubEnv("AUTH_DEBUG_USER_ENABLED", "false")
+    vi.stubEnv(
+      "BETTER_AUTH_SECRET",
+      "production-secret-with-at-least-32-characters",
+    )
+    vi.stubEnv("GITHUB_CLIENT_ID", "production-github-client-id")
+    vi.stubEnv("GITHUB_CLIENT_SECRET", "production-github-client-secret")
+    vi.resetModules()
+
+    await expect(import("./config.ts")).rejects.toThrow(
+      "OPENAI_CODEX_EXECUTABLE_PATH cannot be set in production",
+    )
+  })
+
   it("normalizes the configured administrator email", async () => {
     vi.stubEnv("AUTH_ADMIN_EMAIL", "  ADMIN@Example.COM  ")
     vi.resetModules()

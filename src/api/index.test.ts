@@ -10,6 +10,7 @@ import { auth } from "./auth.ts"
 import type { AppEnv } from "./types/auth.ts"
 import { pingResponseSchema } from "./routes/ping.ts"
 import { authConfigResponseSchema } from "./routes/auth.ts"
+import { OpenAiCodexError } from "./openaiConnection/codexErrors.ts"
 
 describe("GET /api/ping", () => {
   it("returns pong", async () => {
@@ -78,6 +79,23 @@ describe("request error handling", () => {
     } finally {
       consoleError.mockRestore()
     }
+  })
+
+  it("returns safe actionable Codex errors", async () => {
+    const testApp = new Hono<AppEnv>()
+    testApp.onError(handleRequestError)
+    testApp.get("/rate-limited", () => {
+      throw new OpenAiCodexError("rate-limited")
+    })
+
+    const response = await testApp.request("/rate-limited")
+
+    expect(response.status).toBe(429)
+    await expect(response.json()).resolves.toEqual({
+      code: "rate-limited",
+      error:
+        "Your OpenAI subscription is temporarily rate-limited. Try again after its usage limit resets.",
+    })
   })
 })
 
@@ -164,6 +182,29 @@ describe("authentication", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: "{}",
+      })
+
+      expect(response.status).toBe(401)
+      await expect(response.json()).resolves.toEqual({
+        error: "Unauthorized",
+      })
+    }
+  })
+
+  it("requires a session for every OpenAI connection operation", async () => {
+    for (const [path, method] of [
+      ["/api/openai-connection", "GET"],
+      ["/api/openai-connection/start", "POST"],
+      ["/api/openai-connection", "DELETE"],
+    ] as const) {
+      const response = await app.request(path, {
+        method,
+        ...(method === "POST"
+          ? {
+              headers: { "Content-Type": "application/json" },
+              body: "{}",
+            }
+          : {}),
       })
 
       expect(response.status).toBe(401)

@@ -38,6 +38,7 @@ deploy/restart/stop operations.
 - `curl`
 - `jq`
 - Node.js 26 or newer
+- A Linux container host exposing an audited Landlock ABI from 3 through 6
 
 Run every command from the repository root.
 
@@ -55,6 +56,10 @@ Before the first deployment:
    on the server owned by uid/gid `1000`, then add a persistent storage binding
    that host path to `/app/data`. SQLite lives at
    `/data/rethinkloop/data/data.db`.
+   The image holds a nonblocking `flock` in this directory for its whole
+   lifetime, so configure exactly one application replica. A second API process
+   sharing the volume exits immediately instead of racing SQLite, migrations,
+   or Codex process cleanup.
 3. Add these literal, runtime-only production variables in the Coolify UI:
 
 | Variable | Requirement |
@@ -65,6 +70,7 @@ Before the first deployment:
 | `LLM_MODEL_NAME` | Model ID accepted by the selected provider |
 | `DEEPSEEK_API_KEY` | Required when `LLM_PROVIDER=deepseek` |
 | `OPENCODE_ZEN_API_KEY` | Required when `LLM_PROVIDER=zen` |
+| `OPENAI_CODEX_CREDENTIAL_KEY` | Canonical base64 encoding of exactly 32 random bytes used to encrypt user Codex credentials |
 | `SCRAPINGANT_API_KEY` | ScrapingAnt credential |
 | `BETTER_AUTH_SECRET` | Better Auth signing secret, at least 32 characters |
 | `GITHUB_CLIENT_ID` | Production GitHub OAuth app client ID |
@@ -78,6 +84,13 @@ the common variables and the selected LLM provider's credential without
 printing secret values. Missing or blank required values fail application
 startup. Leave `EXAMPLE_DEBATE_IDS` unset or blank until examples are selected;
 changing it requires an application restart so the typed runtime config reloads.
+Provision `OPENAI_CODEX_CREDENTIAL_KEY` before deploying code that can create
+Codex connections. Generate it with `openssl rand -base64 32`, store it as a
+runtime-only production secret, and retain it for the lifetime of the encrypted
+rows. Losing or changing the key makes every saved Codex connection unreadable;
+affected users must reconnect. Production always executes the hardened
+`/usr/local/bin/rethinkloop-codex` launcher and rejects
+`OPENAI_CODEX_EXECUTABLE_PATH` overrides.
 
 Configure the production GitHub OAuth callback as:
 
@@ -113,6 +126,9 @@ The required application settings are:
 The host port mapping publishes Coolify's application container on port `4479`
 while Hono continues to listen on port `3000` inside the container. Domain
 traffic and health checks therefore still target the internal port `3000`.
+Keep this host mapping: Coolify cannot overlap replacement containers that
+publish the same host port, so deployment remains stop-first and the old
+container releases the SQLite lock before its replacement starts.
 
 The encrypted `src/api/secrets/dev.kdbx` and `src/api/secrets/prod.kdbx` files
 remain committed as operator-managed vaults, but the application does not read

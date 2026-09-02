@@ -701,10 +701,9 @@ test.describe("Debate tournament", () => {
       prompt: failurePrompt,
       stage: "swiss",
       status: "failed",
-      error: expect.stringContaining(injectedFailureMessage),
+      error: "Text generation failed",
     })
-    expect(debateJob.error).not.toBeNull()
-    expect(debateJob.error).toContain(`${injectedFailureMessage} (attempt 3)`)
+    expect(debateJob.error).not.toContain(injectedFailureMessage)
     expect(debateJob.rounds).toHaveLength(1)
     expect(debateJob.rounds[0]).toMatchObject({
       stage: "swiss",

@@ -13,13 +13,16 @@ import {
   WorkflowInterruptedError,
   workflowAbortReason,
 } from "../workflowRuntime.ts"
+import { FatalCodexContainmentError } from "../openaiConnection/codexSession/process.ts"
 import {
   awaitGenerationOutput,
   awaitGenerationText,
+  prepareTextGeneration,
   registerTextStream,
   subscribeToTextStream,
   type TextStreamEvent,
 } from "./streams.ts"
+import { classifyCodexError } from "../openaiConnection/codexErrors.ts"
 
 type SourceStreamPart = ReturnType<
   typeof streamText
@@ -104,18 +107,19 @@ describe("text streams", () => {
   })
 
   it("converts a durable failed outcome into an internal text error", async () => {
-    await expect(
-      awaitGenerationText({
-        id: "generation-id",
-        completion: Promise.resolve({
-          status: "failed",
-          text: "partial output",
-          reasoning: "partial reasoning",
-          error: "Provider failed",
-          failureKind: "stream",
-        }),
+    const failure = awaitGenerationText({
+      id: "generation-id",
+      completion: Promise.resolve({
+        status: "failed",
+        text: "partial output",
+        reasoning: "partial reasoning",
+        error: "Provider failed",
+        failureKind: "stream",
       }),
-    ).rejects.toThrow("Provider failed")
+    })
+
+    await expect(failure).rejects.toThrow("Provider failed")
+    await expect(failure).rejects.not.toHaveProperty("code")
   })
 
   it("replays buffered events before following live events", async () => {
@@ -294,6 +298,64 @@ describe("text streams", () => {
     })
     expect(getCreditAccount("test-user-id").credits).toBe(creditsBefore - 13)
     expect(onCompleted).toHaveBeenCalledOnce()
+  })
+
+  it("records a successful subscription generation with zero LLM credits", async () => {
+    const creditsBefore = getCreditAccount("test-user-id").credits
+    const source = new AsyncQueue<SourceStreamPart>()
+    const generation = registerTextStream(
+      "test-user-id",
+      { standalone: true },
+      source,
+      {
+        metadata: {
+          modelId: "gpt-5.6-sol",
+          promptName: "default",
+          provider: "codex",
+          finishReason: Promise.resolve("stop"),
+          rawFinishReason: Promise.resolve("completed"),
+          usage: Promise.resolve({
+            inputTokens: 30,
+            inputTokenDetails: {
+              noCacheTokens: 30,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+            },
+            outputTokens: 8,
+            outputTokenDetails: {
+              textTokens: 5,
+              reasoningTokens: 3,
+            },
+            totalTokens: 38,
+          }),
+        },
+      },
+    )
+    source.push({ type: "text-delta", id: "text", text: "Answer" })
+    source.close()
+
+    await expect(generation.completion).resolves.toMatchObject({
+      status: "completed",
+      text: "Answer",
+    })
+    expect(
+      db
+        .select({
+          creditsUsed: llmGenerations.creditsUsed,
+          inputTokens: llmGenerations.inputTokens,
+          outputTokens: llmGenerations.outputTokens,
+          reasoningTokens: llmGenerations.reasoningTokens,
+        })
+        .from(llmGenerations)
+        .where(eq(llmGenerations.llmGenerationId, generation.id))
+        .get(),
+    ).toEqual({
+      creditsUsed: 0,
+      inputTokens: 30,
+      outputTokens: 8,
+      reasoningTokens: 3,
+    })
+    expect(getCreditAccount("test-user-id").credits).toBe(creditsBefore)
   })
 
   it("persists provider metadata without logging successful generations", async () => {
@@ -520,6 +582,221 @@ describe("text streams", () => {
     })
   })
 
+  it("surfaces a safe actionable error for a Codex usage limit", async () => {
+    const source = new AsyncQueue<SourceStreamPart>()
+    const generation = registerTextStream(
+      "test-user-id",
+      { standalone: true },
+      source,
+      {
+        metadata: {
+          modelId: "gpt-5.6-sol",
+          promptName: "default",
+          provider: "codex",
+          finishReason: Promise.resolve("length"),
+          rawFinishReason: Promise.resolve("usage_limit_exceeded"),
+          usage: Promise.reject(new Error("Usage unavailable")),
+        },
+      },
+    )
+    const { id, completion } = generation
+
+    source.close()
+
+    await expect(completion).resolves.toMatchObject({
+      status: "failed",
+      error:
+        "Your OpenAI subscription is temporarily rate-limited. Try again after its usage limit resets.",
+      failureKind: "finish-reason",
+      finishReason: "length",
+      errorCode: "rate-limited",
+    })
+    await expect(awaitGenerationText(generation)).rejects.toMatchObject({
+      name: "OpenAiCodexError",
+      code: "rate-limited",
+    })
+    await expect(
+      awaitGenerationOutput(generation, Promise.resolve("ignored")),
+    ).rejects.toMatchObject({
+      name: "OpenAiCodexError",
+      code: "rate-limited",
+    })
+    await expect(drain(subscribeToTextStream(id)!)).resolves.toEqual([
+      {
+        type: "error",
+        message:
+          "Your OpenAI subscription is temporarily rate-limited. Try again after its usage limit resets.",
+      },
+      { type: "done" },
+    ])
+  })
+
+  it("never persists or replays a raw classified Codex startup failure", async () => {
+    const rawSecret = "Codex startup envelope: bearer persistence-secret-token"
+    const prepared = prepareTextGeneration(
+      "test-user-id",
+      { standalone: true },
+      {
+        metadata: {
+          modelId: "gpt-5.6-sol",
+          promptName: "default",
+          provider: "codex",
+        },
+      },
+    )
+    const generation = prepared.fail(
+      classifyCodexError(new Error(rawSecret)),
+    )
+
+    const outcome = await generation.completion
+    expect(outcome).toMatchObject({
+      status: "failed",
+      error: "OpenAI Codex is temporarily unavailable. Try again later.",
+      errorCode: "temporarily-unavailable",
+      failureKind: "stream",
+    })
+    expect(JSON.stringify(outcome)).not.toContain(rawSecret)
+    const persisted = db
+      .select({ error: llmGenerations.error })
+      .from(llmGenerations)
+      .where(eq(llmGenerations.llmGenerationId, generation.id))
+      .get()
+    expect(persisted).toEqual({
+      error: "OpenAI Codex is temporarily unavailable. Try again later.",
+    })
+    expect(JSON.stringify(persisted)).not.toContain(rawSecret)
+    const replay = await drain(subscribeToTextStream(generation.id)!)
+    expect(replay).toEqual([
+      {
+        type: "error",
+        message: "OpenAI Codex is temporarily unavailable. Try again later.",
+      },
+      { type: "done" },
+    ])
+    expect(JSON.stringify(replay)).not.toContain(rawSecret)
+  })
+
+  it("rethrows fatal containment failure from stream exhaustion", async () => {
+    const fatal = new FatalCodexContainmentError()
+    const onFailed = vi.fn()
+    let emitted = false
+    const source = {
+      [Symbol.asyncIterator](): AsyncIterator<SourceStreamPart> {
+        return {
+          next(): Promise<IteratorResult<SourceStreamPart>> {
+            if (!emitted) {
+              emitted = true
+              return Promise.resolve({
+                done: false,
+                value: {
+                  type: "text-delta",
+                  id: "text",
+                  text: "Partial answer",
+                },
+              })
+            }
+            return Promise.reject(fatal)
+          },
+        }
+      },
+    }
+    const generation = registerTextStream(
+      "test-user-id",
+      { standalone: true },
+      source,
+      {
+        metadata: {
+          modelId: "gpt-5.6-sol",
+          promptName: "default",
+          provider: "codex",
+        },
+        onFailed,
+      },
+    )
+
+    await expect(generation.completion).rejects.toBe(fatal)
+    expect(onFailed).not.toHaveBeenCalled()
+    expect(
+      db
+        .select({
+          status: llmGenerations.status,
+          error: llmGenerations.error,
+          completedAt: llmGenerations.completedAt,
+        })
+        .from(llmGenerations)
+        .where(eq(llmGenerations.llmGenerationId, generation.id))
+        .get(),
+    ).toEqual({ status: "running", error: null, completedAt: null })
+  })
+
+  it("fails an unsolicited Codex interruption without advancing partial output", async () => {
+    const source = new AsyncQueue<SourceStreamPart>()
+    const generation = registerTextStream(
+      "test-user-id",
+      { standalone: true },
+      source,
+      {
+        metadata: {
+          modelId: "gpt-5.6-sol",
+          promptName: "default",
+          provider: "codex",
+          finishReason: Promise.resolve("stop"),
+          rawFinishReason: Promise.resolve("interrupted"),
+          usage: Promise.reject(new Error("Usage unavailable")),
+        },
+      },
+    )
+
+    source.push({ type: "text-delta", id: "text", text: "Partial answer" })
+    source.close()
+
+    await expect(generation.completion).resolves.toMatchObject({
+      status: "failed",
+      text: "Partial answer",
+      failureKind: "finish-reason",
+      errorCode: "temporarily-unavailable",
+      error: "OpenAI Codex is temporarily unavailable. Try again later.",
+    })
+    await expect(awaitGenerationText(generation)).rejects.toMatchObject({
+      name: "OpenAiCodexError",
+      code: "temporarily-unavailable",
+    })
+    expect(
+      db
+        .select({ creditsUsed: llmGenerations.creditsUsed })
+        .from(llmGenerations)
+        .where(eq(llmGenerations.llmGenerationId, generation.id))
+        .get(),
+    ).toEqual({ creditsUsed: null })
+  })
+
+  it("fails closed on an unknown Codex finish reason", async () => {
+    const source = new AsyncQueue<SourceStreamPart>()
+    const generation = registerTextStream(
+      "test-user-id",
+      { standalone: true },
+      source,
+      {
+        metadata: {
+          modelId: "gpt-5.6-sol",
+          promptName: "default",
+          provider: "codex",
+          finishReason: Promise.resolve("stop"),
+          rawFinishReason: Promise.resolve("unexpected-new-reason"),
+          usage: Promise.reject(new Error("Usage unavailable")),
+        },
+      },
+    )
+    source.push({ type: "text-delta", id: "text", text: "Partial answer" })
+    source.close()
+
+    await expect(generation.completion).resolves.toMatchObject({
+      status: "failed",
+      failureKind: "finish-reason",
+      errorCode: "protocol-incompatible",
+    })
+  })
+
   it("classifies an empty other finish as a finish-reason failure", async () => {
     const source = new AsyncQueue<SourceStreamPart>()
     const { id, completion } = registerTextStream(
@@ -593,6 +870,100 @@ describe("text streams", () => {
       { type: "error", message: "Provider failed" },
       { type: "done" },
     ])
+  })
+
+  it("persists and replays only a safe server-provider error", async () => {
+    const rawError = "raw DeepSeek response with request details"
+    const onFailed = vi.fn()
+    const source = new AsyncQueue<SourceStreamPart>()
+    const { id, completion } = registerTextStream(
+      "test-user-id",
+      { standalone: true },
+      source,
+      {
+        metadata: {
+          modelId: "configured-model",
+          promptName: "default",
+          provider: "server",
+        },
+        onFailed,
+      },
+    )
+    source.push({ type: "error", error: new Error(rawError) })
+    source.close()
+
+    await expect(completion).resolves.toMatchObject({
+      status: "failed",
+      error: "Text generation failed",
+      failureKind: "stream",
+    })
+    expect(
+      db
+        .select({ error: llmGenerations.error })
+        .from(llmGenerations)
+        .where(eq(llmGenerations.llmGenerationId, id))
+        .get(),
+    ).toEqual({ error: "Text generation failed" })
+    expect(onFailed).toHaveBeenCalledWith(
+      expect.objectContaining({ error: "Text generation failed" }),
+      expect.anything(),
+    )
+    const replay = await drain(subscribeToTextStream(id)!)
+    expect(replay).toEqual([
+      { type: "error", message: "Text generation failed" },
+      { type: "done" },
+    ])
+    expect(JSON.stringify(replay)).not.toContain(rawError)
+  })
+
+  it("redacts a thrown server-provider error before durable failure", async () => {
+    const rawError = "raw DeepSeek startup or transport failure"
+    const onFailed = vi.fn()
+    const source = {
+      [Symbol.asyncIterator](): AsyncIterator<SourceStreamPart> {
+        return {
+          next(): Promise<IteratorResult<SourceStreamPart>> {
+            return Promise.reject(new Error(rawError))
+          },
+        }
+      },
+    }
+    const { id, completion } = registerTextStream(
+      "test-user-id",
+      { standalone: true },
+      source,
+      {
+        metadata: {
+          modelId: "configured-model",
+          promptName: "default",
+          provider: "server",
+        },
+        onFailed,
+      },
+    )
+
+    await expect(completion).resolves.toMatchObject({
+      status: "failed",
+      error: "Text generation failed",
+      failureKind: "stream",
+    })
+    expect(
+      db
+        .select({ error: llmGenerations.error })
+        .from(llmGenerations)
+        .where(eq(llmGenerations.llmGenerationId, id))
+        .get(),
+    ).toEqual({ error: "Text generation failed" })
+    expect(onFailed).toHaveBeenCalledWith(
+      expect.objectContaining({ error: "Text generation failed" }),
+      expect.anything(),
+    )
+    const replay = await drain(subscribeToTextStream(id)!)
+    expect(replay).toEqual([
+      { type: "error", message: "Text generation failed" },
+      { type: "done" },
+    ])
+    expect(JSON.stringify(replay)).not.toContain(rawError)
   })
 
   it("keeps a stream failure distinct from accompanying other metadata", async () => {
