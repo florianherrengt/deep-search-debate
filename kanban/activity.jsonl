@@ -395,3 +395,7 @@
 {"timestamp":"2026-09-03T14:32:08.793309+01:00","action":"handoff","task_id":26,"detail":"Use a small/big model depending on the task"}
 {"timestamp":"2026-09-03T14:32:08.793471+01:00","action":"release","task_id":26,"detail":"Use a small/big model depending on the task"}
 {"timestamp":"2026-09-03T17:49:28.888841+01:00","action":"move","task_id":26,"detail":"review -\u003e in-progress"}
+{"timestamp":"2026-09-03T17:53:49.617595+01:00","action":"move","task_id":26,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-09-03T17:53:49.617718+01:00","action":"handoff","task_id":26,"detail":"Use a small/big model depending on the task"}
+{"timestamp":"2026-09-03T17:53:49.617905+01:00","action":"block","task_id":26,"detail":"Waiting on user to confirm model-assignment scope, reasoning-effort policy, and the complete small/big task-routing map."}
+{"timestamp":"2026-09-03T17:53:49.618014+01:00","action":"release","task_id":26,"detail":"Use a small/big model depending on the task"}
