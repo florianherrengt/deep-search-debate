@@ -1,11 +1,12 @@
 ---
 id: 26
 title: Use a small/big model depending on the task
-status: review
+status: done
 priority: medium
 created: 2026-08-25T14:35:37.286461+01:00
-updated: 2026-09-03T18:59:13.689094+01:00
+updated: 2026-09-03T19:10:11.304505+01:00
 started: 2026-09-03T13:18:37.471931+01:00
+completed: 2026-09-03T19:10:11.305456+01:00
 class: standard
 ---
 
