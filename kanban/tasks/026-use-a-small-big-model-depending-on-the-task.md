@@ -1,13 +1,15 @@
 ---
 id: 26
 title: Use a small/big model depending on the task
-status: review
+status: in-progress
 priority: medium
 created: 2026-08-25T14:35:37.286461+01:00
-updated: 2026-09-03T17:53:49.615919+01:00
+updated: 2026-09-03T18:01:13.510235+01:00
 started: 2026-09-03T13:18:37.471931+01:00
 blocked: true
 block_reason: Waiting on user to confirm model-assignment scope, reasoning-effort policy, and the complete small/big task-routing map.
+claimed_by: translay-monoxide
+claimed_at: 2026-09-03T18:01:13.510235+01:00
 class: standard
 ---
 
