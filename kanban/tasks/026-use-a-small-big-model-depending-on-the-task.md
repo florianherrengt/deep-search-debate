@@ -1,13 +1,11 @@
 ---
 id: 26
 title: Use a small/big model depending on the task
-status: in-progress
+status: review
 priority: medium
 created: 2026-08-25T14:35:37.286461+01:00
-updated: 2026-09-03T13:18:37.470458+01:00
+updated: 2026-09-03T14:32:08.790369+01:00
 started: 2026-09-03T13:18:37.471931+01:00
-claimed_by: translay-monoxide
-claimed_at: 2026-09-03T13:18:37.470458+01:00
 class: standard
 ---
 
@@ -31,3 +29,6 @@ Route LLM calls to a small (cheap/fast) or big (powerful) model per task, instea
 3. Does the big model apply only to reasoning-enabled calls, or also to structured-output stages that currently disable reasoning?
 4. Interaction with #25: do user-supplied providers get the same small/big routing?
 5. Does the internal model override stay internal-only, or does routing become an explicit per-call parameter on GenerateStreamInput?
+
+[[2026-09-03]] Thu 14:32
+Implemented uncommitted in worktree /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-26-model-selection on branch codex/ticket-26-model-selection. Added abstract Fast/Best quality selectors to Deep Search, Ideas, and Debates; persisted one workflow-root profile across resume/restart and child searches; mapped DeepSeek to deepseek-v4-flash/deepseek-v4-pro and connected Codex to gpt-5.6-luna medium/gpt-5.6-sol xhigh while reasoning-disabled stages use the lowest advertised effort; Zen and standalone streams retain configured/default behavior. Added forward migration, strict ownership constraints, docs, API/UI/provider/migration tests, E2E fixtures, and Storybook states. Validation: npm run gatekeep passed (722 API + 343 web tests), focused Playwright passed 8/8, Storybook build passed, all root/API/web/DB checklist reviews have no remaining findings. Feature code intentionally remains uncommitted for user review.
