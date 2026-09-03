@@ -4,12 +4,10 @@ title: Use a small/big model depending on the task
 status: in-progress
 priority: medium
 created: 2026-08-25T14:35:37.286461+01:00
-updated: 2026-09-03T18:01:13.510235+01:00
+updated: 2026-09-03T18:01:20.849624+01:00
 started: 2026-09-03T13:18:37.471931+01:00
-blocked: true
-block_reason: Waiting on user to confirm model-assignment scope, reasoning-effort policy, and the complete small/big task-routing map.
 claimed_by: translay-monoxide
-claimed_at: 2026-09-03T18:01:13.510235+01:00
+claimed_at: 2026-09-03T18:01:20.849755+01:00
 class: standard
 ---
 
@@ -39,3 +37,6 @@ Implemented uncommitted in worktree /Users/florian/projects/deep-search-debate/.
 
 [[2026-09-03]] Thu 17:53
 Corrected requirement: users configure concrete models for abstract small and big roles; each PromptName is routed automatically. Existing uncommitted per-run Fast/Best selector is intentionally not being revised until product choices are confirmed. Worktree: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-26-model-selection. Branch: codex/ticket-26-model-selection. Recommended: configure connected OpenAI models in Settings; server-funded DeepSeek uses Flash for small and Pro for big; changes affect subsequent calls; small handles titles/filtering/summaries, big handles planning/final synthesis/ideas/judgment/debates/sites. Open questions sent to user.
+
+[[2026-09-03]] Thu 18:01
+Confirmed 2026-09-03: Settings presents provider-labelled available models for Small and Big, with reasoning effort. Defaults prefer Luna/medium and Sol/xhigh when available, otherwise DeepSeek Flash/Pro. OpenAI disconnect resets OpenAI-backed selections to DeepSeek defaults. Changes affect the next model call, including active or resumed workflows.

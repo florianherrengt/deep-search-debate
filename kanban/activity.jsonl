@@ -400,3 +400,5 @@
 {"timestamp":"2026-09-03T17:53:49.617905+01:00","action":"block","task_id":26,"detail":"Waiting on user to confirm model-assignment scope, reasoning-effort policy, and the complete small/big task-routing map."}
 {"timestamp":"2026-09-03T17:53:49.618014+01:00","action":"release","task_id":26,"detail":"Use a small/big model depending on the task"}
 {"timestamp":"2026-09-03T18:01:13.51195+01:00","action":"move","task_id":26,"detail":"review -\u003e in-progress"}
+{"timestamp":"2026-09-03T18:01:20.850143+01:00","action":"edit","task_id":26,"detail":"Use a small/big model depending on the task"}
+{"timestamp":"2026-09-03T18:01:20.850304+01:00","action":"unblock","task_id":26,"detail":"Use a small/big model depending on the task"}
