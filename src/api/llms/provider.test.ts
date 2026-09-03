@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   reserveCodexGeneration: vi.fn(
-    (_userId: string, _signal?: AbortSignal): Promise<unknown> =>
+    (_userId: string, _selection: unknown, _signal?: AbortSignal) =>
       Promise.resolve(undefined),
   ),
 }))
@@ -12,20 +12,32 @@ vi.mock("../openaiConnection/codexGeneration.ts", () => ({
 }))
 
 import { createConfiguredLlm, reserveLlmCall } from "./provider.ts"
+import type { LlmModelAssignmentSnapshot } from "./modelSettings.ts"
 
-async function resolveReservedLlmCall(
-  userId: string,
-  reasoning: "enabled" | "disabled",
-  modelOverride?: string,
-) {
-  const reservation = await reserveLlmCall(userId)
-  return reservation.resolve(reasoning, modelOverride)
+const deepSeekSnapshot: LlmModelAssignmentSnapshot = {
+  role: "small",
+  explicit: true,
+  assignment: {
+    provider: "deepseek",
+    modelId: "deepseek-v4-flash",
+    reasoningEffort: "medium",
+  },
+}
+
+const openAiSnapshot: LlmModelAssignmentSnapshot = {
+  role: "big",
+  explicit: true,
+  assignment: {
+    provider: "openai",
+    modelId: "gpt-5.6-sol",
+    reasoningEffort: "xhigh",
+  },
 }
 
 describe("configured LLM provider", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("preserves DeepSeek's call-level reasoning contract", () => {
+  it("passes the exact DeepSeek role effort", () => {
     const llm = createConfiguredLlm({
       provider: "deepseek",
       model: "deepseek-v4-flash",
@@ -33,21 +45,23 @@ describe("configured LLM provider", () => {
     })
 
     expect(llm.model().modelId).toBe("deepseek-v4-flash")
-    expect(llm.supportsStructuredOutputs).toBe(true)
-    expect(llm.model("deepseek-override").modelId).toBe("deepseek-override")
-    expect(llm.callOptions("enabled")).toEqual({
+    expect(llm.model("deepseek-v4-pro").modelId).toBe("deepseek-v4-pro")
+    expect(llm.callOptions("xhigh")).toEqual({
       providerOptions: {
-        deepseek: { thinking: { type: "enabled" }, reasoningEffort: "max" },
+        deepseek: {
+          thinking: { type: "enabled" },
+          reasoningEffort: "xhigh",
+        },
       },
     })
-    expect(llm.callOptions("disabled")).toEqual({
+    expect(llm.callOptions("none")).toEqual({
       providerOptions: {
         deepseek: { thinking: { type: "disabled" } },
       },
     })
   })
 
-  it("translates Zen's call-level reasoning contract without making a request", () => {
+  it("preserves the configured Zen model while translating the role effort", () => {
     const llm = createConfiguredLlm({
       provider: "zen",
       model: "deepseek-v4-flash-free",
@@ -56,94 +70,104 @@ describe("configured LLM provider", () => {
     })
 
     expect(llm.model().modelId).toBe("deepseek-v4-flash-free")
-    expect(llm.supportsStructuredOutputs).toBe(false)
-    expect(llm.model()).toMatchObject({ supportsStructuredOutputs: false })
-    expect(llm.model("zen-override").modelId).toBe("zen-override")
-    expect(llm.callOptions("enabled")).toEqual({
-      providerOptions: {
-        zen: { reasoningEffort: "high" },
-      },
-    })
-    expect(llm.callOptions("disabled")).toEqual({
-      providerOptions: {
-        zen: { reasoningEffort: "none" },
-      },
+    expect(llm.callOptions("medium")).toEqual({
+      providerOptions: { zen: { reasoningEffort: "medium" } },
     })
   })
 
-  it("uses a connected Codex generation without server credit admission", async () => {
+  it("uses an exact connected OpenAI model and effort", async () => {
     const model = { modelId: "gpt-5.6-sol" }
-    const wrapStream = vi.fn(<Part>(source: AsyncIterable<Part>) => source)
-    const release = vi.fn(() => Promise.resolve())
     const acquire = vi.fn(() =>
       Promise.resolve({
         model,
         modelId: model.modelId,
-        wrapStream,
-        release,
+        wrapStream: <Part>(source: AsyncIterable<Part>) => source,
+        release: () => Promise.resolve(),
       }),
     )
     mocks.reserveCodexGeneration.mockResolvedValueOnce({
       acquire,
       release: vi.fn(),
-    })
+    } as never)
 
-    const call = await resolveReservedLlmCall(
-      "connected-user-id",
-      "enabled",
-      "ignored-server-model",
-    )
+    const reservation = await reserveLlmCall("connected-user", openAiSnapshot)
+    const call = await reservation.resolve()
 
     expect(mocks.reserveCodexGeneration).toHaveBeenCalledWith(
-      "connected-user-id",
+      "connected-user",
+      {
+        modelId: "gpt-5.6-sol",
+        reasoningEffort: "xhigh",
+        allowUnavailableRecommendationFallback: false,
+      },
       undefined,
     )
-    expect(acquire).toHaveBeenCalledWith("enabled")
+    expect(acquire).toHaveBeenCalledOnce()
     expect(call).toMatchObject({
-      model,
-      modelId: "gpt-5.6-sol",
       provider: "codex",
-      supportsStructuredOutputs: true,
+      modelId: "gpt-5.6-sol",
       callOptions: {},
     })
-    const source: AsyncIterable<string> = {
-      [Symbol.asyncIterator]: () => ({
-        next: () => Promise.resolve({ done: true, value: undefined }),
-      }),
-    }
-    expect(call.wrapStream(source)).toBe(source)
-    await call.release()
-    expect(wrapStream).toHaveBeenCalledWith(source)
-    expect(release).toHaveBeenCalledOnce()
   })
 
-  it("uses the configured server provider only when no connection exists", async () => {
-    mocks.reserveCodexGeneration.mockResolvedValueOnce(undefined)
-
-    const call = await resolveReservedLlmCall(
-      "disconnected-user-id",
-      "disabled",
-      "deepseek-override",
+  it("uses an explicit DeepSeek choice even while OpenAI is connected", async () => {
+    const reservation = await reserveLlmCall(
+      "connected-user",
+      deepSeekSnapshot,
     )
+    const call = await reservation.resolve()
 
-    expect(call.modelId).toBe("deepseek-override")
-    expect(call.provider).toBe("server")
+    expect(mocks.reserveCodexGeneration).not.toHaveBeenCalled()
+    expect(call).toMatchObject({
+      provider: "server",
+      modelId: "deepseek-v4-flash",
+    })
     expect(call.callOptions).toEqual({
       providerOptions: {
-        deepseek: { thinking: { type: "disabled" } },
+        deepseek: {
+          thinking: { type: "enabled" },
+          reasoningEffort: "medium",
+        },
       },
     })
   })
 
-  it("propagates connected-provider errors instead of silently falling back", async () => {
-    const error = new Error("Connected provider is rate limited")
-    mocks.reserveCodexGeneration.mockResolvedValueOnce({
-      acquire: vi.fn(() => Promise.reject(error)),
-      release: vi.fn(),
-    })
+  it("fails an explicit OpenAI choice when the connection is absent", async () => {
+    mocks.reserveCodexGeneration.mockResolvedValueOnce(undefined)
 
     await expect(
-      resolveReservedLlmCall("connected-user-id", "enabled"),
-    ).rejects.toBe(error)
+      reserveLlmCall("disconnected-user", openAiSnapshot),
+    ).rejects.toMatchObject({ code: "authentication-required" })
+  })
+
+  it("fails an explicit OpenAI choice when the connection disappears after reservation", async () => {
+    mocks.reserveCodexGeneration.mockResolvedValueOnce({
+      acquire: vi.fn(() => Promise.resolve(undefined)),
+      release: vi.fn(),
+    } as never)
+    const reservation = await reserveLlmCall(
+      "connected-user",
+      openAiSnapshot,
+    )
+
+    await expect(reservation.resolve()).rejects.toMatchObject({
+      code: "authentication-required",
+    })
+  })
+
+  it("falls back only for an unavailable implicit OpenAI recommendation", async () => {
+    const implicit = { ...openAiSnapshot, explicit: false } as const
+    mocks.reserveCodexGeneration.mockResolvedValueOnce({
+      acquire: vi.fn(() => Promise.resolve(undefined)),
+      release: vi.fn(),
+    } as never)
+
+    const reservation = await reserveLlmCall("connected-user", implicit)
+    const call = await reservation.resolve()
+
+    expect(call).toMatchObject({
+      provider: "server",
+      modelId: "deepseek-v4-pro",
+    })
   })
 })

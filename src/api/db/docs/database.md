@@ -106,6 +106,15 @@ ignores this one documented peer-resolution shim.
   recreate a row after explicit disconnect. Disconnect deletes by user without
   first decrypting the credential, and deleting the user cascades to the
   connection.
+- `llm_model_settings` stores one complete optional Small/Big role assignment
+  per user. Each role has a non-null provider, model ID, and reasoning effort;
+  SQL checks constrain the provider and effort domains and reject blank model
+  IDs. Model and provider availability is intentionally validated against the
+  live provider catalog in application code. The missing row means dynamic
+  provider-aware recommendations rather than duplicated defaults. OpenAI
+  disconnect deletes the credential and rewrites only OpenAI-backed role tuples
+  to the explicit DeepSeek defaults in one transaction. User deletion cascades
+  to the settings row.
 - Query and page lifecycle checks couple each active or terminal stage to its
   valid timestamps, errors, and generation links. SQLite triggers require a
   selected page to share both the result URL and the query's deep-search job.
@@ -163,9 +172,10 @@ ignores this one documented peer-resolution shim.
   are unsupported and must be recreated; there is no data-preserving upgrade
   path because no production data existed when this reset was approved. The
   retained baseline is immutable; `0001_eager_stone_men` adds encrypted Codex
-  connections as a forward migration. `baselineMigration.test.ts` verifies both
-  fresh creation through the same Drizzle migrator used by the application and
-  the retained `0000` to `0001` upgrade path.
+  connections and `0002_dizzy_genesis` adds per-user LLM model settings as
+  forward migrations. `baselineMigration.test.ts` verifies both fresh creation
+  through the same Drizzle migrator used by the application and the retained
+  `0000` through `0002` upgrade path.
 
 ### Known application-enforced integrity boundaries
 

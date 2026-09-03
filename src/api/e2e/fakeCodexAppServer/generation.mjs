@@ -261,12 +261,11 @@ export function createFakeCodexGeneration({
             return true
           }
           const requestedEffort = params.config?.model_reasoning_effort
-          if (requestedEffort !== "low" && requestedEffort !== "ultra") {
-            fail(
-              id,
-              "expected lowest or highest supported reasoning effort",
-              -32602,
-            )
+          const supportedEfforts = model().supportedReasoningEfforts.map(
+            ({ reasoningEffort }) => reasoningEffort,
+          )
+          if (!supportedEfforts.includes(requestedEffort)) {
+            fail(id, "expected an advertised reasoning effort", -32602)
             return true
           }
           const threadId = randomUUID()
@@ -300,9 +299,8 @@ export function createFakeCodexGeneration({
             )
             return true
           }
-          const expectedEffort = output === undefined ? "ultra" : "low"
-          if (threadEfforts.get(threadId) !== expectedEffort) {
-            fail(id, `expected ${expectedEffort} reasoning effort`, -32602)
+          if (!threadEfforts.has(threadId)) {
+            fail(id, "thread reasoning effort was not registered", -32602)
             return true
           }
           const turnId = randomUUID()

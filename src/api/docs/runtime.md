@@ -111,18 +111,29 @@ scrubbed environment. The API persists a credential refresh with a
 compare-and-swap before removing that temporary tree, so an older active call
 cannot recreate a connection deleted by the user.
 
-Every LLM call checks for a saved OpenAI connection before entering the shared
-generation queue. A connected call first takes an abortable per-user
-reservation without decrypting credentials or starting Codex; waiting for that
-reservation consumes no shared generation permit. After admission it rechecks
-the connection, hydrates credentials, and starts Codex. A saved OpenAI
-connection selects the account's single default Codex
-model; enabled reasoning uses its highest advertised effort and disabled
-reasoning uses its lowest. These calls bypass product-credit admission and
-persist zero LLM credits, while web-search and extraction charging is
-unchanged. With no saved connection the configured server provider and normal
-LLM charging apply. A saved connection that is expired, rate-limited, broken,
-or protocol-incompatible fails the call and never silently falls back.
+Users assign one exact model and reasoning effort to each Small and Big model
+role in Settings. The API discovers the two priced DeepSeek text models through
+DeepSeek's authenticated model-list endpoint and discovers visible connected
+OpenAI models and their supported efforts through a contained Codex app-server
+session. A complete explicit choice is stored in `llm_model_settings`; no row
+means provider-aware recommendations: OpenAI Luna at medium effort and Sol at
+xhigh when those exact choices are advertised, otherwise DeepSeek V4 Flash at
+medium and V4 Pro at xhigh. Disconnect deletes the credential and resets only
+explicit OpenAI-backed roles to the DeepSeek recommendations in one transaction.
+
+Each generation synchronously snapshots its role assignment before taking a
+provider reservation, so a successful Settings update governs the next call,
+including the next stage of an already-running or resumed workflow. An explicit
+provider is authoritative: DeepSeek never detours through a connected account,
+and an explicit OpenAI choice fails if its connection, model, or effort is no
+longer available. Only an unavailable implicit OpenAI recommendation may resolve
+to its DeepSeek counterpart. A connected OpenAI call first takes an abortable
+per-user reservation without decrypting credentials or starting Codex; waiting
+for it consumes no shared generation permit. After shared admission it rechecks
+the connection, hydrates credentials, verifies the exact advertised choice, and
+starts Codex. OpenAI calls bypass product-credit admission and persist zero LLM
+credits; DeepSeek calls use normal charging. Development's configured Zen model
+remains the server fallback when no persistent selection can be made.
 
 The production launcher pins Codex 0.149.1, runs without an app-server network
 listener, clears inherited file descriptors and environment values, confines
@@ -216,10 +227,9 @@ OpenAI calls retain only the existing deadlines and cancellation behavior and
 do not add a Codex-specific output cap. Provider-request failures use two SDK retries by default,
 configured through `LLM_MAX_RETRIES`, so dependency upgrades cannot silently
 change retry cost or latency. The short title generation retains its narrower
-per-call limit. Evidence-transformation and prose-only stages—including
-page/query/final research synthesis, structured research analysis, idea
-briefing, idea evaluation, and debate advocacy—disable hidden reasoning so it
-cannot consume that budget without producing the required durable output. Web searches have a 30-second deadline
+per-call limit. The selected Small or Big role's reasoning effort is
+authoritative for every stage; older call-site reasoning flags remain accepted
+but do not override the role. Web searches have a 30-second deadline
 configured by `WEB_SEARCH_TIMEOUT_MS` and charge the fixed product-credit amount
 configured by `WEB_SEARCH_CREDITS_COST` (default 1) after a successful provider
 response. Production Serper calls are limited process-wide by

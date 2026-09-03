@@ -18,6 +18,7 @@ import {
 import { ideaJobs } from "./ideaJobs.ts"
 import { ideas } from "./ideas.ts"
 import { llmGenerations } from "./llmGenerations.ts"
+import { llmModelSettings } from "./llmModelSettings.ts"
 import { openAiCodexConnections } from "./openAiCodexConnections.ts"
 import { researchJobAdmissions } from "./researchJobAdmissions.ts"
 import { account, session, user } from "./auth.ts"
@@ -32,12 +33,23 @@ export const userRelations = relations(user, ({ many, one }) => ({
   sessions: many(session),
   accounts: many(account),
   openAiCodexConnection: one(openAiCodexConnections),
+  llmModelSettings: one(llmModelSettings),
   deepSearchJobs: many(deepSearchJobs),
   ideaJobs: many(ideaJobs),
   debateJobs: many(debateJobs),
   llmGenerations: many(llmGenerations),
   researchJobAdmissions: many(researchJobAdmissions),
 }))
+
+export const llmModelSettingsRelations = relations(
+  llmModelSettings,
+  ({ one }) => ({
+    user: one(user, {
+      fields: [llmModelSettings.userId],
+      references: [user.id],
+    }),
+  }),
+)
 
 export const openAiCodexConnectionsRelations = relations(
   openAiCodexConnections,

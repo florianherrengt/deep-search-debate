@@ -254,11 +254,9 @@ The prompt asks for a concise, self-contained summary focused on the research
 request. It must preserve useful evidence, dates, qualifications, limitations,
 and disagreements without adding outside facts.
 
-Hidden reasoning is disabled for page summaries, query summaries, and
-candidate-answer synthesis. DeepSeek counts reasoning and visible text against the same output
-budget; these evidence-transformation stages reserve that budget for their
-required durable text. Structured selection and round review retain their
-separate reasoning policy.
+Page and query summaries use the user's current Small assignment. Candidate
+answer synthesis, structured selection, and round review use the current Big
+assignment. Each role's selected reasoning effort is authoritative.
 
 Page content is capped at 100,000 characters before it is sent to the model. If
 it is longer, the pipeline preserves roughly the first 75% and last 25%, with an
@@ -377,8 +375,8 @@ answer, and every accumulated query summary. It classifies the result into:
 The output is constrained and parsed with Zod. Titles, descriptions, collection
 sizes, and source URLs are bounded. The model is instructed to cite only URLs
 present in the supplied answer or summaries and to return an empty array when a
-category has no defensible item. Hidden reasoning is disabled because this is an
-evidence-transformation stage with a bounded structured output.
+category has no defensible item. This analysis uses the current Big model and
+reasoning-effort assignment.
 
 The structured JSON remains in its owned `llm_generations` row and the job stores
 only its generation link. Completed replay parses that validated JSON rather

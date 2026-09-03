@@ -21,16 +21,17 @@ generation closed. Usage metadata is best-effort and remains null when
 unavailable. Duration is derived from the existing timestamps instead of being
 stored twice.
 
-Provider selection starts before shared admission so a connected user can take
-the per-user reservation. The connection is checked again after admission
-before credentials are decrypted. A user with no saved OpenAI connection uses
-the configured server provider, including the positive-credit
-admission check and normal LLM settlement. A saved connection uses the
-account-default Codex model and records zero product credits for that LLM
-generation; the caller may therefore have a zero product-credit balance.
-Search and extraction settle independently and keep their existing charges.
-An expired, rate-limited, broken, or incompatible saved connection fails the
-generation and never falls back to the server provider.
+Each invocation snapshots the current user's exact Small or Big provider,
+model, and reasoning-effort assignment before provider reservation and shared
+admission. This lets the next stage of an active or resumed workflow observe a
+successful Settings update. DeepSeek choices use positive-credit admission and
+normal LLM settlement even when OpenAI is connected. OpenAI choices take the
+per-user reservation, recheck the connection before decrypting credentials,
+verify the exact model and effort against the account's advertised list, and
+record zero product credits for that LLM generation. Search and extraction
+settle independently. An expired, rate-limited, broken, or unavailable explicit
+OpenAI choice fails without falling back to DeepSeek; only a missing implicit
+OpenAI recommendation may use its DeepSeek counterpart.
 
 Every LLM call shares one process-wide admission queue (four active generations
 by default), including text, structured output, and title generation. A permit
@@ -40,14 +41,12 @@ first-content, and inter-content deadlines. Server-funded providers also apply
 an explicit output-token ceiling, with narrower stage budgets where
 appropriate. The Codex community adapter ignores `maxOutputTokens`, so OpenAI-
 connected calls intentionally have no Codex-specific output cap beyond the
-shared deadlines and cancellation behavior. A stream
-text caller must also choose `enabled` or `disabled` reasoning explicitly;
-there is no silent text-generation default. Structured array calls disable
-reasoning, while structured object calls disable it unless a stage deliberately
-opts in. Evidence-transformation stages—page summary, query synthesis, final
-answer, idea briefing, idea evaluation, and debate advocacy—also disable hidden
-reasoning so it cannot exhaust the shared output budget before required text is
-emitted. A stream
+shared deadlines and cancellation behavior. Every prompt name maps
+exhaustively to Small or Big; the selected role's reasoning effort is
+authoritative for text and structured generation alike. Older call-site
+enabled/disabled arguments remain accepted only for compatibility and cannot
+override it. DeepSeek `none` disables thinking; every other supported effort
+enables thinking with that exact effort. A stream
 is successful only when the provider reports the normal `stop` finish reason;
 for Codex, its raw finish reason must also be `completed`. An unsolicited raw
 Codex `interrupted` finish is a safe provider failure, while a user- or

@@ -122,10 +122,26 @@ test("connects ChatGPT, uses Codex without credits, and falls back after disconn
   await expect(
     page.getByRole("heading", { name: "OpenAI is connected" }),
   ).toBeVisible({ timeout: 10_000 })
+  await page.getByRole("combobox", { name: "Small model" }).click()
+  await page
+    .getByRole("option", { name: "E2E Codex — OpenAI" })
+    .click()
+  await page.getByRole("combobox", { name: "Big model" }).click()
+  await page
+    .getByRole("option", { name: "E2E Codex — OpenAI" })
+    .click()
+  await page.getByRole("button", { name: "Save model choices" }).click()
+  await expect(page.getByText("Model choices saved.")).toBeVisible()
   await page.reload()
   await expect(
     page.getByRole("heading", { name: "OpenAI is connected" }),
   ).toBeVisible()
+  await expect(
+    page.getByRole("combobox", { name: "Small model" }),
+  ).toContainText("E2E Codex — OpenAI")
+  await expect(
+    page.getByRole("combobox", { name: "Big model" }),
+  ).toContainText("E2E Codex — OpenAI")
 
   const creditsBeforeCodex = await getCredits(request)
   const codex = await runStandaloneStream(
@@ -210,6 +226,12 @@ test("connects ChatGPT, uses Codex without credits, and falls back after disconn
   await expect(dialog).toBeVisible()
   await dialog.getByRole("button", { name: "Disconnect", exact: true }).click()
   await expect(page.getByText("Not connected", { exact: true })).toBeVisible()
+  await expect(
+    page.getByRole("combobox", { name: "Small model" }),
+  ).toContainText("DeepSeek V4 Flash")
+  await expect(
+    page.getByRole("combobox", { name: "Big model" }),
+  ).toContainText("DeepSeek V4 Pro")
 
   const creditsBeforeFallback = await getCredits(request)
   const fallback = await runStandaloneStream(

@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
   acquireCodexLoginProcess: vi.fn(),
   connectedUsers: new Set<string>(),
   createCodexHome: vi.fn(),
-  deleteOpenAiCodexConnectionForUser: vi.fn(),
+  disconnectOpenAiAndResetModelAssignments: vi.fn(),
   hasOpenAiCodexConnection: vi.fn(),
   instances: [] as FakeRpcClient[],
   readCodexCredentials: vi.fn(),
@@ -35,10 +35,13 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("./credentialsRepository.ts", () => ({
-  deleteOpenAiCodexConnectionForUser:
-    mocks.deleteOpenAiCodexConnectionForUser,
   hasOpenAiCodexConnection: mocks.hasOpenAiCodexConnection,
   replaceOpenAiCodexConnection: mocks.replaceOpenAiCodexConnection,
+}))
+
+vi.mock("../llms/modelSettings.ts", () => ({
+  disconnectOpenAiAndResetModelAssignments:
+    mocks.disconnectOpenAiAndResetModelAssignments,
 }))
 
 vi.mock("./codexSession/home.ts", () => ({
@@ -169,7 +172,7 @@ beforeEach(() => {
       mocks.storedCredentials.push(Buffer.from(credentials))
     },
   )
-  mocks.deleteOpenAiCodexConnectionForUser.mockImplementation(
+  mocks.disconnectOpenAiAndResetModelAssignments.mockImplementation(
     (userId: string) => mocks.connectedUsers.delete(userId),
   )
   mocks.requestImplementation.mockImplementation(
@@ -303,7 +306,7 @@ describe("OpenAI connection state machine", () => {
       expect.anything(),
     )
     expect(mocks.replaceOpenAiCodexConnection).not.toHaveBeenCalled()
-    expect(mocks.deleteOpenAiCodexConnectionForUser).toHaveBeenCalledWith(
+    expect(mocks.disconnectOpenAiAndResetModelAssignments).toHaveBeenCalledWith(
       userId,
     )
     expect(getOpenAiConnectionSnapshot(userId)).toEqual({
@@ -486,7 +489,7 @@ describe("OpenAI connection state machine", () => {
     expect(mocks.readCodexCredentials).not.toHaveBeenCalled()
     expect(mocks.removeCodexHome).not.toHaveBeenCalled()
     expect(mocks.release).not.toHaveBeenCalled()
-    expect(mocks.deleteOpenAiCodexConnectionForUser).not.toHaveBeenCalled()
+    expect(mocks.disconnectOpenAiAndResetModelAssignments).not.toHaveBeenCalled()
     usersUsed.delete(userId)
   })
 })

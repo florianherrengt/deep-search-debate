@@ -9,6 +9,7 @@ type Connection = {
 type ListedModel = {
   id: string
   isDefault: boolean
+  hidden?: boolean
   supportedReasoningEfforts?: { reasoningEffort: string }[]
 }
 
@@ -70,7 +71,10 @@ vi.mock("./codexProcessSlots.ts", () => ({
   acquireCodexProcess: mocks.acquireCodexProcess,
 }))
 
-import { reserveCodexGeneration } from "./codexGeneration.ts"
+import {
+  listAvailableCodexModels,
+  reserveCodexGeneration,
+} from "./codexGeneration.ts"
 
 const userId = "connected-user"
 const fakeHome = {
@@ -94,11 +98,20 @@ function useConnection(value = "initial-credentials"): Connection {
 }
 
 async function acquireReservedGeneration(
-  reasoning: "enabled" | "disabled",
+  reasoningEffort: "low" | "high" | "ultra",
   signal?: AbortSignal,
+  modelId = "gpt-default",
 ) {
-  const reservation = await reserveCodexGeneration(userId, signal)
-  return reservation?.acquire(reasoning)
+  const reservation = await reserveCodexGeneration(
+    userId,
+    {
+      modelId,
+      reasoningEffort,
+      allowUnavailableRecommendationFallback: false,
+    },
+    signal,
+  )
+  return reservation?.acquire()
 }
 
 function useProvider(models: ListedModel[]): FakeProvider {
@@ -169,9 +182,37 @@ beforeEach(() => {
 })
 
 describe("Codex generation acquisition", () => {
+  it("lists only visible models that advertise at least one effort", async () => {
+    useConnection()
+    const provider = useProvider([
+      {
+        id: "visible",
+        isDefault: false,
+        supportedReasoningEfforts: [{ reasoningEffort: "medium" }],
+      },
+      {
+        id: "hidden",
+        isDefault: true,
+        supportedReasoningEfforts: [{ reasoningEffort: "high" }],
+        hidden: true,
+      },
+      {
+        id: "no-efforts",
+        isDefault: false,
+        supportedReasoningEfforts: [],
+      },
+    ])
+
+    await expect(listAvailableCodexModels(userId)).resolves.toEqual([
+      expect.objectContaining({ id: "visible" }),
+    ])
+    expect(provider.close).toHaveBeenCalledOnce()
+    expect(mocks.releaseProcess).toHaveBeenCalledOnce()
+  })
+
   it("returns the fallback seam without starting a process when no connection exists", async () => {
     await expect(
-      acquireReservedGeneration("enabled"),
+      acquireReservedGeneration("high"),
     ).resolves.toBeUndefined()
 
     expect(mocks.acquireCodexProcess).not.toHaveBeenCalled()
@@ -184,7 +225,7 @@ describe("Codex generation acquisition", () => {
     mocks.getOpenAiCodexConnection.mockReturnValue(undefined)
 
     await expect(
-      acquireReservedGeneration("disabled"),
+      acquireReservedGeneration("low"),
     ).resolves.toBeUndefined()
 
     expect(mocks.acquireCodexProcess).toHaveBeenCalledWith(userId, {})
@@ -192,12 +233,9 @@ describe("Codex generation acquisition", () => {
     expect(mocks.createCodexAppServer).not.toHaveBeenCalled()
   })
 
-  it.each([
-    ["enabled", "ultra"],
-    ["disabled", "low"],
-  ] as const)(
-    "uses the account default model and the %s call's supported effort boundary",
-    async (reasoning, expectedEffort) => {
+  it.each(["ultra", "low"] as const)(
+    "uses the exact selected model and %s effort",
+    async (expectedEffort) => {
       useConnection()
       const provider = useProvider([
         {
@@ -216,7 +254,11 @@ describe("Codex generation acquisition", () => {
         },
       ])
 
-      const generation = await acquireReservedGeneration(reasoning)
+      const generation = await acquireReservedGeneration(
+        expectedEffort,
+        undefined,
+        "account-default-model",
+      )
 
       expect(generation).toMatchObject({ modelId: "account-default-model" })
       expect(provider.modelCalls).toEqual([
@@ -241,7 +283,7 @@ describe("Codex generation acquisition", () => {
     )
 
     await expect(
-      acquireReservedGeneration("enabled"),
+      acquireReservedGeneration("high"),
     ).rejects.toBeInstanceOf(mocks.FatalCodexContainmentError)
 
     expect(mocks.releaseProcess).not.toHaveBeenCalled()
@@ -250,30 +292,25 @@ describe("Codex generation acquisition", () => {
   })
 
   it.each([
-    ["no", []],
+    ["no matching", []],
     [
-      "multiple",
+      "an unsupported effort on the matching",
       [
         {
-          id: "default-one",
+          id: "gpt-default",
           isDefault: true,
           supportedReasoningEfforts: [{ reasoningEffort: "low" }],
-        },
-        {
-          id: "default-two",
-          isDefault: true,
-          supportedReasoningEfforts: [{ reasoningEffort: "high" }],
         },
       ],
     ],
   ] satisfies [string, ListedModel[]][])(
-    "rejects a model list with %s default model",
+    "rejects a model list with %s model",
     async (_description, models) => {
       const connection = useConnection()
       const provider = useProvider(models)
 
       await expect(
-        acquireReservedGeneration("enabled"),
+        acquireReservedGeneration("high"),
       ).rejects.toMatchObject({
         name: "OpenAiCodexError",
         code: "protocol-incompatible",
@@ -298,7 +335,7 @@ describe("Codex generation acquisition", () => {
 
       let thrown: unknown
       try {
-        await acquireReservedGeneration("enabled")
+        await acquireReservedGeneration("high")
       } catch (error) {
         thrown = error
       }
@@ -322,7 +359,7 @@ describe("Codex generation stream boundary", () => {
         supportedReasoningEfforts: [{ reasoningEffort: "high" }],
       },
     ])
-    const generation = await acquireReservedGeneration("enabled")
+    const generation = await acquireReservedGeneration("high")
     if (!generation) throw new Error("Expected a connected generation")
 
     await expect(
@@ -349,7 +386,7 @@ describe("Codex generation stream boundary", () => {
 
   it("replaces upstream stream errors with safe application errors", async () => {
     useConnection()
-    const generation = await acquireReservedGeneration("enabled")
+    const generation = await acquireReservedGeneration("high")
     if (!generation) throw new Error("Expected a connected generation")
 
     const parts = await collect(
@@ -392,7 +429,7 @@ describe("Codex generation stream boundary", () => {
         supportedReasoningEfforts: [{ reasoningEffort: "high" }],
       },
     ])
-    const generation = await acquireReservedGeneration("enabled")
+    const generation = await acquireReservedGeneration("high")
     if (!generation) throw new Error("Expected a connected generation")
 
     await generation.release()
@@ -429,7 +466,7 @@ describe("Codex generation stream boundary", () => {
       },
     ])
     provider.close.mockRejectedValue(new Error("close failed with secret"))
-    const generation = await acquireReservedGeneration("enabled")
+    const generation = await acquireReservedGeneration("high")
     if (!generation) throw new Error("Expected a connected generation")
 
     await expect(generation.release()).rejects.toMatchObject({
@@ -448,7 +485,7 @@ describe("Codex generation stream boundary", () => {
     const refreshed = Buffer.from("rotated-credentials")
     mocks.readCodexCredentials.mockResolvedValue(refreshed)
     mocks.removeCodexHome.mockRejectedValue(new Error("deletion failed"))
-    const generation = await acquireReservedGeneration("enabled")
+    const generation = await acquireReservedGeneration("high")
     if (!generation) throw new Error("Expected a connected generation")
 
     const firstRelease = generation.release()
@@ -470,7 +507,7 @@ describe("Codex generation stream boundary", () => {
   it("requests fatal containment and retains all state when reaping fails", async () => {
     useConnection()
     mocks.reapCodexProcessGroup.mockRejectedValue(new Error("group survived"))
-    const generation = await acquireReservedGeneration("enabled")
+    const generation = await acquireReservedGeneration("high")
     if (!generation) throw new Error("Expected a connected generation")
 
     await expect(generation.release()).rejects.toBeInstanceOf(

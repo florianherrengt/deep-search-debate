@@ -61,8 +61,8 @@ then one structured judge verdict. All matches in the same round also run
 concurrently at the orchestration layer; the shared process-wide LLM queue
 bounds actual provider concurrency to four by default. Debates use each
 selected idea's refined title and description.
-Advocate prose disables hidden reasoning so its output budget is reserved for
-the persisted opening or rebuttal rather than an invisible reasoning trace.
+All debate opening, rebuttal, and judge prompts use the user's current Big model
+and reasoning-effort assignment.
 Every advocate receives the current matchup, shared original prompt and
 briefing research, and only its assigned candidate's idea-specific research; it
 does not receive its opponent's report. The judge receives both candidates'
@@ -338,8 +338,8 @@ resource return 404.
 - Wins, Elo, standings, prior pairings, qualification, expected match count, and
   the winner projection are derived rather than duplicated.
 - After the final verdict, the debate generates one self-contained website for
-  the winning idea (`create-idea-site`, disabled hidden reasoning, generous
-  65,536-token output budget),
+  the winning idea (`create-idea-site`, the current Big model assignment, and a
+  generous 65,536-token output budget),
   links it through `debate_jobs.website_generation_id`, stores it under
   `IDEA_SITES_DIR/<idea_uuid>/websites/index.html`, and only then completes. A
   website generation or file-write failure fails the whole debate. The square

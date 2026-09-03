@@ -2,6 +2,7 @@ import Stack from "@mui/material/Stack"
 import Typography from "@mui/material/Typography"
 
 import { useSeo } from "../../lib/seo.ts"
+import { LlmModelSettingsSection } from "./LlmModelSettingsSection.tsx"
 import { OpenAiConnectionSection } from "./OpenAiConnectionSection.tsx"
 
 export function Settings() {
@@ -19,11 +20,13 @@ export function Settings() {
           Settings
         </Typography>
         <Typography color="text.secondary">
-          Manage services connected to your RethinkLoop account.
+          Manage model choices and services connected to your RethinkLoop
+          account.
         </Typography>
       </Stack>
 
       <OpenAiConnectionSection />
+      <LlmModelSettingsSection />
     </Stack>
   )
 }

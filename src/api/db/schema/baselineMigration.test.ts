@@ -71,17 +71,102 @@ function expectOpenAiConnectionIdentityConstraints(
   }
 }
 
+function expectLlmModelSettingsConstraints(
+  sqlite: Database.Database,
+  prefix: string,
+): void {
+  const insertUser = sqlite.prepare(
+    "INSERT INTO user (id, name, email, email_verified) VALUES (?, ?, ?, ?)",
+  )
+  for (const suffix of ["valid", "invalid"]) {
+    insertUser.run(
+      `${prefix}-settings-${suffix}`,
+      `Settings ${suffix}`,
+      `${prefix}-settings-${suffix}@example.com`,
+      1,
+    )
+  }
+  const insertSettings = sqlite.prepare(`
+    INSERT INTO llm_model_settings (
+      user_id,
+      small_provider,
+      small_model_id,
+      small_reasoning_effort,
+      big_provider,
+      big_model_id,
+      big_reasoning_effort
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `)
+  insertSettings.run(
+    `${prefix}-settings-valid`,
+    "deepseek",
+    "deepseek-v4-flash",
+    "medium",
+    "openai",
+    "gpt-5.6-sol",
+    "xhigh",
+  )
+  expect(() =>
+    insertSettings.run(
+      `${prefix}-settings-invalid`,
+      "zen",
+      "configured-model",
+      "medium",
+      "deepseek",
+      "deepseek-v4-pro",
+      "xhigh",
+    ),
+  ).toThrow(/llm_model_settings_small_provider_check/)
+  expect(() =>
+    insertSettings.run(
+      `${prefix}-settings-invalid`,
+      "deepseek",
+      "   ",
+      "medium",
+      "deepseek",
+      "deepseek-v4-pro",
+      "xhigh",
+    ),
+  ).toThrow(/llm_model_settings_small_model_id_check/)
+  expect(() =>
+    insertSettings.run(
+      `${prefix}-settings-invalid`,
+      "deepseek",
+      "deepseek-v4-flash",
+      "extreme",
+      "deepseek",
+      "deepseek-v4-pro",
+      "xhigh",
+    ),
+  ).toThrow(/llm_model_settings_small_reasoning_effort_check/)
+
+  sqlite
+    .prepare("DELETE FROM user WHERE id = ?")
+    .run(`${prefix}-settings-valid`)
+  expect(
+    sqlite
+      .prepare("SELECT count(*) FROM llm_model_settings WHERE user_id = ?")
+      .pluck()
+      .get(`${prefix}-settings-valid`),
+  ).toBe(0)
+}
+
 describe("database migrations", () => {
   it("creates the complete current schema from the fresh baseline", () => {
     expect(
       readdirSync(migrationsFolder).filter((name) => name.endsWith(".sql")),
-    ).toEqual(["0000_fresh-baseline.sql", "0001_eager_stone_men.sql"])
+    ).toEqual([
+      "0000_fresh-baseline.sql",
+      "0001_eager_stone_men.sql",
+      "0002_dizzy_genesis.sql",
+    ])
 
     const sqlite = new Database(":memory:")
     sqlite.pragma("foreign_keys = ON")
     migrate(drizzle(sqlite), { migrationsFolder })
 
     expectOpenAiConnectionIdentityConstraints(sqlite, "fresh")
+    expectLlmModelSettingsConstraints(sqlite, "fresh")
 
     const tableNames = new Set(
       sqlite
@@ -94,12 +179,13 @@ describe("database migrations", () => {
     expect(tableNames.has("research_job_admissions")).toBe(true)
     expect(tableNames.has("waitlist_entries")).toBe(true)
     expect(tableNames.has("openai_codex_connections")).toBe(true)
+    expect(tableNames.has("llm_model_settings")).toBe(true)
     expect(
       sqlite
         .prepare("SELECT count(*) FROM __drizzle_migrations")
         .pluck()
         .get(),
-    ).toBe(2)
+    ).toBe(3)
     expect(
       sqlite
         .prepare("PRAGMA table_info('openai_codex_connections')")
@@ -301,8 +387,10 @@ describe("database migrations", () => {
       .run("retained-waitlist-entry", "waitlist@example.com")
 
     applySqlMigration(sqlite, "0001_eager_stone_men.sql")
+    applySqlMigration(sqlite, "0002_dizzy_genesis.sql")
 
     expectOpenAiConnectionIdentityConstraints(sqlite, "upgrade")
+    expectLlmModelSettingsConstraints(sqlite, "upgrade")
 
     expect(
       sqlite
