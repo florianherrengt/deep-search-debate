@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Box from "@mui/material/Box"
 import Button from "@mui/material/Button"
 import Chip from "@mui/material/Chip"
@@ -20,6 +20,7 @@ import {
   openAiConnectionQueryKey,
   startOpenAiConnection,
 } from "../../lib/openAiConnection.ts"
+import { llmModelSettingsQueryKey } from "../../lib/llmModelSettings.ts"
 import { OpenAiConnectionStatus } from "./OpenAiConnectionStatus.tsx"
 
 const PENDING_POLL_INTERVAL_MS = 2_000
@@ -35,6 +36,20 @@ export function OpenAiConnectionSection() {
         ? PENDING_POLL_INTERVAL_MS
         : false,
   })
+  const previousStatusRef = useRef(connection.data?.status)
+
+  useEffect(() => {
+    const nextStatus = connection.data?.status
+    if (
+      previousStatusRef.current !== undefined &&
+      nextStatus !== previousStatusRef.current &&
+      (nextStatus === "connected" || nextStatus === "disconnected")
+    ) {
+      void queryClient.invalidateQueries({ queryKey: llmModelSettingsQueryKey })
+    }
+    previousStatusRef.current = nextStatus
+  }, [connection.data?.status, queryClient])
+
   const start = useMutation({
     mutationFn: startOpenAiConnection,
     onSuccess: (snapshot) => {
@@ -46,6 +61,7 @@ export function OpenAiConnectionSection() {
     onSuccess: async (snapshot) => {
       await queryClient.cancelQueries({ queryKey: openAiConnectionQueryKey })
       queryClient.setQueryData(openAiConnectionQueryKey, snapshot)
+      await queryClient.invalidateQueries({ queryKey: llmModelSettingsQueryKey })
       setConfirmDisconnect(false)
     },
   })
@@ -64,7 +80,8 @@ export function OpenAiConnectionSection() {
                 OpenAI subscription
               </Typography>
               <Typography color="text.secondary" variant="body2">
-                Use your ChatGPT plan for RethinkLoop model calls.
+                Connect your ChatGPT plan to add OpenAI models to the choices
+                below.
               </Typography>
             </Box>
             {connection.data === undefined ? null : (
@@ -139,8 +156,8 @@ export function OpenAiConnectionSection() {
         </DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Your saved OpenAI connection will be removed. Future model calls
-            will use RethinkLoop credits.
+            Your saved OpenAI connection will be removed. Any Small or Big
+            choice using OpenAI will switch to the recommended DeepSeek model.
           </DialogContentText>
         </DialogContent>
         <DialogActions>

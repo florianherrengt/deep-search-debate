@@ -348,6 +348,16 @@ table llm_generations {
   }
 }
 
+table llm_model_settings {
+  user_id text [pk, not null]
+  small_provider text [not null]
+  small_model_id text [not null]
+  small_reasoning_effort text [not null]
+  big_provider text [not null]
+  big_model_id text [not null]
+  big_reasoning_effort text [not null]
+}
+
 table openai_codex_connections {
   user_id text [pk, not null]
   connection_id text [not null]
@@ -496,6 +506,8 @@ ref llm_generations_idea_job_owner_fk: llm_generations.(idea_job_id, user_id) > 
 
 ref llm_generations_deep_search_job_owner_fk: llm_generations.(deep_search_job_id, user_id) > deep_search_jobs.(deep_search_job_id, user_id) [delete: cascade, update: no action]
 
+ref llm_model_settings_user_id_user_id_fk: llm_model_settings.user_id > user.id [delete: cascade, update: no action]
+
 ref openai_codex_connections_user_id_user_id_fk: openai_codex_connections.user_id > user.id [delete: cascade, update: no action]
 
 ref research_job_admissions_user_id_user_id_fk: research_job_admissions.user_id > user.id [delete: cascade, update: no action]
@@ -507,6 +519,9 @@ ref session_user_id_user_id_fk: session.user_id > user.id [delete: cascade, upda
 // openai_codex_connections requires a non-empty trimmed connection ID,
 // non-empty ciphertext, a 12-byte nonce, and a 16-byte authentication tag; its
 // three encrypted values must be BLOBs.
+// llm_model_settings restricts both providers to deepseek or openai, restricts
+// both reasoning efforts to none, minimal, low, medium, high, xhigh, max, or
+// ultra, and requires both model IDs to remain non-empty after trimming.
 // The fresh baseline migration also defines triggers that require selected
 // result/page ownership, require tournament participants to be selected ideas
 // from the debate's idea job, and freeze aggregate structure and generation

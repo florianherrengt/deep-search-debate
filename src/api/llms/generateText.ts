@@ -9,6 +9,7 @@ import { classifyCodexError } from "../openaiConnection/codexErrors.ts"
 import { FatalCodexContainmentError } from "../openaiConnection/codexSession/process.ts"
 import { calculateLlmCredits } from "./costs/index.ts"
 import { PromptName, loadPrompt } from "./prompts.ts"
+import { snapshotLlmModelAssignment } from "./modelSettings.ts"
 import {
   reserveLlmCall,
   type LlmCallReasoning,
@@ -32,9 +33,6 @@ type GenerateStreamInput = {
   owner: LlmGenerationOwner
   prompt: string
   promptName: PromptName
-  // Internal override only: RethinkLoop selects every model and must keep it
-  // aligned with the configured pricing function before use.
-  model?: string
   temperature?: number
   maxOutputTokens?: number
   workflowSignal?: AbortSignal
@@ -64,17 +62,18 @@ function boundedOutputTokens(requested?: number): number {
 
 async function enqueueStreamingGeneration<T extends GenerationHandle>(
   userId: string,
-  reasoning: LlmCallReasoning,
-  modelOverride: string | undefined,
+  promptName: PromptName,
+  legacyReasoning: LlmCallReasoning,
   start: (call: ResolvedLlmCall) => T | Promise<T>,
   signal?: AbortSignal,
 ): Promise<T> {
-  const reservation = await reserveLlmCall(userId, signal)
+  const modelSnapshot = snapshotLlmModelAssignment(userId, promptName)
+  const reservation = await reserveLlmCall(userId, modelSnapshot, signal)
   const ready = Promise.withResolvers<T>()
   void addAbortableQueueTask(
     llmGenerationQueue,
     async () => {
-      const call = await reservation.resolve(reasoning, modelOverride)
+      const call = await reservation.resolve(legacyReasoning, undefined)
       let generation: T
       try {
         generation = await start(call)
@@ -191,8 +190,8 @@ export async function generateTextStream(
 ): Promise<GenerationHandle> {
   return enqueueStreamingGeneration(
     params.userId,
+    params.promptName,
     params.reasoning,
-    params.model,
     async (call) => {
       if (call.provider === "server") {
         requirePositiveCreditBalance(params.userId)
@@ -256,8 +255,8 @@ export async function generateArrayStream<Element>(
   const outputSchema = z.object({ elements: z.array(params.element) })
   return enqueueStreamingGeneration(
     params.userId,
+    params.promptName,
     "disabled",
-    params.model,
     async (call) => {
       if (call.provider === "server") {
         requirePositiveCreditBalance(params.userId)
@@ -324,11 +323,10 @@ export async function generateObjectStream<Result>(
     onInterrupted?: TextGenerationPersistenceCallbacks["onInterrupted"]
   },
 ): Promise<GenerationHandle & { output: Promise<Result> }> {
-  const reasoning = params.reasoning ?? "disabled"
   return enqueueStreamingGeneration(
     params.userId,
-    reasoning,
-    params.model,
+    params.promptName,
+    params.reasoning ?? "disabled",
     async (call) => {
       if (call.provider === "server") {
         requirePositiveCreditBalance(params.userId)

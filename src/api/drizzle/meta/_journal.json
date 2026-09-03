@@ -15,6 +15,13 @@
       "when": 1788024537246,
       "tag": "0001_eager_stone_men",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788455987511,
+      "tag": "0002_dizzy_genesis",
+      "breakpoints": true
     }
   ]
 }

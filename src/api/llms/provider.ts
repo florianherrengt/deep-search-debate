@@ -7,41 +7,48 @@ import {
   type OpenAICompatibleLanguageModelChatOptions,
 } from "@ai-sdk/openai-compatible"
 import type { LanguageModel } from "ai"
+import z from "zod"
 import { config, type LlmConfig } from "../config.ts"
+import { OpenAiCodexError } from "../openaiConnection/codexErrors.ts"
 import { reserveCodexGeneration } from "../openaiConnection/codexGeneration.ts"
+import {
+  deepSeekRecommendedAssignments,
+  type LlmModelAssignment,
+  type LlmModelAssignmentSnapshot,
+  type LlmReasoningEffort,
+} from "./modelSettings.ts"
 
+/** Retained on generation inputs for source compatibility; role settings win. */
 export type LlmCallReasoning = "enabled" | "disabled"
 
+const deepSeekReasoningEffortSchema = z.enum([
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+])
+
 if (config.environment === "production") {
-  // Warning objects remain available on AI SDK results; only their automatic
-  // process-level logging is disabled in production.
   globalThis.AI_SDK_LOG_WARNINGS = false
 }
 
-/**
- * Selects the transport while keeping reasoning policy at each generation call.
- */
+/** Selects the configured server transport with the exact role effort. */
 export function createConfiguredLlm(llmConfig: LlmConfig) {
   if (llmConfig.provider === "deepseek") {
-    const provider = createDeepSeek({
-      apiKey: llmConfig.apiKey,
-    })
+    const provider = createDeepSeek({ apiKey: llmConfig.apiKey })
 
     return {
       model: (modelName = llmConfig.model) => provider(modelName),
-      // This application flag means the provider owns schema instructions; it
-      // does not claim that DeepSeek supports native `json_schema`. The adapter
-      // injects the schema once in `json_object` compatibility mode, so false
-      // here would make loadStructuredPrompt inject a duplicate.
       supportsStructuredOutputs: true,
-      callOptions: (reasoning: LlmCallReasoning) => ({
+      callOptions: (effort: LlmReasoningEffort) => ({
         providerOptions: {
-          deepseek: {
-            thinking: { type: reasoning },
-            // Reasoning-enabled calls request the maximum thinking strength;
-            // disabled calls stay effort-free.
-            ...(reasoning === "enabled" && { reasoningEffort: "max" }),
-          } satisfies DeepSeekLanguageModelChatOptions,
+          deepseek: effort === "none"
+            ? ({ thinking: { type: "disabled" } } satisfies DeepSeekLanguageModelChatOptions)
+            : ({
+                thinking: { type: "enabled" },
+                reasoningEffort: deepSeekReasoningEffortSchema.parse(effort),
+              } satisfies DeepSeekLanguageModelChatOptions),
         },
       }),
     }
@@ -51,18 +58,16 @@ export function createConfiguredLlm(llmConfig: LlmConfig) {
     name: "zen",
     apiKey: llmConfig.apiKey,
     baseURL: llmConfig.baseUrl,
-    // Zen's free DeepSeek transport currently accepts JSON object mode but
-    // rejects OpenAI's stricter `json_schema` response format.
     supportsStructuredOutputs: false,
   })
 
   return {
     model: (modelName = llmConfig.model) => provider(modelName),
     supportsStructuredOutputs: false,
-    callOptions: (reasoning: LlmCallReasoning) => ({
+    callOptions: (effort: LlmReasoningEffort) => ({
       providerOptions: {
         zen: {
-          reasoningEffort: reasoning === "enabled" ? "high" : "none",
+          reasoningEffort: effort,
         } satisfies OpenAICompatibleLanguageModelChatOptions,
       },
     }),
@@ -83,40 +88,68 @@ export type ResolvedLlmCall = {
 
 export type LlmCallReservation = {
   resolve(
-    reasoning: LlmCallReasoning,
-    modelOverride?: string,
+    legacyReasoning?: LlmCallReasoning,
+    legacyModelOverride?: string,
   ): Promise<ResolvedLlmCall>
   release(): void
 }
 
 function resolveServerLlmCall(
-  reasoning: LlmCallReasoning,
-  modelOverride?: string,
+  assignment: LlmModelAssignment = deepSeekRecommendedAssignments.big,
 ): ResolvedLlmCall {
-  const model = llm.model(modelOverride)
+  const model = config.llm.provider === "zen"
+    ? llm.model()
+    : llm.model(assignment.modelId)
   return {
     provider: "server",
     model,
     modelId: model.modelId,
     supportsStructuredOutputs: llm.supportsStructuredOutputs,
-    callOptions: llm.callOptions(reasoning),
+    callOptions: llm.callOptions(assignment.reasoningEffort),
     wrapStream: (source) => source,
     release: () => Promise.resolve(),
   }
 }
 
-/** Reserves per-user Codex serialization without occupying shared LLM capacity. */
+/** Reserves the provider named by the snapshotted role assignment. */
 export async function reserveLlmCall(
   userId: string,
+  snapshot: LlmModelAssignmentSnapshot,
   signal?: AbortSignal,
 ): Promise<LlmCallReservation> {
-  const codexReservation = await reserveCodexGeneration(userId, signal)
+  if (snapshot.assignment.provider === "deepseek") {
+    let consumed = false
+    return {
+      resolve() {
+        if (consumed) throw new Error("LLM call reservation was already consumed")
+        consumed = true
+        return Promise.resolve(resolveServerLlmCall(snapshot.assignment))
+      },
+      release() {
+        consumed = true
+      },
+    }
+  }
+
+  const codexReservation = await reserveCodexGeneration(
+    userId,
+    {
+      modelId: snapshot.assignment.modelId,
+      reasoningEffort: snapshot.assignment.reasoningEffort,
+      allowUnavailableRecommendationFallback: !snapshot.explicit,
+    },
+    signal,
+  )
+  if (!codexReservation && snapshot.explicit) {
+    throw new OpenAiCodexError("authentication-required")
+  }
+
   let consumed = false
   return {
-    async resolve(reasoning, modelOverride) {
+    async resolve() {
       if (consumed) throw new Error("LLM call reservation was already consumed")
       consumed = true
-      const codex = await codexReservation?.acquire(reasoning)
+      const codex = await codexReservation?.acquire()
       if (codex) {
         return {
           ...codex,
@@ -125,7 +158,12 @@ export async function reserveLlmCall(
           callOptions: {},
         }
       }
-      return resolveServerLlmCall(reasoning, modelOverride)
+      if (snapshot.explicit) {
+        throw new OpenAiCodexError("authentication-required")
+      }
+      return resolveServerLlmCall(
+        deepSeekRecommendedAssignments[snapshot.role],
+      )
     },
     release() {
       if (consumed) return

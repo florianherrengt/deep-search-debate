@@ -692,38 +692,26 @@ function researchAngle(userMessage) {
     : "constraints"
 }
 
-function assertThinkingMode(body, system) {
-  const roundReviewUsesReasoning = system.includes(
-    "You decide whether a deep-research job",
-  )
-  const budgetSensitiveTextSkipsReasoning =
-    system.includes("Evaluate the improved idea against") ||
-    system.includes("Combine the supplied research texts") ||
-    system.includes("Create a single self-contained HTML page") ||
-    system.includes("You summarize an extracted web page") ||
-    system.includes("You summarize the results returned for one web search") ||
-    system.includes("You write the current candidate answer for a deep research run") ||
-    system.includes("You analyse a completed deep-research answer") ||
-    /debate|opening argument|rebuttal/i.test(system)
-  // These bounded prose stages deliberately bypass Flash thinking because it
-  // can consume the entire output budget without emitting the required text.
-  // Keep this assertion strict so E2E catches accidental re-enabling later.
-  const expected =
-    budgetSensitiveTextSkipsReasoning ||
-    (body.response_format && !roundReviewUsesReasoning)
-      ? "disabled"
-      : "enabled"
-  if (body.thinking?.type !== expected) {
-    throw new Error(
-      `Expected DeepSeek thinking=${expected} for ${body.response_format ? "structured" : "text"} output`,
-    )
+function assertThinkingMode(body) {
+  if (body.thinking?.type === "disabled") {
+    if (body.reasoning_effort !== undefined) {
+      throw new Error("Disabled DeepSeek thinking included a reasoning effort")
+    }
+    return
+  }
+  const supportedEfforts = ["low", "medium", "high", "xhigh", "max"]
+  if (
+    body.thinking?.type !== "enabled" ||
+    !supportedEfforts.includes(body.reasoning_effort)
+  ) {
+    throw new Error("DeepSeek request omitted its selected reasoning effort")
   }
 }
 
 function deepSeekOutput(body) {
   const system = messageText(body, "system")
   const user = messageText(body, "user")
-  assertThinkingMode(body, system)
+  assertThinkingMode(body)
 
   if (system.includes("You create short, descriptive titles")) {
     const title = user.includes("official MDN documentation")
@@ -1151,6 +1139,18 @@ globalThis.fetch = async (input, init) => {
   const url = new URL(request.url)
 
   if (url.hostname === "api.deepseek.com") {
+    if (request.method === "GET" && url.pathname === "/models") {
+      return new Response(
+        JSON.stringify({
+          object: "list",
+          data: [
+            { id: "deepseek-v4-flash", object: "model" },
+            { id: "deepseek-v4-pro", object: "model" },
+          ],
+        }),
+        { headers: { "content-type": "application/json" } },
+      )
+    }
     if (request.method !== "POST" || url.pathname !== "/chat/completions") {
       throw new Error(
         `Unexpected DeepSeek request: ${request.method} ${url.pathname}`,

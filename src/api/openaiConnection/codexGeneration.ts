@@ -3,7 +3,10 @@ import type { LanguageModel } from "ai"
 import { createCodexAppServer } from "ai-sdk-provider-codex-cli"
 import z from "zod"
 import { config } from "../config.ts"
-import type { LlmCallReasoning } from "../llms/provider.ts"
+import {
+  llmReasoningEffortSchema,
+  type LlmReasoningEffort,
+} from "../llms/modelSettings.ts"
 import { classifyCodexError, OpenAiCodexError } from "./codexErrors.ts"
 import {
   createCodexHome,
@@ -25,46 +28,32 @@ import {
   hasOpenAiCodexConnection,
 } from "./credentialsRepository.ts"
 
-const reasoningEffortSchema = z.enum([
-  "none",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-  "ultra",
-])
-
 const modelSchema = z.object({
-  id: z.string().min(1),
-  isDefault: z.literal(true),
+  id: z.string().min(1).max(256),
+  displayName: z.string().min(1).max(256).optional(),
+  name: z.string().min(1).max(256).nullable().optional(),
+  description: z.string().max(2_000).nullable().optional(),
+  hidden: z.boolean().optional(),
+  isDefault: z.boolean().nullable().optional(),
   supportedReasoningEfforts: z
     .array(
       z.object({
-        reasoningEffort: reasoningEffortSchema,
+        reasoningEffort: llmReasoningEffortSchema,
       }),
     )
-    .min(1),
+    .max(8),
 })
 
-const effortOrder = reasoningEffortSchema.options
-
-function selectReasoningEffort(
-  model: z.output<typeof modelSchema>,
-  reasoning: LlmCallReasoning,
-): z.output<typeof reasoningEffortSchema> {
-  const supported = new Set(
-    model.supportedReasoningEfforts.map((option) => option.reasoningEffort),
-  )
-  const ordered = effortOrder.filter((effort) => supported.has(effort))
-  const selected = reasoning === "enabled" ? ordered.at(-1) : ordered[0]
-  if (!selected) throw new OpenAiCodexError("protocol-incompatible")
-  return selected
-}
+export type AvailableCodexModel = z.output<typeof modelSchema>
 
 function digest(credentials: Buffer): Buffer {
   return createHash("sha256").update(credentials).digest()
+}
+
+type CodexSession = {
+  provider: ReturnType<typeof createCodexAppServer>
+  models: AvailableCodexModel[]
+  release(): Promise<void>
 }
 
 type CodexGenerationContext = {
@@ -74,50 +63,44 @@ type CodexGenerationContext = {
   release(): Promise<void>
 }
 
+type CodexModelSelection = {
+  modelId: string
+  reasoningEffort: LlmReasoningEffort
+  allowUnavailableRecommendationFallback: boolean
+}
+
 export type CodexGenerationReservation = {
-  acquire(
-    reasoning: LlmCallReasoning,
-  ): Promise<CodexGenerationContext | undefined>
+  acquire(): Promise<CodexGenerationContext | undefined>
   release(): void
 }
 
-/**
- * Serializes one user's credential-bearing processes before shared LLM
- * admission, without decrypting credentials or starting Codex while queued.
- */
-export async function reserveCodexGeneration(
-  userId: string,
-  signal?: AbortSignal,
-): Promise<CodexGenerationReservation | undefined> {
-  if (!hasOpenAiCodexConnection(userId)) return
-
-  const releaseProcess = await acquireCodexProcess(
-    userId,
-    signal ? { signal } : {},
-  )
-
-  let consumed = false
-  return {
-    acquire(reasoning) {
-      if (consumed) {
-        throw new Error("Codex generation reservation was already consumed")
-      }
-      consumed = true
-      return acquireReservedCodexGeneration(userId, reasoning, releaseProcess)
+function createProvider(home: Awaited<ReturnType<typeof createCodexHome>>) {
+  return createCodexAppServer({
+    defaultSettings: {
+      codexPath: getCodexExecutablePath(),
+      cwd: home.work,
+      env: codexProcessEnvironment(home),
+      logger: false,
+      approvalPolicy: "never",
+      sandboxPolicy: {
+        type: "externalSandbox",
+        networkAccess: "restricted",
+      },
+      autoApprove: false,
+      persistExtendedHistory: false,
+      threadMode: "stateless",
+      minCodexVersion: "0.149.1",
+      connectionTimeoutMs: config.llmExecution.firstChunkTimeoutMs,
+      requestTimeoutMs: config.llmExecution.totalTimeoutMs,
+      configOverrides: hardenedCodexConfigOverrides,
     },
-    release() {
-      if (consumed) return
-      consumed = true
-      releaseProcess()
-    },
-  }
+  })
 }
 
-async function acquireReservedCodexGeneration(
+async function openReservedCodexSession(
   userId: string,
-  reasoning: LlmCallReasoning,
   releaseProcess: () => void,
-): Promise<CodexGenerationContext | undefined> {
+): Promise<CodexSession | undefined> {
   let connection: ReturnType<typeof getOpenAiCodexConnection>
   try {
     connection = getOpenAiCodexConnection(userId)
@@ -191,73 +174,10 @@ async function acquireReservedCodexGeneration(
   try {
     home = await createCodexHome(connection.credentials)
     connection.credentials.fill(0)
-    provider = createCodexAppServer({
-      defaultSettings: {
-        codexPath: getCodexExecutablePath(),
-        cwd: home.work,
-        env: codexProcessEnvironment(home),
-        logger: false,
-        approvalPolicy: "never",
-        sandboxPolicy: {
-          type: "externalSandbox",
-          networkAccess: "restricted",
-        },
-        autoApprove: false,
-        persistExtendedHistory: false,
-        threadMode: "stateless",
-        minCodexVersion: "0.149.1",
-        connectionTimeoutMs: config.llmExecution.firstChunkTimeoutMs,
-        requestTimeoutMs: config.llmExecution.totalTimeoutMs,
-        configOverrides: hardenedCodexConfigOverrides,
-      },
-    })
-    const modelList = await provider.listModels()
-    const defaults = modelList.models.filter(
-      (candidate) => candidate.isDefault === true,
-    )
-    if (defaults.length !== 1) {
-      throw new OpenAiCodexError("protocol-incompatible")
-    }
-    const selectedModel = modelSchema.parse(defaults[0])
-    const effort = selectReasoningEffort(selectedModel, reasoning)
-    const model = provider(selectedModel.id, {
-      configOverrides: {
-        ...hardenedCodexConfigOverrides,
-        model_reasoning_effort: effort,
-      },
-    })
-
-    return {
-      model,
-      modelId: selectedModel.id,
-      async *wrapStream<Part>(source: AsyncIterable<Part>) {
-        try {
-          for await (const part of source) {
-            const typed = part as { type?: string; error?: unknown }
-            if (
-              typed.type === "tool-call" ||
-              typed.type === "tool-result" ||
-              typed.type === "tool-approval-request"
-            ) {
-              throw new OpenAiCodexError("tool-blocked")
-            }
-            if (typed.type === "error") {
-              yield {
-                ...(part as object),
-                error: classifyCodexError(typed.error),
-              } as Part
-            } else {
-              yield part
-            }
-          }
-        } catch (error) {
-          throw classifyCodexError(error)
-        } finally {
-          await release()
-        }
-      },
-      release,
-    }
+    provider = createProvider(home)
+    const result = await provider.listModels()
+    const models = z.array(modelSchema).max(100).parse(result.models)
+    return { provider, models, release }
   } catch (error) {
     if (error instanceof FatalCodexContainmentError) {
       connection.credentials.fill(0)
@@ -272,5 +192,118 @@ async function acquireReservedCodexGeneration(
       }
     }
     throw classifyCodexError(error)
+  }
+}
+
+/** Lists the connected account's visible models inside the contained session. */
+export async function listAvailableCodexModels(
+  userId: string,
+): Promise<AvailableCodexModel[] | undefined> {
+  if (!hasOpenAiCodexConnection(userId)) return
+  const releaseProcess = await acquireCodexProcess(userId)
+  const session = await openReservedCodexSession(userId, releaseProcess)
+  if (!session) return
+  try {
+    return session.models.filter(
+      (model) =>
+        model.hidden !== true && model.supportedReasoningEfforts.length > 0,
+    )
+  } finally {
+    await session.release()
+  }
+}
+
+/** Reserves one explicit Codex choice without occupying shared LLM capacity. */
+export async function reserveCodexGeneration(
+  userId: string,
+  selection: CodexModelSelection,
+  signal?: AbortSignal,
+): Promise<CodexGenerationReservation | undefined> {
+  if (!hasOpenAiCodexConnection(userId)) return
+
+  const releaseProcess = await acquireCodexProcess(
+    userId,
+    signal ? { signal } : {},
+  )
+
+  let consumed = false
+  return {
+    acquire() {
+      if (consumed) {
+        throw new Error("Codex generation reservation was already consumed")
+      }
+      consumed = true
+      return acquireReservedCodexGeneration(
+        userId,
+        selection,
+        releaseProcess,
+      )
+    },
+    release() {
+      if (consumed) return
+      consumed = true
+      releaseProcess()
+    },
+  }
+}
+
+async function acquireReservedCodexGeneration(
+  userId: string,
+  selection: CodexModelSelection,
+  releaseProcess: () => void,
+): Promise<CodexGenerationContext | undefined> {
+  const session = await openReservedCodexSession(userId, releaseProcess)
+  if (!session) return
+
+  const selectedModel = session.models.find(
+    (candidate) =>
+      candidate.hidden !== true && candidate.id === selection.modelId,
+  )
+  const supportsEffort = selectedModel?.supportedReasoningEfforts.some(
+    (option) => option.reasoningEffort === selection.reasoningEffort,
+  )
+  if (!selectedModel || !supportsEffort) {
+    await session.release()
+    if (selection.allowUnavailableRecommendationFallback) return
+    throw new OpenAiCodexError("protocol-incompatible")
+  }
+
+  const model = session.provider(selectedModel.id, {
+    configOverrides: {
+      ...hardenedCodexConfigOverrides,
+      model_reasoning_effort: selection.reasoningEffort,
+    },
+  })
+
+  return {
+    model,
+    modelId: selectedModel.id,
+    async *wrapStream<Part>(source: AsyncIterable<Part>) {
+      try {
+        for await (const part of source) {
+          const typed = part as { type?: string; error?: unknown }
+          if (
+            typed.type === "tool-call" ||
+            typed.type === "tool-result" ||
+            typed.type === "tool-approval-request"
+          ) {
+            throw new OpenAiCodexError("tool-blocked")
+          }
+          if (typed.type === "error") {
+            yield {
+              ...(part as object),
+              error: classifyCodexError(typed.error),
+            } as Part
+          } else {
+            yield part
+          }
+        }
+      } catch (error) {
+        throw classifyCodexError(error)
+      } finally {
+        await session.release()
+      }
+    },
+    release: () => session.release(),
   }
 }

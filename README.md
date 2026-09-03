@@ -149,14 +149,15 @@ $0.001 ($1 per 1,000 credits). The local debug user is an administrator and can
 grant credits from `/admin/credits`. In production, the signed-in GitHub account
 whose email matches `AUTH_ADMIN_EMAIL` is also an administrator; matching is
 case-insensitive. Existing administrators marked in the `user.is_admin` column
-remain administrators. Without an OpenAI connection, LLM work checks for a
-positive balance before starting and debits actual settled usage afterward, so
-a completed call may leave a negative balance. A signed-in user can connect a
-ChatGPT subscription from `/settings`; new LLM calls then use the account's
-default Codex model without a product-credit admission check or LLM debit.
+remain administrators. Server-funded DeepSeek work checks for a positive
+balance before starting and debits actual settled usage afterward, so a
+completed call may leave a negative balance. In `/settings`, signed-in users
+assign an available DeepSeek or connected OpenAI model and reasoning effort to
+the application's Small and Big roles. OpenAI-backed calls use the selected
+Codex model without a product-credit admission check or LLM debit.
 Search and extraction keep their existing product-credit charges. A configured
-OpenAI connection that is expired, rate-limited, or otherwise broken returns an
-actionable error instead of silently falling back to the server provider.
+OpenAI choice whose connection is expired, rate-limited, or otherwise broken
+returns an actionable error instead of silently falling back to DeepSeek.
 Failed provider calls are not charged.
 Completed usage remains charged; stopped in-progress attempts do not debit
 RethinkLoop credits. The application cannot guarantee how an upstream provider

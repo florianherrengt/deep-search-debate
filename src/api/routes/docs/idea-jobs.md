@@ -37,16 +37,16 @@ stages and child searches, and retries only incomplete work.
    fails, the parent fails and no summary or idea generation starts.
 4. One successful summary generation receives the original user prompt and only each
    child's final-answer text. Page records, source metadata, and intermediate
-   output are not copied into this call. Hidden reasoning is disabled so the
-   output budget is reserved for the durable research briefing.
+   output are not copied into this call. The briefing uses the current Small
+   model and reasoning-effort assignment.
 5. One successful idea generation receives the original user prompt, the final
    research briefing, and `numberOfIdeas`. After the complete array passes
    validation, every `{ title, description }` is persisted and published in
    generation order with a stable ID and no evaluation link yet.
 6. One successful structured selection generation receives the original user prompt,
    the final research briefing passed into idea generation, and every generated
-   idea. Hidden selection reasoning is disabled so the bounded output is
-   reserved for the required JSON. The output is an unordered array of unique
+   idea. Selection uses the current Big model and reasoning-effort assignment.
+   The output is an unordered array of unique
    idea IDs containing an even number of ideas from 6 through 12. Every ID must
    belong to this job.
    The selected ideas become `selected = true` and every other generated idea

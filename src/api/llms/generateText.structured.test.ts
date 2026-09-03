@@ -85,7 +85,7 @@ describe("structured generation", () => {
         },
         output: { type: "array", options: { element } },
         providerOptions: {
-          test: { reasoning: "disabled" },
+          test: { reasoningEffort: "xhigh" },
         },
       }),
     )
@@ -103,7 +103,7 @@ describe("structured generation", () => {
     const registration = z
       .object({
         metadata: z.object({
-          modelId: z.literal("configured-model"),
+          modelId: z.literal("deepseek-v4-pro"),
           promptName: z.literal("generate-websearch-queries"),
           calculateCredits: z.function(),
         }),
@@ -131,7 +131,7 @@ describe("structured generation", () => {
       finishReason,
       usage,
     })
-    expect(mocks.callOptions).toHaveBeenCalledWith("disabled")
+    expect(mocks.callOptions).toHaveBeenCalledWith("xhigh")
     await expect(result.output).resolves.toEqual(["first", "second"])
   })
 
@@ -239,7 +239,7 @@ describe("structured generation", () => {
         maxRetries: config.llmExecution.maxRetries,
         output: { type: "object", options: { schema } },
         providerOptions: {
-          test: { reasoning: "disabled" },
+          test: { reasoningEffort: "xhigh" },
         },
       }),
     )
@@ -261,7 +261,7 @@ describe("structured generation", () => {
         {},
       ),
     ).toThrow()
-    expect(mocks.callOptions).toHaveBeenCalledWith("disabled")
+    expect(mocks.callOptions).toHaveBeenCalledWith("xhigh")
     await expect(result.output).resolves.toEqual({ winnerSlot: 0 })
   })
 

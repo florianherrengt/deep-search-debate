@@ -1,10 +1,10 @@
 import { HTTPException } from "hono/http-exception"
 import z from "zod"
 import {
-  deleteOpenAiCodexConnectionForUser,
   hasOpenAiCodexConnection,
   replaceOpenAiCodexConnection,
 } from "./credentialsRepository.ts"
+import { disconnectOpenAiAndResetModelAssignments } from "../llms/modelSettings.ts"
 import { classifyCodexError, OpenAiCodexError } from "./codexErrors.ts"
 import {
   createCodexHome,
@@ -291,7 +291,7 @@ export async function disconnectOpenAiConnection(
     })
   }
 
-  deleteOpenAiCodexConnectionForUser(userId)
+  disconnectOpenAiAndResetModelAssignments(userId)
   return { status: "disconnected" }
 }
 

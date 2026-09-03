@@ -28,9 +28,9 @@ export function OpenAiConnectionStatus({
       return (
         <Stack spacing={2} sx={{ alignItems: "flex-start" }}>
           <Typography color="text.secondary">
-            Connect your ChatGPT account to use your OpenAI subscription for
-            model calls. Search and extraction credits are still charged as
-            usual.
+            Connect your ChatGPT account to make OpenAI models available in
+            your Small and Big model choices. DeepSeek models remain available
+            without a connection.
           </Typography>
           <Button
             disabled={starting}
@@ -90,8 +90,9 @@ export function OpenAiConnectionStatus({
         <Stack spacing={2} sx={{ alignItems: "flex-start" }}>
           <Alert severity="success">
             <AlertTitle component="h3">OpenAI is connected</AlertTitle>
-            New model calls will use your OpenAI subscription. RethinkLoop will
-            not charge product credits for those model calls.
+            OpenAI models are now available below. Only work assigned to an
+            OpenAI model will use your subscription and avoid product credit
+            charges for that model call.
           </Alert>
           <Button color="error" onClick={onDisconnect} variant="outlined">
             Disconnect OpenAI

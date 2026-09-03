@@ -121,6 +121,27 @@ export async function postJson<Schema extends z.ZodType>(
   return schema.parse(await response.json())
 }
 
+/** Replaces a JSON resource and validates the response at the network boundary. */
+export async function putJson<Schema extends z.ZodType>(
+  url: string,
+  body: unknown,
+  schema: Schema,
+  signal?: AbortSignal,
+): Promise<z.output<Schema>> {
+  const response = await fetch(url, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  })
+
+  if (!response.ok) {
+    throw await createApiError("PUT", url, response)
+  }
+
+  return schema.parse(await response.json())
+}
+
 /** Patches JSON and validates the response at the network boundary. */
 export async function patchJson<Schema extends z.ZodType>(
   url: string,

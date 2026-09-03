@@ -7,15 +7,24 @@ import {
   serverLlmCall,
   subscriptionLlmCall,
 } from "./generateText.testSupport.ts"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import z from "zod"
 
 import { config } from "../config.ts"
+import { db } from "../db/index.ts"
+import { llmModelSettings } from "../db/schema/index.ts"
 import { FatalCodexContainmentError } from "../openaiConnection/codexSession/process.ts"
 import { generateTextStream } from "./generateText.ts"
+import { replaceLlmModelAssignments } from "./modelSettings.ts"
 
 describe("generateTextStream", () => {
-  beforeEach(resetGenerateTextMocks)
+  beforeEach(() => {
+    resetGenerateTextMocks()
+    db.delete(llmModelSettings).run()
+  })
+  afterEach(() => {
+    db.delete(llmModelSettings).run()
+  })
 
   it("does not register a generation aborted while queued", async () => {
     const controller = new AbortController()
@@ -67,7 +76,7 @@ describe("generateTextStream", () => {
         onCompleted: z.undefined(),
         onFailed: z.undefined(),
         metadata: z.object({
-          modelId: z.literal("configured-model"),
+          modelId: z.literal("deepseek-v4-pro"),
           promptName: z.literal("default"),
           calculateCredits: z.function(),
         }),
@@ -89,7 +98,7 @@ describe("generateTextStream", () => {
           chunkMs: config.llmExecution.chunkTimeoutMs,
         },
         providerOptions: {
-          test: { reasoning: "enabled" },
+          test: { reasoningEffort: "xhigh" },
         },
       }),
     )
@@ -97,7 +106,7 @@ describe("generateTextStream", () => {
       .object({ onError: z.function() })
       .parse(mocks.streamText.mock.calls[0]?.[0] as unknown)
     expect(textCall.onError).toBeTypeOf("function")
-    expect(mocks.callOptions).toHaveBeenCalledWith("enabled")
+    expect(mocks.callOptions).toHaveBeenCalledWith("xhigh")
     expect(mocks.requirePositiveCreditBalance).toHaveBeenCalledWith(
       "test-user-id",
     )
@@ -134,8 +143,15 @@ describe("generateTextStream", () => {
 
     expect(mocks.resolveLlmCall).toHaveBeenCalledWith(
       "connected-user-id",
-      "enabled",
-      undefined,
+      {
+        role: "big",
+        assignment: {
+          provider: "deepseek",
+          modelId: "deepseek-v4-pro",
+          reasoningEffort: "xhigh",
+        },
+        explicit: false,
+      },
     )
     expect(mocks.requirePositiveCreditBalance).not.toHaveBeenCalled()
     expect(mocks.callOptions).not.toHaveBeenCalled()
@@ -218,28 +234,87 @@ describe("generateTextStream", () => {
     expect(prepared.fail).not.toHaveBeenCalled()
   })
 
-  it("allows callers to disable provider reasoning", async () => {
-    const stream = { id: "raw-stream" }
+  it("routes Small and Big prompts with their selected authoritative efforts", async () => {
+    replaceLlmModelAssignments("test-user-id", {
+      small: {
+        provider: "deepseek",
+        modelId: "deepseek-v4-pro",
+        reasoningEffort: "none",
+      },
+      big: {
+        provider: "deepseek",
+        modelId: "deepseek-v4-flash",
+        reasoningEffort: "high",
+      },
+    })
     mocks.loadPrompt.mockResolvedValue("System prompt")
-    mocks.streamText.mockReturnValue({ stream })
-    mockPreparedGeneration()
+    mocks.streamText.mockReturnValue({ stream: { id: "raw-stream" } })
 
+    mockPreparedGeneration()
     await generateTextStream({
       userId: "test-user-id",
       owner: { standalone: true },
-      prompt: "Critique this idea",
+      prompt: "Summarize this page",
+      promptName: "summarize-web-page",
+      reasoning: "enabled",
+    })
+    mockPreparedGeneration()
+    await generateTextStream({
+      userId: "test-user-id",
+      owner: { standalone: true },
+      prompt: "Debate this",
       promptName: "default",
       reasoning: "disabled",
     })
 
-    expect(mocks.streamText).toHaveBeenCalledWith(
-      expect.objectContaining({
-        providerOptions: {
-          test: { reasoning: "disabled" },
+    expect(mocks.reserveLlmCall).toHaveBeenNthCalledWith(
+      1,
+      "test-user-id",
+      {
+        role: "small",
+        assignment: {
+          provider: "deepseek",
+          modelId: "deepseek-v4-pro",
+          reasoningEffort: "none",
         },
+        explicit: true,
+      },
+      undefined,
+    )
+    expect(mocks.reserveLlmCall).toHaveBeenNthCalledWith(
+      2,
+      "test-user-id",
+      {
+        role: "big",
+        assignment: {
+          provider: "deepseek",
+          modelId: "deepseek-v4-flash",
+          reasoningEffort: "high",
+        },
+        explicit: true,
+      },
+      undefined,
+    )
+    expect(mocks.callOptions.mock.calls.map(([effort]) => effort)).toEqual([
+      "none",
+      "high",
+    ])
+    expect(mocks.model.mock.calls.map(([modelId]) => modelId)).toEqual([
+      "deepseek-v4-pro",
+      "deepseek-v4-flash",
+    ])
+    expect(mocks.streamText).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        providerOptions: { test: { reasoningEffort: "none" } },
       }),
     )
-    expect(mocks.callOptions).toHaveBeenCalledWith("disabled")
+    expect(mocks.streamText).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        providerOptions: { test: { reasoningEffort: "high" } },
+      }),
+    )
   })
 
   it("forwards text-generation persistence hooks", async () => {
@@ -380,10 +455,10 @@ describe("generateTextStream", () => {
       .mockReturnValueOnce({ stream: { id: "server" } })
 
     const connectedCall = subscriptionLlmCall()
-    const serverCall = serverLlmCall("disabled")
+    const serverCall = serverLlmCall("xhigh", "deepseek-v4-pro")
     let connectedReservations = 0
     mocks.reserveLlmCall.mockImplementation(
-      (userId: string, signal?: AbortSignal) => {
+      (userId: string, _snapshot: unknown, signal?: AbortSignal) => {
         if (userId === "connected-user") {
           connectedReservations += 1
           if (connectedReservations === 1) {

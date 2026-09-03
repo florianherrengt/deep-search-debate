@@ -34,7 +34,7 @@ describe("generatePromptTitle", () => {
         timeout: z.object({ totalMs: z.number() }),
         maxRetries: z.number(),
         providerOptions: z.object({
-          test: z.object({ reasoning: z.literal("disabled") }),
+          test: z.object({ reasoningEffort: z.literal("medium") }),
         }),
       })
       .loose()
@@ -43,8 +43,8 @@ describe("generatePromptTitle", () => {
       config.llmExecution.totalTimeoutMs,
     )
     expect(titleOptions.maxRetries).toBe(config.llmExecution.maxRetries)
-    expect(mocks.model).toHaveBeenCalledWith(undefined)
-    expect(mocks.callOptions).toHaveBeenCalledWith("disabled")
+    expect(mocks.model).toHaveBeenCalledWith("deepseek-v4-flash")
+    expect(mocks.callOptions).toHaveBeenCalledWith("medium")
     expect(mocks.outputObject).toHaveBeenCalledOnce()
     expect(prepared.start).toHaveBeenCalledWith(stream, {
       finishReason,

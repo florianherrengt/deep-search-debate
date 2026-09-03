@@ -5,6 +5,7 @@ import {
   getJson,
   patchJson,
   postJson,
+  putJson,
   subscribeToNdjson,
 } from "./api.ts"
 
@@ -27,6 +28,7 @@ describe("API client", () => {
   it.each([
     ["GET JSON", () => getJson("/api/test", z.object({}))],
     ["POST JSON", () => postJson("/api/test", {}, z.object({}))],
+    ["PUT JSON", () => putJson("/api/test", {}, z.object({}))],
     ["PATCH JSON", () => patchJson("/api/test", {}, z.object({}))],
     ["DELETE JSON", () => deleteJson("/api/test", z.object({}))],
     [

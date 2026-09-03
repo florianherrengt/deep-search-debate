@@ -1,4 +1,8 @@
 import { vi } from "vitest"
+import type {
+  LlmModelAssignmentSnapshot,
+  LlmReasoningEffort,
+} from "./modelSettings.ts"
 
 type MockLlmCall = {
   model: { modelId: string }
@@ -11,8 +15,8 @@ type MockLlmCall = {
 }
 
 export const mocks = {
-  callOptions: vi.fn((reasoning: "enabled" | "disabled") => ({
-    providerOptions: { test: { reasoning } },
+  callOptions: vi.fn((reasoningEffort: LlmReasoningEffort) => ({
+    providerOptions: { test: { reasoningEffort } },
   })),
   generateText: vi.fn(),
   loadPrompt: vi.fn(),
@@ -28,26 +32,23 @@ export const mocks = {
   resolveLlmCall: vi.fn(
     (
       _userId: string,
-      _reasoning: "enabled" | "disabled",
-      _modelOverride?: string,
+      snapshot: LlmModelAssignmentSnapshot,
     ): Promise<MockLlmCall> =>
-      Promise.resolve({
-        model: { modelId: "configured-model" },
-        modelId: "configured-model",
-        provider: "server",
-        supportsStructuredOutputs: false,
-        callOptions: {},
-        wrapStream: (source: unknown) => source,
-        release: () => Promise.resolve(),
-      }),
+      Promise.resolve(
+        serverLlmCall(
+          snapshot.assignment.reasoningEffort,
+          snapshot.assignment.modelId,
+        ),
+      ),
   ),
   reserveLlmCall: vi.fn(
-    (userId: string, _signal?: AbortSignal) =>
+    (
+      userId: string,
+      snapshot: LlmModelAssignmentSnapshot,
+      _signal?: AbortSignal,
+    ) =>
       Promise.resolve({
-        resolve: (
-          reasoning: "enabled" | "disabled",
-          modelOverride?: string,
-        ) => mocks.resolveLlmCall(userId, reasoning, modelOverride),
+        resolve: () => mocks.resolveLlmCall(userId, snapshot),
         release: mocks.reservationRelease,
       }),
   ),
@@ -100,16 +101,16 @@ export function completedGenerationHandle() {
 }
 
 export function serverLlmCall(
-  reasoning: "enabled" | "disabled",
-  modelOverride?: string,
+  reasoningEffort: LlmReasoningEffort,
+  modelId: string,
 ) {
-  const model = mocks.model(modelOverride)
+  const model = mocks.model(modelId)
   return {
     model,
     modelId: model.modelId,
     provider: "server" as "server" | "codex",
     supportsStructuredOutputs: false,
-    callOptions: mocks.callOptions(reasoning),
+    callOptions: mocks.callOptions(reasoningEffort),
     wrapStream: mocks.wrapStream,
     release: mocks.release,
   }
@@ -163,17 +164,23 @@ export function mockPreparedGeneration(
 export function resetGenerateTextMocks() {
   vi.clearAllMocks()
   mocks.reserveLlmCall.mockImplementation(
-    (userId: string, _signal?: AbortSignal) =>
+    (
+      userId: string,
+      snapshot: LlmModelAssignmentSnapshot,
+      _signal?: AbortSignal,
+    ) =>
       Promise.resolve({
-        resolve: (
-          reasoning: "enabled" | "disabled",
-          modelOverride?: string,
-        ) => mocks.resolveLlmCall(userId, reasoning, modelOverride),
+        resolve: () => mocks.resolveLlmCall(userId, snapshot),
         release: mocks.reservationRelease,
       }),
   )
   mocks.resolveLlmCall.mockImplementation(
-    (_userId, reasoning, modelOverride) =>
-      Promise.resolve(serverLlmCall(reasoning, modelOverride)),
+    (_userId, snapshot) =>
+      Promise.resolve(
+        serverLlmCall(
+          snapshot.assignment.reasoningEffort,
+          snapshot.assignment.modelId,
+        ),
+      ),
   )
 }

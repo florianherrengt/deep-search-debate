@@ -73,9 +73,7 @@ export async function generateIdeaSite(
       input.idea,
     ),
     promptName: PromptName.CreateIdeaSite,
-    // Hidden reasoning is disabled per the prose-output stage policy: at max
-    // effort the model spends its whole budget thinking and emits no HTML.
-    // The generous token bound only guards against runaway page size.
+    // Retained compatibility hint; the current Big role effort is authoritative.
     reasoning: "disabled",
     maxOutputTokens: 65_536,
     workflowSignal: input.workflowSignal,
