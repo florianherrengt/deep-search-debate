@@ -1,11 +1,13 @@
 ---
 id: 26
 title: Use a small/big model depending on the task
-status: review
+status: in-progress
 priority: medium
 created: 2026-08-25T14:35:37.286461+01:00
-updated: 2026-09-03T14:32:08.790369+01:00
+updated: 2026-09-03T17:49:28.886322+01:00
 started: 2026-09-03T13:18:37.471931+01:00
+claimed_by: translay-monoxide
+claimed_at: 2026-09-03T17:49:28.886322+01:00
 class: standard
 ---
 
