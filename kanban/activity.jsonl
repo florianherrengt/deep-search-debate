@@ -402,3 +402,6 @@
 {"timestamp":"2026-09-03T18:01:13.51195+01:00","action":"move","task_id":26,"detail":"review -\u003e in-progress"}
 {"timestamp":"2026-09-03T18:01:20.850143+01:00","action":"edit","task_id":26,"detail":"Use a small/big model depending on the task"}
 {"timestamp":"2026-09-03T18:01:20.850304+01:00","action":"unblock","task_id":26,"detail":"Use a small/big model depending on the task"}
+{"timestamp":"2026-09-03T18:59:13.691668+01:00","action":"move","task_id":26,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-09-03T18:59:13.692121+01:00","action":"handoff","task_id":26,"detail":"Use a small/big model depending on the task"}
+{"timestamp":"2026-09-03T18:59:13.692198+01:00","action":"release","task_id":26,"detail":"Use a small/big model depending on the task"}

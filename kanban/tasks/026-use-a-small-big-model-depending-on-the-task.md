@@ -1,13 +1,11 @@
 ---
 id: 26
 title: Use a small/big model depending on the task
-status: in-progress
+status: review
 priority: medium
 created: 2026-08-25T14:35:37.286461+01:00
-updated: 2026-09-03T18:01:20.849624+01:00
+updated: 2026-09-03T18:59:13.689094+01:00
 started: 2026-09-03T13:18:37.471931+01:00
-claimed_by: translay-monoxide
-claimed_at: 2026-09-03T18:01:20.849755+01:00
 class: standard
 ---
 
@@ -40,3 +38,6 @@ Corrected requirement: users configure concrete models for abstract small and bi
 
 [[2026-09-03]] Thu 18:01
 Confirmed 2026-09-03: Settings presents provider-labelled available models for Small and Big, with reasoning effort. Defaults prefer Luna/medium and Sol/xhigh when available, otherwise DeepSeek Flash/Pro. OpenAI disconnect resets OpenAI-backed selections to DeepSeek defaults. Changes affect the next model call, including active or resumed workflows.
+
+[[2026-09-03]] Thu 18:59
+Implemented corrected model selection in worktree /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-26-model-selection on branch codex/ticket-26-model-selection. Settings now discovers provider-labelled DeepSeek and connected OpenAI models and saves exact Small/Big model plus reasoning effort choices. Defaults prefer Luna/medium and Sol/xhigh only when advertised, otherwise DeepSeek Flash/medium and Pro/xhigh. Central PromptName routing applies Small to titles/filtering/summaries and Big to planning/synthesis/audits/reviews/ideas/sites/debates/default streams; chosen effort is authoritative for every call. Explicit provider choices never silently switch providers; OpenAI disconnect resets OpenAI-backed choices transactionally. Added migration, API/UI/provider/race/migration tests, mocked full-path E2E, Storybook states, and docs. Validation: npm run gatekeep passed (722 API and 346 web tests), focused OpenAI E2E passed, Storybook build and desktop/mobile visual checks passed, and final root/API/DB/web plus whole-change reviews passed. Feature code intentionally remains uncommitted for review.
