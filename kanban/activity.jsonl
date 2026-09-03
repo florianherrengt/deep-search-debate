@@ -390,3 +390,4 @@
 {"timestamp":"2026-09-02T17:10:56.535436+01:00","action":"edit","task_id":25,"detail":"Allow users to use their own OpenAI Codex subscription"}
 {"timestamp":"2026-09-02T17:10:56.535739+01:00","action":"release","task_id":25,"detail":"sacellum-fipple"}
 {"timestamp":"2026-09-02T17:10:56.551059+01:00","action":"move","task_id":25,"detail":"in-progress -\u003e done"}
+{"timestamp":"2026-09-03T13:18:37.472667+01:00","action":"move","task_id":26,"detail":"backlog -\u003e in-progress"}
