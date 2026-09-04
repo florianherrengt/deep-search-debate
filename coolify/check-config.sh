@@ -114,7 +114,11 @@ runtime_environment_value() {
         .is_literal == true
       )
     ][0] |
-    (.real_value // .value // "")
+    (if .is_literal then
+      (.value // "")
+    else
+      (.real_value // .value // "")
+    end)
   ' <<<"${environment_json}"
 }
 
