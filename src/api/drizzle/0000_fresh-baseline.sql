@@ -716,3 +716,33 @@ WHEN NEW.`debate_round_id` IS NOT OLD.`debate_round_id`
 BEGIN
 	SELECT RAISE(ABORT, 'debate-match structural columns are immutable');
 END;
+--> statement-breakpoint
+CREATE TABLE `openai_codex_connections` (
+	`user_id` text PRIMARY KEY NOT NULL,
+	`connection_id` text NOT NULL,
+	`credentials_ciphertext` blob NOT NULL,
+	`credentials_nonce` blob NOT NULL,
+	`credentials_authentication_tag` blob NOT NULL,
+	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "openai_codex_connections_connection_id_check" CHECK(length(trim("openai_codex_connections"."connection_id")) > 0),
+	CONSTRAINT "openai_codex_connections_ciphertext_check" CHECK(typeof("openai_codex_connections"."credentials_ciphertext") = 'blob' and length("openai_codex_connections"."credentials_ciphertext") > 0),
+	CONSTRAINT "openai_codex_connections_nonce_check" CHECK(typeof("openai_codex_connections"."credentials_nonce") = 'blob' and length("openai_codex_connections"."credentials_nonce") = 12),
+	CONSTRAINT "openai_codex_connections_authentication_tag_check" CHECK(typeof("openai_codex_connections"."credentials_authentication_tag") = 'blob' and length("openai_codex_connections"."credentials_authentication_tag") = 16)
+);
+--> statement-breakpoint
+CREATE TABLE `llm_model_settings` (
+	`user_id` text PRIMARY KEY NOT NULL,
+	`small_provider` text NOT NULL,
+	`small_model_id` text NOT NULL,
+	`small_reasoning_effort` text NOT NULL,
+	`big_provider` text NOT NULL,
+	`big_model_id` text NOT NULL,
+	`big_reasoning_effort` text NOT NULL,
+	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "llm_model_settings_small_provider_check" CHECK("llm_model_settings"."small_provider" in ('deepseek', 'openai')),
+	CONSTRAINT "llm_model_settings_small_model_id_check" CHECK(length(trim("llm_model_settings"."small_model_id")) > 0),
+	CONSTRAINT "llm_model_settings_small_reasoning_effort_check" CHECK("llm_model_settings"."small_reasoning_effort" in ('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra')),
+	CONSTRAINT "llm_model_settings_big_provider_check" CHECK("llm_model_settings"."big_provider" in ('deepseek', 'openai')),
+	CONSTRAINT "llm_model_settings_big_model_id_check" CHECK(length(trim("llm_model_settings"."big_model_id")) > 0),
+	CONSTRAINT "llm_model_settings_big_reasoning_effort_check" CHECK("llm_model_settings"."big_reasoning_effort" in ('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'))
+);

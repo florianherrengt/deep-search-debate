@@ -168,14 +168,12 @@ ignores this one documented peer-resolution shim.
 - The API workspace's `predev` and `prestart` lifecycle scripts apply pending
   migrations before either development or production startup.
 - Migration history begins with the intentionally fresh
-  `0000_fresh-baseline` migration. Databases created from any superseded history
-  are unsupported and must be recreated; there is no data-preserving upgrade
-  path because no production data existed when this reset was approved. The
-  retained baseline is immutable; `0001_eager_stone_men` adds encrypted Codex
-  connections and `0002_dizzy_genesis` adds per-user LLM model settings as
-  forward migrations. `baselineMigration.test.ts` verifies both fresh creation
-  through the same Drizzle migrator used by the application and the retained
-  `0000` through `0002` upgrade path.
+  `0000_fresh-baseline` migration, including encrypted Codex connections and
+  per-user LLM model settings. Databases created from any superseded history are
+  unsupported and must be recreated; there is no data-preserving upgrade path
+  because the production database reset was explicitly approved.
+  `baselineMigration.test.ts` verifies complete fresh creation through the same
+  Drizzle migrator used by the application.
 
 ### Known application-enforced integrity boundaries
 

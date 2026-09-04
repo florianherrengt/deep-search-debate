@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "3f38ba51-30c5-4f4f-aede-45fc4300516c",
+  "id": "3b5b06f9-3b4d-4494-bc6b-1d4079333747",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "deep_search_jobs": {
@@ -2360,6 +2360,180 @@
         "llm_generations_terminal_fields_check": {
           "name": "llm_generations_terminal_fields_check",
           "value": "(\n        (\"llm_generations\".\"status\" = 'running' and \"llm_generations\".\"text\" is null and \"llm_generations\".\"reasoning\" is null and \"llm_generations\".\"completed_at\" is null and \"llm_generations\".\"error\" is null)\n        or\n        (\"llm_generations\".\"status\" = 'completed' and \"llm_generations\".\"text\" is not null and length(trim(\"llm_generations\".\"text\", char(9) || char(10) || char(11) || char(12) || char(13) || char(32))) > 0 and \"llm_generations\".\"reasoning\" is not null and \"llm_generations\".\"completed_at\" is not null and \"llm_generations\".\"error\" is null)\n        or\n        (\"llm_generations\".\"status\" in ('failed', 'interrupted') and \"llm_generations\".\"completed_at\" is not null and \"llm_generations\".\"error\" is not null)\n      )"
+        }
+      }
+    },
+    "llm_model_settings": {
+      "name": "llm_model_settings",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "small_provider": {
+          "name": "small_provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "small_model_id": {
+          "name": "small_model_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "small_reasoning_effort": {
+          "name": "small_reasoning_effort",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "big_provider": {
+          "name": "big_provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "big_model_id": {
+          "name": "big_model_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "big_reasoning_effort": {
+          "name": "big_reasoning_effort",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "llm_model_settings_user_id_user_id_fk": {
+          "name": "llm_model_settings_user_id_user_id_fk",
+          "tableFrom": "llm_model_settings",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "llm_model_settings_small_provider_check": {
+          "name": "llm_model_settings_small_provider_check",
+          "value": "\"llm_model_settings\".\"small_provider\" in ('deepseek', 'openai')"
+        },
+        "llm_model_settings_small_model_id_check": {
+          "name": "llm_model_settings_small_model_id_check",
+          "value": "length(trim(\"llm_model_settings\".\"small_model_id\")) > 0"
+        },
+        "llm_model_settings_small_reasoning_effort_check": {
+          "name": "llm_model_settings_small_reasoning_effort_check",
+          "value": "\"llm_model_settings\".\"small_reasoning_effort\" in ('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra')"
+        },
+        "llm_model_settings_big_provider_check": {
+          "name": "llm_model_settings_big_provider_check",
+          "value": "\"llm_model_settings\".\"big_provider\" in ('deepseek', 'openai')"
+        },
+        "llm_model_settings_big_model_id_check": {
+          "name": "llm_model_settings_big_model_id_check",
+          "value": "length(trim(\"llm_model_settings\".\"big_model_id\")) > 0"
+        },
+        "llm_model_settings_big_reasoning_effort_check": {
+          "name": "llm_model_settings_big_reasoning_effort_check",
+          "value": "\"llm_model_settings\".\"big_reasoning_effort\" in ('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra')"
+        }
+      }
+    },
+    "openai_codex_connections": {
+      "name": "openai_codex_connections",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "connection_id": {
+          "name": "connection_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "credentials_ciphertext": {
+          "name": "credentials_ciphertext",
+          "type": "blob",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "credentials_nonce": {
+          "name": "credentials_nonce",
+          "type": "blob",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "credentials_authentication_tag": {
+          "name": "credentials_authentication_tag",
+          "type": "blob",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "openai_codex_connections_user_id_user_id_fk": {
+          "name": "openai_codex_connections_user_id_user_id_fk",
+          "tableFrom": "openai_codex_connections",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "openai_codex_connections_connection_id_check": {
+          "name": "openai_codex_connections_connection_id_check",
+          "value": "length(trim(\"openai_codex_connections\".\"connection_id\")) > 0"
+        },
+        "openai_codex_connections_ciphertext_check": {
+          "name": "openai_codex_connections_ciphertext_check",
+          "value": "typeof(\"openai_codex_connections\".\"credentials_ciphertext\") = 'blob' and length(\"openai_codex_connections\".\"credentials_ciphertext\") > 0"
+        },
+        "openai_codex_connections_nonce_check": {
+          "name": "openai_codex_connections_nonce_check",
+          "value": "typeof(\"openai_codex_connections\".\"credentials_nonce\") = 'blob' and length(\"openai_codex_connections\".\"credentials_nonce\") = 12"
+        },
+        "openai_codex_connections_authentication_tag_check": {
+          "name": "openai_codex_connections_authentication_tag_check",
+          "value": "typeof(\"openai_codex_connections\".\"credentials_authentication_tag\") = 'blob' and length(\"openai_codex_connections\".\"credentials_authentication_tag\") = 16"
         }
       }
     },

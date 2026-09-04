@@ -5,22 +5,8 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1787656388403,
+      "when": 1788526464242,
       "tag": "0000_fresh-baseline",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1788024537246,
-      "tag": "0001_eager_stone_men",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1788455987511,
-      "tag": "0002_dizzy_genesis",
       "breakpoints": true
     }
   ]
