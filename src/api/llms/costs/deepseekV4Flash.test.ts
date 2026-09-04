@@ -1,5 +1,5 @@
-import type { LanguageModelUsage } from "ai"
 import { describe, expect, it } from "vitest"
+import type { LlmUsage } from "../streamTypes.ts"
 
 import {
   calculateDeepSeekV4FlashCostMicroUsd,
@@ -12,7 +12,7 @@ function createUsage(input: {
   cacheHitInputTokens?: number
   cacheMissInputTokens?: number
   outputTokens?: number
-}): LanguageModelUsage {
+}): LlmUsage {
   const cacheHitInputTokens = input.cacheHitInputTokens ?? 0
   const cacheMissInputTokens = input.cacheMissInputTokens ?? 0
   const outputTokens = input.outputTokens ?? 0

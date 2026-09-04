@@ -1,82 +1,87 @@
 import {
+  completedGenerationHandle,
   mockPreparedGeneration,
   mocks,
   resetGenerateTextMocks,
+  startedLlmStream,
 } from "./generateText.testSupport.ts"
 import { beforeEach, describe, expect, it } from "vitest"
-import z from "zod"
 
-import { config } from "../config.ts"
 import { generatePromptTitle } from "./generateText.ts"
 
 describe("generatePromptTitle", () => {
   beforeEach(resetGenerateTextMocks)
 
-  it("generates a structured title with the configured model", async () => {
-    const stream = { id: "raw-stream" }
-    const output = Promise.resolve({ title: "London Renter Energy Options" })
-    const finishReason = Promise.resolve("stop" as const)
-    const usage = Promise.resolve({ inputTokens: 12, outputTokens: 4 })
+  it("uses the Small model assignment and parses the persisted title", async () => {
+    const started = startedLlmStream()
     mocks.loadPrompt.mockResolvedValue("Title system prompt")
-    mocks.streamText.mockReturnValue({
-      stream,
-      output,
-      finishReason,
-      usage,
-    })
-    const prepared = mockPreparedGeneration()
+    mocks.start.mockReturnValue(started)
+    const prepared = mockPreparedGeneration(
+      completedGenerationHandle(
+        '{"title":"London Renter Energy Options"}',
+      ),
+    )
 
-    await expect(generatePromptTitle("test-user-id", "How can renters save energy?")).resolves.toBe(
-      "London Renter Energy Options",
+    await expect(
+      generatePromptTitle("test-user-id", "How can renters save energy?"),
+    ).resolves.toBe("London Renter Energy Options")
+
+    expect(mocks.reserveLlmCall).toHaveBeenCalledWith(
+      "test-user-id",
+      {
+        role: "small",
+        assignment: {
+          provider: "deepseek",
+          modelId: "deepseek-v4-flash",
+          reasoningEffort: "medium",
+        },
+        explicit: false,
+      },
+      undefined,
     )
-    const titleOptions = z
-      .object({
-        timeout: z.object({ totalMs: z.number() }),
-        maxRetries: z.number(),
-        providerOptions: z.object({
-          test: z.object({ reasoningEffort: z.literal("medium") }),
-        }),
-      })
-      .loose()
-      .parse(mocks.streamText.mock.calls[0]?.[0] as unknown)
-    expect(titleOptions.timeout.totalMs).toBe(
-      config.llmExecution.totalTimeoutMs,
-    )
-    expect(titleOptions.maxRetries).toBe(config.llmExecution.maxRetries)
-    expect(mocks.model).toHaveBeenCalledWith("deepseek-v4-flash")
-    expect(mocks.callOptions).toHaveBeenCalledWith("medium")
-    expect(mocks.outputObject).toHaveBeenCalledOnce()
-    expect(prepared.start).toHaveBeenCalledWith(stream, {
-      finishReason,
-      usage,
+    const request = mocks.start.mock.calls[0]?.[0]
+    expect(request).toMatchObject({
+      prompt: "<user_request>\nHow can renters save energy?\n</user_request>",
+      maxOutputTokens: 50,
     })
-    const titleCall = z
-      .object({ system: z.string() })
-      .parse(mocks.streamText.mock.calls[0]?.[0] as unknown)
-    expect(titleCall.system).toContain("Title system prompt")
-    expect(titleCall.system).toContain('"title"')
+    expect(request?.system).toContain("Title system prompt")
+    expect(request?.system).toContain('"title"')
+    expect(request?.jsonSchema).toMatchObject({ properties: { title: {} } })
+    expect(prepared.start).toHaveBeenCalledWith(started.stream, {
+      finishReason: started.finishReason,
+      rawFinishReason: started.rawFinishReason,
+      usage: started.usage,
+    })
   })
 
-  it("rejects a title that did not finish normally", async () => {
+  it("rejects a title whose durable generation failed", async () => {
     mocks.loadPrompt.mockResolvedValue("Title system prompt")
-    mocks.streamText.mockReturnValue({
-      stream: { id: "raw-stream" },
-      output: Promise.resolve({ title: "Truncated title" }),
-      finishReason: Promise.resolve("length"),
-    })
     mockPreparedGeneration({
       id: "stream-id",
       completion: Promise.resolve({
         status: "failed" as const,
-        text: "partial",
+        text: '{"title":"Truncated title"}',
         reasoning: "",
         error: 'Text generation ended with finish reason "length"',
         failureKind: "finish-reason" as const,
       }),
     })
 
-    await expect(generatePromptTitle("test-user-id", "Research this topic")).rejects.toThrow(
-      'Text generation ended with finish reason "length"',
+    await expect(
+      generatePromptTitle("test-user-id", "Research this topic"),
+    ).rejects.toThrow('Text generation ended with finish reason "length"')
+  })
+
+  it("rejects a persisted title outside the title contract", async () => {
+    mocks.loadPrompt.mockResolvedValue("Title system prompt")
+    mockPreparedGeneration(
+      completedGenerationHandle(
+        JSON.stringify({ title: "x".repeat(81) }),
+      ),
     )
+
+    await expect(
+      generatePromptTitle("test-user-id", "Research this topic"),
+    ).rejects.toThrow()
   })
 })

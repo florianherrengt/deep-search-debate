@@ -1,4 +1,4 @@
-import { secureJsonParse } from "@ai-sdk/provider-utils"
+import { secureJsonParse } from "../../helpers/secureJsonParse.ts"
 import z from "zod"
 import { config } from "../../config.ts"
 import { ideaJobStages } from "../../db/schema/index.ts"

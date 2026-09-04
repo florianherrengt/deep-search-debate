@@ -13,10 +13,6 @@ process.env.PLAYWRIGHT_E2E_DATABASE_URL = e2eDatabase
 const mockExternalServices = fileURLToPath(
   new URL("../api/e2e/mockExternalServices.mjs", import.meta.url),
 )
-const fakeCodexAppServer = fileURLToPath(
-  new URL("../api/e2e/fakeCodexAppServer.mjs", import.meta.url),
-)
-
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
@@ -29,7 +25,7 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   // The real API and Vite app run on isolated ports. A Node preload replaces
-  // only outbound DeepSeek, SearXNG, and ScrapingAnt responses, keeping routes,
+  // only outbound Pi LLM, SearXNG, and ScrapingAnt responses, keeping routes,
   // SQLite, extraction, NDJSON streams, and the browser UI deterministic.
   webServer: [
     {
@@ -59,7 +55,6 @@ export default defineConfig({
         GITHUB_CLIENT_SECRET: "e2e-github-client-secret",
         OPENAI_CODEX_CREDENTIAL_KEY:
           "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-        OPENAI_CODEX_EXECUTABLE_PATH: fakeCodexAppServer,
         AUTH_DEBUG_USER_ENABLED: "true",
         AUTH_DEBUG_USER_PASSWORD: "e2e-debug-password",
         NODE_OPTIONS: `--import=${mockExternalServices}`,

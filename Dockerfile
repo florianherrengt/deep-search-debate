@@ -1,27 +1,3 @@
-FROM debian:bookworm-slim AS codex-launcher-build
-
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends gcc libc6-dev \
-  && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /src
-
-COPY src/api/openaiConnection/isolation ./isolation
-
-RUN gcc -std=c17 -O2 -Wall -Wextra -Werror -Wconversion -Wformat=2 \
-      -fstack-protector-strong -D_FORTIFY_SOURCE=3 -static-pie \
-      -DCODEX_BINARY_PATH='"/usr/local/libexec/rethinkloop/codex-0.149.1"' \
-      -o /rethinkloop-codex isolation/launcher.c isolation/session.c \
-      isolation/landlock.c isolation/seccomp.c \
-  && gcc -std=c17 -O2 -Wall -Wextra -Werror -Wconversion -Wformat=2 \
-      -fstack-protector-strong -D_FORTIFY_SOURCE=3 -static-pie \
-      -o /codex-isolation-probe isolation/probe.c \
-  && gcc -std=c17 -O2 -Wall -Wextra -Werror -Wconversion -Wformat=2 \
-      -fstack-protector-strong -D_FORTIFY_SOURCE=3 -static-pie \
-      -DCODEX_BINARY_PATH='"/usr/local/libexec/rethinkloop/codex-isolation-probe"' \
-      -o /codex-isolation-test-launcher isolation/launcher.c \
-      isolation/session.c isolation/landlock.c isolation/seccomp.c
-
 FROM node:26-bookworm-slim AS build
 
 WORKDIR /app
@@ -35,26 +11,10 @@ COPY src/web/package.json src/web/package.json
 
 RUN npm ci
 
-# Select the native musl-static artifact installed by the exact root Codex
-# package. The launcher never resolves a package shim or searches PATH.
-RUN set -eu; \
-  test "$(node -p "require('./node_modules/@openai/codex/package.json').version")" = "0.149.1"; \
-  case "$(node -p 'process.arch')" in \
-    x64) native="node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex" ;; \
-    arm64) native="node_modules/@openai/codex-linux-arm64/vendor/aarch64-unknown-linux-musl/bin/codex" ;; \
-    *) echo "unsupported Codex image architecture" >&2; exit 1 ;; \
-  esac; \
-  test -x "${native}"; \
-  test "$("${native}" --version)" = "codex-cli 0.149.1"; \
-  ldd "${native}" 2>&1 | grep -q "not a dynamic executable"; \
-  mkdir /codex-native; \
-  cp "${native}" /codex-native/codex-0.149.1; \
-  chmod 0555 /codex-native/codex-0.149.1
-
 COPY . .
 RUN npm run build:web
 
-FROM node:26-bookworm-slim AS runtime-common
+FROM node:26-bookworm-slim AS runtime
 
 WORKDIR /app
 
@@ -71,8 +31,6 @@ COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
 COPY --from=build --chown=node:node /app/src/api ./src/api
 COPY --from=build --chown=node:node /app/src/web/package.json ./src/web/package.json
 COPY --from=build --chown=node:node /app/src/web/dist ./src/web/dist
-COPY --from=build /codex-native/codex-0.149.1 /usr/local/libexec/rethinkloop/codex-0.149.1
-COPY --from=codex-launcher-build /rethinkloop-codex /usr/local/bin/rethinkloop-codex
 
 RUN mkdir -p /app/data \
   && chown node:node /app/data
@@ -89,21 +47,6 @@ EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=300s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||'3000')+'/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
-
-FROM runtime-common AS codex-isolation-test
-
-COPY --from=codex-launcher-build /codex-isolation-probe /usr/local/libexec/rethinkloop/codex-isolation-probe
-COPY --from=codex-launcher-build /codex-isolation-test-launcher /usr/local/bin/codex-isolation-test-launcher
-
-RUN sh /app/src/api/openaiConnection/isolation/test-isolation.sh \
-      /usr/local/bin/codex-isolation-test-launcher \
-  && sh /app/src/api/openaiConnection/isolation/smoke-launcher.sh \
-      /usr/local/bin/rethinkloop-codex \
-  && printf '%s\n' tested > /tmp/codex-isolation-tested
-
-FROM runtime-common AS runtime
-
-COPY --from=codex-isolation-test /tmp/codex-isolation-tested /usr/local/share/rethinkloop/codex-isolation-tested
 
 ENTRYPOINT ["/usr/bin/tini", "-g", "-s", "--"]
 CMD ["flock", "--nonblock", "/app/data/rethinkloop-api.lock", "npm", "run", "start", "-w", "@rethinkloop/api"]

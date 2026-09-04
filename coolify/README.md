@@ -38,7 +38,6 @@ deploy/restart/stop operations.
 - `curl`
 - `jq`
 - Node.js 26 or newer
-- A Linux container host exposing an audited Landlock ABI from 3 through 6
 
 Run every command from the repository root.
 
@@ -59,7 +58,7 @@ Before the first deployment:
    The image holds a nonblocking `flock` in this directory for its whole
    lifetime, so configure exactly one application replica. A second API process
    sharing the volume exits immediately instead of racing SQLite, migrations,
-   or Codex process cleanup.
+   or API writes.
 3. Add these literal, runtime-only production variables in the Coolify UI:
 
 | Variable | Requirement |
@@ -88,9 +87,9 @@ Provision `OPENAI_CODEX_CREDENTIAL_KEY` before deploying code that can create
 Codex connections. Generate it with `openssl rand -base64 32`, store it as a
 runtime-only production secret, and retain it for the lifetime of the encrypted
 rows. Losing or changing the key makes every saved Codex connection unreadable;
-affected users must reconnect. Production always executes the hardened
-`/usr/local/bin/rethinkloop-codex` launcher and rejects
-`OPENAI_CODEX_EXECUTABLE_PATH` overrides.
+affected users must reconnect. Pi performs Codex device authentication and
+generation directly over HTTPS; the production image does not install or spawn
+the Codex CLI.
 
 Configure the production GitHub OAuth callback as:
 

@@ -63,7 +63,6 @@ DEEPSEEK_API_KEY=
 OPENCODE_ZEN_API_KEY=
 # Canonical base64 encoding of exactly 32 random bytes, for example: openssl rand -base64 32
 OPENAI_CODEX_CREDENTIAL_KEY=
-# OPENAI_CODEX_EXECUTABLE_PATH may be set outside production for a deterministic local test executable.
 SCRAPINGANT_API_KEY=
 SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS=120000
 SCRAPINGANT_REQUEST_TIMEOUT_MS=35000
@@ -137,7 +136,7 @@ pending attempts expire after `SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS`.
 Deep-search pipelines also use process-wide admission and page-task queues so
 idea jobs cannot bypass provider backpressure by starting many child searches.
 All workflows additionally share a process-wide LLM queue configured by
-`LLM_MAX_CONCURRENT_GENERATIONS`; a permit covers SDK retries and remains held
+`LLM_MAX_CONCURRENT_GENERATIONS`; a permit covers provider retries and remains held
 until durable terminal persistence settles.
 Provider-backed creation requires a session. Root research attempts are charged
 to a durable rolling 24-hour quota before title generation, including attempts
@@ -154,7 +153,8 @@ balance before starting and debits actual settled usage afterward, so a
 completed call may leave a negative balance. In `/settings`, signed-in users
 assign an available DeepSeek or connected OpenAI model and reasoning effort to
 the application's Small and Big roles. OpenAI-backed calls use the selected
-Codex model without a product-credit admission check or LLM debit.
+Codex model through Pi's direct HTTPS provider, without spawning the Codex CLI
+and without a product-credit admission check or LLM debit.
 Search and extraction keep their existing product-credit charges. A configured
 OpenAI choice whose connection is expired, rate-limited, or otherwise broken
 returns an actionable error instead of silently falling back to DeepSeek.
@@ -390,4 +390,4 @@ Run the end-to-end test separately:
 npm run test:e2e
 ```
 
-The E2E tests start isolated API and Vite servers with a migrated temporary SQLite database. Deterministic process-level mocks replace outbound DeepSeek, SearXNG, and ScrapingAnt responses, and a local JSONL app-server fixture exercises OpenAI device authentication and Codex generation through the community AI SDK provider. The Hono routes, extraction pipeline, persistence, NDJSON streams, React UI, replay, and history remain real. The Deep Search scenarios cover query generation through final synthesis and root Stop. The Ideas scenarios cover planning, parallel child searches, research summarization, exact-count idea generation, child-search links, durable replay and history, plus root Stop cascading to active children and surviving refresh. The Debates scenarios cover a complete deterministic tournament, the debate-only retry and failure behavior, and root Stop during active tournament work with completed results retained after refresh. No real provider credentials or network access are required.
+The E2E tests start isolated API and Vite servers with a migrated temporary SQLite database. Deterministic mocks replace outbound Pi provider, SearXNG, and ScrapingAnt responses, including OpenAI device authentication and Codex generation. The Hono routes, extraction pipeline, persistence, NDJSON streams, React UI, replay, and history remain real. The Deep Search scenarios cover query generation through final synthesis and root Stop. The Ideas scenarios cover planning, parallel child searches, research summarization, exact-count idea generation, child-search links, durable replay and history, plus root Stop cascading to active children and surviving refresh. The Debates scenarios cover a complete deterministic tournament, the debate-only retry and failure behavior, and root Stop during active tournament work with completed results retained after refresh. No real provider credentials or network access are required.

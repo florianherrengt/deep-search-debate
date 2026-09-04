@@ -229,11 +229,6 @@ if jq -e 'any(.[]; .key == "SEARXNG_URL" and .is_preview == false)' >/dev/null <
   echo "SEARXNG_URL must not be configured in production; this deployment uses Serper." >&2
 fi
 
-if jq -e 'any(.[]; .key == "OPENAI_CODEX_EXECUTABLE_PATH" and .is_preview == false)' >/dev/null <<<"${environment_json}"; then
-  configuration_ok=false
-  echo "OPENAI_CODEX_EXECUTABLE_PATH must not be configured in production; the hardened image path is fixed." >&2
-fi
-
 if [[ "${configuration_ok}" != true ]]; then
   exit 1
 fi

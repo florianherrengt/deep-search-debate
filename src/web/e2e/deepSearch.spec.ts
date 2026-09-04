@@ -437,10 +437,14 @@ test.describe("Deep search", () => {
       .filter((event) => event.type === "reasoning")
       .map((event) => event.text)
       .join("")
-    expect(pageReasoning).toBe("")
-    await expect(
-      summarizedResult.getByRole("button", { name: "Show reasoning" }),
-    ).toHaveCount(0)
+    expect(pageReasoning).toBe(
+      "Extract the concrete finding relevant to the research request.",
+    )
+    await expect(page.getByText(pageReasoning, { exact: true })).toBeHidden()
+    await summarizedResult
+      .getByRole("button", { name: "Show reasoning" })
+      .click()
+    await expect(page.getByText(pageReasoning, { exact: true })).toBeVisible()
     await expect(
       summarizedResult.locator('[data-summary-status="completed"]'),
     ).toBeVisible()

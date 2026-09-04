@@ -14,7 +14,7 @@ UUID.
 Deltas are not written to SQLite. At the terminal boundary, the consumer performs one database update with the accumulated text, accumulated reasoning, status, error, and completion time. This keeps writes conservative while making completed output durable.
 
 Registration also stores the requested model ID and prompt name. When the
-installed AI SDK exposes them, the terminal update stores its standardized
+Pi exposes them, the terminal update stores its normalized
 finish reason plus input, output, and reasoning token counts. A normal finish
 reason is required for success; missing or rejected finish metadata fails the
 generation closed. Usage metadata is best-effort and remains null when
@@ -27,7 +27,7 @@ admission. This lets the next stage of an active or resumed workflow observe a
 successful Settings update. DeepSeek choices use positive-credit admission and
 normal LLM settlement even when OpenAI is connected. OpenAI choices take the
 per-user reservation, recheck the connection before decrypting credentials,
-verify the exact model and effort against the account's advertised list, and
+verify the exact model and effort against Pi's direct Codex catalog, and
 record zero product credits for that LLM generation. Search and extraction
 settle independently. An expired, rate-limited, broken, or unavailable explicit
 OpenAI choice fails without falling back to DeepSeek; only a missing implicit
@@ -39,8 +39,8 @@ is held until the durable terminal generation transaction settles; provider
 retries cannot bypass it. Every streaming provider call has configured total,
 first-content, and inter-content deadlines. Server-funded providers also apply
 an explicit output-token ceiling, with narrower stage budgets where
-appropriate. The Codex community adapter ignores `maxOutputTokens`, so OpenAI-
-connected calls intentionally have no Codex-specific output cap beyond the
+appropriate. Pi's direct Codex transport does not send an output-token cap, so
+OpenAI-connected calls intentionally have no Codex-specific cap beyond the
 shared deadlines and cancellation behavior. Every prompt name maps
 exhaustively to Small or Big; the selected role's reasoning effort is
 authoritative for text and structured generation alike. Older call-site
@@ -54,9 +54,8 @@ parent-owned workflow signal remains the authoritative interruption path.
 `length`, `content-filter`, `tool-calls`, `error`, and `other` preserve their
 partial text for diagnosis but commit the generation and owning stage as
 failed. Finish-reason metadata is required and fails closed when unavailable;
-usage metadata remains best-effort. The AI SDK's default full-error
-logger is disabled so
-provider request envelopes are not written to application logs. The durable
+usage metadata remains best-effort. Provider request envelopes are not written
+to application logs. The durable
 generation row retains only an authorized failure message and all generation
 metadata. At the stream-consumption boundary, server-funded provider errors are
 replaced with the fixed `Text generation failed` message before live

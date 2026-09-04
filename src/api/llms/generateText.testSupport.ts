@@ -1,30 +1,44 @@
 import { vi } from "vitest"
-import type {
-  LlmModelAssignmentSnapshot,
-  LlmReasoningEffort,
-} from "./modelSettings.ts"
+
+import type { LlmModelAssignmentSnapshot } from "./modelSettings.ts"
+import type { PiLlmRequest } from "./piGeneration.ts"
+import type { StartedLlmStream } from "./streamTypes.ts"
 
 type MockLlmCall = {
-  model: { modelId: string }
   modelId: string
   provider: "server" | "codex"
-  supportsStructuredOutputs: boolean
-  callOptions: Record<string, unknown>
-  wrapStream(source: unknown): unknown
+  start(request: PiLlmRequest): StartedLlmStream
   release(): Promise<void>
 }
 
+function emptyStream(): StartedLlmStream["stream"] {
+  return (async function* () {})()
+}
+
+export function startedLlmStream(
+  overrides: Partial<StartedLlmStream> = {},
+): StartedLlmStream {
+  return {
+    stream: emptyStream(),
+    finishReason: Promise.resolve("stop"),
+    rawFinishReason: Promise.resolve("stop"),
+    usage: Promise.resolve({
+      inputTokens: 0,
+      inputTokenDetails: {
+        noCacheTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      },
+      outputTokens: 0,
+      outputTokenDetails: { textTokens: 0, reasoningTokens: 0 },
+      totalTokens: 0,
+    }),
+    ...overrides,
+  }
+}
+
 export const mocks = {
-  callOptions: vi.fn((reasoningEffort: LlmReasoningEffort) => ({
-    providerOptions: { test: { reasoningEffort } },
-  })),
-  generateText: vi.fn(),
   loadPrompt: vi.fn(),
-  model: vi.fn((model?: string) => ({
-    modelId: model ?? "configured-model",
-  })),
-  outputArray: vi.fn((options: unknown) => ({ type: "array", options })),
-  outputObject: vi.fn((options: unknown) => ({ type: "object", options })),
   prepareTextGeneration: vi.fn(),
   release: vi.fn(() => Promise.resolve()),
   reservationRelease: vi.fn(),
@@ -34,12 +48,7 @@ export const mocks = {
       _userId: string,
       snapshot: LlmModelAssignmentSnapshot,
     ): Promise<MockLlmCall> =>
-      Promise.resolve(
-        serverLlmCall(
-          snapshot.assignment.reasoningEffort,
-          snapshot.assignment.modelId,
-        ),
-      ),
+      Promise.resolve(serverLlmCall(snapshot.assignment.modelId)),
   ),
   reserveLlmCall: vi.fn(
     (
@@ -52,15 +61,10 @@ export const mocks = {
         release: mocks.reservationRelease,
       }),
   ),
-  streamText: vi.fn(),
-  wrapStream: vi.fn((source: unknown) => source),
+  start: vi.fn<(request: PiLlmRequest) => StartedLlmStream>(() =>
+    startedLlmStream()
+  ),
 }
-
-vi.mock("ai", () => ({
-  generateText: mocks.generateText,
-  Output: { array: mocks.outputArray, object: mocks.outputObject },
-  streamText: mocks.streamText,
-}))
 
 vi.mock("./prompts.ts", () => ({
   PromptName: {
@@ -75,59 +79,68 @@ vi.mock("../credits.ts", () => ({
   requirePositiveCreditBalance: mocks.requirePositiveCreditBalance,
 }))
 
+async function awaitCompletedText(generation: {
+  completion: Promise<{
+    status: "completed" | "failed" | "interrupted"
+    text: string
+    error?: string
+  }>
+}) {
+  const outcome = await generation.completion
+  if (outcome.status !== "completed") throw new Error(outcome.error)
+  return outcome.text
+}
+
 vi.mock("./streams.ts", () => ({
+  awaitGenerationText: awaitCompletedText,
   awaitGenerationOutput: async (
-    generation: { completion: Promise<{ status: string; error?: string }> },
+    generation: Parameters<typeof awaitCompletedText>[0],
     output: Promise<unknown>,
   ) => {
-    const outcome = await generation.completion
-    if (outcome.status === "failed") throw new Error(outcome.error)
-    return output
+    const [completionResult, outputResult] = await Promise.allSettled([
+      generation.completion,
+      output,
+    ])
+    if (completionResult.status === "rejected") throw completionResult.reason
+    if (completionResult.value.status !== "completed") {
+      throw new Error(completionResult.value.error)
+    }
+    if (outputResult.status === "rejected") throw outputResult.reason
+    return outputResult.value
   },
   prepareTextGeneration: mocks.prepareTextGeneration,
 }))
 
 vi.mock("./provider.ts", () => ({ reserveLlmCall: mocks.reserveLlmCall }))
 
-export function completedGenerationHandle() {
+export function completedGenerationHandle(text = "Persisted output") {
   return {
     id: "stream-id",
     completion: Promise.resolve({
       status: "completed" as const,
-      text: "Persisted output",
+      text,
       reasoning: "Persisted reasoning",
     }),
   }
 }
 
-export function serverLlmCall(
-  reasoningEffort: LlmReasoningEffort,
-  modelId: string,
-) {
-  const model = mocks.model(modelId)
+export function serverLlmCall(modelId: string) {
   return {
-    model,
-    modelId: model.modelId,
+    modelId,
     provider: "server" as "server" | "codex",
-    supportsStructuredOutputs: false,
-    callOptions: mocks.callOptions(reasoningEffort),
-    wrapStream: mocks.wrapStream,
+    start: mocks.start,
     release: mocks.release,
   }
 }
 
 export function subscriptionLlmCall(options?: {
-  wrappedStream?: unknown
+  start?: (request: PiLlmRequest) => StartedLlmStream
   release?: () => Promise<void>
 }) {
-  const wrappedStream = options?.wrappedStream ?? { id: "wrapped-stream" }
   return {
-    model: { modelId: "gpt-5.6-sol" },
     modelId: "gpt-5.6-sol",
     provider: "codex" as const,
-    supportsStructuredOutputs: true,
-    callOptions: {},
-    wrapStream: vi.fn(() => wrappedStream),
+    start: options?.start ?? vi.fn(() => startedLlmStream()),
     release: options?.release ?? vi.fn(() => Promise.resolve()),
   }
 }
@@ -143,7 +156,7 @@ export function mockPreparedGeneration(
   generation: {
     id: string
     completion: Promise<{
-      status: "completed" | "failed"
+      status: "completed" | "failed" | "interrupted"
       text: string
       reasoning: string
       error?: string
@@ -160,9 +173,9 @@ export function mockPreparedGeneration(
   return prepared
 }
 
-
 export function resetGenerateTextMocks() {
   vi.clearAllMocks()
+  mocks.start.mockImplementation(() => startedLlmStream())
   mocks.reserveLlmCall.mockImplementation(
     (
       userId: string,
@@ -174,13 +187,7 @@ export function resetGenerateTextMocks() {
         release: mocks.reservationRelease,
       }),
   )
-  mocks.resolveLlmCall.mockImplementation(
-    (_userId, snapshot) =>
-      Promise.resolve(
-        serverLlmCall(
-          snapshot.assignment.reasoningEffort,
-          snapshot.assignment.modelId,
-        ),
-      ),
+  mocks.resolveLlmCall.mockImplementation((_userId, snapshot) =>
+    Promise.resolve(serverLlmCall(snapshot.assignment.modelId))
   )
 }

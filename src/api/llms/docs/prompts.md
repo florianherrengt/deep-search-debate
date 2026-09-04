@@ -47,4 +47,4 @@ code must not repair malformed output, normalize or default schema-invalid
 values, filter invalid values, or retry because parsing or validation failed.
 Change the prompt or schema deliberately when the contract is wrong; switch the
 configured model when it cannot satisfy the contract. Provider-request retries
-remain governed separately by the configured AI SDK retry policy.
+remain governed separately by the configured Pi retry policy.

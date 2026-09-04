@@ -1,4 +1,4 @@
-import { createSearXNGFetchSearch } from "deep-search-core/search-extract"
+import { createSearXNGFetchSearch } from "deep-search-core/search-extract/core"
 import PQueue from "p-queue"
 import { config } from "../config.ts"
 import { addAbortableQueueTask } from "../helpers/addAbortableQueueTask.ts"

@@ -365,7 +365,7 @@ not duplicated in the parent; clients link to or subscribe to each existing
 It uses `Effect.gen` for stage ordering and concurrent `Effect.all` result-mode
 fan-outs for initial child searches, refinements, selected-idea research, and
 final evaluations. Every started item settles, while the first failure in input
-order is reported deterministically. Hono, Drizzle commands, AI SDK policy, and
+order is reported deterministically. Hono, Drizzle commands, Pi provider policy, and
 the existing process-wide queues remain outside Effect.
 
 The coordinator does not subscribe to presentation streams. It awaits each

@@ -1,13 +1,12 @@
 import {
-  createDeepSeek,
-  type DeepSeekLanguageModelChatOptions,
-} from "@ai-sdk/deepseek"
-import {
-  createOpenAICompatible,
-  type OpenAICompatibleLanguageModelChatOptions,
-} from "@ai-sdk/openai-compatible"
-import type { LanguageModel } from "ai"
-import z from "zod"
+  createModels,
+  type Api,
+  type Model,
+  type MutableModels,
+} from "@earendil-works/pi-ai"
+import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek"
+import { opencodeProvider } from "@earendil-works/pi-ai/providers/opencode"
+
 import { config, type LlmConfig } from "../config.ts"
 import { OpenAiCodexError } from "../openaiConnection/codexErrors.ts"
 import { reserveCodexGeneration } from "../openaiConnection/codexGeneration.ts"
@@ -15,62 +14,87 @@ import {
   deepSeekRecommendedAssignments,
   type LlmModelAssignment,
   type LlmModelAssignmentSnapshot,
-  type LlmReasoningEffort,
 } from "./modelSettings.ts"
+import {
+  startPiLlmStream,
+  type PiLlmRequest,
+} from "./piGeneration.ts"
+import type { StartedLlmStream } from "./streamTypes.ts"
 
 /** Retained on generation inputs for source compatibility; role settings win. */
 export type LlmCallReasoning = "enabled" | "disabled"
 
-const deepSeekReasoningEffortSchema = z.enum([
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-])
-
-if (config.environment === "production") {
-  globalThis.AI_SDK_LOG_WARNINGS = false
+type ConfiguredPiLlm = {
+  models: MutableModels
+  model(modelName?: string): Model<Api>
+  apiKey: string
 }
 
-/** Selects the configured server transport with the exact role effort. */
-export function createConfiguredLlm(llmConfig: LlmConfig) {
-  if (llmConfig.provider === "deepseek") {
-    const provider = createDeepSeek({ apiKey: llmConfig.apiKey })
+function requireModel(
+  models: MutableModels,
+  providerId: string,
+  modelId: string,
+): Model<Api> {
+  const model = models.getModel(providerId, modelId)
+  if (!model) throw new Error(`Unsupported ${providerId} model: ${modelId}`)
+  return model
+}
 
+function deepSeekModel(
+  models: MutableModels,
+  modelId: string,
+): Model<Api> {
+  const model = requireModel(models, "deepseek", modelId)
+  return {
+    ...model,
+    compat: {
+      ...model.compat,
+      supportsReasoningEffort: true,
+    },
+  }
+}
+
+function createZenModel(llmConfig: Extract<LlmConfig, { provider: "zen" }>) {
+  return {
+    id: llmConfig.model,
+    name: llmConfig.model,
+    api: "openai-completions",
+    provider: "opencode",
+    baseUrl: llmConfig.baseUrl,
+    reasoning: true,
+    thinkingLevelMap: { off: "none" },
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 1_000_000,
+    maxTokens: 384_000,
+    compat: {
+      supportsStore: false,
+      supportsDeveloperRole: false,
+      supportsReasoningEffort: true,
+      maxTokensField: "max_tokens",
+    },
+  } as const satisfies Model<"openai-completions">
+}
+
+/** Creates the configured Pi provider while preserving arbitrary Zen model IDs. */
+export function createConfiguredLlm(llmConfig: LlmConfig): ConfiguredPiLlm {
+  const models = createModels()
+  if (llmConfig.provider === "deepseek") {
+    models.setProvider(deepseekProvider())
     return {
-      model: (modelName = llmConfig.model) => provider(modelName),
-      supportsStructuredOutputs: true,
-      callOptions: (effort: LlmReasoningEffort) => ({
-        providerOptions: {
-          deepseek: effort === "none"
-            ? ({ thinking: { type: "disabled" } } satisfies DeepSeekLanguageModelChatOptions)
-            : ({
-                thinking: { type: "enabled" },
-                reasoningEffort: deepSeekReasoningEffortSchema.parse(effort),
-              } satisfies DeepSeekLanguageModelChatOptions),
-        },
-      }),
+      models,
+      model: (modelName = llmConfig.model) =>
+        deepSeekModel(models, modelName),
+      apiKey: llmConfig.apiKey,
     }
   }
 
-  const provider = createOpenAICompatible({
-    name: "zen",
-    apiKey: llmConfig.apiKey,
-    baseURL: llmConfig.baseUrl,
-    supportsStructuredOutputs: false,
-  })
-
+  models.setProvider(opencodeProvider())
+  const model = createZenModel(llmConfig)
   return {
-    model: (modelName = llmConfig.model) => provider(modelName),
-    supportsStructuredOutputs: false,
-    callOptions: (effort: LlmReasoningEffort) => ({
-      providerOptions: {
-        zen: {
-          reasoningEffort: effort,
-        } satisfies OpenAICompatibleLanguageModelChatOptions,
-      },
-    }),
+    models,
+    model: () => model,
+    apiKey: llmConfig.apiKey,
   }
 }
 
@@ -78,11 +102,8 @@ const llm = createConfiguredLlm(config.llm)
 
 export type ResolvedLlmCall = {
   provider: "server" | "codex"
-  model: LanguageModel
   modelId: string
-  supportsStructuredOutputs: boolean
-  callOptions: Record<string, unknown>
-  wrapStream<Part>(source: AsyncIterable<Part>): AsyncIterable<Part>
+  start(request: PiLlmRequest): StartedLlmStream
   release(): Promise<void>
 }
 
@@ -102,11 +123,18 @@ function resolveServerLlmCall(
     : llm.model(assignment.modelId)
   return {
     provider: "server",
-    model,
-    modelId: model.modelId,
-    supportsStructuredOutputs: llm.supportsStructuredOutputs,
-    callOptions: llm.callOptions(assignment.reasoningEffort),
-    wrapStream: (source) => source,
+    modelId: model.id,
+    start: (request) =>
+      startPiLlmStream(
+        {
+          models: llm.models,
+          model,
+          provider: "server",
+          apiKey: llm.apiKey,
+          reasoningEffort: assignment.reasoningEffort,
+        },
+        request,
+      ),
     release: () => Promise.resolve(),
   }
 }
@@ -150,14 +178,7 @@ export async function reserveLlmCall(
       if (consumed) throw new Error("LLM call reservation was already consumed")
       consumed = true
       const codex = await codexReservation?.acquire()
-      if (codex) {
-        return {
-          ...codex,
-          provider: "codex",
-          supportsStructuredOutputs: true,
-          callOptions: {},
-        }
-      }
+      if (codex) return { ...codex, provider: "codex" }
       if (snapshot.explicit) {
         throw new OpenAiCodexError("authentication-required")
       }

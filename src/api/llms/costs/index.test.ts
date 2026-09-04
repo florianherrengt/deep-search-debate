@@ -1,9 +1,9 @@
-import type { LanguageModelUsage } from "ai"
 import { describe, expect, it } from "vitest"
 
 import { calculateLlmCredits } from "./index.ts"
+import type { LlmUsage } from "../streamTypes.ts"
 
-const usage: LanguageModelUsage = {
+const usage: LlmUsage = {
   inputTokens: 10,
   inputTokenDetails: {
     noCacheTokens: 10,

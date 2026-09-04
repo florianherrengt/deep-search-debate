@@ -3,11 +3,10 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createInterface } from "node:readline"
 import { fileURLToPath } from "node:url"
+import { zstdDecompressSync } from "node:zlib"
 import Database from "better-sqlite3"
 import { drizzle } from "drizzle-orm/better-sqlite3"
 import { migrate } from "drizzle-orm/better-sqlite3/migrator"
-
-globalThis.AI_SDK_LOG_WARNINGS = false
 
 const restartControlEnabled = process.env.RETHINKLOOP_RESTART_CONTROL === "1"
 const sharedDatabasePath = restartControlEnabled
@@ -98,6 +97,7 @@ const debateFailureMarker = "[E2E_FAIL_DEBATE_OPENING:"
 const debateFailureMessage = "Injected debate opening failure"
 const debateFailureCandidateOrdinal = 8
 const debateFailureAttempts = new Map()
+const standaloneRetryAttempts = new Map()
 
 const providerOccurrences = new Map()
 const providerReleaseWaiters = new Map()
@@ -957,6 +957,12 @@ function deepSeekOutput(body) {
       text: "E2E DeepSeek fallback response.",
     }
   }
+  if (user.includes("[E2E_RETRY_DEEPSEEK]")) {
+    return {
+      reasoning: "Retry transient server failures using the configured policy.",
+      text: "E2E DeepSeek retry response.",
+    }
+  }
 
   throw new Error("Unhandled DeepSeek request in E2E external-service mock")
 }
@@ -965,6 +971,16 @@ function deepSeekResponse(body) {
   const output = deepSeekOutput(body)
   const system = messageText(body, "system")
   const user = messageText(body, "user")
+  if (user.includes("[E2E_RETRY_DEEPSEEK]")) {
+    const attempt = (standaloneRetryAttempts.get(user) ?? 0) + 1
+    standaloneRetryAttempts.set(user, attempt)
+    if (attempt <= 2) {
+      return Response.json(
+        { error: { message: `Transient retry test failure ${attempt}` } },
+        { status: 500 },
+      )
+    }
+  }
   const context = /debate|opening argument|rebuttal/i.test(system)
     ? assertDebateContext(user)
     : undefined
@@ -1064,6 +1080,255 @@ function deepSeekResponse(body) {
   })
 }
 
+function requestJson(request) {
+  return request.arrayBuffer().then((body) => {
+    const bytes = Buffer.from(body)
+    const json = request.headers.get("content-encoding") === "zstd"
+      ? zstdDecompressSync(bytes).toString("utf8")
+      : bytes.toString("utf8")
+    return JSON.parse(json)
+  })
+}
+
+function e2eCodexAccessToken() {
+  const payload = Buffer.from(JSON.stringify({
+    "https://api.openai.com/auth": {
+      chatgpt_account_id: "e2e-account",
+    },
+  })).toString("base64url")
+  return `e30.${payload}.e2e-signature`
+}
+
+function codexPrompt(body) {
+  return (body.input ?? [])
+    .filter((item) => item?.role === "user" && Array.isArray(item.content))
+    .flatMap((item) => item.content)
+    .filter((item) => item?.type === "input_text")
+    .map((item) => item.text)
+    .join("\n")
+}
+
+function codexStructuredOutput(body, prompt) {
+  const tool = body.tools?.find(
+    (candidate) => candidate?.name === "submit_structured_output",
+  )
+  if (!tool) return
+  if (body.tool_choice !== "required" || tool.strict !== true) {
+    throw new Error("Codex structured request was not strictly constrained")
+  }
+  const schema = tool.parameters
+  const propertyNames = Object.keys(schema?.properties ?? {})
+  if (
+    schema?.type !== "object" ||
+    propertyNames.length !== 1 ||
+    !Array.isArray(schema.required) ||
+    !schema.required.includes(propertyNames[0])
+  ) {
+    throw new Error("Codex structured request used an unexpected schema")
+  }
+  if (propertyNames[0] === "title") {
+    const title = schema.properties.title
+    if (
+      title?.type !== "string" ||
+      title.minLength !== 1 ||
+      title.maxLength !== 80
+    ) {
+      throw new Error("Codex title request used an unexpected schema")
+    }
+    return JSON.stringify({ title: "E2E Codex Structured Title" })
+  }
+  if (propertyNames[0] === "elements") {
+    const elements = schema.properties.elements
+    if (elements?.type !== "array" || elements.items?.type !== "string") {
+      throw new Error("Codex array request used an unexpected schema")
+    }
+    const requestedCount = /Generate exactly (\d+) (?:new )?search queries\./
+      .exec(prompt)?.[1]
+    if (!requestedCount) {
+      throw new Error("Unsupported Codex array request")
+    }
+    return JSON.stringify({
+      elements: Array.from(
+        { length: Number(requestedCount) },
+        (_, index) => `E2E Codex structured query ${index + 1}`,
+      ),
+    })
+  }
+  throw new Error(`Unsupported Codex schema property: ${propertyNames[0]}`)
+}
+
+function codexEvents(body) {
+  const prompt = codexPrompt(body)
+  const structured = codexStructuredOutput(body, prompt)
+  const titleRequest = body.instructions?.includes(
+    "You create short, descriptive titles",
+  ) === true
+  const expectedModel = titleRequest ? "gpt-5.6-sol" : "gpt-5.6-luna"
+  const expectedEffort = titleRequest ? "medium" : "xhigh"
+  if (
+    body.model !== expectedModel ||
+    body.reasoning?.effort !== expectedEffort ||
+    body.reasoning?.summary !== "auto" ||
+    body.store !== false ||
+    body.stream !== true ||
+    body.tool_choice !== (structured === undefined ? "none" : "required") ||
+    typeof body.instructions !== "string" ||
+    body.instructions.length === 0
+  ) {
+    throw new Error("Codex request did not preserve its selected Pi model and options")
+  }
+  const reasoning = "Use the connected ChatGPT subscription without product credits."
+  const usage = {
+    input_tokens: 16,
+    input_tokens_details: { cached_tokens: 0 },
+    output_tokens: 8,
+    output_tokens_details: { reasoning_tokens: 4 },
+    total_tokens: 24,
+  }
+  const events = [
+    {
+      type: "response.created",
+      response: { id: "resp_e2e", status: "in_progress" },
+    },
+    {
+      type: "response.output_item.added",
+      output_index: 0,
+      item: {
+        id: "rs_e2e",
+        type: "reasoning",
+        summary: [],
+        content: [],
+      },
+    },
+    {
+      type: "response.reasoning_summary_text.delta",
+      output_index: 0,
+      delta: reasoning,
+    },
+    {
+      type: "response.output_item.done",
+      output_index: 0,
+      item: {
+        id: "rs_e2e",
+        type: "reasoning",
+        summary: [{ type: "summary_text", text: reasoning }],
+        content: [],
+      },
+    },
+  ]
+
+  let outputItem
+  if (structured !== undefined) {
+    outputItem = {
+      id: "fc_e2e",
+      type: "function_call",
+      call_id: "call_e2e",
+      name: "submit_structured_output",
+      arguments: structured,
+      status: "completed",
+    }
+    events.push(
+      {
+        type: "response.output_item.added",
+        output_index: 1,
+        item: { ...outputItem, arguments: "", status: "in_progress" },
+      },
+      {
+        type: "response.function_call_arguments.delta",
+        output_index: 1,
+        delta: structured,
+      },
+      {
+        type: "response.function_call_arguments.done",
+        output_index: 1,
+        arguments: structured,
+      },
+      {
+        type: "response.output_item.done",
+        output_index: 1,
+        item: outputItem,
+      },
+    )
+  } else {
+    const text = prompt.includes("[E2E_CODEX_SUBSCRIPTION]")
+      ? "E2E Codex subscription response."
+      : "E2E Codex response."
+    outputItem = {
+      id: "msg_e2e",
+      type: "message",
+      role: "assistant",
+      status: "completed",
+      phase: "final_answer",
+      content: [{ type: "output_text", text, annotations: [] }],
+    }
+    events.push(
+      {
+        type: "response.output_item.added",
+        output_index: 1,
+        item: { ...outputItem, status: "in_progress", content: [] },
+      },
+      { type: "response.output_text.delta", output_index: 1, delta: text },
+      { type: "response.output_item.done", output_index: 1, item: outputItem },
+    )
+  }
+
+  events.push({
+    type: "response.completed",
+    response: {
+      id: "resp_e2e",
+      status: "completed",
+      output: [outputItem],
+      usage,
+    },
+  })
+  return events
+}
+
+function codexResponse(body) {
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream({
+    start(controller) {
+      for (const event of codexEvents(body)) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+      }
+      controller.close()
+    },
+  })
+  return new Response(stream, {
+    headers: { "content-type": "text/event-stream" },
+  })
+}
+
+async function openAiAuthResponse(request, url) {
+  if (
+    request.method === "POST" &&
+    url.pathname === "/api/accounts/deviceauth/usercode"
+  ) {
+    return Response.json({
+      device_auth_id: "e2e-device-auth",
+      user_code: "E2E-CODE",
+      interval: 0.001,
+    })
+  }
+  if (
+    request.method === "POST" &&
+    url.pathname === "/api/accounts/deviceauth/token"
+  ) {
+    return Response.json({
+      authorization_code: "e2e-authorization-code",
+      code_verifier: "e2e-code-verifier",
+    })
+  }
+  if (request.method === "POST" && url.pathname === "/oauth/token") {
+    return Response.json({
+      access_token: e2eCodexAccessToken(),
+      refresh_token: "e2e-refresh-token",
+      expires_in: 3_600,
+    })
+  }
+  throw new Error(`Unexpected OpenAI auth request: ${request.method} ${url.pathname}`)
+}
+
 function searXngResponse(url) {
   const query = url.searchParams.get("q") ?? "unknown query"
   const slug = encodeURIComponent(query)
@@ -1138,6 +1403,27 @@ globalThis.fetch = async (input, init) => {
   const request = new Request(input, init)
   const url = new URL(request.url)
 
+  if (url.hostname === "auth.openai.com") {
+    return openAiAuthResponse(request, url)
+  }
+  if (url.hostname === "chatgpt.com") {
+    if (
+      request.method !== "POST" ||
+      url.pathname !== "/backend-api/codex/responses"
+    ) {
+      throw new Error(
+        `Unexpected Codex request: ${request.method} ${url.pathname}`,
+      )
+    }
+    if (
+      request.headers.get("authorization") !==
+        `Bearer ${e2eCodexAccessToken()}` ||
+      request.headers.get("chatgpt-account-id") !== "e2e-account"
+    ) {
+      throw new Error("Codex request omitted its subscription credentials")
+    }
+    return codexResponse(await requestJson(request))
+  }
   if (url.hostname === "api.deepseek.com") {
     if (request.method === "GET" && url.pathname === "/models") {
       return new Response(
@@ -1156,7 +1442,7 @@ globalThis.fetch = async (input, init) => {
         `Unexpected DeepSeek request: ${request.method} ${url.pathname}`,
       )
     }
-    const body = await request.json()
+    const body = await requestJson(request)
     return controlledProviderResponse(
       request,
       deepSeekRequestKey(body),

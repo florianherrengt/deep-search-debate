@@ -16,7 +16,7 @@ The API pins `effect` to exactly `4.0.0-rc.109`. Do not float this prerelease
 dependency: the small boundary in `workflowRuntime.ts` depends on its current
 `Effect.runPromiseExit` and cause APIs. That boundary converts successful exits,
 the tagged `WorkflowFailure`, Effect interruption, and defects into
-Promise-facing results and errors. Hono, Drizzle, Zod, AI SDK provider policy,
+Promise-facing results and errors. Hono, Drizzle, Zod, Pi provider policy,
 and all process-wide `PQueue` scheduling remain outside Effect.
 
 Each research-workflow manager owns the `AbortController`, completion promise,
@@ -67,7 +67,7 @@ runtime bridge.
 The same signal is forwarded through the existing LLM, web-search, extraction,
 and queue boundaries. Waiting queue tasks are removed on interruption, while an
 active task keeps its process-wide permit until its signal-aware cleanup settles.
-The existing queue instances, concurrency, priority, SDK retry policy, and
+The existing queue instances, concurrency, priority, Pi retry policy, and
 provider timeout policy remain authoritative.
 
 ## Configuration validation at import time
@@ -94,28 +94,24 @@ lowercase, limited to 254 characters, and validated as an email address.
 
 `OPENAI_CODEX_CREDENTIAL_KEY` is always required as canonical base64 encoding
 of exactly 32 bytes. It encrypts saved user Codex credentials with AES-256-GCM;
-losing or changing it requires affected users to reconnect. Production uses the
-fixed hardened `/usr/local/bin/rethinkloop-codex` launcher and rejects
-`OPENAI_CODEX_EXECUTABLE_PATH`. Development and tests may set that optional path
-to a deterministic local executable.
+losing or changing it requires affected users to reconnect.
 
 Signed-in users manage the connection from `/settings`. The API starts the
-ChatGPT device-code flow over a local Codex app-server stdio process and exposes
-only its pending, connected, failed, and disconnected states. Pending login
+ChatGPT device-code flow through Pi's direct OAuth provider and exposes only its
+pending, connected, failed, and disconnected states. Pending login
 state is process-local and expires after 15 minutes; completed credentials are
 encrypted in SQLite. One API replica permits one pending device login at a time;
 additional connection attempts fail immediately and may be retried without
-consuming any LLM generation capacity. Each authentication or generation
-process receives a new private temporary `CODEX_HOME`, work directory, and
-scrubbed environment. The API persists a credential refresh with a
-compare-and-swap before removing that temporary tree, so an older active call
-cannot recreate a connection deleted by the user.
+consuming any LLM generation capacity. Pi credential reads, refreshes, login,
+and disconnect writes use the existing encrypted per-user row. Refreshes use a
+compare-and-swap, so an older active call cannot recreate a connection deleted
+by the user.
 
 Users assign one exact model and reasoning effort to each Small and Big model
 role in Settings. The API discovers the two priced DeepSeek text models through
-DeepSeek's authenticated model-list endpoint and discovers visible connected
-OpenAI models and their supported efforts through a contained Codex app-server
-session. A complete explicit choice is stored in `llm_model_settings`; no row
+Pi's bundled catalogs and discovers connected OpenAI models and their supported
+efforts from Pi's direct Codex catalog. A complete explicit choice is stored in
+`llm_model_settings`; no row
 means provider-aware recommendations: OpenAI Luna at medium effort and Sol at
 xhigh when those exact choices are advertised, otherwise DeepSeek V4 Flash at
 medium and V4 Pro at xhigh. Disconnect deletes the credential and resets only
@@ -128,22 +124,12 @@ provider is authoritative: DeepSeek never detours through a connected account,
 and an explicit OpenAI choice fails if its connection, model, or effort is no
 longer available. Only an unavailable implicit OpenAI recommendation may resolve
 to its DeepSeek counterpart. A connected OpenAI call first takes an abortable
-per-user reservation without decrypting credentials or starting Codex; waiting
+per-user reservation without decrypting credentials or starting a request; waiting
 for it consumes no shared generation permit. After shared admission it rechecks
-the connection, hydrates credentials, verifies the exact advertised choice, and
-starts Codex. OpenAI calls bypass product-credit admission and persist zero LLM
+the connection, hydrates credentials, verifies the exact catalog choice, and
+starts Pi's direct Codex HTTPS stream. OpenAI calls bypass product-credit admission and persist zero LLM
 credits; DeepSeek calls use normal charging. Development's configured Zen model
 remains the server fallback when no persistent selection can be made.
-
-The production launcher pins Codex 0.149.1, runs without an app-server network
-listener, clears inherited file descriptors and environment values, confines
-filesystem access to the session directories plus required DNS/TLS files,
-disables autonomous tools and approvals, and applies process and syscall
-limits. Its network access is retained only so the parent Codex process can
-reach OpenAI; it is not a destination-level egress allowlist. The final image
-build runs negative isolation and real binary/protocol smoke tests. An OpenAI
-authentication or generation launch fails closed if the runtime host's Landlock
-ABI is outside the launcher's audited range.
 
 `NODE_ENV` also selects non-secret defaults. Development and test use
 `BETTER_AUTH_URL=http://localhost:5173` and `DATABASE_URL=data.db`; production
@@ -221,11 +207,11 @@ defaults are 300, 120, and 60 seconds and are configured with
 ceiling by default — a runaway-output guard rather than a cost target, sized so
 the max-reasoning winner website keeps room for the complete HTML page; stages
 send smaller explicit budgets when their outputs are
-known to be short. The server-funded providers enforce these AI SDK output
-budgets. The Codex community adapter ignores `maxOutputTokens`, so connected
+known to be short. Pi's server providers enforce these output budgets. Pi's
+Codex provider currently ignores `maxTokens`, so connected
 OpenAI calls retain only the existing deadlines and cancellation behavior and
-do not add a Codex-specific output cap. Provider-request failures use two SDK retries by default,
-configured through `LLM_MAX_RETRIES`, so dependency upgrades cannot silently
+do not add a Codex-specific output cap. Provider-request failures use two Pi
+retries by default, configured through `LLM_MAX_RETRIES`, so dependency upgrades cannot silently
 change retry cost or latency. The short title generation retains its narrower
 per-call limit. The selected Small or Big role's reasoning effort is
 authoritative for every stage; older call-site reasoning flags remain accepted
@@ -306,13 +292,12 @@ key are real runtime dependencies, not mocked outside tests:
   Search-provider responses are bounded by `WEB_SEARCH_MAX_RESPONSE_BYTES`
   (default 2 MB), then capped to 30 validated, canonical, unique public HTTPS
   results per query before persistence or prompting.
-- **LLM:** `deepseek` uses the native DeepSeek AI SDK provider and
-  `DEEPSEEK_API_KEY`. Development-only `zen` uses OpenCode Zen's OpenAI-compatible
-  `/chat/completions` endpoint and `OPENCODE_ZEN_API_KEY`. Configure the model
-  ID with `LLM_MODEL_NAME`; Zen model IDs are sent without an `opencode/`
-  prefix. The selected Zen model must be listed for the
-  `@ai-sdk/openai-compatible` package and support the structured output used by
-  the application.
+- **LLM:** `deepseek` uses Pi's direct DeepSeek provider and
+  `DEEPSEEK_API_KEY`. Development-only `zen` uses Pi's OpenAI-compatible
+  `/chat/completions` transport and `OPENCODE_ZEN_API_KEY`. Configure the model
+  ID with `LLM_MODEL_NAME`; arbitrary Zen model IDs are sent without an
+  `opencode/` prefix. Both server providers request JSON mode for structured
+  output and the application validates the returned JSON with Zod.
 - **ScrapingAnt:** the only page-retrieval provider. Every selected URL first uses
   its cheap non-browser request. Empty, trivial, challenged, or obvious error
   content escalates once to headless-browser rendering through a US datacenter
@@ -354,7 +339,7 @@ ScrapingAnt extractions accumulate every reported `ant-credits-cost` across both
 retrieval modes. Its $19 / 100,000 provider-credit plan is converted with
 `ceil(providerCredits * 19 / 100)`.
 
-DeepSeek Flash V4 generation cost uses the AI SDK's cache-hit, cache-miss, and
+DeepSeek Flash V4 generation cost uses Pi's cache-hit, cache-miss, and
 output token counts with the model-specific pricing function. The resulting
 micro-USD cost is rounded up to product credits. A model change requires a new
 pricing function; operational token prices are deliberately not environment

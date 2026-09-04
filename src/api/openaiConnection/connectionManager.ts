@@ -1,30 +1,32 @@
+import type {
+  AuthEvent,
+  AuthPrompt,
+  OAuthCredential,
+} from "@earendil-works/pi-ai"
+import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex"
 import { HTTPException } from "hono/http-exception"
 import z from "zod"
+
+import { disconnectOpenAiAndResetModelAssignments } from "../llms/modelSettings.ts"
+import { classifyCodexError, OpenAiCodexError } from "./codexErrors.ts"
 import {
   hasOpenAiCodexConnection,
   replaceOpenAiCodexConnection,
 } from "./credentialsRepository.ts"
-import { disconnectOpenAiAndResetModelAssignments } from "../llms/modelSettings.ts"
-import { classifyCodexError, OpenAiCodexError } from "./codexErrors.ts"
 import {
-  createCodexHome,
-  readCodexCredentials,
-  removeCodexHome,
-  type CodexHome,
-} from "./codexSession/home.ts"
-import {
-  FatalCodexContainmentError,
-  terminateApiForUnreapedCodexProcess,
-} from "./codexSession/process.ts"
-import {
-  accountReadSchema,
-  CodexRpcClient,
-  deviceLoginResultSchema,
-  loginCompletedSchema,
-} from "./codexRpcClient.ts"
-import { acquireCodexLoginProcess } from "./codexProcessSlots.ts"
+  encodePiCodexCredential,
+  withPiCodexCredentialLock,
+} from "./piCredentials.ts"
 
-const DEVICE_LOGIN_LIFETIME_MS = 15 * 60 * 1_000
+const deviceCodeEventSchema = z.object({
+  type: z.literal("device_code"),
+  userCode: z.string().trim().min(1).max(128),
+  verificationUri: z
+    .url()
+    .refine((value) => new URL(value).protocol === "https:"),
+  intervalSeconds: z.number().positive().max(60).optional(),
+  expiresInSeconds: z.number().int().positive().max(60 * 60).optional(),
+})
 
 export type OpenAiConnectionSnapshot =
   | { status: "disconnected" }
@@ -37,55 +39,121 @@ export type OpenAiConnectionSnapshot =
   | { status: "connected" }
   | { status: "failed"; message: string }
 
-type PendingLogin = {
+type PendingInstructions = Extract<
+  OpenAiConnectionSnapshot,
+  { status: "pending" }
+>
+
+type ActiveLogin = {
   userId: string
-  loginId: string
-  verificationUrl: string
-  userCode: string
-  expiresAt: Date
-  home: CodexHome
-  client: CodexRpcClient
-  release: () => void
+  connectionVersion: number
+  controller: AbortController
+  started: PromiseWithResolvers<OpenAiConnectionSnapshot>
+  instructions?: PendingInstructions
   cancelled: boolean
-  finalization?: Promise<void>
-  expiryTimer: NodeJS.Timeout
+  timedOut: boolean
+  timeout?: NodeJS.Timeout
+  completion?: Promise<void>
 }
 
-let pendingLogin: PendingLogin | undefined
+let activeLogin: ActiveLogin | undefined
 const failedLogins = new Map<string, OpenAiCodexError>()
 const connectionVersions = new Map<string, number>()
 
-function pendingSnapshot(pending: PendingLogin): OpenAiConnectionSnapshot {
-  return {
+function loginPrompt(prompt: AuthPrompt): Promise<string> {
+  if (
+    prompt.type === "select" &&
+    prompt.options.some((option) => option.id === "device_code")
+  ) {
+    return Promise.resolve("device_code")
+  }
+  return Promise.reject(new OpenAiCodexError("protocol-incompatible"))
+}
+
+function loginNotification(login: ActiveLogin, event: AuthEvent): void {
+  if (event.type !== "device_code") return
+  if (login.instructions) {
+    throw new OpenAiCodexError("protocol-incompatible")
+  }
+  const parsed = deviceCodeEventSchema.safeParse(event)
+  if (!parsed.success) throw new OpenAiCodexError("protocol-incompatible")
+  const device = parsed.data
+  const expiresAt = new Date(
+    Date.now() + (device.expiresInSeconds ?? 15 * 60) * 1_000,
+  )
+  login.instructions = {
     status: "pending",
-    verificationUrl: pending.verificationUrl,
-    userCode: pending.userCode,
-    expiresAt: pending.expiresAt.toISOString(),
+    verificationUrl: device.verificationUri,
+    userCode: device.userCode,
+    expiresAt: expiresAt.toISOString(),
   }
+  login.started.resolve(login.instructions)
 }
 
-async function removeCodexHomeOrTerminate(home: CodexHome): Promise<void> {
-  try {
-    await removeCodexHome(home)
-  } catch {
-    terminateApiForUnreapedCodexProcess()
-  }
+function isCancelled(login: ActiveLogin): boolean {
+  return (
+    login.cancelled ||
+    (!login.timedOut && login.controller.signal.aborted) ||
+    (connectionVersions.get(login.userId) ?? 0) !== login.connectionVersion
+  )
 }
 
-function finalizePendingLoginFromNotification(
-  pending: PendingLogin,
-  result: { loginId: string | null; success: boolean; error: string | null },
-): void {
-  void finalizePendingLogin(pending, result).catch((error: unknown) => {
-    if (!(error instanceof FatalCodexContainmentError)) throw error
+async function persistCompletedLogin(
+  login: ActiveLogin,
+  credential: OAuthCredential,
+): Promise<boolean> {
+  return withPiCodexCredentialLock(login.userId, () => {
+    if (isCancelled(login)) return false
+    const encoded = encodePiCodexCredential(credential)
+    try {
+      replaceOpenAiCodexConnection(login.userId, encoded)
+      return true
+    } finally {
+      encoded.fill(0)
+    }
   })
+}
+
+async function runLogin(login: ActiveLogin): Promise<void> {
+  try {
+    const oauth = openaiCodexProvider().auth.oauth
+    if (!oauth) throw new OpenAiCodexError("protocol-incompatible")
+    const credential = await oauth.login({
+      signal: login.controller.signal,
+      prompt: loginPrompt,
+      notify: (event) => loginNotification(login, event),
+    })
+    if (!login.instructions) {
+      throw new OpenAiCodexError("protocol-incompatible")
+    }
+    if (await persistCompletedLogin(login, credential)) {
+      failedLogins.delete(login.userId)
+    }
+  } catch (error) {
+    if (!isCancelled(login)) {
+      const safeError = login.timedOut
+        ? new OpenAiCodexError("timeout")
+        : classifyCodexError(error)
+      failedLogins.set(login.userId, safeError)
+      login.started.resolve({ status: "failed", message: safeError.message })
+    }
+  } finally {
+    if (login.timeout) clearTimeout(login.timeout)
+    if (isCancelled(login)) {
+      failedLogins.delete(login.userId)
+      login.started.resolve({ status: "disconnected" })
+    }
+    if (activeLogin === login) activeLogin = undefined
+  }
 }
 
 export function getOpenAiConnectionSnapshot(
   userId: string,
 ): OpenAiConnectionSnapshot {
   if (hasOpenAiCodexConnection(userId)) return { status: "connected" }
-  if (pendingLogin?.userId === userId) return pendingSnapshot(pendingLogin)
+  if (activeLogin?.userId === userId && activeLogin.instructions) {
+    return activeLogin.instructions
+  }
   const failed = failedLogins.get(userId)
   return failed
     ? { status: "failed", message: failed.message }
@@ -96,177 +164,31 @@ export async function startOpenAiConnection(
   userId: string,
 ): Promise<OpenAiConnectionSnapshot> {
   if (hasOpenAiCodexConnection(userId)) return { status: "connected" }
-  if (pendingLogin?.userId === userId) return pendingSnapshot(pendingLogin)
-  const connectionVersion = connectionVersions.get(userId) ?? 0
-
-  failedLogins.delete(userId)
-  const release = acquireCodexLoginProcess()
-  if (!release) {
+  if (activeLogin?.userId === userId) {
+    return activeLogin.instructions ?? activeLogin.started.promise
+  }
+  if (activeLogin) {
     throw new HTTPException(429, {
       message: "Too many OpenAI connection attempts are active. Try again shortly.",
     })
   }
 
-  let home: CodexHome | undefined
-  let client: CodexRpcClient | undefined
-  try {
-    home = await createCodexHome()
-    client = new CodexRpcClient(home)
-    await client.start()
-    const state: { pending?: PendingLogin } = {}
-    let earlyCompletion: z.output<typeof loginCompletedSchema> | undefined
-    client.on("account/login/completed", (value) => {
-      const completed = loginCompletedSchema.safeParse(value)
-      if (!completed.success) return
-      if (!state.pending) {
-        earlyCompletion = completed.data
-        return
-      }
-      finalizePendingLoginFromNotification(
-        state.pending,
-        completed.data.loginId === state.pending.loginId
-          ? completed.data
-          : {
-              loginId: state.pending.loginId,
-              success: false,
-              error: "protocol",
-            },
-      )
-    })
-    const login = await client.request(
-      "account/login/start",
-      { type: "chatgptDeviceCode" },
-      deviceLoginResultSchema,
-    )
-    if ((connectionVersions.get(userId) ?? 0) !== connectionVersion) {
-      await client
-        .request(
-          "account/login/cancel",
-          { loginId: login.loginId },
-          z.object({}).strict(),
-        )
-        .catch(() => undefined)
-      await client.close()
-      await removeCodexHomeOrTerminate(home)
-      release()
-      return { status: "disconnected" }
-    }
-    const expiresAt = new Date(Date.now() + DEVICE_LOGIN_LIFETIME_MS)
-    const expiryTimer = setTimeout(() => {
-      if (!pending) return
-      finalizePendingLoginFromNotification(pending, {
-        loginId: pending.loginId,
-        success: false,
-        error: "timeout",
-      })
-    }, DEVICE_LOGIN_LIFETIME_MS)
-    expiryTimer.unref?.()
-    const pending: PendingLogin = {
-      userId,
-      loginId: login.loginId,
-      verificationUrl: login.verificationUrl,
-      userCode: login.userCode,
-      expiresAt,
-      home,
-      client,
-      release,
-      cancelled: false,
-      expiryTimer,
-    }
-    state.pending = pending
-    pendingLogin = pending
-    if (earlyCompletion) {
-      finalizePendingLoginFromNotification(
-        pending,
-        earlyCompletion.loginId === pending.loginId
-          ? earlyCompletion
-          : {
-              loginId: pending.loginId,
-              success: false,
-              error: "protocol",
-            },
-      )
-    }
-    return pendingSnapshot(pending)
-  } catch (error) {
-    if (error instanceof FatalCodexContainmentError) throw error
-    const safeError = classifyCodexError(error)
-    failedLogins.set(userId, safeError)
-    try {
-      await client?.close()
-    } catch (closeError) {
-      if (closeError instanceof FatalCodexContainmentError) throw closeError
-    }
-    if (home) await removeCodexHomeOrTerminate(home)
-    release()
-    return { status: "failed", message: safeError.message }
+  failedLogins.delete(userId)
+  const login: ActiveLogin = {
+    userId,
+    connectionVersion: connectionVersions.get(userId) ?? 0,
+    controller: new AbortController(),
+    started: Promise.withResolvers<OpenAiConnectionSnapshot>(),
+    cancelled: false,
+    timedOut: false,
   }
-}
-
-async function finalizePendingLogin(
-  pending: PendingLogin,
-  result: { loginId: string | null; success: boolean; error: string | null },
-): Promise<void> {
-  if (pending.finalization) return pending.finalization
-  pending.finalization = (async () => {
-    clearTimeout(pending.expiryTimer)
-    let failure: OpenAiCodexError | undefined
-    let processExitProven = false
-    try {
-      if (!result.success) {
-        failure = result.error === "timeout"
-          ? new OpenAiCodexError("timeout")
-          : classifyCodexError(result.error)
-      } else {
-        const account = await pending.client.request(
-          "account/read",
-          { refreshToken: false },
-          accountReadSchema,
-        )
-        if (!account.account || account.account.type !== "chatgpt") {
-          throw new OpenAiCodexError("authentication-required")
-        }
-      }
-
-      await pending.client.close()
-      processExitProven = true
-      if (!failure && !pending.cancelled) {
-        const credentials = await readCodexCredentials(pending.home)
-        try {
-          if (!pending.cancelled) {
-            replaceOpenAiCodexConnection(pending.userId, credentials)
-          }
-        } finally {
-          credentials.fill(0)
-        }
-      }
-    } catch (error) {
-      if (error instanceof FatalCodexContainmentError) throw error
-      failure = classifyCodexError(error)
-      try {
-        await pending.client.close()
-        processExitProven = true
-      } catch (closeError) {
-        if (closeError instanceof FatalCodexContainmentError) throw closeError
-        failure = classifyCodexError(closeError)
-      }
-    } finally {
-      if (processExitProven) {
-        await removeCodexHomeOrTerminate(pending.home)
-        if (pendingLogin === pending) pendingLogin = undefined
-        pending.release()
-      }
-    }
-
-    if (pending.cancelled) {
-      failedLogins.delete(pending.userId)
-    } else if (failure) {
-      failedLogins.set(pending.userId, failure)
-    } else {
-      failedLogins.delete(pending.userId)
-    }
-  })()
-  return pending.finalization
+  activeLogin = login
+  login.timeout = setTimeout(() => {
+    login.timedOut = true
+    login.controller.abort(new OpenAiCodexError("timeout"))
+  }, 15 * 60 * 1_000)
+  login.completion = runLogin(login)
+  return login.started.promise
 }
 
 export async function disconnectOpenAiConnection(
@@ -274,34 +196,24 @@ export async function disconnectOpenAiConnection(
 ): Promise<OpenAiConnectionSnapshot> {
   connectionVersions.set(userId, (connectionVersions.get(userId) ?? 0) + 1)
   failedLogins.delete(userId)
-  const pending = pendingLogin?.userId === userId ? pendingLogin : undefined
-  if (pending) {
-    pending.cancelled = true
-    await pending.client
-      .request(
-        "account/login/cancel",
-        { loginId: pending.loginId },
-        z.object({}).strict(),
-      )
-      .catch(() => undefined)
-    await finalizePendingLogin(pending, {
-      loginId: pending.loginId,
-      success: false,
-      error: null,
-    })
+  const login = activeLogin?.userId === userId ? activeLogin : undefined
+  if (login) {
+    login.cancelled = true
+    login.controller.abort()
+    await login.completion
   }
 
-  disconnectOpenAiAndResetModelAssignments(userId)
+  await withPiCodexCredentialLock(userId, () => {
+    disconnectOpenAiAndResetModelAssignments(userId)
+  })
   return { status: "disconnected" }
 }
 
-export async function closeOpenAiConnectionProcesses(): Promise<void> {
-  const pending = pendingLogin
-  if (!pending) return
-  pending.cancelled = true
-  await finalizePendingLogin(pending, {
-    loginId: pending.loginId,
-    success: false,
-    error: null,
-  }).catch(() => undefined)
+/** Cancels the one device login operation retained by this API process. */
+export async function closeOpenAiConnectionOperations(): Promise<void> {
+  const login = activeLogin
+  if (!login) return
+  login.cancelled = true
+  login.controller.abort()
+  await login.completion
 }

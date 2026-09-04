@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { eq } from "drizzle-orm"
-import type { streamText } from "ai"
 import { debitCredits, getCreditAccount } from "../credits.ts"
 import { db } from "../db/index.ts"
 import {
@@ -13,7 +12,6 @@ import {
   WorkflowInterruptedError,
   workflowAbortReason,
 } from "../workflowRuntime.ts"
-import { FatalCodexContainmentError } from "../openaiConnection/codexSession/process.ts"
 import {
   awaitGenerationOutput,
   awaitGenerationText,
@@ -23,12 +21,9 @@ import {
   type TextStreamEvent,
 } from "./streams.ts"
 import { classifyCodexError } from "../openaiConnection/codexErrors.ts"
+import type { LlmStreamPart } from "./streamTypes.ts"
 
-type SourceStreamPart = ReturnType<
-  typeof streamText
->["stream"] extends AsyncIterable<infer Part>
-  ? Part
-  : never
+type SourceStreamPart = LlmStreamPart
 
 class AsyncQueue<T> implements AsyncIterable<T> {
   private readonly values: T[] = []
@@ -674,59 +669,6 @@ describe("text streams", () => {
       { type: "done" },
     ])
     expect(JSON.stringify(replay)).not.toContain(rawSecret)
-  })
-
-  it("rethrows fatal containment failure from stream exhaustion", async () => {
-    const fatal = new FatalCodexContainmentError()
-    const onFailed = vi.fn()
-    let emitted = false
-    const source = {
-      [Symbol.asyncIterator](): AsyncIterator<SourceStreamPart> {
-        return {
-          next(): Promise<IteratorResult<SourceStreamPart>> {
-            if (!emitted) {
-              emitted = true
-              return Promise.resolve({
-                done: false,
-                value: {
-                  type: "text-delta",
-                  id: "text",
-                  text: "Partial answer",
-                },
-              })
-            }
-            return Promise.reject(fatal)
-          },
-        }
-      },
-    }
-    const generation = registerTextStream(
-      "test-user-id",
-      { standalone: true },
-      source,
-      {
-        metadata: {
-          modelId: "gpt-5.6-sol",
-          promptName: "default",
-          provider: "codex",
-        },
-        onFailed,
-      },
-    )
-
-    await expect(generation.completion).rejects.toBe(fatal)
-    expect(onFailed).not.toHaveBeenCalled()
-    expect(
-      db
-        .select({
-          status: llmGenerations.status,
-          error: llmGenerations.error,
-          completedAt: llmGenerations.completedAt,
-        })
-        .from(llmGenerations)
-        .where(eq(llmGenerations.llmGenerationId, generation.id))
-        .get(),
-    ).toEqual({ status: "running", error: null, completedAt: null })
   })
 
   it("fails an unsolicited Codex interruption without advancing partial output", async () => {

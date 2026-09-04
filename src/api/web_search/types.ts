@@ -1,13 +1,38 @@
 import z from "zod"
-import {
-  normalizeUrl,
-  validateUrl,
-} from "deep-search-core/search-extract"
+import { validateUrl } from "deep-search-core/search-extract/core"
 
 export const MAX_WEB_SEARCH_RESULTS = 30
 export const MAX_WEB_SEARCH_TITLE_CHARS = 500
 export const MAX_WEB_SEARCH_SNIPPET_CHARS = 4_000
 const MAX_WEB_SEARCH_URL_CHARS = 2_048
+const trackingParameters = new Set([
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_term",
+  "utm_content",
+  "fbclid",
+  "gclid",
+  "gclsrc",
+  "dclid",
+  "msclkid",
+  "mc_eid",
+])
+
+function canonicalUrl(rawUrl: string): string {
+  const url = validateUrl(rawUrl)
+  url.hostname = url.hostname.toLowerCase()
+  url.username = ""
+  url.password = ""
+  url.hash = ""
+  for (const key of [...url.searchParams.keys()]) {
+    if (trackingParameters.has(key.toLowerCase())) url.searchParams.delete(key)
+  }
+  if (url.pathname.length > 1 && url.pathname.endsWith("/")) {
+    url.pathname = url.pathname.slice(0, -1)
+  }
+  return url.toString()
+}
 
 const webSearchResultsSchema = z.array(
   z.object({
@@ -41,7 +66,7 @@ export function normalizeWebSearchResults(
 
     let link: string
     try {
-      link = normalizeUrl(validateUrl(result.link).href)
+      link = canonicalUrl(result.link)
       validateUrl(link)
     } catch {
       continue

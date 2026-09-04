@@ -37,22 +37,31 @@ export class OpenAiCodexError extends Error {
 export function classifyCodexError(error: unknown): OpenAiCodexError {
   if (error instanceof OpenAiCodexError) return error
 
-  // Inspect upstream text only inside this boundary. The original error and
+  // Inspect upstream fields only inside this boundary. The original error and
   // its text must never be logged, persisted, or returned to the caller.
-  const text = String(
+  const record = error && typeof error === "object"
+    ? (error as Record<string, unknown>)
+    : undefined
+  const text = [
+    error instanceof Error ? error.name : "",
     error instanceof Error ? error.message : error,
-  ).toLowerCase()
+    record?.code,
+    record?.status,
+  ].join(" ").toLowerCase()
 
   if (
     text.includes("usage_limit_exceeded") ||
     text.includes("usagelimitexceeded") ||
     text.includes("rate limit") ||
     text.includes("status 429") ||
-    text.includes("http 429")
+    text.includes("http 429") ||
+    text.includes(" 429")
   ) {
     return new OpenAiCodexError("rate-limited")
   }
   if (
+    record?.code === "oauth" ||
+    record?.code === "auth" ||
     text.includes("unauthorized") ||
     text.includes("authentication") ||
     text.includes("not logged in") ||
@@ -60,7 +69,8 @@ export function classifyCodexError(error: unknown): OpenAiCodexError {
     text.includes("credential") ||
     text.includes("decrypt") ||
     text.includes("status 401") ||
-    text.includes("http 401")
+    text.includes("http 401") ||
+    text.includes(" 401")
   ) {
     return new OpenAiCodexError("authentication-required")
   }
@@ -78,10 +88,8 @@ export function classifyCodexError(error: unknown): OpenAiCodexError {
     return new OpenAiCodexError("timeout")
   }
   if (
-    text.includes("json-rpc") ||
+    text.includes("codexprotocolerror") ||
     text.includes("schema validation") ||
-    text.includes("unknown subcommand") ||
-    text.includes("requires codex cli") ||
     text.includes("default model") ||
     text.includes("reasoning effort")
   ) {

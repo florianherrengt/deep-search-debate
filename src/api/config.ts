@@ -328,7 +328,6 @@ const nonSecretEnvironmentShape = {
   AUTH_DEBUG_USER_ENABLED: z.stringbool().default(false),
   AUTH_DEBUG_USER_EMAIL: z.email().default("debug@local.invalid"),
   EXAMPLE_DEBATE_IDS: exampleDebateIdsSchema,
-  OPENAI_CODEX_EXECUTABLE_PATH: z.string().trim().min(1).optional(),
 } as const
 
 const rawEnvironmentSchema = z.object({
@@ -533,16 +532,6 @@ const environmentSchema = z.object({
     }
   }
   if (
-    environment.NODE_ENV === "production" &&
-    environment.OPENAI_CODEX_EXECUTABLE_PATH !== undefined
-  ) {
-    context.addIssue({
-      code: "custom",
-      message: "OPENAI_CODEX_EXECUTABLE_PATH cannot be set in production",
-      path: ["OPENAI_CODEX_EXECUTABLE_PATH"],
-    })
-  }
-  if (
     environment.AUTH_DEBUG_USER_ENABLED &&
     environment.NODE_ENV === "production"
   ) {
@@ -730,10 +719,6 @@ export const config = {
   examples: { debateIds: environment.EXAMPLE_DEBATE_IDS },
   openAiCodex: {
     credentialKey: environment.OPENAI_CODEX_CREDENTIAL_KEY,
-    executablePath:
-      environment.NODE_ENV === "production"
-        ? "/usr/local/bin/rethinkloop-codex"
-        : environment.OPENAI_CODEX_EXECUTABLE_PATH,
   },
   llm: resolveLlmConfig(),
   llmExecution: {

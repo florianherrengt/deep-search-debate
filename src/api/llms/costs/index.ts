@@ -1,6 +1,5 @@
-import type { LanguageModelUsage } from "ai"
-
 import type { LlmConfig } from "../../config.ts"
+import type { LlmUsage } from "../streamTypes.ts"
 import {
   calculateDeepSeekV4FlashCredits,
   calculateDeepSeekV4ProCredits,
@@ -9,7 +8,7 @@ import {
 export function calculateLlmCredits(
   llmConfig: LlmConfig,
   modelId: string,
-  usage: LanguageModelUsage,
+  usage: LlmUsage,
 ): number {
   // Zen's upstream model is free in development, but each successful generation
   // still costs one credit for use of the RethinkLoop product.

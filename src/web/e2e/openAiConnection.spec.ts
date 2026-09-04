@@ -117,18 +117,18 @@ test("connects ChatGPT, uses Codex without credits, and falls back after disconn
   await expect(page.getByText("E2E-CODE", { exact: true })).toBeVisible()
   await expect(
     page.getByRole("link", { name: "Open OpenAI verification" }),
-  ).toHaveAttribute("href", "https://auth.openai.com/device")
+  ).toHaveAttribute("href", "https://auth.openai.com/codex/device")
 
   await expect(
     page.getByRole("heading", { name: "OpenAI is connected" }),
   ).toBeVisible({ timeout: 10_000 })
   await page.getByRole("combobox", { name: "Small model" }).click()
   await page
-    .getByRole("option", { name: "E2E Codex — OpenAI" })
+    .getByRole("option", { name: "GPT-5.6 Sol — OpenAI" })
     .click()
   await page.getByRole("combobox", { name: "Big model" }).click()
   await page
-    .getByRole("option", { name: "E2E Codex — OpenAI" })
+    .getByRole("option", { name: "GPT-5.6 Luna — OpenAI" })
     .click()
   await page.getByRole("button", { name: "Save model choices" }).click()
   await expect(page.getByText("Model choices saved.")).toBeVisible()
@@ -138,10 +138,10 @@ test("connects ChatGPT, uses Codex without credits, and falls back after disconn
   ).toBeVisible()
   await expect(
     page.getByRole("combobox", { name: "Small model" }),
-  ).toContainText("E2E Codex — OpenAI")
+  ).toContainText("GPT-5.6 Sol — OpenAI")
   await expect(
     page.getByRole("combobox", { name: "Big model" }),
-  ).toContainText("E2E Codex — OpenAI")
+  ).toContainText("GPT-5.6 Luna — OpenAI")
 
   const creditsBeforeCodex = await getCredits(request)
   const codex = await runStandaloneStream(
@@ -206,14 +206,14 @@ test("connects ChatGPT, uses Codex without credits, and falls back after disconn
   ).toEqual([
     {
       creditsUsed: 0,
-      modelId: "gpt-e2e-codex",
+      modelId: "gpt-5.6-sol",
       promptName: "generate-prompt-title",
       status: "completed",
       text: '{"title":"E2E Codex Structured Title"}',
     },
     {
       creditsUsed: 0,
-      modelId: "gpt-e2e-codex",
+      modelId: "gpt-5.6-luna",
       promptName: "generate-websearch-queries",
       status: "completed",
       text: '{"elements":["E2E Codex structured query 1","E2E Codex structured query 2","E2E Codex structured query 3"]}',
@@ -240,4 +240,10 @@ test("connects ChatGPT, uses Codex without credits, and falls back after disconn
   )
   expect(fallback.text).toBe("E2E DeepSeek fallback response.")
   expect(await getCredits(request)).toBeLessThan(creditsBeforeFallback)
+
+  const retried = await runStandaloneStream(
+    request,
+    `[E2E_RETRY_DEEPSEEK] ${crypto.randomUUID()}`,
+  )
+  expect(retried.text).toBe("E2E DeepSeek retry response.")
 })

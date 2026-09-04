@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto"
 import { and, eq, type SQL } from "drizzle-orm"
-import type { FinishReason, LanguageModelUsage, streamText } from "ai"
 import { debitCredits } from "../credits.ts"
 import { db } from "../db/index.ts"
 import { llmGenerations } from "../db/schema/index.ts"
@@ -23,7 +22,11 @@ import {
   OpenAiCodexError,
   type OpenAiCodexErrorCode,
 } from "../openaiConnection/codexErrors.ts"
-import { FatalCodexContainmentError } from "../openaiConnection/codexSession/process.ts"
+import type {
+  LlmFinishReason,
+  LlmStreamPart,
+  LlmUsage,
+} from "./streamTypes.ts"
 
 export type TextStreamEvent =
   | { type: "reasoning"; text: string }
@@ -31,11 +34,7 @@ export type TextStreamEvent =
   | { type: "error"; message: string }
   | { type: "done" }
 
-type SourceStreamPart = ReturnType<
-  typeof streamText
->["stream"] extends AsyncIterable<infer Part>
-  ? Part
-  : never
+type SourceStreamPart = LlmStreamPart
 
 type TextStream = ReplayableEventLog<TextStreamEvent>
 
@@ -49,7 +48,7 @@ export type GenerationOutcome =
       status: "completed"
       text: string
       reasoning: string
-      finishReason?: FinishReason
+      finishReason?: LlmFinishReason
     }
   | {
       status: "failed"
@@ -58,7 +57,7 @@ export type GenerationOutcome =
       error: string
       errorCode?: OpenAiCodexErrorCode
       failureKind: GenerationFailureKind
-      finishReason?: FinishReason
+      finishReason?: LlmFinishReason
     }
   | {
       status: "interrupted"
@@ -66,7 +65,7 @@ export type GenerationOutcome =
       reasoning: string
       error: string
       reason: WorkflowStopReason
-      finishReason?: FinishReason
+      finishReason?: LlmFinishReason
     }
 
 export type GenerationHandle = {
@@ -182,13 +181,13 @@ type TextGenerationRegistrationMetadata = {
   modelId: string
   promptName: string
   provider?: "server" | "codex"
-  calculateCredits?: (usage: LanguageModelUsage) => number
+  calculateCredits?: (usage: LlmUsage) => number
 }
 
 type TextGenerationTerminalMetadata = {
-  finishReason?: PromiseLike<FinishReason>
+  finishReason?: PromiseLike<LlmFinishReason>
   rawFinishReason?: PromiseLike<string | undefined>
-  usage?: PromiseLike<LanguageModelUsage>
+  usage?: PromiseLike<LlmUsage>
 }
 
 type TextGenerationMetadata = TextGenerationRegistrationMetadata &
@@ -214,17 +213,17 @@ export type PreparedTextGeneration = {
 }
 
 type TerminalGenerationMetadata = {
-  finishReason?: FinishReason
+  finishReason?: LlmFinishReason
   finishReasonResolved?: boolean
   rawFinishReason?: string
-  usage?: LanguageModelUsage
+  usage?: LlmUsage
   inputTokens?: number
   outputTokens?: number
   reasoningTokens?: number
 }
 
 function getUnsuccessfulFinishReasonError(
-  finishReason: FinishReason | undefined,
+  finishReason: LlmFinishReason | undefined,
   rawFinishReason: string | undefined,
   provider: "server" | "codex" | undefined,
 ): Error | undefined {
@@ -303,8 +302,7 @@ function getPersistedStopReason(
 
 /**
  * Translates provider deltas into public events and terminates the retained log
- * with `done` for every ordinary outcome. Fatal containment failures escape
- * without manufacturing terminal state while the API process shuts down.
+ * with `done` for every ordinary outcome.
  */
 async function consume(
   id: string,
@@ -350,7 +348,6 @@ async function consume(
       }
     }
   } catch (error) {
-    if (error instanceof FatalCodexContainmentError) throw error
     captureStreamError(error)
   }
 

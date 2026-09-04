@@ -71,18 +71,18 @@ context shares the configured aggregate character ceiling, retaining a bounded
 entry for every required section rather than allowing candidate research and
 transcripts to grow without limit.
 
-Debate-owned LLM calls use the configured bounded SDK request policy: two
+Debate-owned LLM calls use the configured bounded Pi request policy: two
 retries with exponential backoff by default. This handles retryable request
 failures such as provider rate limits without adding an application retry service. Advocate
 and judge stages add one narrower application-level retry only when a completed
-provider stream is classified as a finish-reason failure with the AI SDK's
+provider stream is classified as a finish-reason failure with the app's
 unified `other` reason. This bounded heuristic covers the observed Zen case
 where an otherwise normal response ended prematurely with an unknown provider
 reason. It does not retry `length`, `content-filter`, exhausted stream/request,
 validation, or persistence failures.
 
 Each application-level generation attempt remains a durable `llm_generations`
-row; the SDK's transport retries occur inside that one generation. An advocate retry
+row; Pi's transport retries occur inside that one generation. An advocate retry
 compare-and-swap replaces the stable transcript message's generation link only
 when it still points to the exact failed `other` attempt; concurrent or stale
 replacement fails closed. Failed judge attempts remain unlinked, and only the

@@ -5,6 +5,7 @@ import {
   mocks,
   resetGenerateTextMocks,
   serverLlmCall,
+  startedLlmStream,
   subscriptionLlmCall,
 } from "./generateText.testSupport.ts"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -13,7 +14,6 @@ import z from "zod"
 import { config } from "../config.ts"
 import { db } from "../db/index.ts"
 import { llmModelSettings } from "../db/schema/index.ts"
-import { FatalCodexContainmentError } from "../openaiConnection/codexSession/process.ts"
 import { generateTextStream } from "./generateText.ts"
 import { replaceLlmModelAssignments } from "./modelSettings.ts"
 
@@ -26,7 +26,7 @@ describe("generateTextStream", () => {
     db.delete(llmModelSettings).run()
   })
 
-  it("does not register a generation aborted while queued", async () => {
+  it("does not register or start a generation aborted while queued", async () => {
     const controller = new AbortController()
     controller.abort({ _tag: "WorkflowAbortReason", reason: "user-stop" })
     mocks.loadPrompt.mockResolvedValue("System prompt")
@@ -43,23 +43,15 @@ describe("generateTextStream", () => {
     ).rejects.toThrow()
 
     expect(mocks.prepareTextGeneration).not.toHaveBeenCalled()
-    expect(mocks.streamText).not.toHaveBeenCalled()
+    expect(mocks.start).not.toHaveBeenCalled()
   })
 
-  it("registers and returns every provider stream", async () => {
-    const stream = { id: "raw-stream" }
-    const finishReason = Promise.resolve("stop" as const)
-    const usage = Promise.resolve({ inputTokens: 12, outputTokens: 4 })
+  it("registers the selected provider and starts Pi with the bounded request", async () => {
+    const started = startedLlmStream()
     const generation = completedGenerationHandle()
     const prepared = mockPreparedGeneration(generation)
     mocks.loadPrompt.mockResolvedValue("System prompt")
-    const rawFinishReason = Promise.resolve("stop")
-    mocks.streamText.mockReturnValue({
-      stream,
-      finishReason,
-      rawFinishReason,
-      usage,
-    })
+    mocks.start.mockReturnValue(started)
 
     const result = await generateTextStream({
       userId: "test-user-id",
@@ -67,9 +59,10 @@ describe("generateTextStream", () => {
       prompt: "Hello",
       promptName: "default",
       reasoning: "enabled",
+      maxOutputTokens: config.llmExecution.maxOutputTokens + 1_000,
+      temperature: 0.25,
     })
 
-    expect(mocks.prepareTextGeneration).toHaveBeenCalledOnce()
     const registration = z
       .object({
         onRegistered: z.undefined(),
@@ -78,35 +71,24 @@ describe("generateTextStream", () => {
         metadata: z.object({
           modelId: z.literal("deepseek-v4-pro"),
           promptName: z.literal("default"),
+          provider: z.literal("server"),
           calculateCredits: z.function(),
         }),
       })
       .parse(mocks.prepareTextGeneration.mock.calls[0]?.[2] as unknown)
     expect(registration.metadata.calculateCredits).toBeTypeOf("function")
-    expect(prepared.start).toHaveBeenCalledWith(stream, {
-      finishReason,
-      rawFinishReason,
-      usage,
+    expect(mocks.start).toHaveBeenCalledWith({
+      prompt: "Hello",
+      system: "System prompt",
+      temperature: 0.25,
+      maxOutputTokens: config.llmExecution.maxOutputTokens,
+      workflowSignal: undefined,
     })
-    expect(mocks.streamText).toHaveBeenCalledWith(
-      expect.objectContaining({
-        maxOutputTokens: config.llmExecution.maxOutputTokens,
-        maxRetries: config.llmExecution.maxRetries,
-        timeout: {
-          totalMs: config.llmExecution.totalTimeoutMs,
-          firstChunkMs: config.llmExecution.firstChunkTimeoutMs,
-          chunkMs: config.llmExecution.chunkTimeoutMs,
-        },
-        providerOptions: {
-          test: { reasoningEffort: "xhigh" },
-        },
-      }),
-    )
-    const textCall = z
-      .object({ onError: z.function() })
-      .parse(mocks.streamText.mock.calls[0]?.[0] as unknown)
-    expect(textCall.onError).toBeTypeOf("function")
-    expect(mocks.callOptions).toHaveBeenCalledWith("xhigh")
+    expect(prepared.start).toHaveBeenCalledWith(started.stream, {
+      finishReason: started.finishReason,
+      rawFinishReason: started.rawFinishReason,
+      usage: started.usage,
+    })
     expect(mocks.requirePositiveCreditBalance).toHaveBeenCalledWith(
       "test-user-id",
     )
@@ -116,22 +98,16 @@ describe("generateTextStream", () => {
     })
   })
 
-  it("uses a connected subscription without LLM credits and preserves its stream lifecycle", async () => {
-    const stream = { id: "raw-codex-stream" }
-    const wrappedStream = { id: "wrapped-codex-stream" }
-    const finishReason = Promise.resolve("error" as const)
-    const rawFinishReason = Promise.resolve("usage_limit_exceeded")
-    const usage = Promise.resolve({ inputTokens: 7, outputTokens: 2 })
-    const call = subscriptionLlmCall({ wrappedStream })
+  it("uses a connected Codex subscription without charging LLM credits", async () => {
+    const started = startedLlmStream({
+      finishReason: Promise.resolve("error"),
+      rawFinishReason: Promise.resolve("usage_limit_exceeded"),
+    })
+    const start = vi.fn(() => started)
+    const call = subscriptionLlmCall({ start })
     const prepared = mockPreparedGeneration()
     mocks.resolveLlmCall.mockResolvedValueOnce(call)
     mocks.loadPrompt.mockResolvedValue("System prompt")
-    mocks.streamText.mockReturnValue({
-      stream,
-      finishReason,
-      rawFinishReason,
-      usage,
-    })
 
     await generateTextStream({
       userId: "connected-user-id",
@@ -141,52 +117,42 @@ describe("generateTextStream", () => {
       reasoning: "enabled",
     })
 
-    expect(mocks.resolveLlmCall).toHaveBeenCalledWith(
-      "connected-user-id",
-      {
-        role: "big",
-        assignment: {
-          provider: "deepseek",
-          modelId: "deepseek-v4-pro",
-          reasoningEffort: "xhigh",
-        },
-        explicit: false,
-      },
-    )
     expect(mocks.requirePositiveCreditBalance).not.toHaveBeenCalled()
-    expect(mocks.callOptions).not.toHaveBeenCalled()
-    expect(call.wrapStream).toHaveBeenCalledWith(stream)
-    expect(prepared.start).toHaveBeenCalledWith(wrappedStream, {
-      finishReason,
-      rawFinishReason,
-      usage,
+    expect(start).toHaveBeenCalledWith({
+      prompt: "Hello",
+      system: "System prompt",
+      temperature: undefined,
+      maxOutputTokens: config.llmExecution.maxOutputTokens,
+      workflowSignal: undefined,
     })
-    expect(mocks.prepareTextGeneration.mock.calls[0]?.[2]).toMatchObject({
-      metadata: {
-        modelId: "gpt-5.6-sol",
-        promptName: "default",
-      },
+    expect(prepared.start).toHaveBeenCalledWith(started.stream, {
+      finishReason: started.finishReason,
+      rawFinishReason: started.rawFinishReason,
+      usage: started.usage,
     })
-    expect(
-      (
-        mocks.prepareTextGeneration.mock.calls[0]?.[2] as {
-          metadata: Record<string, unknown>
-        }
-      ).metadata,
-    ).not.toHaveProperty("calculateCredits")
+    const metadata = (
+      mocks.prepareTextGeneration.mock.calls[0]?.[2] as {
+        metadata: Record<string, unknown>
+      }
+    ).metadata
+    expect(metadata).toMatchObject({
+      modelId: "gpt-5.6-sol",
+      promptName: "default",
+      provider: "codex",
+    })
+    expect(metadata).not.toHaveProperty("calculateCredits")
   })
 
-  it("releases a connected subscription when stream startup fails", async () => {
+  it("sanitizes a Codex startup failure before persistence", async () => {
     const release = vi.fn(() => Promise.resolve())
-    const call = subscriptionLlmCall({ release })
     const rawSecret = "Provider startup failed: bearer secret-startup-token"
-    const failure = new Error(rawSecret)
+    const start = vi.fn(() => {
+      throw new Error(rawSecret)
+    })
+    const call = subscriptionLlmCall({ start, release })
     const prepared = mockPreparedGeneration()
     mocks.resolveLlmCall.mockResolvedValueOnce(call)
     mocks.loadPrompt.mockResolvedValue("System prompt")
-    mocks.streamText.mockImplementationOnce(() => {
-      throw failure
-    })
 
     const result = await generateTextStream({
       userId: "connected-user-id",
@@ -196,8 +162,8 @@ describe("generateTextStream", () => {
       reasoning: "disabled",
     })
 
-    expect(release).toHaveBeenCalledOnce()
-    expect(call.wrapStream).not.toHaveBeenCalled()
+    expect(release).toHaveBeenCalled()
+    expect(prepared.start).not.toHaveBeenCalled()
     expect(prepared.fail).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "OpenAiCodexError",
@@ -209,32 +175,7 @@ describe("generateTextStream", () => {
     expect(result).toMatchObject({ id: "stream-id" })
   })
 
-  it("rethrows fatal containment failure during stream startup cleanup", async () => {
-    const fatal = new FatalCodexContainmentError()
-    const release = vi.fn(() => Promise.reject(fatal))
-    const call = subscriptionLlmCall({ release })
-    const prepared = mockPreparedGeneration()
-    mocks.resolveLlmCall.mockResolvedValueOnce(call)
-    mocks.loadPrompt.mockResolvedValue("System prompt")
-    mocks.streamText.mockImplementationOnce(() => {
-      throw new Error("Provider startup failed: bearer secret-token")
-    })
-
-    await expect(
-      generateTextStream({
-        userId: "connected-user-id",
-        owner: { standalone: true },
-        prompt: "Hello",
-        promptName: "default",
-        reasoning: "disabled",
-      }),
-    ).rejects.toBe(fatal)
-
-    expect(release).toHaveBeenCalled()
-    expect(prepared.fail).not.toHaveBeenCalled()
-  })
-
-  it("routes Small and Big prompts with their selected authoritative efforts", async () => {
+  it("routes Small and Big prompts using their snapshotted assignments", async () => {
     replaceLlmModelAssignments("test-user-id", {
       small: {
         provider: "deepseek",
@@ -248,7 +189,6 @@ describe("generateTextStream", () => {
       },
     })
     mocks.loadPrompt.mockResolvedValue("System prompt")
-    mocks.streamText.mockReturnValue({ stream: { id: "raw-stream" } })
 
     mockPreparedGeneration()
     await generateTextStream({
@@ -295,35 +235,18 @@ describe("generateTextStream", () => {
       },
       undefined,
     )
-    expect(mocks.callOptions.mock.calls.map(([effort]) => effort)).toEqual([
-      "none",
-      "high",
-    ])
-    expect(mocks.model.mock.calls.map(([modelId]) => modelId)).toEqual([
+    expect(mocks.resolveLlmCall.mock.calls.map(([, snapshot]) => snapshot.assignment.modelId)).toEqual([
       "deepseek-v4-pro",
       "deepseek-v4-flash",
     ])
-    expect(mocks.streamText).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        providerOptions: { test: { reasoningEffort: "none" } },
-      }),
-    )
-    expect(mocks.streamText).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        providerOptions: { test: { reasoningEffort: "high" } },
-      }),
-    )
   })
 
   it("forwards text-generation persistence hooks", async () => {
-    const stream = { id: "raw-stream" }
     const onRegistered = vi.fn()
     const onCompleted = vi.fn()
     const onFailed = vi.fn()
+    const onInterrupted = vi.fn()
     mocks.loadPrompt.mockResolvedValue("System prompt")
-    mocks.streamText.mockReturnValue({ stream })
     mockPreparedGeneration()
 
     await generateTextStream({
@@ -335,12 +258,18 @@ describe("generateTextStream", () => {
       onRegistered,
       onCompleted,
       onFailed,
+      onInterrupted,
     })
 
     expect(mocks.prepareTextGeneration).toHaveBeenCalledWith(
       "test-user-id",
       { standalone: true },
-      expect.objectContaining({ onRegistered, onCompleted, onFailed }),
+      expect.objectContaining({
+        onRegistered,
+        onCompleted,
+        onFailed,
+        onInterrupted,
+      }),
     )
   })
 
@@ -359,47 +288,23 @@ describe("generateTextStream", () => {
         reasoning: "disabled",
       }),
     ).rejects.toThrow("Stage registration failed")
-    expect(mocks.streamText).not.toHaveBeenCalled()
+    expect(mocks.start).not.toHaveBeenCalled()
     expect(mocks.release).toHaveBeenCalledOnce()
-  })
-
-  it("lets fatal containment cleanup override an outer start failure", async () => {
-    const fatal = new FatalCodexContainmentError()
-    const release = vi.fn(() => Promise.reject(fatal))
-    mocks.resolveLlmCall.mockResolvedValueOnce(
-      subscriptionLlmCall({ release }),
-    )
-    mocks.loadPrompt.mockRejectedValueOnce(new Error("Prompt load failed"))
-
-    await expect(
-      generateTextStream({
-        userId: "connected-user-id",
-        owner: { standalone: true },
-        prompt: "Hello",
-        promptName: "default",
-        reasoning: "disabled",
-      }),
-    ).rejects.toBe(fatal)
-
-    expect(release).toHaveBeenCalledOnce()
-    expect(mocks.prepareTextGeneration).not.toHaveBeenCalled()
-    expect(mocks.streamText).not.toHaveBeenCalled()
   })
 
   it("bounds mixed streaming work with one process-wide queue", async () => {
     mocks.loadPrompt.mockResolvedValue("System prompt")
     const completions = Array.from(
       { length: config.llmExecution.maxConcurrentGenerations + 1 },
-      () => Promise.withResolvers<ReturnType<typeof completedGenerationHandle> extends {
-        completion: Promise<infer Outcome>
-      } ? Outcome : never>(),
+      () => Promise.withResolvers<
+        Awaited<ReturnType<typeof completedGenerationHandle>["completion"]>
+      >(),
     )
     for (const [index, completion] of completions.entries()) {
       mockPreparedGeneration({
         id: `stream-${index}`,
         completion: completion.promise,
       })
-      mocks.streamText.mockReturnValueOnce({ stream: { index } })
     }
 
     const starts = completions.map((_, index) =>
@@ -414,7 +319,7 @@ describe("generateTextStream", () => {
     await Promise.all(
       starts.slice(0, config.llmExecution.maxConcurrentGenerations),
     )
-    expect(mocks.streamText).toHaveBeenCalledTimes(
+    expect(mocks.start).toHaveBeenCalledTimes(
       config.llmExecution.maxConcurrentGenerations,
     )
 
@@ -426,7 +331,7 @@ describe("generateTextStream", () => {
     await expect(starts.at(-1)).resolves.toMatchObject({
       id: `stream-${completions.length - 1}`,
     })
-    expect(mocks.streamText).toHaveBeenCalledTimes(completions.length)
+    expect(mocks.start).toHaveBeenCalledTimes(completions.length)
 
     for (const completion of completions.slice(1)) {
       completion.resolve({ status: "completed", text: "done", reasoning: "" })
@@ -442,20 +347,10 @@ describe("generateTextStream", () => {
       id: "connected-stream",
       completion: firstCompletion.promise,
     })
-    mockPreparedGeneration({
-      id: "server-stream",
-      completion: Promise.resolve({
-        status: "completed",
-        text: "server done",
-        reasoning: "",
-      }),
-    })
-    mocks.streamText
-      .mockReturnValueOnce({ stream: { id: "connected" } })
-      .mockReturnValueOnce({ stream: { id: "server" } })
+    mockPreparedGeneration(completedGenerationHandle("server done"))
 
     const connectedCall = subscriptionLlmCall()
-    const serverCall = serverLlmCall("xhigh", "deepseek-v4-pro")
+    const serverCall = serverLlmCall("deepseek-v4-pro")
     let connectedReservations = 0
     mocks.reserveLlmCall.mockImplementation(
       (userId: string, _snapshot: unknown, signal?: AbortSignal) => {
@@ -508,8 +403,8 @@ describe("generateTextStream", () => {
         promptName: "default",
         reasoning: "disabled",
       }),
-    ).resolves.toMatchObject({ id: "server-stream" })
-    expect(mocks.streamText).toHaveBeenCalledTimes(2)
+    ).resolves.toMatchObject({ id: "stream-id" })
+    expect(mocks.prepareTextGeneration).toHaveBeenCalledTimes(2)
 
     for (const controller of waitingControllers) {
       controller.abort(new Error("Stop queued Codex request"))

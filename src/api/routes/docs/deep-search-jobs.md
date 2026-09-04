@@ -281,7 +281,7 @@ deduplication, and public event sequence. One `runPromiseExit` bridge in the
 workflow runtime is its Promise-facing boundary. The coordinator uses
 `Effect.gen` for sequencing and concurrent `Effect.all` result-mode fan-outs to
 settle all started work while retaining deterministic input-order failure
-selection. Hono, Drizzle commands, AI SDK policy, and the existing process-wide
+selection. Hono, Drizzle commands, Pi provider policy, and the existing process-wide
 queues remain outside Effect.
 
 The coordinator calls stable-ID store commands before publishing each event.

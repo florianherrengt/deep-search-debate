@@ -2,7 +2,7 @@ import {
   extractVisibleTextFromHtml,
   PdfExtractor,
   validateUrl,
-} from "deep-search-core/search-extract"
+} from "deep-search-core/search-extract/core"
 import { config } from "../config.ts"
 import {
   createScrapingAntClient,

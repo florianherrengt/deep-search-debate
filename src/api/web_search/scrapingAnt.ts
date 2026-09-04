@@ -1,6 +1,6 @@
 import {
   validateUrl,
-} from "deep-search-core/search-extract"
+} from "deep-search-core/search-extract/core"
 import PQueue from "p-queue"
 import { addAbortableQueueTask } from "../helpers/addAbortableQueueTask.ts"
 import z from "zod"

@@ -1,5 +1,5 @@
-import type { LanguageModelUsage } from "ai"
 import { MICRO_USD_PER_CREDIT } from "../../credits.ts"
+import type { LlmUsage } from "../streamTypes.ts"
 
 const tokensPerMillion = 1_000_000
 
@@ -38,7 +38,7 @@ function requireTokenCount(
 }
 
 function calculateDeepSeekV4CostMicroUsd(
-  usage: LanguageModelUsage,
+  usage: LlmUsage,
   modelName: string,
   prices: DeepSeekV4Prices,
 ): number {
@@ -72,7 +72,7 @@ function calculateDeepSeekV4CostMicroUsd(
 
 /** Calculates one DeepSeek V4 Flash generation's cost in integer micro-USD. */
 export function calculateDeepSeekV4FlashCostMicroUsd(
-  usage: LanguageModelUsage,
+  usage: LlmUsage,
 ): number {
   return calculateDeepSeekV4CostMicroUsd(
     usage,
@@ -83,7 +83,7 @@ export function calculateDeepSeekV4FlashCostMicroUsd(
 
 /** Converts actual provider usage to the product's $1 / 1,000-credit base. */
 export function calculateDeepSeekV4FlashCredits(
-  usage: LanguageModelUsage,
+  usage: LlmUsage,
 ): number {
   // Product policy: round each successful generation independently to whole
   // credits; do not aggregate fractional costs across an entire run.
@@ -94,7 +94,7 @@ export function calculateDeepSeekV4FlashCredits(
 
 /** Calculates one DeepSeek V4 Pro generation's cost in integer micro-USD. */
 export function calculateDeepSeekV4ProCostMicroUsd(
-  usage: LanguageModelUsage,
+  usage: LlmUsage,
 ): number {
   return calculateDeepSeekV4CostMicroUsd(
     usage,
@@ -105,7 +105,7 @@ export function calculateDeepSeekV4ProCostMicroUsd(
 
 /** Converts actual provider usage to the product's $1 / 1,000-credit base. */
 export function calculateDeepSeekV4ProCredits(
-  usage: LanguageModelUsage,
+  usage: LlmUsage,
 ): number {
   return Math.ceil(
     calculateDeepSeekV4ProCostMicroUsd(usage) / MICRO_USD_PER_CREDIT,

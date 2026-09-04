@@ -1,74 +1,53 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-type Connection = {
-  userId: string
-  connectionId: string
-  credentials: Buffer
-}
-
-type ListedModel = {
+type FakeModel = {
   id: string
-  isDefault: boolean
-  hidden?: boolean
-  supportedReasoningEfforts?: { reasoningEffort: string }[]
-}
-
-type FakeProvider = ReturnType<typeof vi.fn> & {
-  close: ReturnType<typeof vi.fn>
-  listModels: ReturnType<typeof vi.fn>
-  modelCalls: { modelId: string; settings: unknown }[]
+  name: string
+  api: string
+  levels: string[]
 }
 
 const mocks = vi.hoisted(() => ({
-  FatalCodexContainmentError: class FatalCodexContainmentError extends Error {},
-  acquireCodexProcess: vi.fn(),
-  codexProcessEnvironment: vi.fn(),
-  compareAndSwapOpenAiCodexCredentials: vi.fn(),
-  createCodexAppServer: vi.fn(),
-  createCodexHome: vi.fn(),
-  getCodexExecutablePath: vi.fn(),
-  getOpenAiCodexConnection: vi.fn(),
+  createModels: vi.fn(),
+  getAuth: vi.fn(),
+  getSupportedThinkingLevels: vi.fn(),
+  hasApi: vi.fn(),
   hasOpenAiCodexConnection: vi.fn(),
-  homeCredentialSnapshots: [] as Buffer[],
-  readCodexCredentials: vi.fn(),
-  reapCodexProcessGroup: vi.fn(),
-  releaseProcess: vi.fn(),
-  removeCodexHome: vi.fn(),
-  terminateApiForUnreapedCodexProcess: vi.fn(),
+  models: [] as FakeModel[],
+  setProvider: vi.fn(),
+  startPiLlmStream: vi.fn((_runtime: unknown, _request: unknown) => ({
+    stream: {},
+  })),
 }))
 
-vi.mock("ai-sdk-provider-codex-cli", () => ({
-  createCodexAppServer: mocks.createCodexAppServer,
+let modelRegistry: {
+  setProvider: ReturnType<typeof vi.fn>
+  getModels(): FakeModel[]
+  getModel(provider: string, id: string): FakeModel | undefined
+  getAuth(provider: string, options: unknown): Promise<unknown>
+}
+
+vi.mock("@earendil-works/pi-ai", () => ({
+  createModels: mocks.createModels,
+  getSupportedThinkingLevels: mocks.getSupportedThinkingLevels,
+  hasApi: mocks.hasApi,
+}))
+
+vi.mock("@earendil-works/pi-ai/providers/openai-codex", () => ({
+  openaiCodexProvider: () => ({ id: "openai-codex" }),
 }))
 
 vi.mock("./credentialsRepository.ts", () => ({
-  compareAndSwapOpenAiCodexCredentials:
-    mocks.compareAndSwapOpenAiCodexCredentials,
-  getOpenAiCodexConnection: mocks.getOpenAiCodexConnection,
   hasOpenAiCodexConnection: mocks.hasOpenAiCodexConnection,
 }))
 
-vi.mock("./codexSession/home.ts", () => ({
-  createCodexHome: mocks.createCodexHome,
-  readCodexCredentials: mocks.readCodexCredentials,
-  removeCodexHome: mocks.removeCodexHome,
+vi.mock("../llms/piGeneration.ts", () => ({
+  startPiLlmStream: mocks.startPiLlmStream,
 }))
 
-vi.mock("./codexSession/policy.ts", () => ({
-  hardenedCodexConfigOverrides: { tools: { shell: false } },
-}))
-
-vi.mock("./codexSession/process.ts", () => ({
-  codexProcessEnvironment: mocks.codexProcessEnvironment,
-  FatalCodexContainmentError: mocks.FatalCodexContainmentError,
-  getCodexExecutablePath: mocks.getCodexExecutablePath,
-  reapCodexProcessGroup: mocks.reapCodexProcessGroup,
-  terminateApiForUnreapedCodexProcess:
-    mocks.terminateApiForUnreapedCodexProcess,
-}))
-
-vi.mock("./codexProcessSlots.ts", () => ({
-  acquireCodexProcess: mocks.acquireCodexProcess,
+vi.mock("./piCredentials.ts", () => ({
+  PI_CODEX_PROVIDER_ID: "openai-codex",
+  PiCodexCredentialStore: class PiCodexCredentialStore {},
 }))
 
 import {
@@ -77,447 +56,225 @@ import {
 } from "./codexGeneration.ts"
 
 const userId = "connected-user"
-const fakeHome = {
-  root: "/tmp/rethinkloop-codex-generation-test",
-  home: "/tmp/rethinkloop-codex-generation-test/home",
-  work: "/tmp/rethinkloop-codex-generation-test/work",
-  control: "/tmp/rethinkloop-codex-generation-test/control",
-  rootIdentity: { dev: 1n, ino: 2n },
+
+function fakeModel(
+  id: string,
+  levels = ["off", "low", "high"],
+): FakeModel {
+  return { id, name: `Name ${id}`, api: "openai-codex-responses", levels }
 }
 
-function useConnection(value = "initial-credentials"): Connection {
-  const connection = {
-    userId,
-    connectionId: "connection-1",
-    credentials: Buffer.from(value),
-  }
-  mocks.hasOpenAiCodexConnection.mockReturnValue(true)
-  mocks.getOpenAiCodexConnection.mockReturnValue(connection)
-  mocks.readCodexCredentials.mockResolvedValue(Buffer.from(value))
-  return connection
-}
-
-async function acquireReservedGeneration(
-  reasoningEffort: "low" | "high" | "ultra",
-  signal?: AbortSignal,
-  modelId = "gpt-default",
+async function acquire(
+  modelId = "gpt-selected",
+  reasoningEffort = "high",
+  allowUnavailableRecommendationFallback = false,
 ) {
-  const reservation = await reserveCodexGeneration(
-    userId,
-    {
-      modelId,
-      reasoningEffort,
-      allowUnavailableRecommendationFallback: false,
-    },
-    signal,
-  )
+  const reservation = await reserveCodexGeneration(userId, {
+    modelId,
+    reasoningEffort: reasoningEffort as "high",
+    allowUnavailableRecommendationFallback,
+  })
   return reservation?.acquire()
-}
-
-function useProvider(models: ListedModel[]): FakeProvider {
-  const modelCalls: { modelId: string; settings: unknown }[] = []
-  const provider = Object.assign(
-    vi.fn((modelId: string, settings: unknown) => {
-      modelCalls.push({ modelId, settings })
-      return { modelId }
-    }),
-    {
-      close: vi.fn(() => Promise.resolve()),
-      listModels: vi.fn(() => Promise.resolve({ models })),
-      modelCalls,
-    },
-  )
-  mocks.createCodexAppServer.mockReturnValue(provider)
-  return provider
-}
-
-async function collect<Part>(source: AsyncIterable<Part>): Promise<Part[]> {
-  const parts: Part[] = []
-  for await (const part of source) parts.push(part)
-  return parts
-}
-
-function streamOf<Part>(...parts: Part[]): AsyncIterable<Part> {
-  return {
-    [Symbol.asyncIterator]() {
-      let index = 0
-      return {
-        next: () =>
-          Promise.resolve(
-            index < parts.length
-              ? { done: false as const, value: parts[index++] }
-              : { done: true as const, value: undefined },
-          ),
-      }
-    },
-  }
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mocks.homeCredentialSnapshots.length = 0
-  mocks.hasOpenAiCodexConnection.mockReturnValue(false)
-  mocks.acquireCodexProcess.mockResolvedValue(mocks.releaseProcess)
-  mocks.createCodexHome.mockImplementation((credentials: Buffer) => {
-    mocks.homeCredentialSnapshots.push(Buffer.from(credentials))
-    return Promise.resolve(fakeHome)
-  })
-  mocks.codexProcessEnvironment.mockReturnValue({ HOME: fakeHome.home })
-  mocks.getCodexExecutablePath.mockReturnValue("/usr/local/bin/codex-test")
-  mocks.reapCodexProcessGroup.mockResolvedValue(undefined)
-  mocks.removeCodexHome.mockResolvedValue(undefined)
-  mocks.terminateApiForUnreapedCodexProcess.mockImplementation(() => {
-    throw new mocks.FatalCodexContainmentError()
-  })
-  useProvider([
-    {
-      id: "gpt-default",
-      isDefault: true,
-      supportedReasoningEfforts: [
-        { reasoningEffort: "low" },
-        { reasoningEffort: "high" },
-      ],
-    },
-  ])
+  mocks.models = [fakeModel("gpt-selected")]
+  mocks.hasOpenAiCodexConnection.mockReturnValue(true)
+  mocks.getAuth.mockResolvedValue({ auth: { apiKey: "access-token" } })
+  modelRegistry = {
+    setProvider: mocks.setProvider,
+    getModels: () => mocks.models,
+    getModel: (_provider: string, id: string) =>
+      mocks.models.find((model) => model.id === id),
+    getAuth: mocks.getAuth,
+  }
+  mocks.createModels.mockReturnValue(modelRegistry)
+  mocks.getSupportedThinkingLevels.mockImplementation(
+    (model: FakeModel) => model.levels,
+  )
+  mocks.hasApi.mockImplementation(
+    (model: FakeModel, api: string) => model.api === api,
+  )
 })
+
+function requireRecord(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== "object") {
+    throw new TypeError("Expected a record")
+  }
+  return value as Record<string, unknown>
+}
 
 describe("Codex generation acquisition", () => {
-  it("lists only visible models that advertise at least one effort", async () => {
-    useConnection()
-    const provider = useProvider([
-      {
-        id: "visible",
-        isDefault: false,
-        supportedReasoningEfforts: [{ reasoningEffort: "medium" }],
-      },
-      {
-        id: "hidden",
-        isDefault: true,
-        supportedReasoningEfforts: [{ reasoningEffort: "high" }],
-        hidden: true,
-      },
-      {
-        id: "no-efforts",
-        isDefault: false,
-        supportedReasoningEfforts: [],
-      },
-    ])
+  it("lists Pi models with exact supported reasoning efforts", async () => {
+    mocks.models = [
+      fakeModel("gpt-visible", [
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+      ]),
+    ]
 
     await expect(listAvailableCodexModels(userId)).resolves.toEqual([
-      expect.objectContaining({ id: "visible" }),
+      {
+        id: "gpt-visible",
+        displayName: "Name gpt-visible",
+        isDefault: false,
+        supportedReasoningEfforts: [
+          { reasoningEffort: "none" },
+          { reasoningEffort: "minimal" },
+          { reasoningEffort: "low" },
+          { reasoningEffort: "medium" },
+          { reasoningEffort: "high" },
+          { reasoningEffort: "xhigh" },
+          { reasoningEffort: "max" },
+        ],
+      },
     ])
-    expect(provider.close).toHaveBeenCalledOnce()
-    expect(mocks.releaseProcess).toHaveBeenCalledOnce()
+    expect(mocks.setProvider).toHaveBeenCalledWith({ id: "openai-codex" })
+    expect(mocks.getAuth).toHaveBeenCalledOnce()
+    const [provider, options] = mocks.getAuth.mock.calls[0] as [
+      string,
+      { signal: AbortSignal },
+    ]
+    expect(provider).toBe("openai-codex")
+    expect(options.signal).toBeInstanceOf(AbortSignal)
   })
 
-  it("returns the fallback seam without starting a process when no connection exists", async () => {
-    await expect(
-      acquireReservedGeneration("high"),
-    ).resolves.toBeUndefined()
+  it("returns no catalog or reservation without a connection", async () => {
+    mocks.hasOpenAiCodexConnection.mockReturnValue(false)
 
-    expect(mocks.acquireCodexProcess).not.toHaveBeenCalled()
-    expect(mocks.getOpenAiCodexConnection).not.toHaveBeenCalled()
-    expect(mocks.createCodexAppServer).not.toHaveBeenCalled()
+    await expect(listAvailableCodexModels(userId)).resolves.toBeUndefined()
+    await expect(acquire()).resolves.toBeUndefined()
+    expect(mocks.createModels).not.toHaveBeenCalled()
   })
 
-  it("falls back if the connection disappears while waiting for its process slot", async () => {
-    mocks.hasOpenAiCodexConnection.mockReturnValue(true)
-    mocks.getOpenAiCodexConnection.mockReturnValue(undefined)
+  it("uses the selected Pi model and exact supported effort", async () => {
+    const generation = await acquire("gpt-selected", "low")
 
-    await expect(
-      acquireReservedGeneration("low"),
-    ).resolves.toBeUndefined()
-
-    expect(mocks.acquireCodexProcess).toHaveBeenCalledWith(userId, {})
-    expect(mocks.releaseProcess).toHaveBeenCalledOnce()
-    expect(mocks.createCodexAppServer).not.toHaveBeenCalled()
-  })
-
-  it.each(["ultra", "low"] as const)(
-    "uses the exact selected model and %s effort",
-    async (expectedEffort) => {
-      useConnection()
-      const provider = useProvider([
-        {
-          id: "server-model-override-that-must-be-ignored",
-          isDefault: false,
-          supportedReasoningEfforts: [{ reasoningEffort: "medium" }],
-        },
-        {
-          id: "account-default-model",
-          isDefault: true,
-          supportedReasoningEfforts: [
-            { reasoningEffort: "medium" },
-            { reasoningEffort: "ultra" },
-            { reasoningEffort: "low" },
-          ],
-        },
-      ])
-
-      const generation = await acquireReservedGeneration(
-        expectedEffort,
-        undefined,
-        "account-default-model",
-      )
-
-      expect(generation).toMatchObject({ modelId: "account-default-model" })
-      expect(provider.modelCalls).toEqual([
-        {
-          modelId: "account-default-model",
-          settings: {
-            configOverrides: {
-              tools: { shell: false },
-              model_reasoning_effort: expectedEffort,
-            },
-          },
-        },
-      ])
-      await generation?.release()
-    },
-  )
-
-  it("propagates fatal containment and retains the user lease when home creation cannot roll back", async () => {
-    const connection = useConnection()
-    mocks.createCodexHome.mockRejectedValueOnce(
-      new mocks.FatalCodexContainmentError(),
-    )
-
-    await expect(
-      acquireReservedGeneration("high"),
-    ).rejects.toBeInstanceOf(mocks.FatalCodexContainmentError)
-
-    expect(mocks.releaseProcess).not.toHaveBeenCalled()
-    expect(mocks.createCodexAppServer).not.toHaveBeenCalled()
-    expect(connection.credentials.every((byte) => byte === 0)).toBe(true)
+    expect(generation).toMatchObject({ modelId: "gpt-selected" })
+    const request = {
+      system: "system",
+      prompt: "prompt",
+      maxOutputTokens: 100,
+    }
+    generation?.start(request)
+    expect(mocks.startPiLlmStream).toHaveBeenCalledOnce()
+    const [runtime, sentRequest] = mocks.startPiLlmStream.mock.calls[0] ?? []
+    const runtimeRecord = requireRecord(runtime)
+    expect(runtimeRecord.models).toBe(modelRegistry)
+    expect(runtimeRecord.model).toBe(mocks.models[0])
+    expect(runtimeRecord.provider).toBe("codex")
+    expect(runtimeRecord.reasoningEffort).toBe("low")
+    expect(sentRequest).toEqual(request)
+    await generation?.release()
   })
 
   it.each([
-    ["no matching", []],
-    [
-      "an unsupported effort on the matching",
-      [
-        {
-          id: "gpt-default",
-          isDefault: true,
-          supportedReasoningEfforts: [{ reasoningEffort: "low" }],
-        },
-      ],
-    ],
-  ] satisfies [string, ListedModel[]][])(
-    "rejects a model list with %s model",
-    async (_description, models) => {
-      const connection = useConnection()
-      const provider = useProvider(models)
+    ["unknown model", "missing", "high"],
+    ["unsupported effort", "gpt-selected", "xhigh"],
+    ["Pi-unsupported ultra effort", "gpt-selected", "ultra"],
+  ])("rejects an explicit %s", async (_name, modelId, effort) => {
+    await expect(acquire(modelId, effort)).rejects.toMatchObject({
+      name: "OpenAiCodexError",
+      code: "protocol-incompatible",
+    })
+    expect(mocks.startPiLlmStream).not.toHaveBeenCalled()
+  })
 
-      await expect(
-        acquireReservedGeneration("high"),
-      ).rejects.toMatchObject({
-        name: "OpenAiCodexError",
-        code: "protocol-incompatible",
-      })
+  it("returns the fallback seam for an unavailable recommendation", async () => {
+    await expect(acquire("missing", "high", true)).resolves.toBeUndefined()
+  })
 
-      expect(provider.close).toHaveBeenCalledOnce()
-      expect(mocks.reapCodexProcessGroup).toHaveBeenCalledOnce()
-      expect(mocks.releaseProcess).toHaveBeenCalledOnce()
-      expect(connection.credentials.every((byte) => byte === 0)).toBe(true)
-    },
-  )
+  it("returns the fallback seam if the connection disappears before acquire", async () => {
+    const reservation = await reserveCodexGeneration(userId, {
+      modelId: "gpt-selected",
+      reasoningEffort: "high",
+      allowUnavailableRecommendationFallback: true,
+    })
+    mocks.hasOpenAiCodexConnection.mockReturnValue(false)
 
-  it.each([
-    ["status 429: upstream-rate-secret", "rate-limited"],
-    ["status 401: bearer upstream-auth-secret", "authentication-required"],
-  ] as const)(
-    "sanitizes provider startup failure %s",
-    async (rawMessage, expectedCode) => {
-      useConnection()
-      const provider = useProvider([])
-      provider.listModels.mockRejectedValue(new Error(rawMessage))
-
-      let thrown: unknown
-      try {
-        await acquireReservedGeneration("high")
-      } catch (error) {
-        thrown = error
-      }
-
-      expect(thrown).toMatchObject({
-        name: "OpenAiCodexError",
-        code: expectedCode,
-      })
-      expect((thrown as Error).message).not.toContain("upstream")
-    },
-  )
+    await expect(reservation?.acquire()).resolves.toBeUndefined()
+  })
 })
 
-describe("Codex generation stream boundary", () => {
-  it("fails closed on tool events and releases the process exactly once", async () => {
-    const connection = useConnection()
-    const provider = useProvider([
-      {
-        id: "gpt-default",
-        isDefault: true,
-        supportedReasoningEfforts: [{ reasoningEffort: "high" }],
-      },
-    ])
-    const generation = await acquireReservedGeneration("high")
-    if (!generation) throw new Error("Expected a connected generation")
-
-    await expect(
-      collect(
-        generation.wrapStream(
-          streamOf(
-            { type: "text-delta", text: "safe" },
-            { type: "tool-call", toolName: "shell", input: "secret" },
-          ),
-        ),
-      ),
-    ).rejects.toMatchObject({
-      name: "OpenAiCodexError",
-      code: "tool-blocked",
+describe("Codex generation reservation", () => {
+  it("consumes a reservation at most once", async () => {
+    const reservation = await reserveCodexGeneration(userId, {
+      modelId: "gpt-selected",
+      reasoningEffort: "high",
+      allowUnavailableRecommendationFallback: false,
     })
-    await generation.release()
+    const generation = await reservation?.acquire()
+    await generation?.release()
 
-    expect(provider.close).toHaveBeenCalledOnce()
-    expect(mocks.reapCodexProcessGroup).toHaveBeenCalledOnce()
-    expect(mocks.removeCodexHome).toHaveBeenCalledOnce()
-    expect(mocks.releaseProcess).toHaveBeenCalledOnce()
-    expect(connection.credentials.every((byte) => byte === 0)).toBe(true)
-  })
-
-  it("replaces upstream stream errors with safe application errors", async () => {
-    useConnection()
-    const generation = await acquireReservedGeneration("high")
-    if (!generation) throw new Error("Expected a connected generation")
-
-    const parts = await collect(
-      generation.wrapStream(
-        streamOf({
-          type: "error",
-          error: new Error("status 401: bearer stream-auth-secret"),
-        }),
-      ),
+    await expect(reservation?.acquire()).rejects.toThrow(
+      "reservation was already consumed",
     )
-
-    expect(parts).toHaveLength(1)
-    expect(parts[0]).toMatchObject({
-      type: "error",
-      error: {
-        name: "OpenAiCodexError",
-        code: "authentication-required",
-      },
-    })
-    expect(JSON.stringify(parts)).not.toContain("stream-auth-secret")
   })
 
-  it("refreshes only through CAS after reaping, clears buffers, and is idempotent", async () => {
-    const connection = useConnection()
-    const refreshed = Buffer.from("rotated-credentials")
-    const casSnapshots: Buffer[] = []
-    mocks.readCodexCredentials.mockResolvedValue(refreshed)
-    mocks.compareAndSwapOpenAiCodexCredentials.mockImplementation(
-      (_snapshot: Connection, credentials: Buffer) => {
-        casSnapshots.push(Buffer.from(credentials))
-        // A deleted or replaced row produces no update. The generation must not
-        // recreate it through an unconditional write.
-        return false
-      },
-    )
-    const provider = useProvider([
-      {
-        id: "gpt-default",
-        isDefault: true,
-        supportedReasoningEfforts: [{ reasoningEffort: "high" }],
-      },
-    ])
-    const generation = await acquireReservedGeneration("high")
-    if (!generation) throw new Error("Expected a connected generation")
-
-    await generation.release()
-    await generation.release()
-
-    const closeOrder = provider.close.mock.invocationCallOrder[0]
-    const reapOrder = mocks.reapCodexProcessGroup.mock.invocationCallOrder[0]
-    const readOrder = mocks.readCodexCredentials.mock.invocationCallOrder[0]
-    const casOrder =
-      mocks.compareAndSwapOpenAiCodexCredentials.mock.invocationCallOrder[0]
-    expect(closeOrder).toBeLessThan(reapOrder)
-    expect(reapOrder).toBeLessThan(readOrder)
-    expect(readOrder).toBeLessThan(casOrder)
-    expect(
-      mocks.compareAndSwapOpenAiCodexCredentials,
-    ).toHaveBeenCalledExactlyOnceWith(connection, refreshed)
-    expect(casSnapshots).toEqual([Buffer.from("rotated-credentials")])
-    expect(provider.close).toHaveBeenCalledOnce()
-    expect(mocks.releaseProcess).toHaveBeenCalledOnce()
-    expect(connection.credentials.every((byte) => byte === 0)).toBe(true)
-    expect(refreshed.every((byte) => byte === 0)).toBe(true)
-    expect(mocks.homeCredentialSnapshots).toEqual([
-      Buffer.from("initial-credentials"),
-    ])
-  })
-
-  it("still reaps and removes the credential home when provider close fails", async () => {
-    useConnection()
-    const provider = useProvider([
-      {
-        id: "gpt-default",
-        isDefault: true,
-        supportedReasoningEfforts: [{ reasoningEffort: "high" }],
-      },
-    ])
-    provider.close.mockRejectedValue(new Error("close failed with secret"))
-    const generation = await acquireReservedGeneration("high")
-    if (!generation) throw new Error("Expected a connected generation")
-
-    await expect(generation.release()).rejects.toMatchObject({
-      name: "OpenAiCodexError",
-      code: "temporarily-unavailable",
+  it("serializes same-user reservations before global generation admission", async () => {
+    const selection = {
+      modelId: "gpt-selected",
+      reasoningEffort: "high" as const,
+      allowUnavailableRecommendationFallback: false,
+    }
+    const first = await reserveCodexGeneration("serialized-user", selection)
+    const secondPromise = reserveCodexGeneration("serialized-user", selection)
+    let secondSettled = false
+    void secondPromise.then(() => {
+      secondSettled = true
     })
 
-    expect(mocks.reapCodexProcessGroup).toHaveBeenCalledWith(fakeHome)
-    expect(mocks.readCodexCredentials).toHaveBeenCalledWith(fakeHome)
-    expect(mocks.removeCodexHome).toHaveBeenCalledWith(fakeHome)
-    expect(mocks.releaseProcess).toHaveBeenCalledOnce()
+    await Promise.resolve()
+    expect(secondSettled).toBe(false)
+    first?.release()
+
+    const second = await secondPromise
+    expect(second).toBeDefined()
+    second?.release()
   })
 
-  it("requests fatal containment and retains process capacity when credential-home deletion fails", async () => {
-    const connection = useConnection()
-    const refreshed = Buffer.from("rotated-credentials")
-    mocks.readCodexCredentials.mockResolvedValue(refreshed)
-    mocks.removeCodexHome.mockRejectedValue(new Error("deletion failed"))
-    const generation = await acquireReservedGeneration("high")
-    if (!generation) throw new Error("Expected a connected generation")
-
-    const firstRelease = generation.release()
-    const secondRelease = generation.release()
-
-    await expect(firstRelease).rejects.toBeInstanceOf(
-      mocks.FatalCodexContainmentError,
+  it("removes an aborted same-user waiter without releasing the active reservation", async () => {
+    const selection = {
+      modelId: "gpt-selected",
+      reasoningEffort: "high" as const,
+      allowUnavailableRecommendationFallback: false,
+    }
+    const first = await reserveCodexGeneration("abortable-user", selection)
+    const controller = new AbortController()
+    const reason = new Error("Stopped while waiting for Codex")
+    const waiting = reserveCodexGeneration(
+      "abortable-user",
+      selection,
+      controller.signal,
     )
-    await expect(secondRelease).rejects.toBeInstanceOf(
-      mocks.FatalCodexContainmentError,
-    )
-    expect(mocks.terminateApiForUnreapedCodexProcess).toHaveBeenCalledOnce()
-    expect(mocks.removeCodexHome).toHaveBeenCalledExactlyOnceWith(fakeHome)
-    expect(mocks.releaseProcess).not.toHaveBeenCalled()
-    expect(connection.credentials.every((byte) => byte === 0)).toBe(true)
-    expect(refreshed.every((byte) => byte === 0)).toBe(true)
+
+    controller.abort(reason)
+
+    await expect(waiting).rejects.toBe(reason)
+    first?.release()
+    const next = await reserveCodexGeneration("abortable-user", selection)
+    expect(next).toBeDefined()
+    next?.release()
   })
 
-  it("requests fatal containment and retains all state when reaping fails", async () => {
-    useConnection()
-    mocks.reapCodexProcessGroup.mockRejectedValue(new Error("group survived"))
-    const generation = await acquireReservedGeneration("high")
-    if (!generation) throw new Error("Expected a connected generation")
+  it("allows different users to reserve Codex independently", async () => {
+    const selection = {
+      modelId: "gpt-selected",
+      reasoningEffort: "high" as const,
+      allowUnavailableRecommendationFallback: false,
+    }
+    const first = await reserveCodexGeneration("independent-user-a", selection)
+    const second = await reserveCodexGeneration("independent-user-b", selection)
 
-    await expect(generation.release()).rejects.toBeInstanceOf(
-      mocks.FatalCodexContainmentError,
-    )
-
-    expect(mocks.terminateApiForUnreapedCodexProcess).toHaveBeenCalledOnce()
-    expect(mocks.readCodexCredentials).not.toHaveBeenCalled()
-    expect(mocks.compareAndSwapOpenAiCodexCredentials).not.toHaveBeenCalled()
-    expect(mocks.removeCodexHome).not.toHaveBeenCalled()
-    expect(mocks.releaseProcess).not.toHaveBeenCalled()
+    expect(first).toBeDefined()
+    expect(second).toBeDefined()
+    first?.release()
+    second?.release()
   })
 })

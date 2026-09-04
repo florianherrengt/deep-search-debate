@@ -534,7 +534,13 @@ test.describe("Debate tournament", () => {
     await expect(historyLink).toContainText(getPromptExcerpt(prompt))
     await historyLink.click()
     await expect(page).toHaveURL(new RegExp(`/debates/${slug}$`))
-    await expect(page.getByText("Debate complete")).toBeVisible()
+    await expect(
+      page.getByRole("heading", {
+        name: debateJob.title,
+        exact: true,
+      }),
+    ).toBeVisible()
+    await expect(page.getByText("Debate complete", { exact: true })).toBeVisible()
 
     expect(createRequestCount).toBe(1)
     expect(browserStreamRequests.every((path) => uuidPattern.test(path.slice(-36)))).toBe(

@@ -1,5 +1,5 @@
 import z from "zod"
-import { secureJsonParse } from "@ai-sdk/provider-utils"
+import { secureJsonParse } from "../../helpers/secureJsonParse.ts"
 
 type DeepSearchResult = {
   title: string

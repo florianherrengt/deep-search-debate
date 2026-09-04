@@ -3,6 +3,8 @@ import {
   mockPreparedGeneration,
   mocks,
   resetGenerateTextMocks,
+  startedLlmStream,
+  subscriptionLlmCall,
 } from "./generateText.testSupport.ts"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import z from "zod"
@@ -12,177 +14,60 @@ import {
   generateArrayStream,
   generateObjectStream,
 } from "./generateText.ts"
+import type { PiLlmRequest } from "./piGeneration.ts"
+import type { StartedLlmStream } from "./streamTypes.ts"
 
 describe("structured generation", () => {
   beforeEach(resetGenerateTextMocks)
 
-  async function expectCodexStartupFailureIsSanitized(
-    start: () => Promise<unknown>,
-  ): Promise<void> {
-    const rawSecret = "Codex startup envelope: bearer structured-secret-token"
-    const call = {
-      model: { modelId: "gpt-5.6-sol" },
-      modelId: "gpt-5.6-sol",
-      provider: "codex" as const,
-      supportsStructuredOutputs: true,
-      callOptions: {},
-      wrapStream: vi.fn(),
-      release: vi.fn(() => Promise.resolve()),
-    }
-    const prepared = mockPreparedGeneration()
-    mocks.resolveLlmCall.mockResolvedValueOnce(call)
-    mocks.loadPrompt.mockResolvedValue("System prompt")
-    mocks.streamText.mockImplementationOnce(() => {
-      throw new Error(rawSecret)
-    })
-
-    await start()
-
-    expect(call.release).toHaveBeenCalledOnce()
-    expect(prepared.fail).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: "OpenAiCodexError",
-        code: "temporarily-unavailable",
-        message: "OpenAI Codex is temporarily unavailable. Try again later.",
-      }),
+  it("sends a JSON Schema to Pi and parses the persisted array result", async () => {
+    const started = startedLlmStream()
+    const generation = completedGenerationHandle(
+      '{"elements":["first","second"]}',
     )
-    expect(JSON.stringify(prepared.fail.mock.calls)).not.toContain(rawSecret)
-  }
-
-  it("uses AI SDK structured array output and exposes its result", async () => {
-    const stream = { id: "raw-stream" }
-    const output = Promise.resolve(["first", "second"])
-    const finishReason = Promise.resolve("stop" as const)
-    const usage = Promise.resolve({ inputTokens: 20, outputTokens: 8 })
-    const generation = completedGenerationHandle()
     const prepared = mockPreparedGeneration(generation)
-    const element = z.string()
     mocks.loadPrompt.mockResolvedValue("System prompt")
-    mocks.streamText.mockReturnValue({
-      stream,
-      output,
-      finishReason,
-      usage,
-    })
+    mocks.start.mockReturnValue(started)
 
     const result = await generateArrayStream({
       userId: "test-user-id",
       owner: { standalone: true },
       prompt: "Hello",
       promptName: "generate-websearch-queries",
-      element,
+      element: z.string(),
     })
 
-    expect(mocks.outputArray).toHaveBeenCalledWith({ element })
-    expect(mocks.streamText).toHaveBeenCalledWith(
-      expect.objectContaining({
-        maxOutputTokens: config.llmExecution.maxOutputTokens,
-        maxRetries: config.llmExecution.maxRetries,
-        timeout: {
-          totalMs: config.llmExecution.totalTimeoutMs,
-          firstChunkMs: config.llmExecution.firstChunkTimeoutMs,
-          chunkMs: config.llmExecution.chunkTimeoutMs,
-        },
-        output: { type: "array", options: { element } },
-        providerOptions: {
-          test: { reasoningEffort: "xhigh" },
-        },
-      }),
-    )
-    const structuredCall = z
-      .object({ onError: z.function() })
-      .parse(mocks.streamText.mock.calls[0]?.[0] as unknown)
-    expect(structuredCall.onError).toBeTypeOf("function")
-    const arrayCall = z
-      .object({ system: z.string() })
-      .parse(mocks.streamText.mock.calls[0]?.[0] as unknown)
-    expect(arrayCall.system).toContain('"elements"')
+    const request = z
+      .object({
+        prompt: z.literal("Hello"),
+        system: z.string(),
+        maxOutputTokens: z.literal(config.llmExecution.maxOutputTokens),
+        jsonSchema: z.object({
+          type: z.literal("object"),
+          properties: z.object({
+            elements: z.object({ type: z.literal("array") }).loose(),
+          }).loose(),
+        }).loose(),
+      })
+      .loose()
+      .parse(mocks.start.mock.calls[0]?.[0])
+    expect(request.system).toContain("System prompt")
+    expect(request.system).toContain("Return only valid JSON")
+    expect(request.system).toContain('"elements"')
+    expect(prepared.start).toHaveBeenCalledWith(started.stream, {
+      finishReason: started.finishReason,
+      rawFinishReason: started.rawFinishReason,
+      usage: started.usage,
+    })
     expect(result.id).toBe("stream-id")
     expect(result.completion).toBe(generation.completion)
-    expect(mocks.prepareTextGeneration).toHaveBeenCalledOnce()
-    const registration = z
-      .object({
-        metadata: z.object({
-          modelId: z.literal("deepseek-v4-pro"),
-          promptName: z.literal("generate-websearch-queries"),
-          calculateCredits: z.function(),
-        }),
-        onRegistered: z.undefined(),
-      })
-      .parse(mocks.prepareTextGeneration.mock.calls[0]?.[2] as unknown)
-    expect(registration.metadata.calculateCredits).toBeTypeOf("function")
-    const { onCompleted } = mocks.prepareTextGeneration.mock.calls[0]?.[2] as {
-      onCompleted: (
-        completed: { id: string; text: string; reasoning: string },
-        transaction: unknown,
-      ) => void
-    }
-    expect(() =>
-      onCompleted(
-        {
-          id: "stream-id",
-          text: '{"elements":["valid",1]}',
-          reasoning: "",
-        },
-        {},
-      ),
-    ).toThrow()
-    expect(prepared.start).toHaveBeenCalledWith(stream, {
-      finishReason,
-      usage,
-    })
-    expect(mocks.callOptions).toHaveBeenCalledWith("xhigh")
     await expect(result.output).resolves.toEqual(["first", "second"])
   })
 
-  it("forwards array-stream registration hooks", async () => {
-    const stream = { id: "raw-stream" }
-    const onRegistered = vi.fn()
-    mocks.loadPrompt.mockResolvedValue("System prompt")
-    mocks.streamText.mockReturnValue({
-      stream,
-      output: Promise.resolve(["first"]),
-    })
-    mockPreparedGeneration()
-
-    await generateArrayStream({
-      userId: "test-user-id",
-      owner: { standalone: true },
-      prompt: "Hello",
-      promptName: "generate-websearch-queries",
-      element: z.string(),
-      onRegistered,
-    })
-
-    expect(mocks.prepareTextGeneration).toHaveBeenCalledWith(
-      "test-user-id",
-      { standalone: true },
-      expect.objectContaining({ onRegistered }),
-    )
-  })
-
-  it("sanitizes Codex array startup failures before persistence", async () => {
-    expect.hasAssertions()
-    await expectCodexStartupFailureIsSanitized(() =>
-      generateArrayStream({
-        userId: "connected-user-id",
-        owner: { standalone: true },
-        prompt: "Hello",
-        promptName: "generate-websearch-queries",
-        element: z.string(),
-      }),
-    )
-  })
-
-  it("parses structured array output before running a terminal transaction hook", async () => {
-    const stream = { id: "raw-stream" }
+  it("validates an array inside the terminal transaction before calling its hook", async () => {
     const onCompleted = vi.fn()
     mocks.loadPrompt.mockResolvedValue("System prompt")
-    mocks.streamText.mockReturnValue({
-      stream,
-      output: Promise.resolve(["first"]),
-    })
-    mockPreparedGeneration()
+    mockPreparedGeneration(completedGenerationHandle('{"elements":[]}'))
 
     await generateArrayStream({
       userId: "test-user-id",
@@ -199,7 +84,7 @@ describe("structured generation", () => {
         transaction: unknown,
       ) => void
     }
-    const transaction = {}
+    const transaction = { id: "transaction" }
     options.onCompleted(
       {
         id: "stream-id",
@@ -208,21 +93,105 @@ describe("structured generation", () => {
       },
       transaction,
     )
-
     expect(onCompleted).toHaveBeenCalledWith(
       { id: "stream-id", output: ["first", "second"] },
       transaction,
     )
+
+    expect(() =>
+      options.onCompleted(
+        {
+          id: "stream-id",
+          text: '{"elements":["valid",1]}',
+          reasoning: "",
+        },
+        transaction,
+      ),
+    ).toThrow()
+    expect(onCompleted).toHaveBeenCalledTimes(1)
   })
 
-  it("uses AI SDK structured object output and exposes its result", async () => {
-    const stream = { id: "raw-stream" }
-    const output = Promise.resolve({ winnerSlot: 0 })
-    const schema = z.object({ winnerSlot: z.number() })
-    const generation = completedGenerationHandle()
-    mockPreparedGeneration(generation)
+  it("keeps the Codex system prompt unchanged and passes the schema to Pi", async () => {
+    const start = vi.fn<(request: PiLlmRequest) => StartedLlmStream>(() =>
+      startedLlmStream()
+    )
+    const call = subscriptionLlmCall({ start })
+    mocks.resolveLlmCall.mockResolvedValueOnce(call)
+    mocks.loadPrompt.mockResolvedValue("Codex system prompt")
+    mockPreparedGeneration(completedGenerationHandle('{"winnerSlot":0}'))
+
+    const result = await generateObjectStream({
+      userId: "connected-user-id",
+      owner: { standalone: true },
+      prompt: "Judge this",
+      promptName: "default",
+      schema: z.object({ winnerSlot: z.number().int() }),
+    })
+
+    const request = start.mock.calls[0]?.[0]
+    expect(request).toMatchObject({
+      prompt: "Judge this",
+      system: "Codex system prompt",
+    })
+    expect(request?.jsonSchema).toMatchObject({
+      properties: { winnerSlot: {} },
+    })
+    expect(mocks.requirePositiveCreditBalance).not.toHaveBeenCalled()
+    expect(
+      (
+        mocks.prepareTextGeneration.mock.calls[0]?.[2] as {
+          metadata: Record<string, unknown>
+        }
+      ).metadata,
+    ).toEqual({
+      modelId: "gpt-5.6-sol",
+      promptName: "default",
+      provider: "codex",
+    })
+    await expect(result.output).resolves.toEqual({ winnerSlot: 0 })
+  })
+
+  it("sanitizes a Codex structured startup failure before persistence", async () => {
+    const rawSecret = "Codex startup envelope: bearer structured-secret-token"
+    const release = vi.fn(() => Promise.resolve())
+    const call = subscriptionLlmCall({
+      start: () => {
+        throw new Error(rawSecret)
+      },
+      release,
+    })
+    const prepared = mockPreparedGeneration()
+    mocks.resolveLlmCall.mockResolvedValueOnce(call)
     mocks.loadPrompt.mockResolvedValue("System prompt")
-    mocks.streamText.mockReturnValue({ stream, output })
+
+    const result = await generateObjectStream({
+      userId: "connected-user-id",
+      owner: { standalone: true },
+      prompt: "Judge this",
+      promptName: "default",
+      schema: z.object({ winnerSlot: z.number() }),
+    })
+
+    expect(release).toHaveBeenCalled()
+    expect(prepared.start).not.toHaveBeenCalled()
+    expect(prepared.fail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "OpenAiCodexError",
+        code: "temporarily-unavailable",
+        message: "OpenAI Codex is temporarily unavailable. Try again later.",
+      }),
+    )
+    expect(JSON.stringify(prepared.fail.mock.calls)).not.toContain(rawSecret)
+    await expect(result.output).rejects.toMatchObject({
+      name: "OpenAiCodexError",
+      code: "temporarily-unavailable",
+    })
+  })
+
+  it("rejects invalid persisted object output", async () => {
+    const schema = z.object({ winnerSlot: z.number().int().min(0).max(1) })
+    mocks.loadPrompt.mockResolvedValue("System prompt")
+    mockPreparedGeneration(completedGenerationHandle('{"winnerSlot":"0"}'))
 
     const result = await generateObjectStream({
       userId: "test-user-id",
@@ -232,101 +201,14 @@ describe("structured generation", () => {
       schema,
     })
 
-    expect(mocks.outputObject).toHaveBeenCalledWith({ schema })
-    expect(mocks.streamText).toHaveBeenCalledWith(
-      expect.objectContaining({
-        maxOutputTokens: config.llmExecution.maxOutputTokens,
-        maxRetries: config.llmExecution.maxRetries,
-        output: { type: "object", options: { schema } },
-        providerOptions: {
-          test: { reasoningEffort: "xhigh" },
-        },
-      }),
-    )
-    expect(result.id).toBe("stream-id")
-    expect(result.completion).toBe(generation.completion)
-    const { onCompleted } = mocks.prepareTextGeneration.mock.calls[0]?.[2] as {
-      onCompleted: (
-        completed: { id: string; text: string; reasoning: string },
-        transaction: unknown,
-      ) => void
-    }
-    expect(() =>
-      onCompleted(
-        {
-          id: "stream-id",
-          text: JSON.stringify({ winnerSlot: "invalid" }),
-          reasoning: "",
-        },
-        {},
-      ),
-    ).toThrow()
-    expect(mocks.callOptions).toHaveBeenCalledWith("xhigh")
-    await expect(result.output).resolves.toEqual({ winnerSlot: 0 })
-  })
-
-  it("parses structured output before running a terminal transaction hook", async () => {
-    const stream = { id: "raw-stream" }
-    const output = Promise.resolve({ winnerSlot: 1 })
-    const schema = z.object({ winnerSlot: z.number().int().min(0).max(1) })
-    const onCompleted = vi.fn()
-    const transaction = { id: "transaction" }
-    mocks.loadPrompt.mockResolvedValue("System prompt")
-    mocks.streamText.mockReturnValue({ stream, output })
-    mockPreparedGeneration()
-
-    await generateObjectStream({
-      userId: "test-user-id",
-      owner: { standalone: true },
-      prompt: "Judge this",
-      promptName: "default",
-      schema,
-      onCompleted,
-    })
-
-    const options = mocks.prepareTextGeneration.mock.calls[0]?.[2] as {
-      onCompleted: (
-        completed: { id: string; text: string; reasoning: string },
-        transaction: unknown,
-      ) => void
-    }
-    options.onCompleted(
-      {
-        id: "stream-id",
-        text: JSON.stringify({ winnerSlot: 1 }),
-        reasoning: "reasoning",
-      },
-      transaction,
-    )
-
-    expect(onCompleted).toHaveBeenCalledWith(
-      { id: "stream-id", output: { winnerSlot: 1 } },
-      transaction,
-    )
-  })
-
-  it("sanitizes Codex object startup failures before persistence", async () => {
-    expect.hasAssertions()
-    await expectCodexStartupFailureIsSanitized(() =>
-      generateObjectStream({
-        userId: "connected-user-id",
-        owner: { standalone: true },
-        prompt: "Judge this",
-        promptName: "default",
-        schema: z.object({ winnerSlot: z.number() }),
-      }),
-    )
+    await expect(result.output).rejects.toBeInstanceOf(z.ZodError)
   })
 
   it("rejects prototype properties before running a terminal transaction hook", async () => {
     const schema = z.object({ winnerSlot: z.number().int().min(0).max(1) })
     const onCompleted = vi.fn()
     mocks.loadPrompt.mockResolvedValue("System prompt")
-    mocks.streamText.mockReturnValue({
-      stream: { id: "raw-stream" },
-      output: Promise.resolve({ winnerSlot: 0 }),
-    })
-    mockPreparedGeneration()
+    mockPreparedGeneration(completedGenerationHandle('{"winnerSlot":0}'))
 
     await generateObjectStream({
       userId: "test-user-id",
@@ -356,30 +238,28 @@ describe("structured generation", () => {
     expect(onCompleted).not.toHaveBeenCalled()
   })
 
-  it("forwards structured-stream registration hooks", async () => {
-    const stream = { id: "raw-stream" }
-    const schema = z.object({ decision: z.literal("stop") })
+  it("forwards structured generation lifecycle hooks", async () => {
     const onRegistered = vi.fn()
+    const onFailed = vi.fn()
+    const onInterrupted = vi.fn()
     mocks.loadPrompt.mockResolvedValue("System prompt")
-    mocks.streamText.mockReturnValue({
-      stream,
-      output: Promise.resolve({ decision: "stop" }),
-    })
-    mockPreparedGeneration()
+    mockPreparedGeneration(completedGenerationHandle('{"decision":"stop"}'))
 
     await generateObjectStream({
       userId: "test-user-id",
       owner: { standalone: true },
       prompt: "Review this",
       promptName: "default",
-      schema,
+      schema: z.object({ decision: z.literal("stop") }),
       onRegistered,
+      onFailed,
+      onInterrupted,
     })
 
     expect(mocks.prepareTextGeneration).toHaveBeenCalledWith(
       "test-user-id",
       { standalone: true },
-      expect.objectContaining({ onRegistered }),
+      expect.objectContaining({ onRegistered, onFailed, onInterrupted }),
     )
   })
 })

@@ -62,6 +62,53 @@ function expectOpenAiConnectionIdentityConstraints(
       ),
     ).toThrow(/openai_codex_connections_connection_id_check/)
   }
+
+  expect(() =>
+    insertConnection.run(
+      `${prefix}-invalid`,
+      "connection-empty-ciphertext",
+      Buffer.alloc(0),
+      Buffer.alloc(12),
+      Buffer.alloc(16),
+    ),
+  ).toThrow(/openai_codex_connections_ciphertext_check/)
+  expect(() =>
+    insertConnection.run(
+      `${prefix}-invalid`,
+      "connection-text-ciphertext",
+      "ciphertext",
+      Buffer.alloc(12),
+      Buffer.alloc(16),
+    ),
+  ).toThrow(/openai_codex_connections_ciphertext_check/)
+  expect(() =>
+    insertConnection.run(
+      `${prefix}-invalid`,
+      "connection-bad-nonce",
+      Buffer.from("ciphertext"),
+      Buffer.alloc(11),
+      Buffer.alloc(16),
+    ),
+  ).toThrow(/openai_codex_connections_nonce_check/)
+  expect(() =>
+    insertConnection.run(
+      `${prefix}-invalid`,
+      "connection-bad-tag",
+      Buffer.from("ciphertext"),
+      Buffer.alloc(12),
+      Buffer.alloc(15),
+    ),
+  ).toThrow(/openai_codex_connections_authentication_tag_check/)
+
+  sqlite.prepare("DELETE FROM user WHERE id = ?").run(`${prefix}-valid`)
+  expect(
+    sqlite
+      .prepare(
+        "SELECT count(*) FROM openai_codex_connections WHERE user_id = ?",
+      )
+      .pluck()
+      .get(`${prefix}-valid`),
+  ).toBe(0)
 }
 
 function expectLlmModelSettingsConstraints(

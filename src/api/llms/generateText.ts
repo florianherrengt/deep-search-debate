@@ -1,12 +1,10 @@
-import { Output, streamText } from "ai"
-import { secureJsonParse } from "@ai-sdk/provider-utils"
 import PQueue from "p-queue"
 import z from "zod"
 import { config } from "../config.ts"
 import { requirePositiveCreditBalance } from "../credits.ts"
 import { addAbortableQueueTask } from "../helpers/addAbortableQueueTask.ts"
+import { secureJsonParse } from "../helpers/secureJsonParse.ts"
 import { classifyCodexError } from "../openaiConnection/codexErrors.ts"
-import { FatalCodexContainmentError } from "../openaiConnection/codexSession/process.ts"
 import { calculateLlmCredits } from "./costs/index.ts"
 import { PromptName, loadPrompt } from "./prompts.ts"
 import { snapshotLlmModelAssignment } from "./modelSettings.ts"
@@ -18,11 +16,13 @@ import {
 import {
   prepareTextGeneration,
   awaitGenerationOutput,
+  awaitGenerationText,
   type GenerationHandle,
   type LlmGenerationOwner,
   type TextGenerationPersistenceCallbacks,
   type TextStreamPersistenceTransaction,
 } from "./streams.ts"
+import type { StartedLlmStream } from "./streamTypes.ts"
 
 const promptTitleSchema = z.object({
   title: z.string().trim().min(1).max(80),
@@ -36,12 +36,6 @@ type GenerateStreamInput = {
   temperature?: number
   maxOutputTokens?: number
   workflowSignal?: AbortSignal
-}
-
-const streamTimeout = {
-  totalMs: config.llmExecution.totalTimeoutMs,
-  firstChunkMs: config.llmExecution.firstChunkTimeoutMs,
-  chunkMs: config.llmExecution.chunkTimeoutMs,
 }
 
 const llmGenerationQueue = new PQueue({
@@ -80,15 +74,17 @@ async function enqueueStreamingGeneration<T extends GenerationHandle>(
       } catch (error) {
         try {
           await call.release()
-        } catch (releaseError) {
-          if (releaseError instanceof FatalCodexContainmentError) {
-            throw releaseError
-          }
+        } catch {
+          // Preserve the original startup failure.
         }
         throw error
       }
       ready.resolve(generation)
-      await generation.completion
+      try {
+        await generation.completion
+      } finally {
+        await call.release()
+      }
     },
     signal,
   )
@@ -114,18 +110,13 @@ function parseStructuredText<Result>(
   return schema.parse(secureJsonParse(text))
 }
 
-// The SDK's default stream handler logs the complete provider error object,
-// which can contain request details. Durable generation state and the bounded
-// privacy-safe failure log provide the diagnostics this application exposes.
-const suppressProviderErrorLogging = () => undefined
-
 async function loadStructuredPrompt(
   promptName: PromptName,
   schema: z.ZodType,
-  supportsStructuredOutputs: boolean,
+  provider: ResolvedLlmCall["provider"],
 ): Promise<string> {
   const system = await loadPrompt(promptName)
-  if (supportsStructuredOutputs) return system
+  if (provider === "codex") return system
 
   const jsonSchema = z.toJSONSchema(schema, { target: "draft-7" })
   return [
@@ -151,22 +142,18 @@ function generationRegistrationMetadata(
   }
 }
 
-function streamTextBaseOptions(
-  call: ResolvedLlmCall,
+function piStreamRequest(
   params: GenerateStreamInput,
   system: string,
+  jsonSchema?: Record<string, unknown>,
 ) {
   return {
-    model: call.model,
     prompt: params.prompt,
     system,
     temperature: params.temperature,
     maxOutputTokens: boundedOutputTokens(params.maxOutputTokens),
-    maxRetries: config.llmExecution.maxRetries,
-    timeout: streamTimeout,
-    abortSignal: params.workflowSignal,
-    onError: suppressProviderErrorLogging,
-    ...call.callOptions,
+    workflowSignal: params.workflowSignal,
+    ...(jsonSchema && { jsonSchema }),
   }
 }
 
@@ -178,7 +165,6 @@ async function releaseAfterStartFailure(
   try {
     await call.release()
   } catch (releaseError) {
-    if (releaseError instanceof FatalCodexContainmentError) throw releaseError
     failure = releaseError
   }
   return call.provider === "codex" ? classifyCodexError(failure) : failure
@@ -205,13 +191,13 @@ export async function generateTextStream(
         workflowSignal: params.workflowSignal,
         metadata: generationRegistrationMetadata(call, params.promptName),
       })
-      let result: ReturnType<typeof streamText>
+      let result: StartedLlmStream
       try {
-        result = streamText(streamTextBaseOptions(call, params, system))
+        result = call.start(piStreamRequest(params, system))
       } catch (error) {
         return prepared.fail(await releaseAfterStartFailure(call, error))
       }
-      return prepared.start(call.wrapStream(result.stream), {
+      return prepared.start(result.stream, {
         finishReason: result.finishReason,
         rawFinishReason: result.rawFinishReason,
         usage: result.usage,
@@ -264,7 +250,7 @@ export async function generateArrayStream<Element>(
       const system = await loadStructuredPrompt(
         params.promptName,
         outputSchema,
-        call.supportsStructuredOutputs,
+        call.provider,
       )
       const prepared = prepareTextGeneration(params.userId, params.owner, {
         metadata: generationRegistrationMetadata(call, params.promptName),
@@ -272,9 +258,8 @@ export async function generateArrayStream<Element>(
         onInterrupted: params.onInterrupted,
         onFailed: params.onFailed,
         workflowSignal: params.workflowSignal,
-        // Validate the persisted payload inside the terminal transaction. The AI
-        // SDK exposes result.output on a separate promise, which can reject only
-        // after stream consumption would otherwise mark the call billable.
+        // Validate inside the terminal transaction before the call is marked
+        // successful and billable.
         onCompleted: (completed, transaction) => {
           const output = parseStructuredText(
             outputSchema,
@@ -283,12 +268,12 @@ export async function generateArrayStream<Element>(
           params.onCompleted?.({ id: completed.id, output }, transaction)
         },
       })
-      let result: ReturnType<typeof streamText>
+      const jsonSchema = z.toJSONSchema(outputSchema, { target: "draft-7" })
+      let result: StartedLlmStream
       try {
-        result = streamText({
-          ...streamTextBaseOptions(call, params, system),
-          output: Output.array({ element: params.element }),
-        })
+        result = call.start(
+          piStreamRequest(params, system, jsonSchema),
+        )
       } catch (error) {
         const failure = await releaseAfterStartFailure(call, error)
         return {
@@ -296,12 +281,17 @@ export async function generateArrayStream<Element>(
           output: rejectedOutput<Element[]>(failure),
         }
       }
-      const generation = prepared.start(call.wrapStream(result.stream), {
+      const generation = prepared.start(result.stream, {
         finishReason: result.finishReason,
         rawFinishReason: result.rawFinishReason,
         usage: result.usage,
       })
-      return { ...generation, output: Promise.resolve(result.output) }
+      return {
+        ...generation,
+        output: awaitGenerationText(generation).then(
+          (text) => parseStructuredText(outputSchema, text).elements,
+        ),
+      }
     },
     params.workflowSignal,
   )
@@ -334,7 +324,7 @@ export async function generateObjectStream<Result>(
       const system = await loadStructuredPrompt(
         params.promptName,
         params.schema,
-        call.supportsStructuredOutputs,
+        call.provider,
       )
       const prepared = prepareTextGeneration(params.userId, params.owner, {
         metadata: generationRegistrationMetadata(call, params.promptName),
@@ -347,12 +337,12 @@ export async function generateObjectStream<Result>(
           params.onCompleted?.({ id: completed.id, output }, transaction)
         },
       })
-      let result: ReturnType<typeof streamText>
+      const jsonSchema = z.toJSONSchema(params.schema, { target: "draft-7" })
+      let result: StartedLlmStream
       try {
-        result = streamText({
-          ...streamTextBaseOptions(call, params, system),
-          output: Output.object({ schema: params.schema }),
-        })
+        result = call.start(
+          piStreamRequest(params, system, jsonSchema),
+        )
       } catch (error) {
         const failure = await releaseAfterStartFailure(call, error)
         return {
@@ -360,12 +350,17 @@ export async function generateObjectStream<Result>(
           output: rejectedOutput<Result>(failure),
         }
       }
-      const generation = prepared.start(call.wrapStream(result.stream), {
+      const generation = prepared.start(result.stream, {
         finishReason: result.finishReason,
         rawFinishReason: result.rawFinishReason,
         usage: result.usage,
       })
-      return { ...generation, output: Promise.resolve(result.output) }
+      return {
+        ...generation,
+        output: awaitGenerationText(generation).then((text) =>
+          parseStructuredText(params.schema, text)
+        ),
+      }
     },
     params.workflowSignal,
   )

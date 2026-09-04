@@ -1,6 +1,0 @@
-#ifndef RETHINKLOOP_CODEX_ISOLATION_SECCOMP_H
-#define RETHINKLOOP_CODEX_ISOLATION_SECCOMP_H
-
-void apply_seccomp(void);
-
-#endif
