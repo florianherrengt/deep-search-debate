@@ -17,9 +17,9 @@ export const rootResearchJobKinds = [
 export type RootResearchJobKind = (typeof rootResearchJobKinds)[number]
 
 /**
- * Records charged root-workflow creation attempts before any provider call.
- * Rows deliberately survive failed title generation so failures cannot bypass
- * the rolling quota. They are removed only when their owning user is deleted.
+ * Retains historical creation admissions after removal of rolling quotas.
+ * Runtime creation no longer reads or writes these rows; the table remains
+ * to avoid a destructive migration and still cascades with its owning user.
  */
 export const researchJobAdmissions = sqliteTable(
   "research_job_admissions",

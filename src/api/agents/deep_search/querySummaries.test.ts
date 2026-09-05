@@ -71,7 +71,6 @@ describe("query summaries", () => {
       ].join("\n"),
       promptName: "summarize-search-query",
       reasoning: "disabled",
-      maxOutputTokens: 2_048,
     })
     expect(generation.streamId).toBe("query-summary-stream-id")
     await expect(generation.summary).resolves.toBe("Completed query summary")

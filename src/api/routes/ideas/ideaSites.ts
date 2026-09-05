@@ -75,7 +75,6 @@ export async function generateIdeaSite(
     promptName: PromptName.CreateIdeaSite,
     // Retained compatibility hint; the current Big role effort is authoritative.
     reasoning: "disabled",
-    maxOutputTokens: 65_536,
     workflowSignal: input.workflowSignal,
     onRegistered: input.onRegistered,
   })

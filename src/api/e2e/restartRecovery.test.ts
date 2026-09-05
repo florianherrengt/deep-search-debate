@@ -189,10 +189,6 @@ async function startApi(input: {
         SEARXNG_URL: "https://e2e-search.test",
         SEARXNG_MIN_INTERVAL_MS: "0",
         SCRAPINGANT_API_KEY: "e2e-scrapingant-key",
-        RESEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW: "100",
-        DEEP_SEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW: "100",
-        IDEA_JOB_MAX_ROOT_JOB_CREATIONS_PER_WINDOW: "100",
-        DEBATE_MAX_ROOT_JOB_CREATIONS_PER_WINDOW: "100",
         RETHINKLOOP_RESTART_CONTROL: "1",
         RETHINKLOOP_RESTART_HOLD: JSON.stringify(input.hold ?? {}),
         RETHINKLOOP_RESTART_HOLD_AFTER_SUCCESS: JSON.stringify(

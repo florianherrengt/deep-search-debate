@@ -56,10 +56,7 @@ export async function summarizeSearchQuery(
     owner: { deepSearchJobId: params.deepSearchJobId },
     prompt,
     promptName: PromptName.SummarizeSearchQuery,
-    // Reserve the bounded output for the durable synthesis rather than hidden
-    // reasoning; DeepSeek counts both against maxOutputTokens.
     reasoning: "disabled",
-    maxOutputTokens: 2_048,
     workflowSignal: params.workflowSignal,
     ...(params.onRegistered ? { onRegistered: params.onRegistered } : {}),
     ...(params.onCompleted ? { onCompleted: params.onCompleted } : {}),

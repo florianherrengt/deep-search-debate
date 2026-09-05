@@ -72,7 +72,6 @@ export async function startRoundReview(
     promptName: PromptName.ReviewDeepSearchRound,
     schema: roundReviewSchema,
     reasoning: "enabled",
-    maxOutputTokens: 1_024,
     workflowSignal: input.workflowSignal,
     onCompleted: input.onCompleted,
     onRegistered: input.onRegistered,

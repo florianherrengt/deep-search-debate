@@ -9,7 +9,6 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import z from "zod"
 
-import { config } from "../config.ts"
 import {
   generateArrayStream,
   generateObjectStream,
@@ -41,7 +40,6 @@ describe("structured generation", () => {
       .object({
         prompt: z.literal("Hello"),
         system: z.string(),
-        maxOutputTokens: z.literal(config.llmExecution.maxOutputTokens),
         jsonSchema: z.object({
           type: z.literal("object"),
           properties: z.object({
@@ -51,6 +49,7 @@ describe("structured generation", () => {
       })
       .loose()
       .parse(mocks.start.mock.calls[0]?.[0])
+    expect(request).not.toHaveProperty("maxOutputTokens")
     expect(request.system).toContain("System prompt")
     expect(request.system).toContain("Return only valid JSON")
     expect(request.system).toContain('"elements"')

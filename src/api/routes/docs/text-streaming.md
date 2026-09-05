@@ -37,11 +37,9 @@ Every LLM call shares one process-wide admission queue (four active generations
 by default), including text, structured output, and title generation. A permit
 is held until the durable terminal generation transaction settles; provider
 retries cannot bypass it. Every streaming provider call has configured total,
-first-content, and inter-content deadlines. Server-funded providers also apply
-an explicit output-token ceiling, with narrower stage budgets where
-appropriate. Pi's direct Codex transport does not send an output-token cap, so
-OpenAI-connected calls intentionally have no Codex-specific cap beyond the
-shared deadlines and cancellation behavior. Every prompt name maps
+first-content, and inter-content deadlines. The application sends no output-token
+cap for any provider or stage, including title generation. Provider model limits,
+shared deadlines, and cancellation behavior still apply. Every prompt name maps
 exhaustively to Small or Big; the selected role's reasoning effort is
 authoritative for text and structured generation alike. Older call-site
 enabled/disabled arguments remain accepted only for compatibility and cannot

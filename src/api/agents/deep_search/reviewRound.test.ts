@@ -65,11 +65,11 @@ describe("deep-search round review", () => {
       }),
     )
     const call = mocks.generateObjectStream.mock.calls[0]?.[0] as
-      | { prompt: string; maxOutputTokens?: number }
+      | { prompt: string }
       | undefined
     expect(call).toBeDefined()
     if (!call) throw new Error("generateObjectStream was not called")
-    expect(call.maxOutputTokens).toBe(1_024)
+    expect(call).not.toHaveProperty("maxOutputTokens")
     expect(call.prompt).toContain("completed_rounds: 2")
     expect(call.prompt).toContain("maximum_rounds: 3")
     expect(call.prompt).toContain("<candidate_answer>")

@@ -9,7 +9,7 @@ import { and, count, eq, isNull } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/better-sqlite3"
 import { migrate } from "drizzle-orm/better-sqlite3/migrator"
 import { HTTPException } from "hono/http-exception"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it } from "vitest"
 
 import { config } from "../config.ts"
 import { db } from "../db/index.ts"
@@ -124,10 +124,6 @@ function createWalChildMessageReader(
 }
 
 function spawnWalChild(databasePath: string): ChildProcess {
-  const researchCapacityUrl = new URL(
-    "./researchCapacity.ts",
-    import.meta.url,
-  ).href
   const deepSearchManagerUrl = new URL(
     "./deepSearch/manager.ts",
     import.meta.url,
@@ -140,11 +136,9 @@ function spawnWalChild(databasePath: string): ChildProcess {
     Database.prototype.prepare = function (source) {
       const statement = originalPrepare.call(this, source)
       const normalized = String(source).trimStart().toLowerCase()
-      const table = normalized.startsWith("insert") && normalized.includes("research_job_admissions")
-        ? "research_job_admissions"
-        : normalized.startsWith("insert") && normalized.includes("deep_search_jobs")
-          ? "deep_search_jobs"
-          : undefined
+      const table = normalized.startsWith("insert") && normalized.includes("deep_search_jobs")
+        ? "deep_search_jobs"
+        : undefined
       if (table === undefined) return statement
       return new Proxy(statement, {
         get(target, property) {
@@ -178,28 +172,10 @@ function spawnWalChild(databasePath: string): ChildProcess {
       return new Promise(() => {})
     }
 
-    const { reserveRootResearchCapacity } = await import(${JSON.stringify(researchCapacityUrl)})
     const { createDeepSearchJobManager } = await import(${JSON.stringify(deepSearchManagerUrl)})
     const manager = createDeepSearchJobManager()
 
     process.on("message", async (message) => {
-      if (message?.type === "capacity") {
-        try {
-          const release = reserveRootResearchCapacity("wal-user-id", "deep-search")
-          release()
-          process.send?.({ type: "capacity-result", status: 200 })
-        } catch (error) {
-          const response = typeof error?.getResponse === "function"
-            ? error.getResponse()
-            : undefined
-          process.send?.({
-            type: "capacity-result",
-            status: response?.status ?? null,
-            error: error instanceof Error ? error.message : String(error),
-          })
-        }
-        return
-      }
       if (message?.type === "slug") {
         try {
           const started = await manager.start("wal-user-id", {
@@ -238,10 +214,6 @@ function spawnWalChild(databasePath: string): ChildProcess {
       env: {
         ...process.env,
         DATABASE_URL: databasePath,
-        DEBATE_MAX_ROOT_JOB_CREATIONS_PER_WINDOW: "1",
-        DEEP_SEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW: "1",
-        IDEA_JOB_MAX_ROOT_JOB_CREATIONS_PER_WINDOW: "1",
-        RESEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW: "1",
       },
       stdio: ["ignore", "ignore", "pipe", "ipc"],
     },
@@ -272,33 +244,7 @@ describe("root research admission", () => {
     db.delete(researchJobAdmissions).run()
   })
 
-  it("keeps a charged admission after the pending reservation is released", () => {
-    const release = reserveRootResearchCapacity(
-      "test-user-id",
-      "deep-search",
-    )
-
-    release()
-
-    expect(db.select().from(researchJobAdmissions).all()).toHaveLength(1)
-  })
-
-  it("reserves the WAL writer before reading and charging capacity", () => {
-    const transaction = vi.spyOn(db, "transaction")
-
-    const release = reserveRootResearchCapacity(
-      "test-user-id",
-      "deep-search",
-    )
-    release()
-
-    expect(transaction).toHaveBeenCalledWith(expect.any(Function), {
-      behavior: "immediate",
-    })
-    transaction.mockRestore()
-  })
-
-  it("serializes capacity and slug allocation across WAL connections", async () => {
+  it("serializes slug allocation across WAL connections", async () => {
     const temporaryDirectory = mkdtempSync(
       join(tmpdir(), "rethinkloop-capacity-wal-"),
     )
@@ -343,33 +289,6 @@ describe("root research admission", () => {
       child = spawnWalChild(databasePath)
       const messages = createWalChildMessageReader(child)
       await messages.waitFor("ready")
-
-      sqlite.exec("BEGIN IMMEDIATE")
-      sqlite
-        .prepare(
-          `insert into research_job_admissions (
-             research_job_admission_id, user_id, kind, created_at
-           ) values (?, ?, ?, ?)`,
-        )
-        .run("competing-admission", "wal-user-id", "idea", Date.now())
-      const capacityBehavior = await releaseContendedWriter(
-        sqlite,
-        messages,
-        child,
-        "capacity",
-        "research_job_admissions",
-      )
-      const capacityResult = await messages.waitFor("capacity-result")
-
-      expect(capacityBehavior).toBe("immediate")
-      expect(capacityResult).toMatchObject({ status: 429 })
-      expect(
-        sqlite
-          .prepare(
-            "select count(*) as count from research_job_admissions where user_id = ?",
-          )
-          .get("wal-user-id"),
-      ).toEqual({ count: 1 })
 
       sqlite.exec("BEGIN IMMEDIATE")
       sqlite
@@ -432,43 +351,12 @@ describe("root research admission", () => {
     }
   }, 15_000)
 
-  it("returns Retry-After when a workflow kind reaches its rolling quota", () => {
-    db.insert(researchJobAdmissions)
-      .values(
-        Array.from(
-          {
-            length: config.abuseProtection.maxDebateCreationsPerWindow,
-          },
-          (_, position) => ({
-            researchJobAdmissionId: `debate-admission-${position}`,
-            userId: "test-user-id",
-            kind: "debate" as const,
-          }),
-        ),
-      )
-      .run()
-
-    let rejection: unknown
-    try {
-      reserveRootResearchCapacity("test-user-id", "debate")
-    } catch (error) {
-      rejection = error
-    }
-
-    expect(rejection).toBeInstanceOf(HTTPException)
-    const response = (rejection as HTTPException).getResponse()
-    expect(response.status).toBe(429)
-    expect(Number(response.headers.get("Retry-After"))).toBeGreaterThan(0)
-  })
-
-  it("applies the combined root-workflow quota across job kinds", () => {
+  it("allows repeated reservations despite historical admissions without recording new ones", () => {
     const kinds = ["deep-search", "idea", "debate"] as const
     db.insert(researchJobAdmissions)
       .values(
         Array.from(
-          {
-            length: config.abuseProtection.maxRootJobCreationsPerWindow,
-          },
+          { length: 60 },
           (_, position) => ({
             researchJobAdmissionId: `root-admission-${position}`,
             userId: "test-user-id",
@@ -478,46 +366,18 @@ describe("root research admission", () => {
       )
       .run()
 
-    expect(() =>
-      reserveRootResearchCapacity("test-user-id", "deep-search"),
-    ).toThrow(HTTPException)
-  })
+    const historicalAdmissions = db.select().from(researchJobAdmissions).all()
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const release = reserveRootResearchCapacity("test-user-id")
+      release()
+    }
 
-  it("does not count admissions outside the rolling window", () => {
-    const expiredAt = new Date(
-      Date.now() -
-        config.abuseProtection.researchJobCreationWindowMs -
-        1_000,
+    expect(db.select().from(researchJobAdmissions).all()).toEqual(
+      historicalAdmissions,
     )
-    db.insert(researchJobAdmissions)
-      .values(
-        Array.from(
-          {
-            length: config.abuseProtection.maxDebateCreationsPerWindow,
-          },
-          (_, position) => ({
-            researchJobAdmissionId: `expired-admission-${position}`,
-            userId: "test-user-id",
-            kind: "debate" as const,
-            createdAt: expiredAt,
-          }),
-        ),
-      )
-      .run()
-
-    const release = reserveRootResearchCapacity("test-user-id", "debate")
-    release()
-
-    expect(
-      db
-        .select()
-        .from(researchJobAdmissions)
-        .where(eq(researchJobAdmissions.kind, "debate"))
-        .all(),
-    ).toHaveLength(config.abuseProtection.maxDebateCreationsPerWindow + 1)
   })
 
-  it("does not charge a request rejected by the active-job limit", () => {
+  it("still rejects a request when the user has no active-job capacity", () => {
     db.insert(deepSearchJobs)
       .values(
         Array.from(
@@ -537,7 +397,7 @@ describe("root research admission", () => {
       .run()
 
     expect(() =>
-      reserveRootResearchCapacity("test-user-id", "deep-search"),
+      reserveRootResearchCapacity("test-user-id"),
     ).toThrow(HTTPException)
     expect(db.select().from(researchJobAdmissions).all()).toEqual([])
   })

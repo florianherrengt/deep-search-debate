@@ -171,9 +171,9 @@ invariant. `isPublic` is optional and defaults to `false`.
 
 The `Location` header points to `/api/debate-jobs/:slug`. Debate creation reuses
 the generated title and slug stored by its owned idea job.
-Only authenticated users can create debates. A durable rolling 24-hour quota
-permits one debate and five total root workflows per user by default; it is
-charged before title generation and returns `429` with `Retry-After` when full.
+Only authenticated users can create debates. There is no daily creation quota;
+the shared active-root capacity still applies, and a failed title preflight
+releases its pending capacity.
 Anonymous access remains read-only and is limited to public debate aggregates.
 
 ### `GET /api/debate-jobs`

@@ -101,12 +101,6 @@ const nonSecretEnvironmentShape = {
     .min(5_000)
     .max(300_000)
     .default(60_000),
-  LLM_MAX_OUTPUT_TOKENS: z.coerce
-    .number()
-    .int()
-    .min(1_000)
-    .max(65_536)
-    .default(65_536),
   LLM_MAX_RETRIES: z.coerce.number().int().min(0).max(10).default(2),
   LLM_MAX_CONCURRENT_GENERATIONS: z.coerce
     .number()
@@ -120,36 +114,6 @@ const nonSecretEnvironmentShape = {
     .min(1)
     .max(20)
     .default(2),
-  RESEARCH_JOB_CREATION_WINDOW_MS: z.coerce
-    .number()
-    .int()
-    .min(60_000)
-    .max(604_800_000)
-    .default(86_400_000),
-  RESEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW: z.coerce
-    .number()
-    .int()
-    .min(1)
-    .max(100)
-    .default(5),
-  DEEP_SEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW: z.coerce
-    .number()
-    .int()
-    .min(1)
-    .max(100)
-    .default(4),
-  IDEA_JOB_MAX_ROOT_JOB_CREATIONS_PER_WINDOW: z.coerce
-    .number()
-    .int()
-    .min(1)
-    .max(100)
-    .default(2),
-  DEBATE_MAX_ROOT_JOB_CREATIONS_PER_WINDOW: z.coerce
-    .number()
-    .int()
-    .min(1)
-    .max(100)
-    .default(1),
   SEARXNG_URL: z.url().optional(),
   SEARXNG_CATEGORIES: z
     .string()
@@ -380,21 +344,6 @@ const environmentSchema = z.object({
       message: "LLM_CHUNK_TIMEOUT_MS cannot exceed LLM_GENERATION_TIMEOUT_MS",
       path: ["LLM_CHUNK_TIMEOUT_MS"],
     })
-  }
-  const rootCreationLimit =
-    environment.RESEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW
-  for (const key of [
-    "DEEP_SEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW",
-    "IDEA_JOB_MAX_ROOT_JOB_CREATIONS_PER_WINDOW",
-    "DEBATE_MAX_ROOT_JOB_CREATIONS_PER_WINDOW",
-  ] as const) {
-    if (environment[key] > rootCreationLimit) {
-      context.addIssue({
-        code: "custom",
-        message: `${key} cannot exceed RESEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW`,
-        path: [key],
-      })
-    }
   }
   if (environment.DEBATE_MAX_IDEA_COUNT > environment.IDEA_JOB_MAX_IDEA_COUNT) {
     context.addIssue({
@@ -642,18 +591,6 @@ export const config = {
       password: environment.AUTH_DEBUG_USER_PASSWORD,
     },
   },
-  abuseProtection: {
-    researchJobCreationWindowMs:
-      environment.RESEARCH_JOB_CREATION_WINDOW_MS,
-    maxRootJobCreationsPerWindow:
-      environment.RESEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW,
-    maxDeepSearchCreationsPerWindow:
-      environment.DEEP_SEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW,
-    maxIdeaJobCreationsPerWindow:
-      environment.IDEA_JOB_MAX_ROOT_JOB_CREATIONS_PER_WINDOW,
-    maxDebateCreationsPerWindow:
-      environment.DEBATE_MAX_ROOT_JOB_CREATIONS_PER_WINDOW,
-  },
   webSearch: {
     provider:
       environment.NODE_ENV === "production"
@@ -725,7 +662,6 @@ export const config = {
     totalTimeoutMs: environment.LLM_GENERATION_TIMEOUT_MS,
     firstChunkTimeoutMs: environment.LLM_FIRST_CHUNK_TIMEOUT_MS,
     chunkTimeoutMs: environment.LLM_CHUNK_TIMEOUT_MS,
-    maxOutputTokens: environment.LLM_MAX_OUTPUT_TOKENS,
     maxRetries: environment.LLM_MAX_RETRIES,
     maxConcurrentGenerations: environment.LLM_MAX_CONCURRENT_GENERATIONS,
     maxActiveStandaloneGenerationsPerUser:

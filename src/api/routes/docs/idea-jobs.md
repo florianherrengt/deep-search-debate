@@ -149,10 +149,8 @@ limit (two by default). A running idea or debate pipeline consumes one root
 slot; its child searches do not consume more slots and instead share the
 process-wide deep-search execution queue. The slot is reserved before the
 asynchronous title preflight so racing requests cannot both consume provider
-work for one remaining slot. The rolling 24-hour quota permits at most two
-standalone idea runs and five total root workflows per user by default. A
-charged admission remains after a later title-preflight failure; rate rejections
-include `Retry-After`.
+work for one remaining slot. There is no daily creation quota; a failed title
+preflight releases its pending capacity.
 
 The response is:
 

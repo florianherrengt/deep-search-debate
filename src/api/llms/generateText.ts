@@ -34,7 +34,6 @@ type GenerateStreamInput = {
   prompt: string
   promptName: PromptName
   temperature?: number
-  maxOutputTokens?: number
   workflowSignal?: AbortSignal
 }
 
@@ -44,14 +43,6 @@ const llmGenerationQueue = new PQueue({
 
 function asError(error: unknown, fallback: string): Error {
   return error instanceof Error ? error : new Error(fallback, { cause: error })
-}
-
-/** Keeps per-stage budgets below the operator's deployment-wide ceiling. */
-function boundedOutputTokens(requested?: number): number {
-  return Math.min(
-    requested ?? config.llmExecution.maxOutputTokens,
-    config.llmExecution.maxOutputTokens,
-  )
 }
 
 async function enqueueStreamingGeneration<T extends GenerationHandle>(
@@ -151,7 +142,6 @@ function piStreamRequest(
     prompt: params.prompt,
     system,
     temperature: params.temperature,
-    maxOutputTokens: boundedOutputTokens(params.maxOutputTokens),
     workflowSignal: params.workflowSignal,
     ...(jsonSchema && { jsonSchema }),
   }
@@ -218,7 +208,6 @@ export async function generatePromptTitle(
     owner: { standalone: true },
     prompt: `<user_request>\n${prompt}\n</user_request>`,
     promptName: PromptName.GeneratePromptTitle,
-    maxOutputTokens: 50,
     schema: promptTitleSchema,
     workflowSignal,
   })

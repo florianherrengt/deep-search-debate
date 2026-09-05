@@ -188,32 +188,20 @@ validated by `config.ts` through `DEEP_SEARCH_MAX_SEARCHES`,
 `RESEARCH_MAX_SELECTED_PAGES_PER_ROOT_JOB`, `IDEA_JOB_MAX_IDEA_COUNT`,
 `IDEA_JOB_MAX_DEEP_SEARCH_COUNT`, and the `DEBATE_MAX_*` workload settings.
 
-Root creation also uses a durable rolling-window quota before title generation
-or any other provider work. The default 24-hour window permits five total root
-attempts per user: at most four standalone deep searches, two standalone idea
-runs, and one debate. A charged admission remains after a later preflight
-failure, preventing cheap validation failures from becoming a provider-cost
-bypass. A rate rejection returns `429` with `Retry-After`. Configure the window
-and ceilings with `RESEARCH_JOB_CREATION_WINDOW_MS`,
-`RESEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW`,
-`DEEP_SEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW`,
-`IDEA_JOB_MAX_ROOT_JOB_CREATIONS_PER_WINDOW`, and
-`DEBATE_MAX_ROOT_JOB_CREATIONS_PER_WINDOW`.
+Root creation has no daily or rolling-window quota. Completed and failed
+attempts do not restrict later creation, and historical admission rows are no
+longer read or written. The existing table is retained so removing the quota
+does not require a destructive schema change. Active root capacity is still
+reserved before title generation and released when preflight fails.
 
 Every LLM stream has total, first-content, and inter-content deadlines. The
 defaults are 300, 120, and 60 seconds and are configured with
 `LLM_GENERATION_TIMEOUT_MS`, `LLM_FIRST_CHUNK_TIMEOUT_MS`, and
-`LLM_CHUNK_TIMEOUT_MS`. `LLM_MAX_OUTPUT_TOKENS` is a 65,536-token operator
-ceiling by default — a runaway-output guard rather than a cost target, sized so
-the max-reasoning winner website keeps room for the complete HTML page; stages
-send smaller explicit budgets when their outputs are
-known to be short. Pi's server providers enforce these output budgets. Pi's
-Codex provider currently ignores `maxTokens`, so connected
-OpenAI calls retain only the existing deadlines and cancellation behavior and
-do not add a Codex-specific output cap. Provider-request failures use two Pi
+`LLM_CHUNK_TIMEOUT_MS`. No stage or deployment-wide output-token cap is sent to
+Pi. Its raw streaming API leaves the output budget to the selected provider;
+the provider's own model limits still apply. Provider-request failures use two Pi
 retries by default, configured through `LLM_MAX_RETRIES`, so dependency upgrades cannot silently
-change retry cost or latency. The short title generation retains its narrower
-per-call limit. The selected Small or Big role's reasoning effort is
+change retry cost or latency. The selected Small or Big role's reasoning effort is
 authoritative for every stage; older call-site reasoning flags remain accepted
 but do not override the role. Web searches have a 30-second deadline
 configured by `WEB_SEARCH_TIMEOUT_MS` and charge the fixed product-credit amount
@@ -349,7 +337,7 @@ configuration.
 
 The API binds to `127.0.0.1` by default through `API_HOST`. This keeps the local
 development API and its paid provider integrations off the LAN. A deployment
-may override the host only when authentication, quotas,
+may override the host only when authentication,
 request-size limits, and concurrency controls are enforced by its gateway.
 The listening port is parsed from `PORT` and defaults to `3000`.
 

@@ -89,7 +89,6 @@ describe("research answer analysis", () => {
       promptName: "analyze-research-answer",
       schema: researchAnalysisSchema,
       reasoning: "disabled",
-      maxOutputTokens: 4_096,
       workflowSignal: undefined,
     })
     expect(generation.generationId).toBe("analysis-generation-id")

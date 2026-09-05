@@ -93,10 +93,9 @@ ignores this one documented peer-resolution shim.
   permitting the aggregate cascade. Generations created directly through
   `POST /api/streams` are deliberately standalone and are deleted with their
   user rather than an unrelated job.
-- `research_job_admissions` records charged root-workflow attempts before any
-  provider call. It deliberately has no job foreign key because a failed title
-  preflight must remain chargeable; rows belong to the user and cascade only
-  when that user is deleted.
+- `research_job_admissions` retains historical attempts from the removed
+  creation quota. Runtime creation no longer reads or writes this table. Its
+  existing rows belong to the user and cascade when that user is deleted.
 - `openai_codex_connections` stores at most one encrypted Codex credential blob
   per user. AES-256-GCM ciphertext, nonce, and authentication tag remain in
   separate constrained BLOB columns; the server-held key is never stored in the
@@ -239,9 +238,9 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
 
 ## Durable job models
 
-- `research_job_admissions` is the durable rolling-quota ledger. Its kind and
-  creation timestamp are immutable facts; old rows remain useful for audit even
-  after they fall outside the configured admission window.
+- `research_job_admissions` retains the kind and creation timestamp of historical
+  quota admissions. Keeping it avoids a destructive migration when removing
+  quota enforcement; new runs do not create admission rows.
 - `llm_generations` stores terminal text, reasoning, status, errors, requested
   model ID, prompt/stage name, a SQL-constrained standardized finish reason,
   available input, output, and reasoning token counts, and the owning job for

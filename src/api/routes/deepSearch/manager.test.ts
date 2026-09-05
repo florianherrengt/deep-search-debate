@@ -19,6 +19,7 @@ import {
   deepSearchWebPages,
   ideaJobs,
   llmGenerations,
+  researchJobAdmissions,
   user,
 } from "../../db/schema/index.ts"
 import { createDeepSearchJobManager } from "./manager.ts"
@@ -74,6 +75,7 @@ describe("createDeepSearchJobManager", () => {
     db.delete(ideaJobs).run()
     db.delete(deepSearchJobs).run()
     db.delete(llmGenerations).run()
+    db.delete(researchJobAdmissions).run()
     db.delete(user).where(eq(user.id, "other-test-user-id")).run()
   })
 
@@ -314,6 +316,39 @@ describe("createDeepSearchJobManager", () => {
 
     title.resolve("First Request")
     await expect(first).resolves.toMatchObject({ title: "First Request" })
+  })
+
+  it("creates further jobs after prior jobs stop even with old daily admissions", async () => {
+    const kinds = ["deep-search", "idea", "debate"] as const
+    db.insert(researchJobAdmissions)
+      .values(Array.from({ length: 60 }, (_, index) => ({
+        researchJobAdmissionId: `historical-admission-${index}`,
+        userId: "test-user-id",
+        kind: kinds[index % kinds.length] ?? "deep-search",
+      })))
+      .run()
+    mocks.runDeepSearchJob.mockImplementation((jobId: string) => {
+      interruptDeepSearchJob(jobId, "Stopped by user")
+      return Promise.resolve("")
+    })
+    const manager = createDeepSearchJobManager()
+
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const started = await manager.start("test-user-id", {
+        researchRequest: `Research request ${attempt}`,
+        maxSearches: 1,
+        maxResultsPerSearch: 1,
+        maxRounds: 1,
+      })
+      await started.completion
+    }
+
+    const jobs = db.select().from(deepSearchJobs).all()
+    expect(jobs).toHaveLength(12)
+    expect(jobs.every((job) => job.status === "interrupted")).toBe(true)
+    expect(new Set(jobs.map((job) => job.slug)).size).toBe(12)
+    expect(mocks.generatePromptTitle).toHaveBeenCalledTimes(12)
+    expect(db.select().from(researchJobAdmissions).all()).toHaveLength(60)
   })
 
   it("runs only the configured number of deep-search jobs concurrently", async () => {

@@ -7,6 +7,8 @@ import type {
   Models,
   Usage,
 } from "@earendil-works/pi-ai"
+import { createModels } from "@earendil-works/pi-ai"
+import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import z from "zod"
 import { OpenAiCodexError } from "../openaiConnection/codexErrors.ts"
@@ -180,7 +182,6 @@ const request = (overrides: Partial<PiLlmRequest> = {}): PiLlmRequest => ({
   system: "System instructions",
   prompt: "User request",
   temperature: 0.25,
-  maxOutputTokens: 4_096,
   ...overrides,
 })
 
@@ -202,9 +203,65 @@ function terminalPromises(started: StartedLlmStream) {
 
 afterEach(() => {
   vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 describe("startPiLlmStream", () => {
+  it("sends no output-token budget through the real Pi provider and receives reasoning plus a title", async () => {
+    vi.useFakeTimers()
+    const models = createModels()
+    models.setProvider(deepseekProvider())
+    const model = models.getModel("deepseek", "deepseek-v4-flash")
+    if (!model) throw new Error("Expected the configured DeepSeek model")
+    let payload: unknown
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      const outbound = new Request(input, init)
+      expect(outbound.url).toBe("https://api.deepseek.com/chat/completions")
+      payload = JSON.parse(await outbound.text()) as unknown
+      const chunks = [
+        { choices: [{ index: 0, delta: { reasoning_content: "Consider the best title." }, finish_reason: null }] },
+        { choices: [{ index: 0, delta: { content: '{"title":"Café Ideas"}' }, finish_reason: null }] },
+        {
+          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+          usage: { prompt_tokens: 10, completion_tokens: 92, total_tokens: 102 },
+        },
+      ]
+      return new Response(
+        `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`,
+        { headers: { "content-type": "text/event-stream" } },
+      )
+    })
+    vi.stubGlobal("fetch", fetch)
+
+    const started = startPiLlmStream(
+      { models, model, provider: "server", apiKey: "test-key", reasoningEffort: "medium" },
+      request({
+        jsonSchema: {
+          type: "object",
+          properties: { title: { type: "string" } },
+          required: ["title"],
+          additionalProperties: false,
+        },
+      }),
+    )
+
+    await expect(collect(started.stream)).resolves.toEqual([
+      { type: "reasoning-delta", text: "Consider the best title." },
+      { type: "text-delta", text: '{"title":"Café Ideas"}' },
+    ])
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(payload).toMatchObject({
+      model: "deepseek-v4-flash",
+      stream: true,
+      response_format: { type: "json_object" },
+    })
+    for (const field of ["max_tokens", "max_completion_tokens", "max_output_tokens"]) {
+      expect(payload).not.toHaveProperty(field)
+    }
+    await expect(started.finishReason).resolves.toBe("stop")
+    await expect(started.usage).resolves.toMatchObject({ outputTokens: 92 })
+  })
+
   it("passes the request context and exact server options to Pi", async () => {
     const done = message({ rawStopReason: "completed" })
     const { runtime, stream, model } = harness(
@@ -233,13 +290,13 @@ describe("startPiLlmStream", () => {
       apiKey: "provider-key",
       timeoutMs: 100,
       maxRetries: 3,
-      maxTokens: 4_096,
       temperature: 0.25,
       reasoningEffort: "xhigh",
       toolChoice: "none",
     })
     expect(options.signal).toBeInstanceOf(AbortSignal)
     expect(options).not.toHaveProperty("samplingParams")
+    expect(options).not.toHaveProperty("maxTokens")
   })
 
   it("requests server JSON mode and omits disabled reasoning", async () => {
@@ -329,7 +386,6 @@ describe("startPiLlmStream", () => {
     expect(options).toMatchObject({
       timeoutMs: 100,
       maxRetries: 3,
-      maxTokens: 4_096,
       temperature: 0.25,
       reasoningEffort: "medium",
       transport: "sse",
@@ -338,6 +394,7 @@ describe("startPiLlmStream", () => {
     expect(options.signal).toBeInstanceOf(AbortSignal)
     expect(options).not.toHaveProperty("apiKey")
     expect(options).not.toHaveProperty("samplingParams")
+    expect(options).not.toHaveProperty("maxTokens")
   })
 
   it("normalizes reasoning and text and preserves finish reasons and usage", async () => {

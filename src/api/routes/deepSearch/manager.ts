@@ -227,7 +227,7 @@ export function createDeepSearchJobManager(): DeepSearchJobManager {
       const normalizedInput = { ...input, ...validatedInput }
       const isRootJob = normalizedInput.ideaJobId === undefined
       const releaseCapacity = isRootJob
-        ? reserveRootResearchCapacity(userId, "deep-search")
+        ? reserveRootResearchCapacity(userId)
         : undefined
       const deepSearchJobId = randomUUID()
       const controller = createWorkflowController(options?.workflowSignal)

@@ -65,7 +65,6 @@ export async function analyzeResearchAnswer(
     promptName: PromptName.AnalyzeResearchAnswer,
     schema: researchAnalysisSchema,
     reasoning: "disabled",
-    maxOutputTokens: 4_096,
     workflowSignal: input.workflowSignal,
     ...(input.onRegistered ? { onRegistered: input.onRegistered } : {}),
     ...(input.onCompleted ? { onCompleted: input.onCompleted } : {}),

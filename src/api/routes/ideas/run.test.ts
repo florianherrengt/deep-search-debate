@@ -688,7 +688,6 @@ describe("runIdeaJob", () => {
           .object({
             prompt: z.string(),
             reasoning: z.literal("disabled"),
-            maxOutputTokens: z.literal(1_024),
           })
           .parse(value as unknown),
       )

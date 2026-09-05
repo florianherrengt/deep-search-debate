@@ -211,10 +211,7 @@ export function createIdeaJobManager(
     async start(userId, input, options) {
       const validatedInput = createIdeaJobInputSchema.parse(input)
       const normalizedInput = { ...input, ...validatedInput }
-      const releaseCapacity = reserveRootResearchCapacity(
-        userId,
-        options?.createParent ? "debate" : "idea",
-      )
+      const releaseCapacity = reserveRootResearchCapacity(userId)
       const ideaJobId = randomUUID()
       const controller = createWorkflowController(options?.workflowSignal)
       const { title: suppliedTitle } = normalizedInput

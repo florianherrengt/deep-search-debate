@@ -420,7 +420,6 @@ async function ensureResearchPrompts(
     prompt: buildResearchPrompt(input.prompt, input.deepSearchCount),
     promptName: PromptName.GenerateIdeaResearchPrompts,
     element: researchPromptSchema,
-    maxOutputTokens: 4_096,
     workflowSignal: input.workflowSignal,
     onRegistered: (generationId, transaction) => {
       setGenerationId(
@@ -564,7 +563,6 @@ async function ensureResearchSummary(
     prompt: buildSummaryPrompt(input.prompt, research),
     promptName: PromptName.SummarizeIdeaResearch,
     reasoning: "disabled",
-    maxOutputTokens: 4_096,
     workflowSignal: input.workflowSignal,
     onRegistered: (generationId, transaction) => {
       setGenerationId(
@@ -638,7 +636,6 @@ async function ensureIdeas(
     ),
     promptName: PromptName.GenerateIdeas,
     element: ideaSchema,
-    maxOutputTokens: 8_192,
     workflowSignal: input.workflowSignal,
     onRegistered: (generationId, transaction) => {
       setGenerationId(
@@ -712,7 +709,6 @@ async function evaluateIdea(
     promptName: PromptName.EvaluateIdea,
     schema: ideaEvaluationSchema,
     reasoning: "disabled",
-    maxOutputTokens: 1_024,
     workflowSignal: input.workflowSignal,
     onRegistered: (generationId, transaction) => {
       setIdeaGeneration(transaction, {
@@ -792,11 +788,7 @@ async function selectIdeas(
     prompt: buildSelectionPrompt(input.prompt, researchSummary, ideas),
     promptName: PromptName.SelectIdeas,
     schema: ideaSelectionProposalSchema,
-    // Selection is a small structured transform over an already-complete
-    // briefing. Hidden reasoning can consume the entire output budget before
-    // DeepSeek emits the required JSON.
     reasoning: "disabled",
-    maxOutputTokens: 1_024,
     workflowSignal: input.workflowSignal,
     onRegistered: (generationId, transaction) => {
       setGenerationId(
@@ -886,7 +878,6 @@ async function refineIdea(
     prompt: buildRefinementPrompt(input.prompt, researchSummary, idea),
     promptName: PromptName.RefineIdea,
     schema: ideaSchema,
-    maxOutputTokens: 2_048,
     workflowSignal: input.workflowSignal,
     onRegistered: (generationId, transaction) => {
       setIdeaGeneration(transaction, {

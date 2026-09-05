@@ -118,7 +118,7 @@ describe("configured Pi LLM provider", () => {
   it("uses Pi for an explicit DeepSeek choice while OpenAI is connected", async () => {
     const reservation = await reserveLlmCall("connected-user", deepSeekSnapshot)
     const call = await reservation.resolve()
-    const request = { system: "system", prompt: "prompt", maxOutputTokens: 100 }
+    const request = { system: "system", prompt: "prompt" }
 
     call.start(request)
 

@@ -65,10 +65,7 @@ export async function summarizePage(
     owner: { deepSearchJobId: params.deepSearchJobId },
     prompt,
     promptName: PromptName.SummarizeWebPage,
-    // This stage transforms supplied evidence. Hidden reasoning competes with
-    // the summary for the same provider output budget and can consume it all.
     reasoning: "disabled",
-    maxOutputTokens: 2_048,
     workflowSignal: params.workflowSignal,
     ...(params.onRegistered ? { onRegistered: params.onRegistered } : {}),
     ...(params.onCompleted ? { onCompleted: params.onCompleted } : {}),

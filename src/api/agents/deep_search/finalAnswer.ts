@@ -46,9 +46,7 @@ export async function answerResearchRequest(
     owner: { deepSearchJobId: params.deepSearchJobId },
     prompt,
     promptName: PromptName.AnswerResearchRequest,
-    // Final synthesis must always leave budget for user-visible text.
     reasoning: "disabled",
-    maxOutputTokens: 8_192,
     workflowSignal: params.workflowSignal,
     ...(params.onRegistered ? { onRegistered: params.onRegistered } : {}),
     ...(params.onCompleted ? { onCompleted: params.onCompleted } : {}),

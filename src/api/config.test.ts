@@ -182,35 +182,6 @@ describe("config", () => {
     })
   })
 
-  it("uses typed rolling creation quotas", async () => {
-    vi.stubEnv("RESEARCH_JOB_CREATION_WINDOW_MS", "3600000")
-    vi.stubEnv("RESEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW", "9")
-    vi.stubEnv("DEEP_SEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW", "7")
-    vi.stubEnv("IDEA_JOB_MAX_ROOT_JOB_CREATIONS_PER_WINDOW", "4")
-    vi.stubEnv("DEBATE_MAX_ROOT_JOB_CREATIONS_PER_WINDOW", "2")
-    vi.resetModules()
-
-    const { config } = await import("./config.ts")
-
-    expect(config.abuseProtection).toEqual({
-      researchJobCreationWindowMs: 3_600_000,
-      maxRootJobCreationsPerWindow: 9,
-      maxDeepSearchCreationsPerWindow: 7,
-      maxIdeaJobCreationsPerWindow: 4,
-      maxDebateCreationsPerWindow: 2,
-    })
-  })
-
-  it("rejects a per-kind creation quota above the combined quota", async () => {
-    vi.stubEnv("RESEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW", "3")
-    vi.stubEnv("DEEP_SEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW", "4")
-    vi.resetModules()
-
-    await expect(import("./config.ts")).rejects.toThrow(
-      "DEEP_SEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW cannot exceed RESEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW",
-    )
-  })
-
   it("uses a typed accumulated-summary context limit", async () => {
     vi.stubEnv("DEEP_SEARCH_MAX_SUMMARY_CONTEXT_CHARS", "75000")
     vi.resetModules()
@@ -224,7 +195,6 @@ describe("config", () => {
     vi.stubEnv("LLM_GENERATION_TIMEOUT_MS", "240000")
     vi.stubEnv("LLM_FIRST_CHUNK_TIMEOUT_MS", "90000")
     vi.stubEnv("LLM_CHUNK_TIMEOUT_MS", "45000")
-    vi.stubEnv("LLM_MAX_OUTPUT_TOKENS", "12000")
     vi.stubEnv("LLM_MAX_RETRIES", "4")
     vi.stubEnv("LLM_MAX_CONCURRENT_GENERATIONS", "5")
     vi.stubEnv("LLM_MAX_ACTIVE_STANDALONE_GENERATIONS_PER_USER", "3")
@@ -243,7 +213,6 @@ describe("config", () => {
       totalTimeoutMs: 240_000,
       firstChunkTimeoutMs: 90_000,
       chunkTimeoutMs: 45_000,
-      maxOutputTokens: 12_000,
       maxRetries: 4,
       maxConcurrentGenerations: 5,
       maxActiveStandaloneGenerationsPerUser: 3,
@@ -616,11 +585,6 @@ describe("config", () => {
       "DEEP_SEARCH_MAX_SUMMARY_CONTEXT_CHARS",
       "DEEP_SEARCH_MAX_CONCURRENT_JOBS",
       "DEEP_SEARCH_MAX_CONCURRENT_PAGE_TASKS",
-      "RESEARCH_JOB_CREATION_WINDOW_MS",
-      "RESEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW",
-      "DEEP_SEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW",
-      "IDEA_JOB_MAX_ROOT_JOB_CREATIONS_PER_WINDOW",
-      "DEBATE_MAX_ROOT_JOB_CREATIONS_PER_WINDOW",
       "RESEARCH_MAX_ACTIVE_ROOT_JOBS_PER_USER",
       "RESEARCH_MAX_SELECTED_PAGES_PER_ROOT_JOB",
       "IDEA_JOB_MAX_IDEA_COUNT",
@@ -651,13 +615,6 @@ describe("config", () => {
       maxSelectedPagesPerRootJob: 200,
       maxInitialIdeaSearches: 2,
       maxIdeaCount: 12,
-    })
-    expect(config.abuseProtection).toEqual({
-      researchJobCreationWindowMs: 86_400_000,
-      maxRootJobCreationsPerWindow: 5,
-      maxDeepSearchCreationsPerWindow: 4,
-      maxIdeaJobCreationsPerWindow: 2,
-      maxDebateCreationsPerWindow: 1,
     })
     expect(config.debate).toEqual({
       maxIdeaCount: 8,

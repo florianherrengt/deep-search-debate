@@ -12,7 +12,7 @@ import { generatePromptTitle } from "./generateText.ts"
 describe("generatePromptTitle", () => {
   beforeEach(resetGenerateTextMocks)
 
-  it("uses the Small model assignment and parses the persisted title", async () => {
+  it("uses the Small model assignment and produces a title without a 50-token generation cap", async () => {
     const started = startedLlmStream()
     mocks.loadPrompt.mockResolvedValue("Title system prompt")
     mocks.start.mockReturnValue(started)
@@ -42,8 +42,8 @@ describe("generatePromptTitle", () => {
     const request = mocks.start.mock.calls[0]?.[0]
     expect(request).toMatchObject({
       prompt: "<user_request>\nHow can renters save energy?\n</user_request>",
-      maxOutputTokens: 50,
     })
+    expect(request).not.toHaveProperty("maxOutputTokens")
     expect(request?.system).toContain("Title system prompt")
     expect(request?.system).toContain('"title"')
     expect(request?.jsonSchema).toMatchObject({ properties: { title: {} } })

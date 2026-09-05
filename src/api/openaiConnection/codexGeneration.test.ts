@@ -160,7 +160,6 @@ describe("Codex generation acquisition", () => {
     const request = {
       system: "system",
       prompt: "prompt",
-      maxOutputTokens: 100,
     }
     generation?.start(request)
     expect(mocks.startPiLlmStream).toHaveBeenCalledOnce()

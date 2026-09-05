@@ -101,7 +101,6 @@ export async function generateWebSearchQueries(
     ].join("\n"),
     promptName: PromptName.GenerateWebSearchQueries,
     element: z.string().trim().min(1).max(500),
-    maxOutputTokens: 2_048,
     workflowSignal: params.workflowSignal,
     ...(params.onRegistered ? { onRegistered: params.onRegistered } : {}),
     ...(params.onFailed ? { onFailed: params.onFailed } : {}),

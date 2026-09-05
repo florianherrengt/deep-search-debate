@@ -46,7 +46,7 @@ describe("generateTextStream", () => {
     expect(mocks.start).not.toHaveBeenCalled()
   })
 
-  it("registers the selected provider and starts Pi with the bounded request", async () => {
+  it("registers the selected provider and starts Pi without an app output-token cap", async () => {
     const started = startedLlmStream()
     const generation = completedGenerationHandle()
     const prepared = mockPreparedGeneration(generation)
@@ -59,7 +59,6 @@ describe("generateTextStream", () => {
       prompt: "Hello",
       promptName: "default",
       reasoning: "enabled",
-      maxOutputTokens: config.llmExecution.maxOutputTokens + 1_000,
       temperature: 0.25,
     })
 
@@ -81,7 +80,6 @@ describe("generateTextStream", () => {
       prompt: "Hello",
       system: "System prompt",
       temperature: 0.25,
-      maxOutputTokens: config.llmExecution.maxOutputTokens,
       workflowSignal: undefined,
     })
     expect(prepared.start).toHaveBeenCalledWith(started.stream, {
@@ -122,7 +120,6 @@ describe("generateTextStream", () => {
       prompt: "Hello",
       system: "System prompt",
       temperature: undefined,
-      maxOutputTokens: config.llmExecution.maxOutputTokens,
       workflowSignal: undefined,
     })
     expect(prepared.start).toHaveBeenCalledWith(started.stream, {

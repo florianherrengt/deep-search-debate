@@ -202,7 +202,6 @@ async function runAgentMessage(input: {
         prompt: input.prompt,
         promptName: input.promptName,
         reasoning: "disabled",
-        maxOutputTokens: 2_048,
         workflowSignal: input.workflowSignal,
         onRegistered: (generationId, transaction) => {
           if (failedGenerationId === undefined) {
@@ -296,7 +295,6 @@ async function runJudge(input: {
         ),
         promptName: PromptName.DebateJudge,
         schema: judgeVerdictSchema,
-        maxOutputTokens: 1_024,
         workflowSignal: input.workflowSignal,
         onRegistered: (generationId, transaction) => {
           if (failedGenerationId === undefined) {

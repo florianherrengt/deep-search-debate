@@ -76,10 +76,8 @@ consume additional root slots. All root and child deep-search pipelines pass
 through one process-wide queue with concurrency two by default; creation still
 returns immediately after durable job insertion while queued work waits. Root
 capacity is reserved before title generation, so concurrent requests cannot
-spend duplicate preflight calls for one slot. The durable 24-hour creation quota
-also permits at most four standalone searches and five total root workflows per
-user by default. Admission is charged before title generation, including when
-that preflight later fails; quota rejections return `Retry-After`. A newly admitted root runs before
+spend duplicate preflight calls for one slot. There is no daily creation quota;
+a failed title preflight releases its pending capacity. A newly admitted root runs before
 children still waiting from an earlier eager batch; active work is not
 pre-empted.
 

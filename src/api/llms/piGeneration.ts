@@ -38,7 +38,6 @@ export type PiLlmRequest = {
   system: string
   prompt: string
   temperature?: number
-  maxOutputTokens: number
   workflowSignal?: AbortSignal
   jsonSchema?: Record<string, unknown>
 }
@@ -210,7 +209,6 @@ function createPiOptions(
     signal,
     timeoutMs: config.llmExecution.totalTimeoutMs,
     maxRetries: config.llmExecution.maxRetries,
-    maxTokens: request.maxOutputTokens,
     ...(request.temperature !== undefined && {
       temperature: request.temperature,
     }),

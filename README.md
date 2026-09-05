@@ -50,15 +50,9 @@ LLM_MODEL_NAME=deepseek-v4-flash
 LLM_GENERATION_TIMEOUT_MS=300000
 LLM_FIRST_CHUNK_TIMEOUT_MS=120000
 LLM_CHUNK_TIMEOUT_MS=60000
-LLM_MAX_OUTPUT_TOKENS=8192
 LLM_MAX_RETRIES=2
 LLM_MAX_CONCURRENT_GENERATIONS=4
 LLM_MAX_ACTIVE_STANDALONE_GENERATIONS_PER_USER=2
-RESEARCH_JOB_CREATION_WINDOW_MS=86400000
-RESEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW=5
-DEEP_SEARCH_MAX_ROOT_JOB_CREATIONS_PER_WINDOW=4
-IDEA_JOB_MAX_ROOT_JOB_CREATIONS_PER_WINDOW=2
-DEBATE_MAX_ROOT_JOB_CREATIONS_PER_WINDOW=1
 DEEPSEEK_API_KEY=
 OPENCODE_ZEN_API_KEY=
 # Canonical base64 encoding of exactly 32 random bytes, for example: openssl rand -base64 32
@@ -138,10 +132,10 @@ idea jobs cannot bypass provider backpressure by starting many child searches.
 All workflows additionally share a process-wide LLM queue configured by
 `LLM_MAX_CONCURRENT_GENERATIONS`; a permit covers provider retries and remains held
 until durable terminal persistence settles.
-Provider-backed creation requires a session. Root research attempts are charged
-to a durable rolling 24-hour quota before title generation, including attempts
-whose preflight later fails. Anonymous access is limited to read-only views of
-public debate aggregates.
+Provider-backed creation requires a session. There are no daily creation quotas
+or application-imposed output-token caps. Active-work concurrency and provider
+deadlines still apply. Anonymous access is limited to read-only views of public
+debate aggregates.
 
 Authenticated users start with 500 product credits. One product credit is
 $0.001 ($1 per 1,000 credits). The local debug user is an administrator and can
@@ -199,7 +193,7 @@ npm run dev:web
 The API listens on `127.0.0.1:3000` by default. Vite serves the web client and
 proxies `/api` requests to it. API startup applies pending Drizzle migrations
 before serving. A network deployment can override `API_HOST`, but must define an
-authorization policy plus quotas, request-size limits, and concurrency controls
+authorization policy, request-size limits, and concurrency controls
 at its gateway before exposing the API.
 
 The API port can be overridden with `PORT`. The Vite port and proxy target can

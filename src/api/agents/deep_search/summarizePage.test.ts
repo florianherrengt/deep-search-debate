@@ -63,7 +63,6 @@ describe("page summaries", () => {
       ].join("\n"),
       promptName: "summarize-web-page",
       reasoning: "disabled",
-      maxOutputTokens: 2_048,
     })
     expect(result.streamId).toBe("summary-stream-id")
     await expect(result.completion).resolves.toMatchObject({

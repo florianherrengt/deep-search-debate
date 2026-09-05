@@ -79,7 +79,6 @@ export async function selectWebSearchResults(
     prompt,
     promptName: PromptName.SelectWebSearchResults,
     element: z.string(),
-    maxOutputTokens: 1_024,
     workflowSignal: params.workflowSignal,
     ...(params.onRegistered ? { onRegistered: params.onRegistered } : {}),
     ...(params.onFailed ? { onFailed: params.onFailed } : {}),
