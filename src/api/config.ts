@@ -83,24 +83,18 @@ const nonSecretEnvironmentShape = {
   NODE_ENV: z.enum(["development", "test", "production"]),
   LLM_PROVIDER: z.enum(["deepseek", "zen"]),
   LLM_MODEL_NAME: z.string().trim().min(1),
-  LLM_GENERATION_TIMEOUT_MS: z.coerce
-    .number()
-    .int()
-    .min(10_000)
-    .max(900_000)
-    .default(300_000),
   LLM_FIRST_CHUNK_TIMEOUT_MS: z.coerce
     .number()
     .int()
     .min(5_000)
-    .max(300_000)
-    .default(120_000),
+    .max(600_000)
+    .default(600_000),
   LLM_CHUNK_TIMEOUT_MS: z.coerce
     .number()
     .int()
     .min(5_000)
-    .max(300_000)
-    .default(60_000),
+    .max(600_000)
+    .default(600_000),
   LLM_MAX_RETRIES: z.coerce.number().int().min(0).max(10).default(2),
   LLM_MAX_CONCURRENT_GENERATIONS: z.coerce
     .number()
@@ -324,27 +318,6 @@ const environmentSchema = z.object({
   AUTH_DEBUG_USER_PASSWORD:
     secretSchemas.AUTH_DEBUG_USER_PASSWORD.optional(),
 }).superRefine((environment, context) => {
-  if (
-    environment.LLM_FIRST_CHUNK_TIMEOUT_MS >
-    environment.LLM_GENERATION_TIMEOUT_MS
-  ) {
-    context.addIssue({
-      code: "custom",
-      message:
-        "LLM_FIRST_CHUNK_TIMEOUT_MS cannot exceed LLM_GENERATION_TIMEOUT_MS",
-      path: ["LLM_FIRST_CHUNK_TIMEOUT_MS"],
-    })
-  }
-  if (
-    environment.LLM_CHUNK_TIMEOUT_MS >
-    environment.LLM_GENERATION_TIMEOUT_MS
-  ) {
-    context.addIssue({
-      code: "custom",
-      message: "LLM_CHUNK_TIMEOUT_MS cannot exceed LLM_GENERATION_TIMEOUT_MS",
-      path: ["LLM_CHUNK_TIMEOUT_MS"],
-    })
-  }
   if (environment.DEBATE_MAX_IDEA_COUNT > environment.IDEA_JOB_MAX_IDEA_COUNT) {
     context.addIssue({
       code: "custom",
@@ -659,7 +632,6 @@ export const config = {
   },
   llm: resolveLlmConfig(),
   llmExecution: {
-    totalTimeoutMs: environment.LLM_GENERATION_TIMEOUT_MS,
     firstChunkTimeoutMs: environment.LLM_FIRST_CHUNK_TIMEOUT_MS,
     chunkTimeoutMs: environment.LLM_CHUNK_TIMEOUT_MS,
     maxRetries: environment.LLM_MAX_RETRIES,

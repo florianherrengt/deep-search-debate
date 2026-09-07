@@ -194,10 +194,13 @@ longer read or written. The existing table is retained so removing the quota
 does not require a destructive schema change. Active root capacity is still
 reserved before title generation and released when preflight fails.
 
-Every LLM stream has total, first-content, and inter-content deadlines. The
-defaults are 300, 120, and 60 seconds and are configured with
-`LLM_GENERATION_TIMEOUT_MS`, `LLM_FIRST_CHUNK_TIMEOUT_MS`, and
-`LLM_CHUNK_TIMEOUT_MS`. No stage or deployment-wide output-token cap is sent to
+LLM streams have no application-level total generation deadline. The first-content
+and inter-content inactivity deadlines both default to 600 seconds, configured
+with `LLM_FIRST_CHUNK_TIMEOUT_MS` and `LLM_CHUNK_TIMEOUT_MS`. Nonempty text or
+reasoning activity resets the inactivity deadline; empty events do not. Manual
+cancellation and independent connection or provider errors still apply. Model
+discovery and connection checks also use the first-content timeout setting.
+No stage or deployment-wide output-token cap is sent to
 Pi. Its raw streaming API leaves the output budget to the selected provider;
 the provider's own model limits still apply. Provider-request failures use two Pi
 retries by default, configured through `LLM_MAX_RETRIES`, so dependency upgrades cannot silently
