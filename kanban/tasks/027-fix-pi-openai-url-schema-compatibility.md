@@ -1,10 +1,12 @@
 ---
 id: 27
 title: Fix Pi OpenAI URL schema compatibility
-status: review
+status: done
 priority: high
 created: 2026-09-07T10:00:54.349529+01:00
-updated: 2026-09-07T11:31:19.72474+01:00
+updated: 2026-09-07T17:51:46.008807+01:00
+started: 2026-09-07T17:51:45.988779+01:00
+completed: 2026-09-07T17:51:45.988779+01:00
 tags:
     - bug
 class: standard
@@ -20,3 +22,6 @@ User explicitly authorized always committing and deploying verified fixes and tr
 
 [[2026-09-07]] Mon 11:31
 Committed reviewed fix as ec74e0a74b61fe605569f70986aba72a38cd38cb on codex/ticket-27-pi-url-schema and published/deployed that exact image. Coolify deployment qtz6mp3dgu2fq5vww6dx5kze finished; application and public health passed. Running image digest verified sha256:698a72810e0245d4413af9555d98b0bb7a94efeacd09ae27bb4404fff82ce1b1. Existing debate 079f84b6-af55-4a46-b486-5b6445935ce6 resumed automatically from persisted research. Formerly failing analyze-research-answer generation 8293b47b-49d6-406b-ae23-dcecdd8009d9 completed on gpt-5.6-sol with stop finish and zero app credits; original schema validates its 12 facts, 2 disagreements, 12 gaps, 11 assumptions, and 23 source URLs. Initial research and summary completed; candidate idea generation is running. Tournament completion is not yet verified. All 1065 canonical tests passed before release; worktree clean. No Git push or merge requested/performed; keeping ticket in review per board integration rules.
+
+[[2026-09-07]] Mon 17:51
+Merged the reviewed release commits through 0042584feb6fc56a29f32bcfe3787f862f138432 into canonical main at the user's explicit request. Verified the merged application tree exactly matches the previously tested and deployed release; main-only task records are preserved. Worktree retained. Integration complete; main publication is the remaining release operation.

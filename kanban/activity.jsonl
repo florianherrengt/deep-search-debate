@@ -436,3 +436,9 @@
 {"timestamp":"2026-09-07T17:09:15.692551+01:00","action":"release","task_id":28,"detail":"Verify full Pi OpenAI debate locally"}
 {"timestamp":"2026-09-07T17:38:50.756307+01:00","action":"handoff","task_id":28,"detail":"Verify full Pi OpenAI debate locally"}
 {"timestamp":"2026-09-07T17:38:50.757614+01:00","action":"release","task_id":28,"detail":"Verify full Pi OpenAI debate locally"}
+{"timestamp":"2026-09-07T17:51:45.989413+01:00","action":"move","task_id":27,"detail":"review -\u003e done"}
+{"timestamp":"2026-09-07T17:51:45.992253+01:00","action":"move","task_id":28,"detail":"review -\u003e done"}
+{"timestamp":"2026-09-07T17:51:46.009147+01:00","action":"edit","task_id":27,"detail":"Fix Pi OpenAI URL schema compatibility"}
+{"timestamp":"2026-09-07T17:51:46.009316+01:00","action":"release","task_id":27,"detail":"salmine-vinegar"}
+{"timestamp":"2026-09-07T17:51:46.009643+01:00","action":"edit","task_id":28,"detail":"Verify full Pi OpenAI debate locally"}
+{"timestamp":"2026-09-07T17:51:46.009867+01:00","action":"release","task_id":28,"detail":"salmine-vinegar"}
