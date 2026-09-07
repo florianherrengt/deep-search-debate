@@ -448,3 +448,4 @@
 {"timestamp":"2026-09-07T18:38:19.107569+01:00","action":"release","task_id":29,"detail":"Review and strengthen the full application test suite"}
 {"timestamp":"2026-09-07T18:47:11.094772+01:00","action":"edit","task_id":29,"detail":"Review and strengthen the full application test suite"}
 {"timestamp":"2026-09-07T18:47:11.121847+01:00","action":"move","task_id":29,"detail":"review -\u003e done"}
+{"timestamp":"2026-09-07T19:29:18.715824+01:00","action":"create","task_id":30,"detail":"Improve deep search with preserved evidence and linked-source verification"}
