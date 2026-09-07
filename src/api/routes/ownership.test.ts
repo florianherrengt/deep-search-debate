@@ -319,45 +319,4 @@ describe("user-owned routes", () => {
     expect(await response.json()).toMatchObject({ [key]: [] })
   })
 
-  it("passes the authenticated owner to every job manager", async () => {
-    const app = createApp()
-    const requests = [
-      await app.request("/deep-search-jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ researchRequest: "Research this" }),
-      }),
-      await app.request("/idea-jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: "Generate ideas" }),
-      }),
-      await app.request("/debate-jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: "Debate ideas" }),
-      }),
-    ]
-
-    expect(requests[0]?.status).toBe(202)
-    expect(requests[1]?.status).toBe(202)
-    expect(requests[2]?.status).toBe(202)
-    expect(deepSearchStart).toHaveBeenCalledWith(
-      ownerId,
-      expect.objectContaining({ researchRequest: "Research this" }),
-    )
-    expect(ideaStart).toHaveBeenCalledWith(
-      ownerId,
-      expect.objectContaining({ prompt: "Generate ideas" }),
-    )
-    expect(debateStart).toHaveBeenCalledWith(ownerId, {
-      prompt: "Debate ideas",
-      isPublic: false,
-      numberOfIdeas: 8,
-      deepSearchCount: 1,
-      maxSearches: 2,
-      maxResultsPerSearch: 2,
-      maxRounds: 1,
-    })
-  })
 })

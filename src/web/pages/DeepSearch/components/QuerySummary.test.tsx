@@ -1,17 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
-
-const mocks = vi.hoisted(() => ({ subscribeToTextStream: vi.fn() }))
-
-vi.mock("../../../lib/textStreams.ts", () => ({
-  subscribeToTextStream: mocks.subscribeToTextStream,
-}))
+import { describe, expect, it, vi } from "vitest"
+import { TextStreamProvider } from "../../../components/streaming/useTextStream.ts"
 
 import { QuerySummary } from "./QuerySummary.tsx"
 
 describe("QuerySummary", () => {
-  beforeEach(() => vi.clearAllMocks())
-
   it("follows and renders a query synthesis stream", async () => {
     async function* events() {
       await Promise.resolve()
@@ -20,13 +13,15 @@ describe("QuerySummary", () => {
       yield { type: "text" as const, text: "- Second finding" }
       yield { type: "done" as const }
     }
-    mocks.subscribeToTextStream.mockReturnValue(events())
+    const subscribe = vi.fn(() => events())
 
     render(
-      <QuerySummary
-        query="best beginner longboards"
-        streamId="query-summary-stream-id"
-      />,
+      <TextStreamProvider subscribe={subscribe}>
+        <QuerySummary
+          query="best beginner longboards"
+          streamId="query-summary-stream-id"
+        />
+      </TextStreamProvider>,
     )
 
     expect(await screen.findByText("What this search found")).toBeVisible()
@@ -42,7 +37,7 @@ describe("QuerySummary", () => {
       screen.getByTestId("query-summary-best beginner longboards"),
     ).toHaveTextContent("First finding Second finding")
     expect(screen.queryByRole("status")).not.toBeInTheDocument()
-    expect(mocks.subscribeToTextStream).toHaveBeenCalledWith(
+    expect(subscribe).toHaveBeenCalledWith(
       "query-summary-stream-id",
       expect.any(AbortSignal),
       expect.any(Function),
@@ -50,11 +45,14 @@ describe("QuerySummary", () => {
   })
 
   it("renders nothing before a synthesis stream is registered", () => {
+    const subscribe = vi.fn()
     const { container } = render(
-      <QuerySummary query="best beginner longboards" />,
+      <TextStreamProvider subscribe={subscribe}>
+        <QuerySummary query="best beginner longboards" />
+      </TextStreamProvider>,
     )
 
     expect(container).toBeEmptyDOMElement()
-    expect(mocks.subscribeToTextStream).not.toHaveBeenCalled()
+    expect(subscribe).not.toHaveBeenCalled()
   })
 })

@@ -11,6 +11,7 @@ import {
   ideas,
   llmGenerations,
 } from "./index.ts"
+import { loadDebateMatch } from "../../routes/debates/persistence.ts"
 
 function createDebateJob() {
   const ideaJobId = crypto.randomUUID()
@@ -231,14 +232,23 @@ describe("debate tournament schema", () => {
     ).toThrow(/debate-match structural columns are immutable/)
   })
 
-  it("orders transcript messages by creation time", () => {
+  it("loads transcript messages in production order and enforces one judge", () => {
     const { debateJobId, ideaJobId } = createDebateJob()
     const firstIdeaId = createIdea(ideaJobId, 0)
     const secondIdeaId = createIdea(ideaJobId, 1)
     const debateRoundId = createRound(debateJobId)
     const debateMatchId = createMatch(debateRoundId, firstIdeaId, secondIdeaId)
     const generationIds = Array.from({ length: 7 }, () => crypto.randomUUID())
-    const firstCreatedAt = Date.UTC(2026, 0, 1)
+    const messageIds = [
+      "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "00000000-0000-4000-8000-000000000000",
+    ]
+    const createdAt = new Date(Date.UTC(2026, 0, 1))
 
     db.insert(llmGenerations)
       .values(
@@ -252,30 +262,22 @@ describe("debate tournament schema", () => {
     db.insert(debateMessages)
       .values(
         generationIds.map((llmGenerationId, messageIndex) => ({
-          debateMessageId: crypto.randomUUID(),
+          debateMessageId: messageIds[messageIndex],
           debateMatchId,
           position: messageIndex,
           speakerSlot: messageIndex === 6 ? 2 : messageIndex % 2,
           llmGenerationId,
-          createdAt: new Date(firstCreatedAt + messageIndex * 1_000),
+          createdAt,
         })),
       )
       .run()
 
-    const persisted = db.query.debateMatches.findFirst({
-      where: eq(debateMatches.debateMatchId, debateMatchId),
-      with: {
-        messages: {
-          orderBy: (message, { asc }) => [
-            asc(message.createdAt),
-            asc(message.debateMessageId),
-          ],
-          with: { llmGeneration: true },
-        },
-      },
-    }).sync()
+    const persisted = loadDebateMatch(debateMatchId)
 
     expect(persisted?.messages).toHaveLength(7)
+    expect(persisted?.messages.map((message) => message.position)).toEqual(
+      [0, 1, 2, 3, 4, 5, 6],
+    )
     expect(persisted?.messages.map((message) => message.speakerSlot)).toEqual([
       0, 1, 0, 1, 0, 1, 2,
     ])
@@ -300,70 +302,6 @@ describe("debate tournament schema", () => {
         })
         .run(),
     ).toThrow(/UNIQUE constraint failed/)
-  })
-
-  it("preserves transcript insertion order when timestamps are equal", () => {
-    const { debateJobId, ideaJobId } = createDebateJob()
-    const firstIdeaId = createIdea(ideaJobId, 0)
-    const secondIdeaId = createIdea(ideaJobId, 1)
-    const debateRoundId = createRound(debateJobId)
-    const debateMatchId = createMatch(
-      debateRoundId,
-      firstIdeaId,
-      secondIdeaId,
-    )
-    const firstGenerationId = crypto.randomUUID()
-    const secondGenerationId = crypto.randomUUID()
-    const firstMessageId = "ffffffff-ffff-4fff-8fff-ffffffffffff"
-    const secondMessageId = "00000000-0000-4000-8000-000000000000"
-    const createdAt = new Date(Date.UTC(2026, 0, 1))
-
-    db.insert(llmGenerations)
-      .values([
-        {
-          userId: "test-user-id",
-          debateJobId,
-          llmGenerationId: firstGenerationId,
-        },
-        {
-          userId: "test-user-id",
-          debateJobId,
-          llmGenerationId: secondGenerationId,
-        },
-      ])
-      .run()
-    db.insert(debateMessages)
-      .values([
-        {
-          debateMessageId: firstMessageId,
-          debateMatchId,
-          position: 0,
-          speakerSlot: 0,
-          llmGenerationId: firstGenerationId,
-          createdAt,
-        },
-        {
-          debateMessageId: secondMessageId,
-          debateMatchId,
-          position: 1,
-          speakerSlot: 1,
-          llmGenerationId: secondGenerationId,
-          createdAt,
-        },
-      ])
-      .run()
-
-    const messages = db.query.debateMessages.findMany({
-      where: eq(debateMessages.debateMatchId, debateMatchId),
-      orderBy: (message, { asc }) => [
-        asc(message.position),
-      ],
-    }).sync()
-
-    expect(messages.map((message) => message.debateMessageId)).toEqual([
-      firstMessageId,
-      secondMessageId,
-    ])
   })
 
   it("deletes the owned idea pipeline when its debate is deleted", () => {

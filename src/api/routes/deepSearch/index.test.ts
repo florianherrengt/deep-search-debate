@@ -953,7 +953,15 @@ describe("deep search job routes", () => {
     const { deepSearchJobId } = (await created.json()) as {
       deepSearchJobId: string
     }
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await vi.waitFor(() => {
+      expect(
+        db
+          .select({ status: deepSearchJobsTable.status })
+          .from(deepSearchJobsTable)
+          .where(eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId))
+          .get()?.status,
+      ).toBe("completed")
+    })
 
     const replayed = await createApp().request(
       `/deep-search-jobs/${deepSearchJobId}/events`,
@@ -1039,7 +1047,15 @@ describe("deep search job routes", () => {
     const { deepSearchJobId } = (await created.json()) as {
       deepSearchJobId: string
     }
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await vi.waitFor(() => {
+      expect(
+        db
+          .select({ status: deepSearchJobsTable.status })
+          .from(deepSearchJobsTable)
+          .where(eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId))
+          .get()?.status,
+      ).toBe("completed")
+    })
 
     const replayed = await createApp().request(
       `/deep-search-jobs/${deepSearchJobId}/events`,
@@ -1155,7 +1171,15 @@ describe("deep search job routes", () => {
     const { deepSearchJobId } = (await created.json()) as {
       deepSearchJobId: string
     }
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await vi.waitFor(() => {
+      expect(
+        db
+          .select({ status: deepSearchJobsTable.status })
+          .from(deepSearchJobsTable)
+          .where(eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId))
+          .get()?.status,
+      ).toBe("failed")
+    })
 
     const replayed = await createApp().request(
       `/deep-search-jobs/${deepSearchJobId}/events`,
@@ -1296,7 +1320,15 @@ describe("deep search job routes", () => {
     const { deepSearchJobId } = (await created.json()) as {
       deepSearchJobId: string
     }
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await vi.waitFor(() => {
+      expect(
+        db
+          .select({ status: deepSearchJobsTable.status })
+          .from(deepSearchJobsTable)
+          .where(eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId))
+          .get()?.status,
+      ).toBe("failed")
+    })
 
     const replayed = await createApp().request(
       `/deep-search-jobs/${deepSearchJobId}/events`,

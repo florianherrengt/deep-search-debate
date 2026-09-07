@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -971,7 +971,7 @@ describe("Debates", () => {
     })
     mocks.getDebateJob
       .mockResolvedValueOnce(tournament())
-      .mockReturnValueOnce(terminalSnapshot)
+      .mockReturnValue(terminalSnapshot)
     mocks.subscribeToDebateJob.mockImplementation(async function* () {
       await Promise.resolve()
       yield { type: "updated" as const }
@@ -985,9 +985,12 @@ describe("Debates", () => {
         "Live updates were interrupted. Reconnecting…",
       ),
     ).toBeVisible()
-    resolveTerminalSnapshot(
-      tournament({ status: "completed", stage: "final" }),
-    )
+    await act(async () => {
+      resolveTerminalSnapshot(
+        tournament({ status: "completed", stage: "final" }),
+      )
+      await terminalSnapshot
+    })
 
     expect(await screen.findByText("Debate complete")).toBeVisible()
     expect(

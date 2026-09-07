@@ -59,4 +59,30 @@ describe("credit accounts", () => {
       OutOfCreditsError,
     )
   })
+
+  it("rejects invalid charges and grants without changing the account", () => {
+    db.insert(user)
+      .values({
+        id: creditTestUserId,
+        name: "Credit Test",
+        email: "credit-test@example.com",
+      })
+      .run()
+    const creditsBefore = getCreditAccount(creditTestUserId).credits
+
+    expect(() => chargeUserCredits(creditTestUserId, -1)).toThrow(
+      "Invalid credit charge",
+    )
+    expect(() => addUserCredits(creditTestUserId, 0)).toThrow(
+      "Invalid credit grant",
+    )
+    expect(() => calculateScrapingAntCredits(Number.NaN)).toThrow(
+      "Invalid ScrapingAnt credit cost",
+    )
+    expect(() => chargeUserCredits("missing-credit-user", 1)).toThrow(
+      "Credit account was not found",
+    )
+
+    expect(getCreditAccount(creditTestUserId).credits).toBe(creditsBefore)
+  })
 })

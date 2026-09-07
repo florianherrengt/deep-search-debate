@@ -13,8 +13,16 @@ import {
   llmGenerations,
 } from "./schema/index.ts"
 
-function addDebate(status: "running" | "completed") {
-  const debateJobId = crypto.randomUUID()
+type RootOptions = {
+  createdAt?: Date
+  id?: string
+}
+
+function addDebate(
+  status: "running" | "completed",
+  options: RootOptions = {},
+) {
+  const debateJobId = options.id ?? crypto.randomUUID()
   const ideaJobId = crypto.randomUUID()
   db.insert(debateJobs)
     .values({
@@ -22,6 +30,7 @@ function addDebate(status: "running" | "completed") {
       userId: "test-user-id",
       randomSeed: 42,
       stage: status === "completed" ? "final" : "ideas",
+      createdAt: options.createdAt,
     })
     .run()
   db.insert(ideaJobs)
@@ -67,8 +76,11 @@ function addDebate(status: "running" | "completed") {
   return { debateJobId, ideaJobId, deepSearchJobId }
 }
 
-function addIdea(status: "interrupted" | "completed") {
-  const ideaJobId = crypto.randomUUID()
+function addIdea(
+  status: "interrupted" | "completed",
+  options: RootOptions = {},
+) {
+  const ideaJobId = options.id ?? crypto.randomUUID()
   db.insert(ideaJobs)
     .values({
       ideaJobId,
@@ -82,6 +94,7 @@ function addIdea(status: "interrupted" | "completed") {
       maxResultsPerSearch: 1,
       maxRounds: 1,
       status: status === "completed" ? "running" : status,
+      createdAt: options.createdAt,
       completedAt: status === "completed" ? null : new Date(),
       error: status === "interrupted" ? "Stopped" : null,
     })
@@ -121,8 +134,9 @@ function addIdea(status: "interrupted" | "completed") {
 function addDeepSearch(
   status: "running" | "failed" | "completed",
   ideaJobId: string | null = null,
+  options: RootOptions = {},
 ) {
-  const deepSearchJobId = crypto.randomUUID()
+  const deepSearchJobId = options.id ?? crypto.randomUUID()
   db.insert(deepSearchJobs)
     .values({
       deepSearchJobId,
@@ -137,6 +151,7 @@ function addDeepSearch(
       maxRounds: 1,
       strictQuality: ideaJobId !== null,
       status: status === "completed" ? "running" : status,
+      createdAt: options.createdAt,
       completedAt: status === "running" || status === "completed" ? null : new Date(),
       error: status === "failed" ? "Provider failed" : null,
     })
@@ -254,5 +269,28 @@ describe("persisted research startup reconciliation", () => {
       }),
     ).toThrow("queue unavailable")
     expect(resumeExisting).toHaveBeenCalledExactlyOnceWith(debate.debateJobId)
+  })
+
+  it("orders equal-timestamp recoverable roots by their stable IDs", () => {
+    const createdAt = new Date(Date.UTC(2026, 0, 1))
+    const debateIds = ["000-debate-root", "999-debate-root"]
+    const ideaIds = ["000-idea-root", "999-idea-root"]
+    const deepSearchIds = ["000-search-root", "999-search-root"]
+
+    for (const id of [...debateIds].reverse()) {
+      addDebate("running", { id, createdAt })
+    }
+    for (const id of [...ideaIds].reverse()) {
+      addIdea("interrupted", { id, createdAt })
+    }
+    for (const id of [...deepSearchIds].reverse()) {
+      addDeepSearch("failed", null, { id, createdAt })
+    }
+
+    expect(loadPersistedResearchRoots()).toEqual({
+      debateJobIds: debateIds,
+      ideaJobIds: ideaIds,
+      deepSearchJobIds: deepSearchIds,
+    })
   })
 })

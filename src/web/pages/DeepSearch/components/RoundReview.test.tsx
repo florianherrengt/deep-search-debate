@@ -1,17 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
-
-const mocks = vi.hoisted(() => ({ subscribeToTextStream: vi.fn() }))
-
-vi.mock("../../../lib/textStreams.ts", () => ({
-  subscribeToTextStream: mocks.subscribeToTextStream,
-}))
+import { describe, expect, it, vi } from "vitest"
+import { TextStreamProvider } from "../../../components/streaming/useTextStream.ts"
 
 import { RoundReview } from "./RoundReview.tsx"
 
 describe("RoundReview", () => {
-  beforeEach(() => vi.clearAllMocks())
-
   it("streams review reasoning while the decision is running", async () => {
     async function* events() {
       yield {
@@ -20,12 +13,14 @@ describe("RoundReview", () => {
       }
       await new Promise(() => {})
     }
-    mocks.subscribeToTextStream.mockReturnValue(events())
+    const subscribe = vi.fn(() => events())
 
     render(
-      <RoundReview
-        review={{ round: 0, streamId: "review-stream", status: "running" }}
-      />,
+      <TextStreamProvider subscribe={subscribe}>
+        <RoundReview
+          review={{ round: 0, streamId: "review-stream", status: "running" }}
+        />
+      </TextStreamProvider>,
     )
 
     expect(
@@ -54,17 +49,20 @@ describe("RoundReview", () => {
       "Research is sufficient. The evidence answers every requested angle.",
     ],
   ])("renders the %s decision and reason", (status, expected) => {
+    const subscribe = vi.fn()
     render(
-      <RoundReview
-        review={{
-          round: 0,
-          status,
-          reason:
-            status === "continue"
-              ? "An independent source is still missing."
-              : "The evidence answers every requested angle.",
-        }}
-      />,
+      <TextStreamProvider subscribe={subscribe}>
+        <RoundReview
+          review={{
+            round: 0,
+            status,
+            reason:
+              status === "continue"
+                ? "An independent source is still missing."
+                : "The evidence answers every requested angle.",
+          }}
+        />
+      </TextStreamProvider>,
     )
 
     expect(
@@ -74,23 +72,26 @@ describe("RoundReview", () => {
       }),
     ).toBeVisible()
     expect(screen.getByRole("alert")).toHaveTextContent(expected)
-    expect(mocks.subscribeToTextStream).not.toHaveBeenCalled()
+    expect(subscribe).not.toHaveBeenCalled()
   })
 
   it("explains the non-fatal fallback when review setup fails", () => {
+    const subscribe = vi.fn()
     render(
-      <RoundReview
-        review={{
-          round: 0,
-          status: "error",
-          reason: "The reviewer returned malformed output.",
-        }}
-      />,
+      <TextStreamProvider subscribe={subscribe}>
+        <RoundReview
+          review={{
+            round: 0,
+            status: "error",
+            reason: "The reviewer returned malformed output.",
+          }}
+        />
+      </TextStreamProvider>,
     )
 
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Review failed; using the current answer. The reviewer returned malformed output.",
     )
-    expect(mocks.subscribeToTextStream).not.toHaveBeenCalled()
+    expect(subscribe).not.toHaveBeenCalled()
   })
 })

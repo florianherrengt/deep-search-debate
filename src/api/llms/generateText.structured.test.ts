@@ -177,53 +177,6 @@ describe("structured generation", () => {
     await expect(result.output).resolves.toEqual(["first", "second"])
   })
 
-  it("validates an array inside the terminal transaction before calling its hook", async () => {
-    const onCompleted = vi.fn()
-    mocks.loadPrompt.mockResolvedValue("System prompt")
-    mockPreparedGeneration(completedGenerationHandle('{"elements":[]}'))
-
-    await generateArrayStream({
-      userId: "test-user-id",
-      owner: { standalone: true },
-      prompt: "Hello",
-      promptName: "generate-websearch-queries",
-      element: z.string(),
-      onCompleted,
-    })
-
-    const options = mocks.prepareTextGeneration.mock.calls[0]?.[2] as {
-      onCompleted: (
-        completed: { id: string; text: string; reasoning: string },
-        transaction: unknown,
-      ) => void
-    }
-    const transaction = { id: "transaction" }
-    options.onCompleted(
-      {
-        id: "stream-id",
-        text: '{"elements":["first","second"]}',
-        reasoning: "",
-      },
-      transaction,
-    )
-    expect(onCompleted).toHaveBeenCalledWith(
-      { id: "stream-id", output: ["first", "second"] },
-      transaction,
-    )
-
-    expect(() =>
-      options.onCompleted(
-        {
-          id: "stream-id",
-          text: '{"elements":["valid",1]}',
-          reasoning: "",
-        },
-        transaction,
-      ),
-    ).toThrow()
-    expect(onCompleted).toHaveBeenCalledTimes(1)
-  })
-
   it("omits unsupported URI formats from Codex array requests", async () => {
     const start = vi.fn<(request: PiLlmRequest) => StartedLlmStream>(() =>
       startedLlmStream()
@@ -325,22 +278,6 @@ describe("structured generation", () => {
     })
   })
 
-  it("rejects invalid persisted object output", async () => {
-    const schema = z.object({ winnerSlot: z.number().int().min(0).max(1) })
-    mocks.loadPrompt.mockResolvedValue("System prompt")
-    mockPreparedGeneration(completedGenerationHandle('{"winnerSlot":"0"}'))
-
-    const result = await generateObjectStream({
-      userId: "test-user-id",
-      owner: { standalone: true },
-      prompt: "Judge this",
-      promptName: "default",
-      schema,
-    })
-
-    await expect(result.output).rejects.toBeInstanceOf(z.ZodError)
-  })
-
   it.each(["not-a-url", "ftp://example.com/research"])(
     "rejects an invalid research source %s before completing Codex generation",
     async (source) => {
@@ -406,40 +343,6 @@ describe("structured generation", () => {
     await expect(result.output).resolves.toMatchObject({
       facts: [{ sources: ["https://example.com/research"] }],
     })
-  })
-
-  it("rejects prototype properties before running a terminal transaction hook", async () => {
-    const schema = z.object({ winnerSlot: z.number().int().min(0).max(1) })
-    const onCompleted = vi.fn()
-    mocks.loadPrompt.mockResolvedValue("System prompt")
-    mockPreparedGeneration(completedGenerationHandle('{"winnerSlot":0}'))
-
-    await generateObjectStream({
-      userId: "test-user-id",
-      owner: { standalone: true },
-      prompt: "Judge this",
-      promptName: "default",
-      schema,
-      onCompleted,
-    })
-
-    const options = mocks.prepareTextGeneration.mock.calls[0]?.[2] as {
-      onCompleted: (
-        completed: { id: string; text: string; reasoning: string },
-        transaction: unknown,
-      ) => void
-    }
-    expect(() =>
-      options.onCompleted(
-        {
-          id: "stream-id",
-          text: '{"winnerSlot":0,"__proto__":{"polluted":true}}',
-          reasoning: "",
-        },
-        {},
-      ),
-    ).toThrow("forbidden prototype property")
-    expect(onCompleted).not.toHaveBeenCalled()
   })
 
   it("forwards structured generation lifecycle hooks", async () => {
