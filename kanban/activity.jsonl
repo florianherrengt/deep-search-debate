@@ -408,3 +408,7 @@
 {"timestamp":"2026-09-03T19:10:05.698017+01:00","action":"edit","task_id":26,"detail":"Use a small/big model depending on the task"}
 {"timestamp":"2026-09-03T19:10:11.306323+01:00","action":"move","task_id":26,"detail":"review -\u003e done"}
 {"timestamp":"2026-09-07T10:00:54.352148+01:00","action":"create","task_id":27,"detail":"Fix Pi OpenAI URL schema compatibility"}
+{"timestamp":"2026-09-07T10:11:45.792311+01:00","action":"move","task_id":27,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-09-07T10:11:45.793532+01:00","action":"handoff","task_id":27,"detail":"Fix Pi OpenAI URL schema compatibility"}
+{"timestamp":"2026-09-07T10:11:45.793609+01:00","action":"block","task_id":27,"detail":"Awaiting user approval to commit the reviewed release before deployment and debate resume."}
+{"timestamp":"2026-09-07T10:11:45.79368+01:00","action":"release","task_id":27,"detail":"Fix Pi OpenAI URL schema compatibility"}
