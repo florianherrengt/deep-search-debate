@@ -708,11 +708,7 @@ function assertThinkingMode(body) {
   }
 }
 
-function deepSeekOutput(body) {
-  const system = messageText(body, "system")
-  const user = messageText(body, "user")
-  assertThinkingMode(body)
-
+function modelOutput(system, user) {
   if (system.includes("You create short, descriptive titles")) {
     const title = user.includes("official MDN documentation")
       ? "JavaScript Array Documentation"
@@ -964,13 +960,14 @@ function deepSeekOutput(body) {
     }
   }
 
-  throw new Error("Unhandled DeepSeek request in E2E external-service mock")
+  throw new Error("Unhandled model request in E2E external-service mock")
 }
 
 function deepSeekResponse(body) {
-  const output = deepSeekOutput(body)
   const system = messageText(body, "system")
   const user = messageText(body, "user")
+  assertThinkingMode(body)
+  const output = modelOutput(system, user)
   if (user.includes("[E2E_RETRY_DEEPSEEK]")) {
     const attempt = (standaloneRetryAttempts.get(user) ?? 0) + 1
     standaloneRetryAttempts.set(user, attempt)
@@ -1108,7 +1105,18 @@ function codexPrompt(body) {
     .join("\n")
 }
 
-function codexStructuredOutput(body, prompt) {
+function assertCodexSchema(schema) {
+  if (!schema || typeof schema !== "object") return
+  if (schema.format === "uri") {
+    throw new Error("OpenAI strict JSON Schema does not support format: uri")
+  }
+  for (const value of Object.values(schema)) {
+    if (Array.isArray(value)) value.forEach(assertCodexSchema)
+    else assertCodexSchema(value)
+  }
+}
+
+function codexStructuredOutput(body, prompt, output) {
   const tool = body.tools?.find(
     (candidate) => candidate?.name === "submit_structured_output",
   )
@@ -1117,6 +1125,8 @@ function codexStructuredOutput(body, prompt) {
     throw new Error("Codex structured request was not strictly constrained")
   }
   const schema = tool.parameters
+  assertCodexSchema(schema)
+  if (!prompt.includes("[E2E_CODEX_STRUCTURED]")) return output.text
   const propertyNames = Object.keys(schema?.properties ?? {})
   if (
     schema?.type !== "object" ||
@@ -1159,12 +1169,32 @@ function codexStructuredOutput(body, prompt) {
 
 function codexEvents(body) {
   const prompt = codexPrompt(body)
-  const structured = codexStructuredOutput(body, prompt)
+  const connectionScenario = /\[E2E_CODEX_(?:STRUCTURED|SUBSCRIPTION)\]/.test(prompt)
+  const output = connectionScenario
+    ? {
+        reasoning: "Use the connected ChatGPT subscription without product credits.",
+        text: "E2E Codex subscription response.",
+      }
+    : modelOutput(body.instructions, prompt)
+  const structured = codexStructuredOutput(body, prompt, output)
   const titleRequest = body.instructions?.includes(
     "You create short, descriptive titles",
   ) === true
-  const expectedModel = titleRequest ? "gpt-5.6-sol" : "gpt-5.6-luna"
-  const expectedEffort = titleRequest ? "medium" : "xhigh"
+  const stage = deepSeekRequestKey({
+    messages: [
+      { role: "system", content: body.instructions },
+      { role: "user", content: prompt },
+    ],
+  }).split(":")[1]
+  const smallRole = [
+    "generate-prompt-title", "select-websearch-results", "summarize-web-page",
+    "summarize-search-query", "summarize-idea-research",
+  ].includes(stage)
+  const expectedModel = connectionScenario
+    ? titleRequest ? "gpt-5.6-sol" : "gpt-5.6-luna"
+    : smallRole ? "gpt-5.6-luna" : "gpt-5.6-sol"
+  const expectedEffort = (connectionScenario ? titleRequest : smallRole)
+    ? "medium" : "xhigh"
   if (
     body.model !== expectedModel ||
     body.reasoning?.effort !== expectedEffort ||
@@ -1177,7 +1207,7 @@ function codexEvents(body) {
   ) {
     throw new Error("Codex request did not preserve its selected Pi model and options")
   }
-  const reasoning = "Use the connected ChatGPT subscription without product credits."
+  const reasoning = output.reasoning
   const usage = {
     input_tokens: 16,
     input_tokens_details: { cached_tokens: 0 },
@@ -1250,9 +1280,8 @@ function codexEvents(body) {
       },
     )
   } else {
-    const text = prompt.includes("[E2E_CODEX_SUBSCRIPTION]")
-      ? "E2E Codex subscription response."
-      : "E2E Codex response."
+    const text = output.text
+    const midpoint = Math.ceil(text.length / 2)
     outputItem = {
       id: "msg_e2e",
       type: "message",
@@ -1267,7 +1296,8 @@ function codexEvents(body) {
         output_index: 1,
         item: { ...outputItem, status: "in_progress", content: [] },
       },
-      { type: "response.output_text.delta", output_index: 1, delta: text },
+      { type: "response.output_text.delta", output_index: 1, delta: text.slice(0, midpoint) },
+      { type: "response.output_text.delta", output_index: 1, delta: text.slice(midpoint) },
       { type: "response.output_item.done", output_index: 1, item: outputItem },
     )
   }
@@ -1281,14 +1311,25 @@ function codexEvents(body) {
       usage,
     },
   })
-  return events
+  return { events, output }
 }
 
 function codexResponse(body) {
   const encoder = new TextEncoder()
+  const { events, output } = codexEvents(body)
   const stream = new ReadableStream({
-    start(controller) {
-      for (const event of codexEvents(body)) {
+    async start(controller) {
+      let textChunks = 0
+      for (const event of events) {
+        if (event.type === "response.output_text.delta") {
+          textChunks += 1
+          const delayMs = textChunks === 2
+            ? output.secondTextDelayMs ?? 0
+            : output.delayMs ?? 0
+          if (delayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs))
+          }
+        }
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
       }
       controller.close()
