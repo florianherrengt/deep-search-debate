@@ -1,15 +1,13 @@
 ---
 id: 30
 title: Improve deep search with preserved evidence and linked-source verification
-status: in-progress
+status: review
 priority: high
 created: 2026-09-07T19:29:18.713132+01:00
-updated: 2026-09-07T22:00:50.635974+01:00
+updated: 2026-09-07T22:52:42.414967+01:00
 tags:
     - feature
     - research
-claimed_by: hipping-hipless
-claimed_at: 2026-09-07T22:00:50.636299+01:00
 class: standard
 ---
 
@@ -29,3 +27,16 @@ Transfer applicable methods from ../rethink-loop-research into the shared deep-s
 
 [[2026-09-07]] Mon 22:00
 User approved the next five improvements: retain original supporting passages, mandatory final source-backed correction, ranked link discovery, explicit requirements and coverage context, and bounded JSON source reading. Triple linked-page capacity with a reserved share for deeper hops; keep existing worktree, providers, durable recovery, and uncommitted review handoff. No comparative quality benchmark.
+
+[[2026-09-07]] Mon 22:52
+## Handoff — expanded search baseline
+- Worktree: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-30-deep-search-evidence
+- Branch: codex/ticket-30-deep-search-evidence. All task code remains uncommitted for review.
+- Implemented: retained query-relevant original source passages (up to 16,000 characters); mandatory source-backed final correction followed by analysis of the corrected answer; requirements/preferences checklist in existing generation records; known-page context for selection; main-content link ranking before the candidate limit; validated bounded JSON source extraction.
+- Defaults: linked-page allowance is three times the search-selected allowance. At default settings, up to 27 linked pages per round with 9 reserved for the second hop. Root workflow ceiling is 1,200 pages and debate ceiling is 400. Existing explicit controls and provider/model choices remain respected.
+- Recovery: additive migration preserves existing data; actual legacy {elements:[...]} plans and older bare arrays remain readable. Completed legacy query rows, including duplicate-filtered empty rounds, are authoritative. Completed correction and analysis are reused; live and replay checklists agree, including empty updates.
+- Stories and docs: updated readable requirement coverage, provisional final checking, legacy plan rendering, linked-source progress, and desktop/mobile states.
+- Verified: final Node 26 gatekeep passed (793 API + 370 web = 1,163 tests); production web build passed; final affected Deep Search browser suite passed 3/3; focused Ideas and both OpenAI browser cases passed. File-backed migration chain applied successfully, integrity_check=ok and foreign_key_check empty; upgrade/ownership/deletion cases pass.
+- Browser suite note: latest complete Chromium run passed 14/15. The unchanged debate test briefly expected Streaming after a reload during which its 350 ms response had legitimately completed. Initial streaming had already been observed; the unchanged focused case passed in 55 seconds. No unrelated product or timing-fixture changes were made. Logs: /tmp/rethinkloop-ticket30-e2e.log and /tmp/rethinkloop-ticket30-debate-focused.log.
+- Independent root/API/database/web checklist reviews completed; identified live/replay and legacy-checkpoint issues were fixed and covered by regressions. No remaining task-code findings. Build retains its existing large-chunk warning.
+- No before-and-after answer-quality benchmark was run, as requested. Controlled-provider browser tests prove orchestration, evidence propagation, correction, persistence, provider routing, and UI behavior.
