@@ -4,11 +4,11 @@ title: Verify full Pi OpenAI debate locally
 status: in-progress
 priority: high
 created: 2026-09-07T11:53:56.976753+01:00
-updated: 2026-09-07T16:28:53.429691+01:00
+updated: 2026-09-07T16:41:55.370594+01:00
 tags:
     - bug
 claimed_by: salmine-vinegar
-claimed_at: 2026-09-07T16:28:53.429836+01:00
+claimed_at: 2026-09-07T16:41:55.37073+01:00
 class: standard
 ---
 
@@ -22,3 +22,5 @@ Real local reproduction reached a distinct failure: Sol xhigh answer-research-re
 
 [[2026-09-07]] Mon 16:28
 User approved no total model-generation time limit and 10-minute inactivity protection for initial and subsequent text or reasoning activity. Manual Stop and validation remain. User additionally requests small models and low-cost testing: use the existing Small choice, OpenAI Luna medium, for both roles only in the live local test account; production choices remain unchanged. Resume the saved local debate after verification, then commit and deploy under standing authorization.
+
+Local timeout change committed as 0042584 after 79 focused regressions went from 12 expected failures to green, full gate passed (724 API and 346 web tests), both OpenAI browser E2Es passed including all 23 matches and winner HTML, and dedicated root/API reviews found no issues. No total application deadline; first/inter-content inactivity defaults both 600000 ms, Stop and validation preserved. Saved real local debate resumed with OpenAI Luna medium for both roles; formerly failing research synthesis completed, all six candidates generated/refined, six supporting searches running. User now explicitly requests local-only work, so no image release or production deployment. Production settings and data untouched.
