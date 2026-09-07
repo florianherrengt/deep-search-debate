@@ -1,13 +1,15 @@
 ---
 id: 30
 title: Improve deep search with preserved evidence and linked-source verification
-status: review
+status: in-progress
 priority: high
 created: 2026-09-07T19:29:18.713132+01:00
-updated: 2026-09-07T19:58:35.34261+01:00
+updated: 2026-09-07T22:00:50.635974+01:00
 tags:
     - feature
     - research
+claimed_by: hipping-hipless
+claimed_at: 2026-09-07T22:00:50.636299+01:00
 class: standard
 ---
 
@@ -24,3 +26,6 @@ Transfer applicable methods from ../rethink-loop-research into the shared deep-s
 - Reviews: dedicated root, API, database and web checklist reviews completed with no remaining findings.
 - Validation note: one unchanged Ideas reconnect assertion briefly captured a removed alert during a concurrent full run. Focused worktree/main and full Ideas reruns passed; final standalone canonical gate passed without source/test changes for that race. Build retains the existing large-chunk warning.
 - This is the new baseline. No before-and-after answer-quality benchmark was run, as requested. Functional E2E verifies the real app path using controlled external provider responses.
+
+[[2026-09-07]] Mon 22:00
+User approved the next five improvements: retain original supporting passages, mandatory final source-backed correction, ranked link discovery, explicit requirements and coverage context, and bounded JSON source reading. Triple linked-page capacity with a reserved share for deeper hops; keep existing worktree, providers, durable recovery, and uncommitted review handoff. No comparative quality benchmark.
