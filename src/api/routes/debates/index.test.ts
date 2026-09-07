@@ -2,6 +2,18 @@ import { Hono } from "hono"
 import { eq } from "drizzle-orm"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+const mocks = vi.hoisted(() => ({
+  generatePromptTitle: vi.fn(),
+  generateArrayStream: vi.fn(),
+}))
+
+// Keep the provider boundary deterministic while exercising real managers and
+// SQLite creation/persistence below.
+vi.mock("../../llms/generateText.ts", () => ({
+  generatePromptTitle: mocks.generatePromptTitle,
+  generateArrayStream: mocks.generateArrayStream,
+}))
+
 import { db } from "../../db/index.ts"
 import {
   debateJobs as debateJobsTable,
@@ -9,8 +21,13 @@ import {
   llmGenerations,
   user as userTable,
 } from "../../db/schema/index.ts"
-import { debateJobs } from "./index.ts"
-import type { DebateJobManager } from "./manager.ts"
+import { debateJobReads, debateJobs } from "./index.ts"
+import {
+  createDebateJobManager,
+  type DebateJobManager,
+} from "./manager.ts"
+import { createDeepSearchJobManager } from "../deepSearch/manager.ts"
+import { createIdeaJobManager } from "../ideas/manager.ts"
 import { DEBATE_TOURNAMENT_FORMAT } from "./tournament.ts"
 import type { AppEnv } from "../../types/auth.ts"
 
@@ -57,8 +74,28 @@ function createApp(manager?: DebateJobManager): Hono<AppEnv> {
   return app
 }
 
+function createRealApp(): Hono<AppEnv> {
+  const app = new Hono<AppEnv>().basePath("/api")
+  app.use("*", async (c, next) => {
+    c.set("userId", "test-user-id")
+    c.set("viewerUserId", "test-user-id")
+    await next()
+  })
+  const deepSearchManager = createDeepSearchJobManager()
+  const ideaJobManager = createIdeaJobManager(deepSearchManager)
+  const manager = createDebateJobManager(ideaJobManager)
+  debateJobReads(app, manager)
+  debateJobs(app, manager)
+  return app
+}
+
 describe("debate job routes", () => {
   beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.generatePromptTitle.mockResolvedValue("Integration Debate")
+    mocks.generateArrayStream.mockRejectedValue(
+      new Error("Provider boundary failure"),
+    )
     db.delete(debateJobsTable).run()
   })
 
@@ -85,6 +122,87 @@ describe("debate job routes", () => {
 
     expect(response.status).toBe(400)
     expect(start).not.toHaveBeenCalled()
+  })
+
+  it("persists custom creation settings through the real debate workflow", async () => {
+    const input = {
+      prompt: "Design practical integration debate ideas",
+      isPublic: true,
+      numberOfIdeas: 6,
+      deepSearchCount: 1,
+      maxSearches: 1,
+      maxResultsPerSearch: 1,
+      maxRounds: 1,
+    }
+
+    const response = await createRealApp().request("/api/debate-jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    })
+
+    expect(response.status).toBe(202)
+    const body = await response.json() as {
+      debateJobId: string
+      slug: string
+    }
+    expect(body.slug).toBe("integration-debate")
+    expect(body.debateJobId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    )
+    expect(response.headers.get("Location")).toBe(
+      `/api/debate-jobs/${body.slug}`,
+    )
+
+    await vi.waitFor(() => {
+      const row = db
+        .select()
+        .from(debateJobsTable)
+        .where(eq(debateJobsTable.debateJobId, body.debateJobId))
+        .get()
+      expect(row?.status).toBe("failed")
+    })
+
+    const persistedDebate = db
+      .select()
+      .from(debateJobsTable)
+      .where(eq(debateJobsTable.debateJobId, body.debateJobId))
+      .get()
+    expect(persistedDebate).toMatchObject({
+      debateJobId: body.debateJobId,
+      userId: "test-user-id",
+      isPublic: true,
+      status: "failed",
+    })
+    const persistedIdea = db
+      .select()
+      .from(ideaJobs)
+      .where(eq(ideaJobs.debateJobId, body.debateJobId))
+      .get()
+    expect(persistedIdea).toMatchObject({
+      userId: "test-user-id",
+      debateJobId: body.debateJobId,
+      title: "Integration Debate",
+      slug: "integration-debate",
+      prompt: input.prompt,
+      numberOfIdeas: input.numberOfIdeas,
+      deepSearchCount: input.deepSearchCount,
+      maxSearches: input.maxSearches,
+      maxResultsPerSearch: input.maxResultsPerSearch,
+      maxRounds: input.maxRounds,
+    })
+
+    const detail = await createRealApp().request(`/api/debate-jobs/${body.slug}`)
+    expect(detail.status).toBe(200)
+    await expect(detail.json()).resolves.toMatchObject({
+      debateJob: {
+        debateJobId: body.debateJobId,
+        title: "Integration Debate",
+        slug: "integration-debate",
+        prompt: input.prompt,
+        isPublic: true,
+      },
+    })
   })
 
   it.each([

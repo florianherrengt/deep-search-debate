@@ -555,6 +555,8 @@ describe("runIdeaJob", () => {
     })
 
     const running = runIdeaJob(input)
+    // This deliberately yields one turn after the provider output rejects so
+    // awaitGenerationOutput must still wait for its separate completion.
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(db.select().from(ideaJobs).get()).toMatchObject({
@@ -1014,6 +1016,8 @@ describe("runIdeaJob", () => {
     await vi.waitFor(() => {
       expect(mocks.startDeepSearch).toHaveBeenCalledTimes(2)
     })
+    // The first child remains unresolved; yield one turn so the sibling-start
+    // failure is observed before releasing that child.
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(db.select().from(ideaJobs).get()).toMatchObject({
       status: "running",
