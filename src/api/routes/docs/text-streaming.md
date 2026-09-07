@@ -33,6 +33,11 @@ settle independently. An expired, rate-limited, broken, or unavailable explicit
 OpenAI choice fails without falling back to DeepSeek; only a missing implicit
 OpenAI recommendation may use its DeepSeek counterpart.
 
+Codex structured output uses a required strict tool. Its generated JSON Schema
+omits the unsupported `uri` format; the original Zod schema still validates
+source URLs and protocols before completion is persisted. Other provider
+schemas and supported format constraints remain unchanged.
+
 Every LLM call shares one process-wide admission queue (four active generations
 by default), including text, structured output, and title generation. A permit
 is held until the durable terminal generation transaction settles; provider

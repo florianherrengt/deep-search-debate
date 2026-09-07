@@ -101,6 +101,22 @@ function parseStructuredText<Result>(
   return schema.parse(secureJsonParse(text))
 }
 
+function structuredOutputJsonSchema(
+  schema: z.ZodType,
+  provider: ResolvedLlmCall["provider"],
+) {
+  return z.toJSONSchema(schema, {
+    target: "draft-7",
+    override: ({ jsonSchema }) => {
+      // OpenAI strict tools reject URI format. Keep URL checks in the original
+      // Zod schema used to validate the result before terminal persistence.
+      if (provider === "codex" && jsonSchema.format === "uri") {
+        delete jsonSchema.format
+      }
+    },
+  })
+}
+
 async function loadStructuredPrompt(
   promptName: PromptName,
   schema: z.ZodType,
@@ -257,7 +273,7 @@ export async function generateArrayStream<Element>(
           params.onCompleted?.({ id: completed.id, output }, transaction)
         },
       })
-      const jsonSchema = z.toJSONSchema(outputSchema, { target: "draft-7" })
+      const jsonSchema = structuredOutputJsonSchema(outputSchema, call.provider)
       let result: StartedLlmStream
       try {
         result = call.start(
@@ -326,7 +342,7 @@ export async function generateObjectStream<Result>(
           params.onCompleted?.({ id: completed.id, output }, transaction)
         },
       })
-      const jsonSchema = z.toJSONSchema(params.schema, { target: "draft-7" })
+      const jsonSchema = structuredOutputJsonSchema(params.schema, call.provider)
       let result: StartedLlmStream
       try {
         result = call.start(
