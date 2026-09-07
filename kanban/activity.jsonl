@@ -446,3 +446,5 @@
 {"timestamp":"2026-09-07T18:38:19.106287+01:00","action":"move","task_id":29,"detail":"in-progress -\u003e review"}
 {"timestamp":"2026-09-07T18:38:19.107433+01:00","action":"handoff","task_id":29,"detail":"Review and strengthen the full application test suite"}
 {"timestamp":"2026-09-07T18:38:19.107569+01:00","action":"release","task_id":29,"detail":"Review and strengthen the full application test suite"}
+{"timestamp":"2026-09-07T18:47:11.094772+01:00","action":"edit","task_id":29,"detail":"Review and strengthen the full application test suite"}
+{"timestamp":"2026-09-07T18:47:11.121847+01:00","action":"move","task_id":29,"detail":"review -\u003e done"}
