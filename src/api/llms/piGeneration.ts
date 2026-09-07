@@ -170,11 +170,7 @@ async function* withContentDeadlines(
       const contentDeadline = lastContentAt === undefined
         ? startedAt + config.llmExecution.firstChunkTimeoutMs
         : lastContentAt + config.llmExecution.chunkTimeoutMs
-      const deadline = Math.min(
-        startedAt + config.llmExecution.totalTimeoutMs,
-        contentDeadline,
-      )
-      const result = await nextWithDeadline(iterator, deadline, signal)
+      const result = await nextWithDeadline(iterator, contentDeadline, signal)
       if (result.done) {
         completed = true
         return
@@ -207,7 +203,6 @@ function createPiOptions(
   const common = {
     ...(runtime.apiKey !== undefined && { apiKey: runtime.apiKey }),
     signal,
-    timeoutMs: config.llmExecution.totalTimeoutMs,
     maxRetries: config.llmExecution.maxRetries,
     ...(request.temperature !== undefined && {
       temperature: request.temperature,

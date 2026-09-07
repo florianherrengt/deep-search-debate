@@ -191,8 +191,7 @@ describe("config", () => {
     expect(config.deepSearch.maxSummaryContextChars).toBe(75_000)
   })
 
-  it("uses typed provider deadlines and standalone generation admission", async () => {
-    vi.stubEnv("LLM_GENERATION_TIMEOUT_MS", "240000")
+  it("uses typed provider inactivity deadlines and standalone generation admission", async () => {
     vi.stubEnv("LLM_FIRST_CHUNK_TIMEOUT_MS", "90000")
     vi.stubEnv("LLM_CHUNK_TIMEOUT_MS", "45000")
     vi.stubEnv("LLM_MAX_RETRIES", "4")
@@ -210,7 +209,6 @@ describe("config", () => {
     const { config } = await import("./config.ts")
 
     expect(config.llmExecution).toEqual({
-      totalTimeoutMs: 240_000,
       firstChunkTimeoutMs: 90_000,
       chunkTimeoutMs: 45_000,
       maxRetries: 4,
@@ -226,6 +224,36 @@ describe("config", () => {
       minIntervalMs: 750,
     })
     expect(config.webSearch.serper.maxQueriesPerSecond).toBe(40)
+  })
+
+  it("defaults to ten minutes of inactivity before and between content without a total deadline", async () => {
+    vi.stubEnv("LLM_GENERATION_TIMEOUT_MS", undefined)
+    vi.stubEnv("LLM_FIRST_CHUNK_TIMEOUT_MS", undefined)
+    vi.stubEnv("LLM_CHUNK_TIMEOUT_MS", undefined)
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.llmExecution).toMatchObject({
+      firstChunkTimeoutMs: 600_000,
+      chunkTimeoutMs: 600_000,
+    })
+    expect(config.llmExecution).not.toHaveProperty("totalTimeoutMs")
+  })
+
+  it.each(["10000", "not-a-timeout"])("ignores the removed total generation setting %s", async (legacyTimeout) => {
+    vi.stubEnv("LLM_GENERATION_TIMEOUT_MS", legacyTimeout)
+    vi.stubEnv("LLM_FIRST_CHUNK_TIMEOUT_MS", "600000")
+    vi.stubEnv("LLM_CHUNK_TIMEOUT_MS", "600000")
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.llmExecution).toMatchObject({
+      firstChunkTimeoutMs: 600_000,
+      chunkTimeoutMs: 600_000,
+    })
+    expect(config.llmExecution).not.toHaveProperty("totalTimeoutMs")
   })
 
   it("rejects invalid deep-search concurrency limits", async () => {

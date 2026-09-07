@@ -33,13 +33,20 @@ settle independently. An expired, rate-limited, broken, or unavailable explicit
 OpenAI choice fails without falling back to DeepSeek; only a missing implicit
 OpenAI recommendation may use its DeepSeek counterpart.
 
+Codex structured output uses a required strict tool. Its generated JSON Schema
+omits the unsupported `uri` format; the original Zod schema still validates
+source URLs and protocols before completion is persisted. Other provider
+schemas and supported format constraints remain unchanged.
+
 Every LLM call shares one process-wide admission queue (four active generations
 by default), including text, structured output, and title generation. A permit
 is held until the durable terminal generation transaction settles; provider
-retries cannot bypass it. Every streaming provider call has configured total,
-first-content, and inter-content deadlines. The application sends no output-token
+retries cannot bypass it. Streaming provider calls have no application-level total
+generation deadline. The first-content and inter-content inactivity deadlines
+both default to ten minutes; nonempty text or reasoning resets the deadline,
+but empty events do not. The application sends no output-token
 cap for any provider or stage, including title generation. Provider model limits,
-shared deadlines, and cancellation behavior still apply. Every prompt name maps
+inactivity deadlines, connection errors, and cancellation behavior still apply. Every prompt name maps
 exhaustively to Small or Big; the selected role's reasoning effort is
 authoritative for text and structured generation alike. Older call-site
 enabled/disabled arguments remain accepted only for compatibility and cannot

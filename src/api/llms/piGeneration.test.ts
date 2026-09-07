@@ -12,6 +12,7 @@ import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import z from "zod"
 import { OpenAiCodexError } from "../openaiConnection/codexErrors.ts"
+import { workflowAbortReason } from "../workflowRuntime.ts"
 import {
   startPiLlmStream,
   type PiLlmRequest,
@@ -22,9 +23,10 @@ import type { LlmStreamPart, StartedLlmStream } from "./streamTypes.ts"
 vi.mock("../config.ts", () => ({
   config: {
     llmExecution: {
-      totalTimeoutMs: 100,
-      firstChunkTimeoutMs: 40,
-      chunkTimeoutMs: 25,
+      // Deliberately retain the obsolete setting to prove it cannot cap a stream.
+      totalTimeoutMs: 300_000,
+      firstChunkTimeoutMs: 600_000,
+      chunkTimeoutMs: 600_000,
       maxRetries: 3,
     },
   },
@@ -207,7 +209,7 @@ afterEach(() => {
 })
 
 describe("startPiLlmStream", () => {
-  it("sends no output-token budget through the real Pi provider and receives reasoning plus a title", async () => {
+  it("receives reasoning and a title through real Pi after six quiet minutes and a nine-minute content gap without output or total caps", async () => {
     vi.useFakeTimers()
     const models = createModels()
     models.setProvider(deepseekProvider())
@@ -226,10 +228,20 @@ describe("startPiLlmStream", () => {
           usage: { prompt_tokens: 10, completion_tokens: 92, total_tokens: 102 },
         },
       ]
-      return new Response(
-        `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`,
-        { headers: { "content-type": "text/event-stream" } },
-      )
+      const encoder = new TextEncoder()
+      return new Response(new ReadableStream({
+        async start(controller) {
+          for (const [index, chunk] of chunks.entries()) {
+            await new Promise<void>((resolve) => setTimeout(
+              resolve,
+              [360_000, 540_000, 1][index],
+            ))
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`))
+          }
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"))
+          controller.close()
+        },
+      }), { headers: { "content-type": "text/event-stream" } })
     })
     vi.stubGlobal("fetch", fetch)
 
@@ -245,7 +257,10 @@ describe("startPiLlmStream", () => {
       }),
     )
 
-    await expect(collect(started.stream)).resolves.toEqual([
+    const collected = collect(started.stream)
+    void collected.catch(() => undefined)
+    await vi.advanceTimersByTimeAsync(900_001)
+    await expect(collected).resolves.toEqual([
       { type: "reasoning-delta", text: "Consider the best title." },
       { type: "text-delta", text: '{"title":"Café Ideas"}' },
     ])
@@ -288,7 +303,6 @@ describe("startPiLlmStream", () => {
     expect(userMessage?.timestamp).toEqual(expect.any(Number))
     expect(options).toMatchObject({
       apiKey: "provider-key",
-      timeoutMs: 100,
       maxRetries: 3,
       temperature: 0.25,
       reasoningEffort: "xhigh",
@@ -297,6 +311,7 @@ describe("startPiLlmStream", () => {
     expect(options.signal).toBeInstanceOf(AbortSignal)
     expect(options).not.toHaveProperty("samplingParams")
     expect(options).not.toHaveProperty("maxTokens")
+    expect(options).not.toHaveProperty("timeoutMs")
   })
 
   it("requests server JSON mode and omits disabled reasoning", async () => {
@@ -384,7 +399,6 @@ describe("startPiLlmStream", () => {
     })
     expect(tool?.description).toEqual(expect.any(String))
     expect(options).toMatchObject({
-      timeoutMs: 100,
       maxRetries: 3,
       temperature: 0.25,
       reasoningEffort: "medium",
@@ -395,6 +409,7 @@ describe("startPiLlmStream", () => {
     expect(options).not.toHaveProperty("apiKey")
     expect(options).not.toHaveProperty("samplingParams")
     expect(options).not.toHaveProperty("maxTokens")
+    expect(options).not.toHaveProperty("timeoutMs")
   })
 
   it("normalizes reasoning and text and preserves finish reasons and usage", async () => {
@@ -605,7 +620,7 @@ describe("startPiLlmStream", () => {
     const { runtime, stream } = harness(
       delayedEvents([
         { delay: 0, event: event({ type: "start" }) },
-        { delay: 41, event: event({ type: "text_delta", delta: "late" }) },
+        { delay: 600_001, event: event({ type: "text_delta", delta: "late" }) },
       ]),
     )
     const started = startPiLlmStream(runtime, request())
@@ -613,7 +628,7 @@ describe("startPiLlmStream", () => {
     const collected = collect(started.stream)
     void collected.catch(() => undefined)
 
-    await vi.advanceTimersByTimeAsync(39)
+    await vi.advanceTimersByTimeAsync(599_999)
     const { options } = recordedCall(stream)
     if (!(options.signal instanceof AbortSignal)) {
       throw new Error("Expected request signal")
@@ -627,10 +642,10 @@ describe("startPiLlmStream", () => {
 
   it("times out between semantic content chunks", async () => {
     vi.useFakeTimers()
-    const { runtime } = harness(
+    const { runtime, stream } = harness(
       delayedEvents([
         { delay: 10, event: event({ type: "text_delta", delta: "first" }) },
-        { delay: 26, event: event({ type: "text_delta", delta: "late" }) },
+        { delay: 600_001, event: event({ type: "text_delta", delta: "late" }) },
       ]),
     )
     const started = startPiLlmStream(runtime, request())
@@ -638,19 +653,25 @@ describe("startPiLlmStream", () => {
     const collected = collect(started.stream)
     void collected.catch(() => undefined)
 
-    await vi.advanceTimersByTimeAsync(34)
+    await vi.advanceTimersByTimeAsync(600_009)
+    const { options } = recordedCall(stream)
+    if (!(options.signal instanceof AbortSignal)) {
+      throw new Error("Expected request signal")
+    }
+    expect(options.signal.aborted).toBe(false)
     await vi.advanceTimersByTimeAsync(1)
     await expect(collected).rejects.toMatchObject({ name: "TimeoutError" })
+    expect(options.signal.aborted).toBe(true)
     await terminals
   })
 
-  it("does not let empty Pi deltas extend the inter-content deadline", async () => {
+  it.each(["text_delta", "thinking_delta"] as const)("does not let an empty %s extend the inter-content deadline", async (type) => {
     vi.useFakeTimers()
-    const { runtime } = harness(
+    const { runtime, stream } = harness(
       delayedEvents([
         { delay: 10, event: event({ type: "text_delta", delta: "first" }) },
-        { delay: 20, event: event({ type: "text_delta", delta: "" }) },
-        { delay: 6, event: event({ type: "text_delta", delta: "late" }) },
+        { delay: 300_000, event: event({ type, delta: "" }) },
+        { delay: 300_001, event: event({ type: "text_delta", delta: "late" }) },
       ]),
     )
     const started = startPiLlmStream(runtime, request())
@@ -658,31 +679,66 @@ describe("startPiLlmStream", () => {
     const collected = collect(started.stream)
     void collected.catch(() => undefined)
 
-    await vi.advanceTimersByTimeAsync(34)
+    await vi.advanceTimersByTimeAsync(600_009)
+    const { options } = recordedCall(stream)
+    expect(options.signal).toMatchObject({ aborted: false })
     await vi.advanceTimersByTimeAsync(1)
     await expect(collected).rejects.toMatchObject({ name: "TimeoutError" })
+    expect(options.signal).toMatchObject({ aborted: true })
     await terminals
   })
 
-  it("enforces the total deadline despite regular content", async () => {
+  it("continues beyond twenty minutes while text and reasoning each reset the inactivity deadline", async () => {
     vi.useFakeTimers()
     const { runtime } = harness(
       delayedEvents([
-        { delay: 20, event: event({ type: "text_delta", delta: "1" }) },
-        { delay: 20, event: event({ type: "text_delta", delta: "2" }) },
-        { delay: 20, event: event({ type: "text_delta", delta: "3" }) },
-        { delay: 20, event: event({ type: "text_delta", delta: "4" }) },
-        { delay: 21, event: event({ type: "text_delta", delta: "late" }) },
+        { delay: 240_000, event: event({ type: "text_delta", delta: "first" }) },
+        { delay: 540_000, event: event({ type: "thinking_delta", delta: "consider" }) },
+        { delay: 540_000, event: event({ type: "text_delta", delta: "answer" }) },
+        { delay: 1, event: event({ type: "done", reason: "stop" }) },
       ]),
     )
     const started = startPiLlmStream(runtime, request())
+    const collected = collect(started.stream)
+    void collected.catch(() => undefined)
+
+    await vi.advanceTimersByTimeAsync(1_320_001)
+    await expect(collected).resolves.toEqual([
+      { type: "text-delta", text: "first" },
+      { type: "reasoning-delta", text: "consider" },
+      { type: "text-delta", text: "answer" },
+    ])
+    await expect(started.finishReason).resolves.toBe("stop")
+  })
+
+  it("still aborts immediately when the user stops an otherwise active stream", async () => {
+    vi.useFakeTimers()
+    const workflowController = new AbortController()
+    const { runtime, stream } = harness(
+      delayedEvents([
+        { delay: 10, event: event({ type: "thinking_delta", delta: "consider" }) },
+        { delay: 540_000, event: event({ type: "text_delta", delta: "answer" }) },
+      ]),
+    )
+    const started = startPiLlmStream(runtime, request({
+      workflowSignal: workflowController.signal,
+    }))
     const terminals = terminalPromises(started)
     const collected = collect(started.stream)
     void collected.catch(() => undefined)
 
-    await vi.advanceTimersByTimeAsync(99)
-    await vi.advanceTimersByTimeAsync(1)
-    await expect(collected).rejects.toMatchObject({ name: "TimeoutError" })
-    await terminals
+    await vi.advanceTimersByTimeAsync(11)
+    const reason = workflowAbortReason("user-stop")
+    workflowController.abort(reason)
+
+    await expect(collected).rejects.toMatchObject({ cause: reason })
+    const { options } = recordedCall(stream)
+    expect(options.signal).toMatchObject({ aborted: true, reason })
+    for (const terminal of await terminals) {
+      expect(terminal).toMatchObject({
+        status: "rejected",
+        reason: { cause: reason },
+      })
+    }
   })
 })
