@@ -4,7 +4,7 @@ title: Verify full Pi OpenAI debate locally
 status: review
 priority: high
 created: 2026-09-07T11:53:56.976753+01:00
-updated: 2026-09-07T17:09:15.688253+01:00
+updated: 2026-09-07T17:38:50.754951+01:00
 tags:
     - bug
 class: standard
@@ -25,3 +25,6 @@ Local timeout change committed as 0042584 after 79 focused regressions went from
 
 [[2026-09-07]] Mon 17:09
 Local-only verification completed. Timeout implementation commit 0042584feb6fc56a29f32bcfe3787f862f138432 on codex/ticket-27-pi-url-schema. Real saved cafe debate 5ccadbb4-ff35-4d84-9aa7-1e3590c417f5 completed all seven research jobs, six idea assessments, all eighteen matches, and winner website generation using Luna medium for every new model call. Winner: WasteTap Cafe Prevention Kit. Database has terminal completed root/children and no active model generations; only the historical pre-fix Sol timeout remains. Verified live transcript growth and reload, completed UI after reload with no Stop button, one terminal done and no errors in replay, and rendered generated website. Full gate 1070 tests passed; five browser E2Es passed covering both full provider paths, cancellation, provider failure, and connection lifecycle. Root/API checklist reviews clean. Local app remains available on API3005/web5178; both test roles remain Luna medium. User explicitly deferred deployment: no image release, deployment, production data/settings change, push, or merge. Worktree retained and clean; task code is committed but not integrated into main.
+
+[[2026-09-07]] Mon 17:38
+Release 0042584feb6fc56a29f32bcfe3787f862f138432 pushed to origin/codex/ticket-27-pi-url-schema and deployed through Coolify deployment m3ml56lz8h8dor3zo0fkg27t, finished 2026-09-07 16:26:23 UTC. Published and running image digest sha256:62c0e051dd8f26bb3bc0cd52238c4aacbf3eedef482e6c2d7db432fcbc8c6358; exact live tag/digest and healthy state verified, public health passed, effective first/inter-content inactivity defaults are both 600000 ms with no total timeout. User restored Tailscale access before deployment. No schema changes or database reset were needed; production data, credentials, and explicit Luna medium/Sol xhigh settings remain intact. Existing production debate 079f84b6-af55-4a46-b486-5b6445935ce6 has all eighteen matches complete. Its old Sol xhigh winner-site attempt failed at 300010 ms; startup resumed only that unfinished site as generation 3c0a456b-bbbb-4ca1-8006-6b85e7b61e7d. At 16:38 UTC that generation remains running beyond the old cutoff with no recorded error; production debate completion is not yet verified. No additional test generations, source edits, or main merge were performed. Prior completed real local Luna debate and 1070-test/five-E2E verification apply to this unchanged release.

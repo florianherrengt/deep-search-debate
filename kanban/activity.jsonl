@@ -434,3 +434,5 @@
 {"timestamp":"2026-09-07T17:09:15.691836+01:00","action":"move","task_id":28,"detail":"in-progress -\u003e review"}
 {"timestamp":"2026-09-07T17:09:15.692477+01:00","action":"handoff","task_id":28,"detail":"Verify full Pi OpenAI debate locally"}
 {"timestamp":"2026-09-07T17:09:15.692551+01:00","action":"release","task_id":28,"detail":"Verify full Pi OpenAI debate locally"}
+{"timestamp":"2026-09-07T17:38:50.756307+01:00","action":"handoff","task_id":28,"detail":"Verify full Pi OpenAI debate locally"}
+{"timestamp":"2026-09-07T17:38:50.757614+01:00","action":"release","task_id":28,"detail":"Verify full Pi OpenAI debate locally"}
