@@ -425,3 +425,8 @@
 {"timestamp":"2026-09-07T12:18:34.534798+01:00","action":"handoff","task_id":28,"detail":"Verify full Pi OpenAI debate locally"}
 {"timestamp":"2026-09-07T12:18:34.534873+01:00","action":"block","task_id":28,"detail":"Waiting on user: remove only the total model-call deadline or all application model-call timeouts?"}
 {"timestamp":"2026-09-07T12:18:34.534951+01:00","action":"release","task_id":28,"detail":"Verify full Pi OpenAI debate locally"}
+{"timestamp":"2026-09-07T16:28:21.329297+01:00","action":"edit","task_id":28,"detail":"Verify full Pi OpenAI debate locally"}
+{"timestamp":"2026-09-07T16:28:21.329594+01:00","action":"unblock","task_id":28,"detail":"Verify full Pi OpenAI debate locally"}
+{"timestamp":"2026-09-07T16:28:21.329678+01:00","action":"claim","task_id":28,"detail":"salmine-vinegar"}
+{"timestamp":"2026-09-07T16:28:21.35104+01:00","action":"move","task_id":28,"detail":"review -\u003e in-progress"}
+{"timestamp":"2026-09-07T16:28:53.430067+01:00","action":"edit","task_id":28,"detail":"Verify full Pi OpenAI debate locally"}
