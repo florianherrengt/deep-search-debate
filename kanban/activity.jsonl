@@ -421,3 +421,7 @@
 {"timestamp":"2026-09-07T11:31:19.727327+01:00","action":"release","task_id":27,"detail":"Fix Pi OpenAI URL schema compatibility"}
 {"timestamp":"2026-09-07T11:53:56.978322+01:00","action":"create","task_id":28,"detail":"Verify full Pi OpenAI debate locally"}
 {"timestamp":"2026-09-07T12:12:56.241326+01:00","action":"edit","task_id":28,"detail":"Verify full Pi OpenAI debate locally"}
+{"timestamp":"2026-09-07T12:18:34.53449+01:00","action":"move","task_id":28,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-09-07T12:18:34.534798+01:00","action":"handoff","task_id":28,"detail":"Verify full Pi OpenAI debate locally"}
+{"timestamp":"2026-09-07T12:18:34.534873+01:00","action":"block","task_id":28,"detail":"Waiting on user: remove only the total model-call deadline or all application model-call timeouts?"}
+{"timestamp":"2026-09-07T12:18:34.534951+01:00","action":"release","task_id":28,"detail":"Verify full Pi OpenAI debate locally"}

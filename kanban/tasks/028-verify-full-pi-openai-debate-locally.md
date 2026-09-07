@@ -1,14 +1,14 @@
 ---
 id: 28
 title: Verify full Pi OpenAI debate locally
-status: in-progress
+status: review
 priority: high
 created: 2026-09-07T11:53:56.976753+01:00
-updated: 2026-09-07T12:12:56.241008+01:00
+updated: 2026-09-07T12:18:34.531923+01:00
 tags:
     - bug
-claimed_by: salmine-vinegar
-claimed_at: 2026-09-07T12:12:56.241128+01:00
+blocked: true
+block_reason: 'Waiting on user: remove only the total model-call deadline or all application model-call timeouts?'
 class: standard
 ---
 
@@ -16,3 +16,6 @@ User reports apparent hanging and asks for local proof before another deployment
 
 [[2026-09-07]] Mon 12:12
 Local full-stack OpenAI E2E added and committed as c5e898d on codex/ticket-27-pi-url-schema. Reuses existing deterministic fixture content through real Pi transport; validates exact Luna medium/Sol xhigh roles, research analysis, final evaluations, all23matches, winner HTML, streamed transcript/reload, durable zero-credit generations. Full1065 gate checks passed twice. Three adjacent E2Es passed; after review cleanup fix, final OpenAI file2/2 passed. Deliberate live-match assertion failure verified cancellation of only test-owned debate, zero active generations, safe disconnect, and successful retry. Root/API/web checklist reviews clean. User completed fresh local OAuth; real six-candidate cafe debate5ccadbb4-ff35-4d84-9aa7-1e3590c417f5 started on local3005/5178 using explicit Luna medium/Sol xhigh. Local search returned30real results; current real run in first research synthesis, not yet terminal. Production was not deadlocked: all7research jobs and assessments completed and tournament started without any intervention. No production DB writes, deployment, Git push, or merge this turn. Local services and saved connection remain available.
+
+[[2026-09-07]] Mon 12:18
+Real local reproduction reached a distinct failure: Sol xhigh answer-research-request generation 69a6fd4b-9285-4b99-b23e-86abf1544472 was aborted at exactly 300001 ms, retaining 2507 answer characters and 2441 reasoning characters. Local debate 5ccadbb4-ff35-4d84-9aa7-1e3590c417f5 and its child settled failed with the timeout message; eight earlier job-owned generations completed. Browser reload shows Debate failed with Resume workflow, so successful checkpoints remain reusable. No timeout-policy implementation has begun: user choice requested between removing total deadline while retaining inactivity protection (recommended) and removing all application model-call timeouts. Full controlled OpenAI debate coverage is committed as c5e898d; final 1065-test gate passed after cleanup fix, final OpenAI E2Es 2/2 passed, earlier adjacent DeepSeek full debate passed, and root/API/web reviews are clean. Worktree is clean, local services remain on 3005/5178 with user-connected OpenAI and explicit Luna medium/Sol xhigh. Production remains untouched and progressed to second Swiss round (3 completed of 18 eventual matches); no new deployment, merge, or push. Continue locally from the saved failed run after the policy decision.
