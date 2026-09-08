@@ -1,13 +1,15 @@
 ---
 id: 30
 title: Improve deep search with preserved evidence and linked-source verification
-status: review
+status: in-progress
 priority: high
 created: 2026-09-07T19:29:18.713132+01:00
-updated: 2026-09-07T22:52:42.414967+01:00
+updated: 2026-09-08T16:42:28.305846+01:00
 tags:
     - feature
     - research
+claimed_by: dealt-eelware
+claimed_at: 2026-09-08T16:42:28.305846+01:00
 class: standard
 ---
 
