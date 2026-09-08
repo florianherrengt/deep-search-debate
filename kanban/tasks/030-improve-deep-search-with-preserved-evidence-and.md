@@ -1,15 +1,13 @@
 ---
 id: 30
 title: Improve deep search with preserved evidence and linked-source verification
-status: in-progress
+status: review
 priority: high
 created: 2026-09-07T19:29:18.713132+01:00
-updated: 2026-09-08T16:42:54.5182+01:00
+updated: 2026-09-08T17:12:26.300729+01:00
 tags:
     - feature
     - research
-claimed_by: dealt-eelware
-claimed_at: 2026-09-08T16:42:54.518324+01:00
 class: standard
 ---
 
@@ -45,3 +43,15 @@ User approved the next five improvements: retain original supporting passages, m
 
 [[2026-09-08]] Tue 16:42
 User approved fixing legacy saved OpenAI credential compatibility discovered during the live search smoke test. Preserve existing encrypted credentials and model choices, verify automatic refresh, then rerun the live search. Reuse the existing task worktree; no schema changes or new dependencies.
+
+[[2026-09-08]] Tue 17:12
+## Handoff — saved OpenAI credentials and live search proof
+- Fixed compatibility with encrypted pre-Pi Codex auth.json credentials. Valid legacy tokens are adapted in memory without rewriting the saved row; normal refresh retains the existing per-user lock and connection-ID compare-and-swap and persists rotated credentials in the current Pi format.
+- Malformed credentials now retain the safe protocol-incompatible diagnosis through both Pi credential reads and streamed errors instead of being mislabeled as expired. No schema change, dependency, provider switch, or reconnect was required.
+- Regression proof: actual Pi auth integration covers legacy read, expired-token refresh/rotation, fresh-instance reuse, malformed expiry/payloads, disconnect/reconnect races, and flattened stream errors. Final Node 26 gatekeep passed: lint, typecheck, knip, 808 API tests and 370 web tests (1,178 total). Dedicated root/API/database/web checklist reviews completed with no remaining findings.
+- Real-provider UI search completed: http://localhost:5180/deep-search/sqlite-wal-multi-process-support (job 8d6f6d03-ba0e-462f-8273-3306bd39acf5). Existing OpenAI Luna/Sol model choices, real SearXNG and ScrapingAnt; three queries, 31 completed page extractions including 15 second-hop paths, 52 completed generations, 34 product credits, 20 minutes 9 seconds. An earlier failed title-generation attempt predates the fix; the completed live job has no error.
+- The reviewer stopped after one round with all four SQLite WAL requirements covered. Mandatory correction changed the answer and added the URI citation, then structured analysis completed before the job. Main conclusions match the official evidence: same-host concurrency with one writer, ordinary WAL unsupported across NFS servers, conditional read-only opening, and SQLite backup facilities for a consistent live backup.
+- Restart proof: restarted the owned API and web services, reopened the saved result, and verified completed answer, four supported requirements, and connected OpenAI Luna/Sol settings. Hashes of job, rounds, generations, encrypted connection, and model settings remained unchanged; credits stayed 436. Integrity check passed and no foreign-key violations.
+- Live quality follow-ups, outside this credential fix: duplicate www/non-www pages and overlapping forum views consume browsing allowance; some decisive source sections are absent from retained original passages even though summaries contain the facts; navigation links receive some selections; the final analysis still treats the documented immutable-modification hazard too cautiously; Markdown pipe tables render as plain text. No comparative benchmark was run.
+- Local fixture uses an isolated fresh test DB with the existing debug account, encrypted connection, and model settings copied from main. Original main DB is untouched. All task code remains uncommitted in /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-30-deep-search-evidence on codex/ticket-30-deep-search-evidence for user review. No merge, push, or deployment performed.
+- Final gate log: /tmp/rethinkloop-ticket30-credentials-final-gatekeep.log. Live API logs: /tmp/rethinkloop-ticket30-live-api.log and /tmp/rethinkloop-ticket30-restarted-api.log.
