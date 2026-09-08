@@ -4,12 +4,12 @@ title: Improve deep search with preserved evidence and linked-source verificatio
 status: in-progress
 priority: high
 created: 2026-09-07T19:29:18.713132+01:00
-updated: 2026-09-08T16:42:28.305846+01:00
+updated: 2026-09-08T16:42:54.5182+01:00
 tags:
     - feature
     - research
 claimed_by: dealt-eelware
-claimed_at: 2026-09-08T16:42:28.305846+01:00
+claimed_at: 2026-09-08T16:42:54.518324+01:00
 class: standard
 ---
 
@@ -42,3 +42,6 @@ User approved the next five improvements: retain original supporting passages, m
 - Browser suite note: latest complete Chromium run passed 14/15. The unchanged debate test briefly expected Streaming after a reload during which its 350 ms response had legitimately completed. Initial streaming had already been observed; the unchanged focused case passed in 55 seconds. No unrelated product or timing-fixture changes were made. Logs: /tmp/rethinkloop-ticket30-e2e.log and /tmp/rethinkloop-ticket30-debate-focused.log.
 - Independent root/API/database/web checklist reviews completed; identified live/replay and legacy-checkpoint issues were fixed and covered by regressions. No remaining task-code findings. Build retains its existing large-chunk warning.
 - No before-and-after answer-quality benchmark was run, as requested. Controlled-provider browser tests prove orchestration, evidence propagation, correction, persistence, provider routing, and UI behavior.
+
+[[2026-09-08]] Tue 16:42
+User approved fixing legacy saved OpenAI credential compatibility discovered during the live search smoke test. Preserve existing encrypted credentials and model choices, verify automatic refresh, then rerun the live search. Reuse the existing task worktree; no schema changes or new dependencies.
