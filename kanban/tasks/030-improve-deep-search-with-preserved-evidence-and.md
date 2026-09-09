@@ -1,13 +1,15 @@
 ---
 id: 30
 title: Improve deep search with preserved evidence and linked-source verification
-status: review
+status: in-progress
 priority: high
 created: 2026-09-07T19:29:18.713132+01:00
-updated: 2026-09-09T01:40:58.586476+01:00
+updated: 2026-09-09T01:53:13.247095+01:00
 tags:
     - feature
     - research
+claimed_by: dealt-eelware
+claimed_at: 2026-09-09T01:53:13.247209+01:00
 class: standard
 ---
 
@@ -69,3 +71,6 @@ User approved remark-gfm. Continue the live-search follow-ups: bounded known-pag
 - A read-only check using the saved 31-source live search and the actual final-context formatter retained the previously omitted immutable-modification warning, incorrect-query risk, and SQLITE_CORRUPT passage within the existing 100,000-character context budget (94,810 characters). No stored result was rewritten.
 - Dedicated root, API, database, and web checklist reviews found no remaining actionable issues. Final diff whitespace check passed. No new full real-provider search or before-and-after quality benchmark was run; reduction in duplicate browsing has not been measured live.
 - Worktree: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-30-deep-search-evidence. Branch: codex/ticket-30-deep-search-evidence. All task code remains uncommitted for user review; no merge, push, or deployment. Final logs: /tmp/rethinkloop-ticket30-followups-gatekeep.log and /tmp/rethinkloop-ticket30-followups-e2e.log.
+
+[[2026-09-09]] Wed 01:53
+User approved gap-informed continuation: analyze material searchable gaps before deciding to stop and feed those gaps into the next focused round while respecting the existing hard limit. Reuse existing review and durable generation mechanisms, preserve completed research, and leave task code uncommitted for review.
