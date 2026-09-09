@@ -462,3 +462,5 @@
 {"timestamp":"2026-09-08T17:12:26.303407+01:00","action":"move","task_id":30,"detail":"in-progress -\u003e review"}
 {"timestamp":"2026-09-08T17:12:26.303582+01:00","action":"handoff","task_id":30,"detail":"Improve deep search with preserved evidence and linked-source verification"}
 {"timestamp":"2026-09-08T17:12:26.30367+01:00","action":"release","task_id":30,"detail":"Improve deep search with preserved evidence and linked-source verification"}
+{"timestamp":"2026-09-09T01:22:45.094729+01:00","action":"move","task_id":30,"detail":"review -\u003e in-progress"}
+{"timestamp":"2026-09-09T01:22:45.11166+01:00","action":"edit","task_id":30,"detail":"Improve deep search with preserved evidence and linked-source verification"}

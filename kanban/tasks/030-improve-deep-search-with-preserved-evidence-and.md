@@ -1,13 +1,15 @@
 ---
 id: 30
 title: Improve deep search with preserved evidence and linked-source verification
-status: review
+status: in-progress
 priority: high
 created: 2026-09-07T19:29:18.713132+01:00
-updated: 2026-09-08T17:12:26.300729+01:00
+updated: 2026-09-09T01:22:45.110666+01:00
 tags:
     - feature
     - research
+claimed_by: dealt-eelware
+claimed_at: 2026-09-09T01:22:45.110789+01:00
 class: standard
 ---
 
@@ -55,3 +57,6 @@ User approved fixing legacy saved OpenAI credential compatibility discovered dur
 - Live quality follow-ups, outside this credential fix: duplicate www/non-www pages and overlapping forum views consume browsing allowance; some decisive source sections are absent from retained original passages even though summaries contain the facts; navigation links receive some selections; the final analysis still treats the documented immutable-modification hazard too cautiously; Markdown pipe tables render as plain text. No comparative benchmark was run.
 - Local fixture uses an isolated fresh test DB with the existing debug account, encrypted connection, and model settings copied from main. Original main DB is untouched. All task code remains uncommitted in /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-30-deep-search-evidence on codex/ticket-30-deep-search-evidence for user review. No merge, push, or deployment performed.
 - Final gate log: /tmp/rethinkloop-ticket30-credentials-final-gatekeep.log. Live API logs: /tmp/rethinkloop-ticket30-live-api.log and /tmp/rethinkloop-ticket30-restarted-api.log.
+
+[[2026-09-09]] Wed 01:22
+User approved remark-gfm. Continue the live-search follow-ups: bounded known-page evidence for linked-source selection, summary-informed original passage retention and final context, and Markdown table rendering with the existing React/MUI renderer. Reuse this worktree and existing data structures; leave task code uncommitted for review.
