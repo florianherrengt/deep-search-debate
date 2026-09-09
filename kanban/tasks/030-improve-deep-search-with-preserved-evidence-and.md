@@ -1,15 +1,13 @@
 ---
 id: 30
 title: Improve deep search with preserved evidence and linked-source verification
-status: in-progress
+status: review
 priority: high
 created: 2026-09-07T19:29:18.713132+01:00
-updated: 2026-09-09T01:53:13.247095+01:00
+updated: 2026-09-09T02:11:57.456309+01:00
 tags:
     - feature
     - research
-claimed_by: dealt-eelware
-claimed_at: 2026-09-09T01:53:13.247209+01:00
 class: standard
 ---
 
@@ -74,3 +72,16 @@ User approved remark-gfm. Continue the live-search follow-ups: bounded known-pag
 
 [[2026-09-09]] Wed 01:53
 User approved gap-informed continuation: analyze material searchable gaps before deciding to stop and feed those gaps into the next focused round while respecting the existing hard limit. Reuse existing review and durable generation mechanisms, preserve completed research, and leave task code uncommitted for review.
+
+[[2026-09-09]] Wed 02:11
+## Handoff — gap-informed research continuation
+- User approved moving material gap analysis into the stopping decision. The existing Big-role round review now audits requirements, qualified claims, conflicts, and assumptions before research ends. New version-1 output contains bounded gaps with a concrete external evidence target or null for uncertainty web research cannot usefully resolve; it no longer contains a model stop vote.
+- Application code derives continue whenever any gap has a target and passes the actionable descriptions and exact targets into the next planner through the existing review reason. The existing hard round limit remains authoritative; no minimum round count is forced.
+- Reused the existing review model call, generation JSON, transactional completion hook, and normalized round outcome fields. No new database schema, model stage, dependency, configuration, or event contract. Raw assessments remain intact while the effective decision/reason commit atomically. Legacy saved decisions and completed jobs remain unchanged; Resume reuses the persisted next-round choice.
+- Updated reviewer prompt, scoped documentation, and existing stories. Stop status now reads “No further searches.” because correction and final analysis may still be running; examples cover actionable follow-up, user-only uncertainty, and a distinct final answer after two rounds.
+- Verification: final Node 26 gatekeep passed (834 API + 375 web = 1,209 tests). All 15 controlled-provider browser E2Es passed. Production web and Storybook builds passed with the existing large-chunk warning. Desktop/mobile stories inspected; the actual saved SQLite result and its legacy review reopen after restarting the owned API with the new code.
+- Regression proof includes actionable/nonsearchable gaps, invalid/oversized/unknown-version payloads, legacy decisions, real migrated-DB completion callback rollback and replay, restart between review and the next plan, and hard-cap finalization. A temporary forced stop made the continuation test fail; production was restored byte-for-byte.
+- The real-app E2E now follows the two-hop eligibility source, discovers a separate duration gap, executes focused second-round searches, and cites the new duration evidence in the corrected answer; both rounds and citations survive reload. External providers are controlled in this proof; no new full real-provider search or comparative quality benchmark was run.
+- Validation note: one intermediate full gate hit an intermittent UND_ERR_SOCKET in the unchanged deliberate-process-kill restart test. That test uses maxRounds=1 and never invokes the new reviewer; its feed helper can reject when the process dies before a complete event arrives. Focused rerun and final isolated full gate passed without changing that test. No unrelated fix was made.
+- Dedicated root, API, database, and web checklist reviews have no remaining actionable findings. All task code remains uncommitted in /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-30-deep-search-evidence on codex/ticket-30-deep-search-evidence. No merge, push, or deployment.
+- Final logs: /tmp/rethinkloop-ticket30-gap-verified-gatekeep.log, /tmp/rethinkloop-ticket30-gap-e2e.log, /tmp/rethinkloop-ticket30-gap-restart-focused.log.
