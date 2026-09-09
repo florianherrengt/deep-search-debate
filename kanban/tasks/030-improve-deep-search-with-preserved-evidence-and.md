@@ -1,15 +1,13 @@
 ---
 id: 30
 title: Improve deep search with preserved evidence and linked-source verification
-status: in-progress
+status: review
 priority: high
 created: 2026-09-07T19:29:18.713132+01:00
-updated: 2026-09-09T01:22:45.110666+01:00
+updated: 2026-09-09T01:40:58.586476+01:00
 tags:
     - feature
     - research
-claimed_by: dealt-eelware
-claimed_at: 2026-09-09T01:22:45.110789+01:00
 class: standard
 ---
 
@@ -60,3 +58,14 @@ User approved fixing legacy saved OpenAI credential compatibility discovered dur
 
 [[2026-09-09]] Wed 01:22
 User approved remark-gfm. Continue the live-search follow-ups: bounded known-page evidence for linked-source selection, summary-informed original passage retention and final context, and Markdown table rendering with the existing React/MUI renderer. Reuse this worktree and existing data structures; leave task code uncommitted for review.
+
+[[2026-09-09]] Wed 01:40
+## Handoff — Markdown tables and live-search follow-ups
+- Added the approved remark-gfm dependency to the existing React/MUI renderer. Tables are semantic and horizontally scrollable with visible keyboard focus; streaming preserves scroll/focus; footnotes and backlinks remain scoped to each answer. Added a comparison-table story and focused rendering/security/accessibility coverage.
+- Linked-page selection now receives bounded known-page status, titles, and available completed summaries, helping it avoid repeating evidence while preserving distinct URLs and version/query-specific sources. No URL-identity rewriting or new persistence was introduced.
+- Successful page summary completion now refines the existing original-passages field using the research request plus the completed summary, then clears temporary extraction in the same transaction. Final context narrowing uses the full summary too. Passages remain verbatim and bounded; completed historical pages and failed summaries are preserved.
+- Verified on Node 26: final gatekeep passed (819 API + 375 web = 1,194 tests), all 15 controlled-provider browser E2Es passed, production web build and Storybook build passed. Builds retain the existing large-chunk warning.
+- Real UI proof: desktop and 390px mobile tables, keyboard horizontal scrolling, footnote/backlink navigation, and saved real search rendering after restarting the API at http://localhost:5180/deep-search/sqlite-wal-multi-process-support. The saved job remains complete and credits remain 436.
+- A read-only check using the saved 31-source live search and the actual final-context formatter retained the previously omitted immutable-modification warning, incorrect-query risk, and SQLITE_CORRUPT passage within the existing 100,000-character context budget (94,810 characters). No stored result was rewritten.
+- Dedicated root, API, database, and web checklist reviews found no remaining actionable issues. Final diff whitespace check passed. No new full real-provider search or before-and-after quality benchmark was run; reduction in duplicate browsing has not been measured live.
+- Worktree: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-30-deep-search-evidence. Branch: codex/ticket-30-deep-search-evidence. All task code remains uncommitted for user review; no merge, push, or deployment. Final logs: /tmp/rethinkloop-ticket30-followups-gatekeep.log and /tmp/rethinkloop-ticket30-followups-e2e.log.
