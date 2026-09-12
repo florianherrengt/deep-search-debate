@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react"
 import { TextStreamProvider } from "../../../components/streaming/useTextStream.ts"
 import {
   completedRun,
+  mixedRequirements,
   moreResearchRequestedRun,
   refinedAnswerRun,
   researchRequest,
@@ -45,6 +46,29 @@ export const WithSearchResults: Story = {
   },
 }
 
+export const WithComparisonTable: Story = {
+  args: {
+    jobSlug: "illustrative-plan-comparison",
+    title: "Plan comparison",
+    researchRequest: "Compare the example plans, including prices, eligibility, and important conditions.",
+    run: { ...completedRun, roundAnswers: [], searches: [], researchAnalysis: null, finalAnswerStreamId: "final-answer-table" },
+  },
+}
+
+export const CheckingFinalAnswer: Story = {
+  args: {
+    ...WithSearchResults.args,
+    run: { ...sufficientEvidenceRun, status: "running", finalAnswerStreamId: "final-answer-correction", researchAnalysis: null },
+  },
+}
+
+export const WithRequirementCoverage: Story = {
+  args: {
+    ...WithSearchResults.args,
+    run: { ...completedRun, researchAnalysis: { facts: [], disagreements: [], gaps: [], assumptions: [], requirements: mixedRequirements } },
+  },
+}
+
 export const WithStreamingPageSummaries: Story = {
   args: {
     ...WithSearchResults.args,
@@ -76,12 +100,26 @@ export const WithMoreResearchRequested: Story = {
     ...WithSearchResults.args,
     run: moreResearchRequestedRun,
   },
+  parameters: {
+    docs: {
+      description: {
+        story: "A material evidence gap names a concrete external search target. The first answer remains a candidate while another bounded round is prepared.",
+      },
+    },
+  },
 }
 
 export const AfterAnotherResearchRound: Story = {
   args: {
     ...WithSearchResults.args,
     run: refinedAnswerRun,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Completed two-round research presents the corrected final answer. Earlier candidates remain attached to their own rounds and retain the reasons that led to further research.",
+      },
+    },
   },
 }
 

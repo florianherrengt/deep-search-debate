@@ -13,6 +13,7 @@ type GenerationOutputProps = {
   announcementLabel?: string
   format?: StreamTextFormat
   showText?: boolean
+  active?: boolean
   children?: ReactNode
 }
 
@@ -26,6 +27,7 @@ export function GenerationOutput({
   announcementLabel,
   format,
   showText,
+  active = true,
   children,
 }: GenerationOutputProps) {
   const stream = useTextStream(streamId)
@@ -39,7 +41,7 @@ export function GenerationOutput({
         <TextStreamOutput
           announcementLabel={announcementLabel}
           format={format}
-          stream={stream}
+          stream={!active && stream.status !== "error" ? { ...stream, status: "completed" } : stream}
           showText={showText}
           waitingText={waitingText}
           textTestId={testId}

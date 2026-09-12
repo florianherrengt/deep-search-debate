@@ -36,6 +36,7 @@ describe("page summaries", () => {
     mocks.webExtract.mockResolvedValue({
       url: "https://example.com/page",
       content: "Extracted page content",
+      links: [],
     })
   })
 
@@ -71,14 +72,15 @@ describe("page summaries", () => {
     })
   })
 
-  it("bounds extracted content before sending it to the model", async () => {
+  it("bounds extracted content while retaining a query-relevant middle qualification", async () => {
     mocks.generateTextStream.mockResolvedValueOnce(completedGeneration())
-    const content = `document-start-${"x".repeat(150_000)}-document-end`
+    const qualification = "Trial eligibility excludes existing customers from the £14 offer."
+    const content = `${"Background publication information. ".repeat(4_000)}${qualification}${"General organization history. ".repeat(4_000)}`
 
     await summarizePage({
       userId: "test-user-id",
       deepSearchJobId: "deep-search-job-id",
-      researchRequest: "Research a long document",
+      researchRequest: "Research trial eligibility and exclusions",
       url: "https://example.com/report.pdf",
       content,
     })
@@ -86,9 +88,10 @@ describe("page summaries", () => {
     const { prompt } = z.object({ prompt: z.string() }).parse(
       mocks.generateTextStream.mock.calls[0]?.[0] as unknown,
     )
-    expect(prompt).toContain("document-start")
-    expect(prompt).toContain("document-end")
-    expect(prompt).toContain("[... page content omitted to fit the model context ...]")
+    const suppliedContent = /<page_content>\n([\s\S]*?)\n<\/page_content>/.exec(prompt)![1]
+    expect(suppliedContent).toContain(qualification)
+    expect(suppliedContent.length).toBeLessThanOrEqual(100_000)
+    expect(suppliedContent).toContain("[... omitted ...]")
     expect(prompt).not.toContain(content)
     expect(prompt.length).toBeLessThan(102_000)
   })
@@ -111,6 +114,12 @@ describe("page summaries", () => {
 
   it("extracts a page and returns its registered summary handle", async () => {
     mocks.generateTextStream.mockResolvedValueOnce(completedGeneration())
+    const links = [{ url: "https://example.com/terms", title: "Eligibility terms" }]
+    mocks.webExtract.mockResolvedValueOnce({
+      url: "https://example.com/page",
+      content: "Extracted page content",
+      links,
+    })
     const onExtractionSettled = vi.fn()
 
     const result = await startPageSummary({
@@ -128,6 +137,7 @@ describe("page summaries", () => {
     expect(onExtractionSettled).toHaveBeenCalledWith({
       content: "Extracted page content",
       creditsUsed: 0,
+      links,
     })
   })
 
@@ -162,6 +172,7 @@ describe("page summaries", () => {
       return Promise.resolve({
         url,
         content: "Usable content from the other page",
+        links: [],
       })
     })
     mocks.generateTextStream.mockResolvedValueOnce(

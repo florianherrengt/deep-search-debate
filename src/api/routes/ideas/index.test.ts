@@ -263,6 +263,7 @@ describe("idea job routes", () => {
       deepSearchCount: 2,
       maxSearches: 3,
       maxResultsPerSearch: 3,
+      maxRounds: 2,
     })
     await vi.waitFor(() => {
       expect(mocks.generatePromptTitle).toHaveBeenCalledOnce()
@@ -275,6 +276,7 @@ describe("idea job routes", () => {
         deepSearchCount: 2,
         maxSearches: 3,
         maxResultsPerSearch: 3,
+        maxRounds: 2,
       }),
     ).rejects.toMatchObject({ status: 429 })
     expect(mocks.generatePromptTitle).toHaveBeenCalledOnce()
@@ -314,6 +316,7 @@ describe("idea job routes", () => {
           deepSearchCount: 2,
           maxSearches: 3,
           maxResultsPerSearch: 3,
+          maxRounds: 2,
         },
         {
           createParent: () => {

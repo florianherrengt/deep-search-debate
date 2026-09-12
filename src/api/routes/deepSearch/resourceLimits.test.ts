@@ -4,9 +4,27 @@ import {
   createIdeaJobInputSchema,
   ideaSelectionSchema,
 } from "../ideas/schemas.ts"
-import { deepSearchExecutionInputSchema } from "./resourceLimits.ts"
+import { deepSearchExecutionInputSchema, getLinkedPageBudget, getLinkedPageDepthBudget, maximumSelectedPagesForChildren } from "./resourceLimits.ts"
+import { createDebateJobInputSchema } from "../debates/schemas.ts"
 
 describe("deep-search resource limits", () => {
+  it("admits default idea and debate requests with their complete linked-page allowance", () => {
+    expect(createIdeaJobInputSchema.safeParse({ prompt: "Generate ideas" }).success).toBe(true)
+    expect(createDebateJobInputSchema.parse({ prompt: "Compare ideas" })).toMatchObject({ maxRounds: 2 })
+  })
+
+  it("reserves the linked-page allowance across every round and child", () => {
+    expect(maximumSelectedPagesForChildren({ maxSearches: 3, maxResultsPerSearch: 3, maxRounds: 3 }, 1)).toBe(108)
+    expect(maximumSelectedPagesForChildren({ maxSearches: 3, maxResultsPerSearch: 3, maxRounds: 3 }, 10)).toBe(1_080)
+    expect(maximumSelectedPagesForChildren({ maxSearches: 2, maxResultsPerSearch: 2, maxRounds: 2 }, 9)).toBe(288)
+  })
+
+  it("reserves later-hop reads even when shallow candidates could fill the round", () => {
+    const breadth = { maxSearches: 1, maxResultsPerSearch: 2 }
+    expect(getLinkedPageBudget(breadth)).toBe(6)
+    expect(getLinkedPageDepthBudget(breadth, 0)).toBe(4)
+    expect(getLinkedPageDepthBudget(breadth, 1)).toBe(6)
+  })
   it("applies bounded search and round defaults", () => {
     expect(
       deepSearchExecutionInputSchema.parse({ researchRequest: "Research this" }),

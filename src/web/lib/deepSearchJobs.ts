@@ -21,6 +21,15 @@ const sourcedResearchAnalysisItemSchema = z.object({
   sources: z.array(z.url({ protocol: /^https?$/ })).max(12),
 })
 
+const researchRequirementsSchema = z.array(z.object({
+  requirement: z.string().trim().min(1).max(500),
+  kind: z.enum(["requirement", "preference"]),
+  status: z.enum(["unresolved", "supported", "conflicting"]),
+  sources: z.array(z.url({ protocol: /^https?$/ })).max(8),
+  explanation: z.string().trim().min(1).max(1_000),
+})).max(12)
+export type ResearchRequirements = z.infer<typeof researchRequirementsSchema>
+
 const researchAnalysisSchema = z.object({
   facts: z.array(sourcedResearchAnalysisItemSchema).max(12),
   disagreements: z.array(sourcedResearchAnalysisItemSchema).max(12),
@@ -33,6 +42,7 @@ const researchAnalysisSchema = z.object({
     )
     .max(12),
   assumptions: z.array(sourcedResearchAnalysisItemSchema).max(12),
+  requirements: researchRequirementsSchema.optional(),
 })
 
 export type ResearchAnalysis = z.infer<typeof researchAnalysisSchema>
@@ -42,6 +52,11 @@ const deepSearchJobEventSchema = z.discriminatedUnion("type", [
     type: z.literal("query-stream"),
     round: z.number().int().nonnegative(),
     streamId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("research-requirements"),
+    round: z.number().int().nonnegative(),
+    requirements: researchRequirementsSchema,
   }),
   z.object({
     type: z.literal("search-results"),
@@ -59,6 +74,19 @@ const deepSearchJobEventSchema = z.discriminatedUnion("type", [
     round: z.number().int().nonnegative(),
     query: z.string(),
     selectedLinks: z.array(z.url()),
+  }),
+  z.object({
+    type: z.literal("linked-page-selection-stream"),
+    sourceUrl: z.url({ protocol: /^https$/ }).max(2_048),
+    streamId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("selected-linked-pages"),
+    sourceUrl: z.url({ protocol: /^https$/ }).max(2_048),
+    links: z.array(z.object({
+      url: z.url({ protocol: /^https$/ }).max(2_048),
+      title: z.string().trim().min(1).max(500),
+    })).max(30),
   }),
   z.object({
     type: z.literal("page-summary-stream"),

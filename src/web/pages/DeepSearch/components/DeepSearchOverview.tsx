@@ -56,7 +56,7 @@ function getHeaderDescription(run: DeepSearchRunState): string {
       : "Research completed, but no final answer was returned."
   }
   if (run.finalAnswerStreamId) {
-    return "Research is complete. The final answer is being written."
+    return "The answer is being checked against the sources and requirements. It remains provisional until research completes."
   }
   if (run.status === "running") {
     return "Research is in progress. New rounds appear as evidence is collected."
@@ -66,6 +66,7 @@ function getHeaderDescription(run: DeepSearchRunState): string {
 
 function getProgressMessage(run: DeepSearchRunState): string | undefined {
   if (run.status !== "running") return undefined
+  if (run.finalAnswerStreamId) return "Checking final answer…"
   if (run.queryGenerations.length === 0) return "Starting deep search…"
   const latestReview = run.roundReviews.at(-1)
   if (latestReview?.status === "running") return undefined
@@ -120,6 +121,8 @@ export function DeepSearchOverview({
       : run
   const progressMessage = getProgressMessage(presentationRun)
   const roundNumbers = getDeepSearchRoundNumbers(presentationRun)
+  const answerTitle = presentationRun.status === "completed" ? "Final answer" :
+    presentationRun.status === "running" ? "Answer under review" : "Partial answer"
 
   return (
     <Stack spacing={3}>
@@ -162,12 +165,13 @@ export function DeepSearchOverview({
       )}
       {run.finalAnswerStreamId && (
         <GenerationOutput
-          announcementLabel="Final answer"
+          announcementLabel={answerTitle}
+          active={presentationRun.status === "running"}
           format="markdown"
           headingComponent="h2"
           streamId={run.finalAnswerStreamId}
-          title="Final answer"
-          waitingText="Writing the final answer…"
+          title={answerTitle}
+          waitingText={presentationRun.status === "running" ? "Checking final answer…" : "No answer text was saved."}
           testId="final-answer"
         />
       )}

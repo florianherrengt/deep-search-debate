@@ -83,7 +83,17 @@ export type DeepSearchExecutionSnapshot = {
     creditsUsed: number | null
     status: "pending" | "extracting" | "summarizing" | "completed" | "failed"
     extractedContent: string | null
+    originalPassages: string | null
     summaryGeneration: PersistedGeneration | null
+    linkSelectionGeneration: PersistedGeneration | null
+    links: Array<{
+      linkId: string
+      position: number
+      url: string
+      title: string
+      selectedWebPageId: string | null
+      selectedRoundId: string | null
+    }>
     errorStage: "extraction" | "summary" | null
     errorMessage: string | null
     completedAt: Date | null

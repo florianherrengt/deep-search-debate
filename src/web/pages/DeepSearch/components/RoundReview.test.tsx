@@ -46,7 +46,7 @@ describe("RoundReview", () => {
     ],
     [
       "stop" as const,
-      "Research is sufficient. The evidence answers every requested angle.",
+      "No further searches. The user's priorities remain unknown; web searches cannot resolve them.",
     ],
   ])("renders the %s decision and reason", (status, expected) => {
     const subscribe = vi.fn()
@@ -59,7 +59,7 @@ describe("RoundReview", () => {
             reason:
               status === "continue"
                 ? "An independent source is still missing."
-                : "The evidence answers every requested angle.",
+                : "The user's priorities remain unknown; web searches cannot resolve them.",
           }}
         />
       </TextStreamProvider>,

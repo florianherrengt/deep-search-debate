@@ -1,4 +1,5 @@
 import type { TextStreamEvent } from "../../../lib/textStreams.ts"
+import type { ResearchRequirements } from "../../../lib/deepSearchJobs.ts"
 import type {
   DeepSearchPageSummary,
   DeepSearchRunState,
@@ -8,7 +9,31 @@ const queryOne = "OpenAI current product portfolio official sources"
 const queryTwo = "OpenAI company history major milestones"
 const queryThree = "OpenAI major criticisms safety governance"
 
+export const mixedRequirements: ResearchRequirements = [
+  { requirement: "Identify the current consumer and developer products", kind: "requirement", status: "supported", sources: ["https://openai.com/products/"], explanation: "The product pages describe the current consumer and developer offerings." },
+  { requirement: "Distinguish independently verified changes in accountability from claims made by the organisations involved", kind: "requirement", status: "unresolved", sources: [], explanation: "The available reporting describes governance changes but does not establish their long-term effects on accountability." },
+  { requirement: "Prefer recent independent evidence on governance outcomes", kind: "preference", status: "conflicting", sources: ["https://openai.com/our-structure/"], explanation: "Published descriptions of accountability differ. Independent evidence is still needed to resolve the disagreement." },
+]
+
 const streamText: Record<string, string> = {
+  "final-answer-table": [
+    "These illustrative plans demonstrate how conditions affect a comparison; the figures are example data.[^1]",
+    "",
+    "| Option | Monthly price | Contract | Eligibility | Support | Important qualification | Source |",
+    "| :--- | ---: | :---: | --- | --- | --- | --- |",
+    "| **Standard** | £14 | 12 months | New customers | Email during business hours | Existing customers are excluded from the advertised offer. | [Eligibility policy](https://example.com/policy?plan=standard&region=uk#eligibility) |",
+    "| Flexible | £18 | Monthly | Existing and new customers | Email and telephone | The monthly price can change after the introductory period. | [Price conditions](https://example.com/terms/pricing) |",
+    "| Researcher \\| Team | £24 | 12 months | Verified organisations | Named support contact | Organisation verification is required before the discount applies. | [Verification requirements](https://example.com/organisations/verification) |",
+    "",
+    "The lowest advertised price is useful only when the eligibility conditions are met.",
+    "",
+    "[^1]: This is a synthetic comparison for the interface preview, not a current offer.",
+  ].join("\n"),
+  "final-answer-correction": "The product portfolio is supported by primary documentation. The effects of governance changes on accountability remain uncertain; the current evidence does not establish a causal improvement.",
+  "query-plan-requirements": JSON.stringify({ version: 1, requirements: mixedRequirements, queries: [queryOne, queryThree] }),
+  "query-plan-incomplete": '{"version":1,"requirements":[',
+  "linked-source-selection": '{"selectedIds":[1]}',
+  "linked-source-summary": "The linked product documentation identifies which capabilities are included and which require additional configuration.",
   "summary-products-completed":
     "OpenAI's official homepage presents its main consumer and developer products, current research, and company announcements. For this research request, it is the strongest primary source for identifying the organisation's current product portfolio and how OpenAI describes it.",
   "summary-products-streaming":
@@ -31,6 +56,8 @@ const streamText: Record<string, string> = {
     "OpenAI's current portfolio centres on ChatGPT, its API platform, and enterprise offerings. The evidence also traces its 2015 founding and recurring governance and accountability criticism.",
   "candidate-answer-round-2":
     "OpenAI's current portfolio centres on ChatGPT, its API platform, and enterprise offerings. It was founded in 2015 and later changed its organisational structure. Independent reporting links those governance changes to recurring accountability concerns, although their long-term effects remain contested.",
+  "final-answer-round-2":
+    "OpenAI's current portfolio centres on ChatGPT, its API platform, and enterprise offerings. The company was founded in 2015 and later changed its organisational structure. The additional governance analysis clarifies the oversight arrangements but does not establish that they improved accountability in practice. The final answer therefore separates documented structural changes from claims about their effects.",
   "streaming-summary":
     "The page describes ChatGPT, the API platform, and enterprise products. It emphasises",
   "completed-summary":
@@ -41,11 +68,15 @@ const streamText: Record<string, string> = {
     queryThree,
   ]),
   "query-generation-round-2": JSON.stringify([
-    "OpenAI governance changes accountability independent analysis",
+    "OpenAI board authority independent oversight analysis",
   ]),
 }
 
 const streamReasoning: Record<string, string> = {
+  "final-answer-correction": "I am checking the draft against the source passages and separating established findings from unresolved claims.",
+  "query-plan-requirements": "The next searches focus on the unresolved accountability requirement.",
+  "query-plan-incomplete": "Identify the requirements before choosing searches.",
+  "linked-source-selection": "The linked documentation can verify details omitted from the product overview.",
   "summary-products-completed":
     "I will retain the product categories and discard unrelated announcements.",
   "summary-products-streaming":
@@ -69,7 +100,9 @@ const streamReasoning: Record<string, string> = {
   "round-review-completed":
     "The three search summaries cover the requested product, history, and criticism angles, so another round would mostly add volume.",
   "round-review-continue":
-    "The candidate describes governance criticism but lacks independent evidence connecting the structural changes to accountability outcomes.",
+    "The candidate does not establish who can overrule the board. An independent analysis of board authority could verify whether the stated accountability safeguards are enforceable.",
+  "round-review-user-preference":
+    "The product evidence is available. The remaining trade-off depends on the user's priorities, which cannot be established by searching public sources.",
   "round-review-stop":
     "The revised candidate now covers every requested angle and distinguishes established facts from contested governance effects.",
   "round-review-failed":
@@ -77,6 +110,8 @@ const streamReasoning: Record<string, string> = {
 }
 
 const streamingIds = new Set([
+  "final-answer-correction",
+  "query-plan-incomplete",
   "summary-products-streaming",
   "streaming-query-summary",
   "streaming-summary",
@@ -92,6 +127,8 @@ export const researchRequest =
   "Research OpenAI's current products, history, and major criticisms."
 
 export const completedRun: DeepSearchRunState = {
+  roundRequirements: [],
+  linkedSources: [],
   status: "completed",
   queryGenerations: [],
   roundAnswers: [
@@ -283,7 +320,7 @@ export const moreResearchRequestedRun: DeepSearchRunState = {
       streamId: "round-review-continue",
       status: "continue",
       reason:
-        "The current evidence describes OpenAI's position, but an independent source is still needed to verify how the governance changes affected accountability.",
+        "The answer does not establish who can overrule the board after the governance changes. Search for an independent analysis of OpenAI board authority to verify whether the claimed accountability safeguards are enforceable.",
     },
   ],
 }
@@ -303,7 +340,7 @@ export const sufficientEvidenceRun: DeepSearchRunState = {
 }
 
 const secondRoundQuery =
-  "OpenAI governance changes accountability independent analysis"
+  "OpenAI board authority independent oversight analysis"
 
 export const refinedAnswerRun: DeepSearchRunState = {
   ...completedRun,
@@ -321,17 +358,17 @@ export const refinedAnswerRun: DeepSearchRunState = {
       streamId: "round-review-continue",
       status: "continue",
       reason:
-        "The current answer needs independent evidence connecting the governance changes to accountability outcomes.",
+        "The answer does not establish who can overrule the board after the governance changes. Search for an independent analysis of OpenAI board authority to verify whether the claimed accountability safeguards are enforceable.",
     },
     {
       round: 1,
       streamId: "round-review-stop",
       status: "stop",
       reason:
-        "The revised answer covers the requested products, history, and criticisms with sufficient independent evidence.",
+        "The additional governance analysis clarifies the oversight arrangements. The revised answer distinguishes those documented changes from their uncertain effects on accountability.",
     },
   ],
-  finalAnswerStreamId: "candidate-answer-round-2",
+  finalAnswerStreamId: "final-answer-round-2",
   searches: [
     ...completedRun.searches,
     {

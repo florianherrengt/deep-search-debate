@@ -192,6 +192,26 @@ export function completeDeepSearchJob(
     )
   }
 
+  const activePage = transaction.select({ pageId: deepSearchWebPages.deepSearchWebPageId })
+    .from(deepSearchWebPages)
+    .where(and(
+      eq(deepSearchWebPages.deepSearchJobId, input.jobId),
+      inArray(deepSearchWebPages.status, ["pending", "extracting", "summarizing"]),
+    )).get()
+  if (activePage) {
+    throw new Error("Every selected page must settle before the deep-search job")
+  }
+  const activeLinkSelection = transaction.select({ pageId: deepSearchWebPages.deepSearchWebPageId })
+    .from(deepSearchWebPages)
+    .innerJoin(llmGenerations, eq(deepSearchWebPages.linkSelectionGenerationId, llmGenerations.llmGenerationId))
+    .where(and(
+      eq(deepSearchWebPages.deepSearchJobId, input.jobId),
+      eq(llmGenerations.status, "running"),
+    )).get()
+  if (activeLinkSelection) {
+    throw new Error("Every page link selection must settle before the deep-search job")
+  }
+
   const finalGeneration = transaction
     .select({
       deepSearchJobId: llmGenerations.deepSearchJobId,
@@ -227,7 +247,47 @@ export function completeDeepSearchJob(
   }
 }
 
-/** Atomically promotes one completed round answer and completes its job. */
+function assertCompletedResearchAnalysis(
+  transaction: TextStreamPersistenceTransaction,
+  input: { jobId: string; researchAnalysisGenerationId: string },
+): void {
+  const job = transaction
+    .select({ generationId: deepSearchJobs.researchAnalysisGenerationId })
+    .from(deepSearchJobs)
+    .where(eq(deepSearchJobs.deepSearchJobId, input.jobId))
+    .get()
+  if (job?.generationId !== input.researchAnalysisGenerationId) {
+    throw new Error("Research analysis generation was not registered")
+  }
+  const analysis = transaction
+    .select({
+      deepSearchJobId: llmGenerations.deepSearchJobId,
+      status: llmGenerations.status,
+      text: llmGenerations.text,
+    })
+    .from(llmGenerations)
+    .where(eq(llmGenerations.llmGenerationId, input.researchAnalysisGenerationId))
+    .get()
+  if (analysis?.deepSearchJobId !== input.jobId) {
+    throw new Error("Research analysis generation must belong to the deep-search job")
+  }
+  if (analysis.status !== "completed" || analysis.text === null) {
+    throw new Error("Research analysis generation did not complete")
+  }
+  parseResearchAnalysisText(analysis.text)
+}
+
+/** Completes the registered corrected answer after its own analysis commits. */
+export function completeReviewedAnswer(
+  transaction: TextStreamPersistenceTransaction,
+  input: { jobId: string; generationId: string; researchAnalysisGenerationId: string },
+): void {
+  assertDeepSearchActive(transaction, input.jobId)
+  assertCompletedResearchAnalysis(transaction, input)
+  completeDeepSearchJob(transaction, input)
+}
+
+/** Atomically promotes one completed legacy round answer and completes its job. */
 export function promoteRoundAnswer(input: {
   jobId: string
   roundId: string
@@ -251,40 +311,7 @@ export function promoteRoundAnswer(input: {
       throw new Error("Round answer generation was not registered")
     }
 
-    const job = transaction
-      .select({
-        researchAnalysisGenerationId:
-          deepSearchJobs.researchAnalysisGenerationId,
-      })
-      .from(deepSearchJobs)
-      .where(eq(deepSearchJobs.deepSearchJobId, input.jobId))
-      .get()
-    if (
-      job?.researchAnalysisGenerationId !==
-      input.researchAnalysisGenerationId
-    ) {
-      throw new Error("Research analysis generation was not registered")
-    }
-    const researchAnalysisGeneration = transaction
-      .select({
-        status: llmGenerations.status,
-        text: llmGenerations.text,
-      })
-      .from(llmGenerations)
-      .where(
-        eq(
-          llmGenerations.llmGenerationId,
-          input.researchAnalysisGenerationId,
-        ),
-      )
-      .get()
-    if (
-      researchAnalysisGeneration?.status !== "completed" ||
-      researchAnalysisGeneration.text === null
-    ) {
-      throw new Error("Research analysis generation did not complete")
-    }
-    parseResearchAnalysisText(researchAnalysisGeneration.text)
+    assertCompletedResearchAnalysis(transaction, input)
 
     const registered = transaction
       .update(deepSearchJobs)

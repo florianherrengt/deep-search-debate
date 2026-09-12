@@ -26,6 +26,48 @@ async function drain(
 describe("deep search jobs client", () => {
   afterEach(() => vi.unstubAllGlobals())
 
+  it("accepts requirement coverage in round events and optional final analysis", async () => {
+    const requirements = [{ requirement: "Confirm the release date", kind: "requirement" as const, status: "supported" as const, sources: ["https://example.com/release"], explanation: "The release notice supplies the date." }]
+    const events: DeepSearchJobEvent[] = [
+      { type: "research-requirements", round: 0, requirements },
+      { type: "research-analysis", analysis: { facts: [], disagreements: [], gaps: [], assumptions: [], requirements } },
+      { type: "done" },
+    ]
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(ndjsonResponse(events)))
+    expect(await drain(subscribeToDeepSearchJob("requirements"))).toEqual(events)
+  })
+
+  it.each([{ status: "verified" }, { kind: "optional" }, { sources: ["javascript:alert(1)"] }])(
+    "rejects malformed requirement coverage: %o",
+    async (invalid) => {
+      const event = { type: "research-requirements", round: 0, requirements: [{ requirement: "Confirm eligibility", kind: "requirement", status: "unresolved", sources: [], explanation: "Evidence is missing.", ...invalid }] }
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response(`${JSON.stringify(event)}\n`, { headers: { "Content-Type": "application/x-ndjson" } })))
+      await expect(drain(subscribeToDeepSearchJob("requirements"))).rejects.toThrow()
+    },
+  )
+
+  it("validates and replays linked-page events before their retained summaries", async () => {
+    const events: DeepSearchJobEvent[] = [
+      { type: "linked-page-selection-stream", sourceUrl: "https://example.com", streamId: "selector" },
+      { type: "selected-linked-pages", sourceUrl: "https://example.com", links: [{ url: "https://example.com/terms", title: "Terms" }] },
+      { type: "page-summary-stream", url: "https://example.com/terms", streamId: "summary" },
+      { type: "done" },
+    ]
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(ndjsonResponse(events)))
+    expect(await drain(subscribeToDeepSearchJob("linked-job"))).toEqual(events)
+  })
+
+  it("rejects unsafe linked-page destinations at the event boundary", async () => {
+    const body = JSON.stringify({
+      type: "selected-linked-pages", sourceUrl: "https://example.com",
+      links: [{ url: "javascript:alert(1)", title: "Unsafe link" }],
+    })
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response(`${body}\n`, {
+      headers: { "Content-Type": "application/x-ndjson" },
+    })))
+    await expect(drain(subscribeToDeepSearchJob("linked-job"))).rejects.toThrow()
+  })
+
   it("creates a job and subscribes to its search results", async () => {
     const searchResults: DeepSearchJobEvent = {
       type: "search-results",

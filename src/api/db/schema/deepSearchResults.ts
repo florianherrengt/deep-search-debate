@@ -9,7 +9,7 @@ import {
 } from "drizzle-orm/sqlite-core"
 
 import { deepSearchJobs } from "./deepSearchJobs.ts"
-import { deepSearchQueries } from "./deepSearchQueries.ts"
+import { deepSearchQueries, deepSearchRounds } from "./deepSearchQueries.ts"
 import { llmGenerations } from "./llmGenerations.ts"
 import {
   deepSearchWebPageErrorStages,
@@ -33,7 +33,13 @@ export const deepSearchWebPages = sqliteTable(
       .default("pending"),
     /** Retained after extraction until the page summary commits successfully. */
     extractedContent: text("extracted_content"),
+    /** Original source passages remain available after the model summary commits. */
+    originalPassages: text("original_passages"),
     summaryGenerationId: text("summary_generation_id").references(
+      () => llmGenerations.llmGenerationId,
+      { onDelete: "no action" },
+    ),
+    linkSelectionGenerationId: text("link_selection_generation_id").references(
       () => llmGenerations.llmGenerationId,
       { onDelete: "no action" },
     ),
@@ -54,6 +60,9 @@ export const deepSearchWebPages = sqliteTable(
     index("deep_search_web_pages_summary_generation_id_idx").on(
       table.summaryGenerationId,
     ),
+    uniqueIndex("deep_search_web_pages_link_selection_generation_id_idx").on(
+      table.linkSelectionGenerationId,
+    ),
     check(
       "deep_search_web_pages_status_check",
       sql`${table.status} in ('pending', 'extracting', 'summarizing', 'completed', 'failed')`,
@@ -69,6 +78,10 @@ export const deepSearchWebPages = sqliteTable(
     check(
       "deep_search_web_pages_extracted_content_check",
       sql`${table.extractedContent} is null or length(${table.extractedContent}) <= 100000`,
+    ),
+    check(
+      "deep_search_web_pages_original_passages_check",
+      sql`${table.originalPassages} is null or length(${table.originalPassages}) <= 16000`,
     ),
     check(
       "deep_search_web_pages_error_stage_check",
@@ -97,6 +110,53 @@ export const deepSearchWebPages = sqliteTable(
           (${table.errorStage} = 'summary' and ${table.extractedContent} is not null)
         ))
       )`,
+    ),
+  ],
+)
+
+/** Links discovered in an extracted page, separate from search-provider results. */
+export const deepSearchPageLinks = sqliteTable(
+  "deep_search_page_links",
+  {
+    deepSearchPageLinkId: text("deep_search_page_link_id").primaryKey(),
+    sourceWebPageId: text("source_web_page_id")
+      .notNull()
+      .references(() => deepSearchWebPages.deepSearchWebPageId, {
+        onDelete: "cascade",
+      }),
+    position: integer("position").notNull(),
+    url: text("url").notNull(),
+    title: text("title").notNull(),
+    selectedWebPageId: text("selected_web_page_id").references(
+      () => deepSearchWebPages.deepSearchWebPageId,
+      { onDelete: "no action" },
+    ),
+    selectedRoundId: text("selected_round_id").references(
+      () => deepSearchRounds.deepSearchRoundId,
+      { onDelete: "no action" },
+    ),
+  },
+  (table) => [
+    uniqueIndex("deep_search_page_links_source_url_idx").on(
+      table.sourceWebPageId,
+      table.url,
+    ),
+    uniqueIndex("deep_search_page_links_source_position_idx").on(
+      table.sourceWebPageId,
+      table.position,
+    ),
+    index("deep_search_page_links_selected_web_page_id_idx").on(
+      table.selectedWebPageId,
+    ),
+    index("deep_search_page_links_selected_round_id_idx").on(table.selectedRoundId),
+    check("deep_search_page_links_position_check", sql`${table.position} >= 0`),
+    check(
+      "deep_search_page_links_content_check",
+      sql`length(trim(${table.url})) > 0 and length(${table.url}) <= 2048 and length(trim(${table.title})) > 0 and length(${table.title}) <= 500`,
+    ),
+    check(
+      "deep_search_page_links_selection_check",
+      sql`(${table.selectedWebPageId} is null and ${table.selectedRoundId} is null) or (${table.selectedWebPageId} is not null and ${table.selectedRoundId} is not null)`,
     ),
   ],
 )

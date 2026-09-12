@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
+  attachFinalAnswerGeneration: vi.fn<typeof import("./store.ts").attachFinalAnswerGeneration>(),
+  replaceFinalAnswerGeneration: vi.fn<typeof import("./store.ts").replaceFinalAnswerGeneration>(),
+  completeReviewedAnswer: vi.fn<typeof import("./jobLifecycle.ts").completeReviewedAnswer>(),
+  attachPageLinkSelectionGeneration: vi.fn<typeof import("./store.ts").attachPageLinkSelectionGeneration>(),
+  replacePageLinkSelectionGeneration: vi.fn<typeof import("./store.ts").replacePageLinkSelectionGeneration>(),
+  completePageLinkSelection: vi.fn<typeof import("./store.ts").completePageLinkSelection>(),
+  selectPageLinks: vi.fn<typeof import("../../agents/deep_search/selection.ts").selectPageLinks>(),
   analyzeResearchAnswer: vi.fn<
     typeof import("../../agents/deep_search/researchAnalysis.ts").analyzeResearchAnswer
   >(),
@@ -95,16 +102,19 @@ vi.mock("../../agents/deep_search/finalAnswer.ts", () => ({
   answerResearchRequest: mocks.answerResearchRequest,
 }))
 
-vi.mock("../../agents/deep_search/researchAnalysis.ts", () => ({
+vi.mock(import("../../agents/deep_search/researchAnalysis.ts"), async (importOriginal) => ({
+  ...await importOriginal(),
   analyzeResearchAnswer: mocks.analyzeResearchAnswer,
 }))
 
-vi.mock("../../agents/deep_search/queries.ts", () => ({
+vi.mock(import("../../agents/deep_search/queries.ts"), async (importOriginal) => ({
+  ...await importOriginal(),
   generateWebSearchQueries: mocks.generateWebSearchQueries,
 }))
 
 vi.mock("../../agents/deep_search/selection.ts", () => ({
   selectWebSearchResults: mocks.selectWebSearchResults,
+  selectPageLinks: mocks.selectPageLinks,
 }))
 
 vi.mock("../../agents/deep_search/summaries.ts", () => ({
@@ -116,7 +126,8 @@ vi.mock("../../agents/deep_search/querySummaries.ts", () => ({
   summarizeSearchQuery: mocks.summarizeSearchQuery,
 }))
 
-vi.mock("../../agents/deep_search/reviewRound.ts", () => ({
+vi.mock(import("../../agents/deep_search/reviewRound.ts"), async (importOriginal) => ({
+  ...await importOriginal(),
   startRoundReview: mocks.startRoundReview,
 }))
 
@@ -125,6 +136,11 @@ vi.mock("../../web_search/index.ts", () => ({
 }))
 
 vi.mock("./store.ts", () => ({
+  attachFinalAnswerGeneration: mocks.attachFinalAnswerGeneration,
+  replaceFinalAnswerGeneration: mocks.replaceFinalAnswerGeneration,
+  attachPageLinkSelectionGeneration: mocks.attachPageLinkSelectionGeneration,
+  replacePageLinkSelectionGeneration: mocks.replacePageLinkSelectionGeneration,
+  completePageLinkSelection: mocks.completePageLinkSelection,
   attachPageSummaryGeneration: mocks.attachPageSummaryGeneration,
   attachQuerySummaryGeneration: mocks.attachQuerySummaryGeneration,
   attachRoundAnswerGeneration: mocks.attachRoundAnswerGeneration,
@@ -161,12 +177,13 @@ vi.mock("./store.ts", () => ({
 
 vi.mock("./jobLifecycle.ts", () => ({
   promoteRoundAnswer: mocks.promoteRoundAnswer,
+  completeReviewedAnswer: mocks.completeReviewedAnswer,
 }))
 
 import type {
   DeepSearchEvent,
 } from "../../agents/deep_search/schemas.ts"
-import type { RoundReview } from "../../agents/deep_search/reviewRound.ts"
+import { parseRoundReview, type RoundReview } from "../../agents/deep_search/reviewRound.ts"
 import { config } from "../../config.ts"
 import type {
   TextGenerationPersistenceCallbacks,
@@ -337,6 +354,39 @@ function pageSummaryStart(
   }
 }
 
+function pendingPage(url: string): DeepSearchExecutionSnapshot["pages"][number] {
+  return {
+    pageId: `page:${url}`, url, creditsUsed: null, status: "extracting",
+    extractedContent: null, originalPassages: null, summaryGeneration: null, linkSelectionGeneration: null,
+    links: [], errorStage: null, errorMessage: null, completedAt: null,
+  }
+}
+
+function useLinkedDocuments(documents: Record<string, {
+  content: string
+  summary?: string
+  links: Array<{ url: string; title: string }>
+}>) {
+  mocks.startPageSummary.mockImplementation((input) => {
+    const document = documents[input.url]
+    if (!document) return Promise.reject(new Error(`Unexpected page ${input.url}`))
+    const streamId = `summary:${input.url}`
+    input.onExtractionSettled?.({ content: document.content, links: document.links, creditsUsed: 1 })
+    input.onRegistered?.(streamId, transaction)
+    const completion = completedOutcome(document.summary ?? document.content)
+    return Promise.resolve({
+      status: "started", streamId, completion,
+      summary: completion.then(({ text, reasoning }) => {
+        const page = executionSnapshot.pages.find(({ url }) => url === input.url)
+        if (!page) throw new Error("Missing document page")
+        page.summaryGeneration = persistedGeneration(streamId, "completed", text)
+        input.onCompleted?.({ id: streamId, text, reasoning }, transaction)
+        return text
+      }),
+    })
+  })
+}
+
 function createPublisher() {
   return vi.fn<(event: DeepSearchEvent) => void>()
 }
@@ -359,6 +409,49 @@ describe("deepSearch", () => {
     mocks.loadDeepSearchExecutionSnapshot.mockImplementation(
       () => executionSnapshot,
     )
+    mocks.attachFinalAnswerGeneration.mockImplementation((_transaction, { generationId }) => {
+      executionSnapshot.finalAnswerGeneration = persistedGeneration(generationId)
+    })
+    mocks.replaceFinalAnswerGeneration.mockImplementation((_transaction, { newGenerationId }) => {
+      executionSnapshot.finalAnswerGeneration = persistedGeneration(newGenerationId)
+    })
+    mocks.attachPageLinkSelectionGeneration.mockImplementation((_transaction, { pageId, generationId }) => {
+      const page = executionSnapshot.pages.find((page) => page.pageId === pageId)
+      if (!page) throw new Error("Missing link source")
+      page.linkSelectionGeneration = persistedGeneration(generationId)
+    })
+    mocks.completePageLinkSelection.mockImplementation((_transaction, input) => {
+      const source = executionSnapshot.pages.find(({ pageId }) => pageId === input.sourcePageId)
+      if (!source) throw new Error("Missing link source")
+      return input.selectedLinkIds.map((id) => {
+        const link = source.links.find(({ linkId }) => linkId === id)
+        if (!link) throw new Error("Unknown selected link")
+        let page = executionSnapshot.pages.find(({ url }) => url === link.url)
+        if (!page) {
+          page = pendingPage(link.url)
+          executionSnapshot.pages.push(page)
+        }
+        link.selectedWebPageId = page.pageId
+        link.selectedRoundId = input.roundId
+        return { pageId: page.pageId, url: page.url }
+      })
+    })
+    mocks.selectPageLinks.mockImplementation((input) => {
+      const streamId = `link-selection:${input.sourceUrl}`
+      const selectedIds = input.links.slice(0, input.maxResultsToExplore).map(({ id }) => id)
+      input.onRegistered?.(streamId, transaction)
+      return Promise.resolve({
+        streamId,
+        completion: completedOutcome(JSON.stringify({ selectedIds })),
+        selectedIds: Promise.resolve().then(() => {
+          const source = executionSnapshot.pages.find(({ url }) => url === input.sourceUrl)
+          if (!source) throw new Error("Missing link source")
+          source.linkSelectionGeneration = persistedGeneration(streamId, "completed", JSON.stringify({ selectedIds }))
+          input.onCompleted?.({ id: streamId, output: selectedIds }, transaction)
+          return selectedIds
+        }),
+      })
+    })
     mocks.registerSearchRound.mockImplementation(
       (_transaction, { position, generationId }) => {
         const storedRound = {
@@ -419,14 +512,22 @@ describe("deepSearch", () => {
       },
     )
     mocks.settlePageExtraction.mockImplementation(
-      ({ pageId, content, creditsUsed }) => {
+      ({ pageId, content, creditsUsed, links }) => {
         const page = executionSnapshot.pages.find(
           (candidate) => candidate.pageId === pageId,
         )
         if (!page) throw new Error("Missing page")
         page.status = "summarizing"
         page.extractedContent = content
+        page.originalPassages = content
         page.creditsUsed = creditsUsed
+        page.links = (links ?? []).map((link, position) => ({
+          ...link,
+          position,
+          linkId: `link:${pageId}:${link.url}`,
+          selectedWebPageId: null,
+          selectedRoundId: null,
+        }))
         return { content, creditsUsed }
       },
     )
@@ -661,7 +762,10 @@ describe("deepSearch", () => {
               creditsUsed: null,
               status: "extracting",
               extractedContent: null,
+              originalPassages: null,
               summaryGeneration: null,
+              linkSelectionGeneration: null,
+              links: [],
               errorStage: null,
               errorMessage: null,
               completedAt: null,
@@ -681,12 +785,14 @@ describe("deepSearch", () => {
         onExtractionSettled?: (settlement: {
           content: string
           creditsUsed: number
+          links: Array<{ url: string; title: string }>
         }) => void
       }) => {
         const streamId = "summary-stream-id"
         input.onExtractionSettled?.({
           content: "Extracted page content",
           creditsUsed: 0,
+          links: [],
         })
         input.onRegistered?.(streamId, transaction)
         const completion = completedOutcome("Completed page summary")
@@ -816,14 +922,17 @@ describe("deepSearch", () => {
       },
     )
     mocks.answerResearchRequest.mockImplementation(
-      (input: TextGenerationPersistenceCallbacks) => {
-        const round = mocks.answerResearchRequest.mock.calls.length - 1
-        const streamId = `round-answer-stream-${round}`
+      (input) => {
+        const round = mocks.answerResearchRequest.mock.calls.filter(([input]) => input.candidateAnswer === undefined).length - 1
+        const streamId = input.candidateAnswer === undefined ? `round-answer-stream-${round}` : "corrected-answer-stream"
         input.onRegistered?.(streamId, transaction)
         const completion = completedOutcome("Completed answer")
         return Promise.resolve({
           streamId,
           answer: completion.then(({ text, reasoning }) => {
+            if (input.candidateAnswer !== undefined) {
+              executionSnapshot.finalAnswerGeneration = persistedGeneration(streamId, "completed", text)
+            }
             const storedRound = executionSnapshot.rounds.find(
               ({ answerGeneration }) =>
                 answerGeneration?.generationId === streamId,
@@ -923,7 +1032,7 @@ describe("deepSearch", () => {
       },
       {
         type: "final-answer-stream",
-        streamId: "round-answer-stream-0",
+        streamId: "corrected-answer-stream",
       },
       { type: "research-analysis", analysis: researchAnalysis },
     ])
@@ -958,12 +1067,12 @@ describe("deepSearch", () => {
     expect(mocks.saveRoundReviewCompletion.mock.invocationCallOrder[0]).toBeLessThan(
       getPublishOrder(publish, "round-review"),
     )
-    expect(mocks.promoteRoundAnswer.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(mocks.attachFinalAnswerGeneration.mock.invocationCallOrder[0]).toBeLessThan(
       getPublishOrder(publish, "final-answer-stream"),
     )
     expect(
       mocks.attachResearchAnalysisGeneration.mock.invocationCallOrder[0],
-    ).toBeLessThan(mocks.promoteRoundAnswer.mock.invocationCallOrder[0] ?? 0)
+    ).toBeLessThan(mocks.completeReviewedAnswer.mock.invocationCallOrder[0] ?? 0)
     expect(mocks.completePageSummaryGeneration).toHaveBeenCalledWith(
       transaction,
       {
@@ -995,11 +1104,252 @@ describe("deepSearch", () => {
         ],
       }),
     )
-    expect(mocks.promoteRoundAnswer).toHaveBeenCalledWith({
+    expect(mocks.completeReviewedAnswer).toHaveBeenCalledWith(expect.anything(), {
       jobId: "deep-search-job-id",
-      roundId: "round-0",
-      generationId: "round-answer-stream-0",
+      generationId: "corrected-answer-stream",
       researchAnalysisGenerationId: "research-analysis-generation-id",
+    })
+  })
+
+  it("carries two-hop evidence absent from search results through answer, review, and analysis despite a summary losing its URL", async () => {
+    const root = results[0].link
+    const terms = "https://example.com/terms"
+    const details = "https://example.com/eligibility"
+    useLinkedDocuments({
+      [root]: { content: "The advertised offer requires checking linked terms.", links: [{ url: terms, title: "Offer terms" }] },
+      [terms]: { content: "Eligibility is defined by the detailed policy.", links: [{ url: root, title: "Back to offer" }, { url: details, title: "Eligibility policy" }] },
+      [details]: { content: "The offer costs £14 and excludes existing customers.", links: [{ url: terms, title: "Terms" }, { url: "https://example.com/deeper", title: "Further details" }] },
+    })
+    const publish = createPublisher()
+    await deepSearch({ userId: "test-user-id", deepSearchJobId: "deep-search-job-id", researchRequest: "Research this", publish })
+
+    expect(mocks.webSearch).toHaveBeenCalledOnce()
+    expect(mocks.startPageSummary.mock.calls.map(([input]) => input.url)).toEqual([root, terms, details])
+    expect(mocks.selectPageLinks.mock.calls.map(([input]) => input.links.map(({ url }) => url))).toEqual([[terms], [details]])
+    expect(mocks.selectPageLinks.mock.calls[1]?.[0].knownPages).toContainEqual({
+      url: root, status: "completed", title: results[0].title,
+      summary: "The advertised offer requires checking linked terms.",
+    })
+    const decisiveEvidence = {
+      url: details, title: "Eligibility policy", evidenceType: "page-summary",
+      content: "The offer costs £14 and excludes existing customers.",
+      originalPassages: "The offer costs £14 and excludes existing customers.",
+    }
+    for (const stage of [mocks.answerResearchRequest, mocks.startRoundReview, mocks.analyzeResearchAnswer]) {
+      const input = stage.mock.calls[0]?.[0]
+      expect(input?.searchSummaries).toEqual([{ round: 0, query: "test query", content: "Completed query summary" }])
+      expect(input?.sourceEvidence).toContainEqual(decisiveEvidence)
+    }
+    expect(mocks.completePageLinkSelection.mock.invocationCallOrder[1]).toBeLessThan(mocks.answerResearchRequest.mock.invocationCallOrder[0] ?? 0)
+    expect(publish.mock.calls.map(([event]) => event)).toContainEqual({ type: "selected-linked-pages", sourceUrl: terms, links: [{ url: details, title: "Eligibility policy" }] })
+  })
+
+  it("corrects the final allowed round from original passages omitted by both summaries", async () => {
+    executionSnapshot.maxRounds = 1
+    const qualification = "Existing customers are excluded from the £14 offer."
+    useLinkedDocuments({
+      [results[0].link]: { content: qualification, summary: "The provider describes its offer.", links: [] },
+    })
+    const generateAnswer = mocks.answerResearchRequest.getMockImplementation()!
+    mocks.answerResearchRequest.mockImplementation(async (input) => {
+      const generation = await generateAnswer(input)
+      const text = input.candidateAnswer === undefined ? "Everyone qualifies for the offer." : qualification
+      return { ...generation, completion: completedOutcome(text), answer: generation.answer.then(() => {
+        const persisted = input.candidateAnswer === undefined ? executionSnapshot.rounds[0]?.answerGeneration : executionSnapshot.finalAnswerGeneration
+        if (persisted) persisted.text = text
+        return text
+      }) }
+    })
+    const publish = createPublisher()
+    await expect(deepSearch({ userId: "test-user-id", deepSearchJobId: "deep-search-job-id", researchRequest: "Who qualifies?", maxRounds: 1, publish })).resolves.toBe(qualification)
+
+    expect(mocks.startRoundReview).not.toHaveBeenCalled()
+    expect(mocks.answerResearchRequest).toHaveBeenCalledTimes(2)
+    expect(mocks.answerResearchRequest.mock.calls[1]?.[0]).toMatchObject({
+      candidateAnswer: "Everyone qualifies for the offer.",
+      searchSummaries: [{ content: "Completed query summary" }],
+      sourceEvidence: [{ url: results[0].link, content: "The provider describes its offer.", originalPassages: qualification, evidenceType: "page-summary" }],
+    })
+    expect(mocks.analyzeResearchAnswer.mock.calls[0]?.[0].finalAnswer).toBe(qualification)
+    expect(executionSnapshot.finalAnswerGeneration?.text).toBe(qualification)
+    expect(publish.mock.calls.map(([event]) => event)).toContainEqual({ type: "final-answer-stream", streamId: "corrected-answer-stream" })
+    expect(mocks.completeReviewedAnswer).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ generationId: "corrected-answer-stream" }))
+  })
+
+  it("reserves linked-page capacity for deeper hops when shallow sources have many links", async () => {
+    executionSnapshot.maxSearches = 2
+    executionSnapshot.maxResultsPerSearch = 2
+    const roots = Array.from({ length: 4 }, (_, index) => `https://example.com/root-${index}`)
+    mocks.generateWebSearchQueries.mockImplementationOnce((input) => registeredQueryGeneration(input, ["first query", "second query"]))
+    mocks.webSearch.mockImplementation(({ query }: { query: string }) => Promise.resolve(roots.slice(query === "first query" ? 0 : 2, query === "first query" ? 2 : 4).map((link) => ({ ...results[0], link }))))
+    mocks.selectWebSearchResults.mockImplementation((input) => registeredSelectionGeneration(input, input.results.map(({ id }) => id), `selection:${input.searchQuery}`))
+    const documents: Parameters<typeof useLinkedDocuments>[0] = {}
+    for (const [rootIndex, root] of roots.entries()) {
+      const links = Array.from({ length: 5 }, (_, index) => ({ url: `https://example.com/shallow-${rootIndex}-${index}`, title: `Shallow ${rootIndex}-${index}` }))
+      documents[root] = { content: "Several linked source documents.", links }
+      for (const link of links) {
+        const deeper = `${link.url}/policy`
+        documents[link.url] = { content: "Read the detailed policy.", links: [{ url: deeper, title: "Detailed policy" }] }
+        documents[deeper] = { content: "The authoritative eligibility condition.", links: [] }
+      }
+    }
+    useLinkedDocuments(documents)
+    await deepSearch({ userId: "test-user-id", deepSearchJobId: "deep-search-job-id", researchRequest: "Research this", maxSearches: 2, maxResultsPerSearch: 2, maxRounds: 1, publish: ignoreEvent })
+
+    const extracted = mocks.startPageSummary.mock.calls.map(([input]) => input.url)
+    expect(extracted.filter((url) => roots.includes(url))).toHaveLength(4)
+    expect(extracted.filter((url) => url.includes("shallow") && !url.endsWith("/policy"))).toHaveLength(8)
+    expect(extracted.filter((url) => url.endsWith("/policy"))).toHaveLength(4)
+    expect(mocks.selectPageLinks.mock.calls.every(([input]) => input.maxResultsToExplore! <= 2)).toBe(true)
+    expect(mocks.selectPageLinks.mock.calls[1]?.[0].knownPages).toContainEqual({
+      url: "https://example.com/shallow-0-0", status: "extracting",
+    })
+  })
+
+  it("rebuilds known summaries and failed statuses from durable pages when linked exploration resumes", async () => {
+    const unread = "https://example.com/unread-policy"
+    const terms = "https://example.com/terms"
+    const details = "https://example.com/new-policy?version=2"
+    useLinkedDocuments({
+      [results[0].link]: { content: "The overview identifies two policies.", links: [{ url: unread, title: "Unread policy" }, { url: terms, title: "Current policy" }] },
+      [terms]: { content: "The current policy requires a new-version comparison.", links: [{ url: details, title: "Updated policy" }] },
+      [details]: { content: "The updated policy changes eligibility.", links: [] },
+    })
+    const summarize = mocks.startPageSummary.getMockImplementation()!
+    mocks.startPageSummary.mockImplementation((input) => input.url === unread
+      ? Promise.resolve({ status: "failed", stage: "extraction", message: "Source unavailable" })
+      : summarize(input))
+    const select = mocks.selectPageLinks.getMockImplementation()!
+    let interrupted = false
+    mocks.selectPageLinks.mockImplementation((input) => {
+      if (input.sourceUrl === terms && !interrupted) {
+        interrupted = true
+        return Promise.reject(new Error("Interrupted before deeper selection"))
+      }
+      return select(input)
+    })
+    const input = { userId: "test-user-id", deepSearchJobId: "deep-search-job-id", researchRequest: "Compare policies", publish: ignoreEvent }
+
+    await expect(deepSearch(input)).rejects.toThrow("Interrupted before deeper selection")
+    executionSnapshot = structuredClone(executionSnapshot)
+    await expect(deepSearch(input)).resolves.toBe("Completed answer")
+
+    const resumed = mocks.selectPageLinks.mock.calls.at(-1)?.[0]
+    expect(resumed?.knownPages).toContainEqual({
+      url: results[0].link, title: results[0].title, status: "completed",
+      summary: "The overview identifies two policies.",
+    })
+    expect(resumed?.knownPages).toContainEqual({ url: unread, title: "Unread policy", status: "failed" })
+    expect(resumed?.links.map(({ url }) => url)).toEqual([details])
+    expect(mocks.webSearch).toHaveBeenCalledOnce()
+    expect(mocks.startPageSummary.mock.calls.map(([input]) => input.url)).toEqual([
+      results[0].link, unread, terms, details,
+    ])
+  })
+
+  it("skips linked extraction when the selector finds no added evidence", async () => {
+    const alias = "https://www.example.com/result"
+    useLinkedDocuments({
+      [results[0].link]: { content: "The policy is already established.", links: [{ url: alias, title: "Same policy" }] },
+    })
+    const select = mocks.selectPageLinks.getMockImplementation()!
+    mocks.selectPageLinks.mockImplementation((input) => select({ ...input, maxResultsToExplore: 0 }))
+    const publish = createPublisher()
+
+    await deepSearch({ userId: "test-user-id", deepSearchJobId: "deep-search-job-id", researchRequest: "Check policy", publish })
+
+    expect(mocks.selectPageLinks.mock.calls[0]?.[0].links.map(({ url }) => url)).toEqual([alias])
+    expect(mocks.startPageSummary.mock.calls.map(([input]) => input.url)).toEqual([results[0].link])
+    expect(executionSnapshot.pages.map(({ url }) => url)).toEqual([results[0].link])
+    expect(publish).toHaveBeenCalledWith({ type: "selected-linked-pages", sourceUrl: results[0].link, links: [] })
+  })
+
+  it("resumes a failed correction without repeating the completed candidate or search", async () => {
+    executionSnapshot.maxRounds = 1
+    const generateAnswer = mocks.answerResearchRequest.getMockImplementation()!
+    let failCorrection = true
+    mocks.answerResearchRequest.mockImplementation((input) => {
+      if (input.candidateAnswer !== undefined && failCorrection) {
+        failCorrection = false
+        input.onRegistered?.("failed-correction", transaction)
+        executionSnapshot.finalAnswerGeneration = persistedGeneration("failed-correction", "failed")
+        return Promise.resolve({ streamId: "failed-correction", answer: Promise.reject(new Error("Correction interrupted")), completion: Promise.resolve({ status: "failed", text: "", reasoning: "", error: "Correction interrupted", failureKind: "stream" }) })
+      }
+      return generateAnswer(input)
+    })
+    const input = { userId: "test-user-id", deepSearchJobId: "deep-search-job-id", researchRequest: "Research this", publish: ignoreEvent }
+    await expect(deepSearch(input)).rejects.toThrow("Correction interrupted")
+    expect(mocks.analyzeResearchAnswer).not.toHaveBeenCalled()
+    expect(mocks.completeReviewedAnswer).not.toHaveBeenCalled()
+    await expect(deepSearch(input)).resolves.toBe("Completed answer")
+    expect(mocks.webSearch).toHaveBeenCalledOnce()
+    expect(mocks.answerResearchRequest.mock.calls.filter(([input]) => input.candidateAnswer === undefined)).toHaveLength(1)
+    expect(mocks.replaceFinalAnswerGeneration).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ oldGenerationId: "failed-correction", newGenerationId: "corrected-answer-stream" }))
+    expect(mocks.completeReviewedAnswer).toHaveBeenCalledOnce()
+  })
+
+  it("reuses the completed correction after an interrupted analysis", async () => {
+    mocks.analyzeResearchAnswer.mockRejectedValueOnce(new Error("Analysis interrupted"))
+    const input = { userId: "test-user-id", deepSearchJobId: "deep-search-job-id", researchRequest: "Research this", maxRounds: 1, publish: ignoreEvent }
+    await expect(deepSearch(input)).rejects.toThrow("Analysis interrupted")
+    expect(mocks.completeReviewedAnswer).not.toHaveBeenCalled()
+    expect(executionSnapshot.finalAnswerGeneration?.status).toBe("completed")
+    await expect(deepSearch(input)).resolves.toBe("Completed answer")
+    expect(mocks.answerResearchRequest).toHaveBeenCalledTimes(2)
+    expect(mocks.webSearch).toHaveBeenCalledOnce()
+    expect(mocks.analyzeResearchAnswer).toHaveBeenCalledTimes(2)
+    expect(mocks.completeReviewedAnswer).toHaveBeenCalledOnce()
+  })
+
+  it("stops link discovery at its per-round target budget and labels an unreadable linked page as unavailable", async () => {
+    executionSnapshot.maxSearches = 1
+    executionSnapshot.maxResultsPerSearch = 1
+    const linkedUrl = "https://example.com/terms"
+    useLinkedDocuments({
+      [results[0].link]: { content: "See linked terms.", links: [{ url: linkedUrl, title: "An attractive unverified claim" }, { url: "https://example.com/another", title: "Other details" }] },
+    })
+    const summarize = mocks.startPageSummary.getMockImplementation()!
+    mocks.startPageSummary.mockImplementation((input) => input.url === linkedUrl
+      ? Promise.resolve({ status: "failed", stage: "extraction", message: "Linked source unavailable" })
+      : summarize(input))
+
+    await deepSearch({ userId: "test-user-id", deepSearchJobId: "deep-search-job-id", researchRequest: "Research this", maxSearches: 1, maxResultsPerSearch: 1, publish: ignoreEvent })
+
+    expect(mocks.selectPageLinks).toHaveBeenCalledOnce()
+    expect(mocks.selectPageLinks.mock.calls[0]?.[0].maxResultsToExplore).toBe(1)
+    expect(mocks.startPageSummary.mock.calls.map(([input]) => input.url)).toEqual([results[0].link, linkedUrl])
+    const evidence = mocks.answerResearchRequest.mock.calls[0]?.[0].sourceEvidence?.find(({ url }) => url === linkedUrl)
+    expect(evidence).toMatchObject({ url: linkedUrl, evidenceType: "unavailable" })
+    expect(evidence?.content).not.toContain("An attractive unverified claim")
+    expect(evidence?.content).toContain("could not be read or summarized")
+  })
+
+  it("resumes after a linked-page interruption without repeating settled searches, selection, or parent extraction", async () => {
+    const linkedUrl = "https://example.com/terms"
+    useLinkedDocuments({
+      [results[0].link]: { content: "See the terms.", links: [{ url: linkedUrl, title: "Terms" }] },
+      [linkedUrl]: { content: "The decisive qualification is established.", links: [] },
+    })
+    const summarize = mocks.startPageSummary.getMockImplementation()!
+    let interrupted = false
+    mocks.startPageSummary.mockImplementation((input) => {
+      if (input.url === linkedUrl && !interrupted) {
+        interrupted = true
+        return Promise.reject(new Error("Interrupted after durable link selection"))
+      }
+      return summarize(input)
+    })
+    const input = { userId: "test-user-id", deepSearchJobId: "deep-search-job-id", researchRequest: "Research this", publish: ignoreEvent }
+    await expect(deepSearch(input)).rejects.toThrow("Interrupted after durable link selection")
+    expect(mocks.answerResearchRequest).not.toHaveBeenCalled()
+    await expect(deepSearch(input)).resolves.toBe("Completed answer")
+
+    expect(mocks.webSearch).toHaveBeenCalledOnce()
+    expect(mocks.selectWebSearchResults).toHaveBeenCalledOnce()
+    expect(mocks.selectPageLinks).toHaveBeenCalledOnce()
+    expect(mocks.startPageSummary.mock.calls.map(([input]) => input.url)).toEqual([results[0].link, linkedUrl, linkedUrl])
+    expect(mocks.answerResearchRequest.mock.calls[0]?.[0].sourceEvidence).toContainEqual({
+      url: linkedUrl, title: "Terms", evidenceType: "page-summary", content: "The decisive qualification is established.", originalPassages: "The decisive qualification is established.",
     })
   })
 
@@ -1036,6 +1386,7 @@ describe("deepSearch", () => {
               title: "Result",
               url: "https://example.com/result",
               content: "Useful result",
+              evidenceType: "search-snippet",
             },
           ],
         }),
@@ -1250,6 +1601,78 @@ describe("deepSearch", () => {
     }))
   })
 
+  it("resumes actionable gap continuation before round two without repeating review or exceeding the cap", async () => {
+    const rawReview = {
+      version: 1,
+      reason: "The answer appears sufficient, but eligibility is not verified.",
+      requirements: [{ requirement: "Verify eligibility", kind: "requirement", status: "unresolved", sources: [], explanation: "The actual eligibility terms have not been found." }],
+      gaps: [{ title: "Eligibility condition", description: "Existing-customer eligibility could change the recommended option.", evidenceToFind: "Find the provider's published eligibility terms for existing customers." }],
+    }
+    const effectiveReview = parseRoundReview(rawReview)
+    const rawText = JSON.stringify(rawReview)
+    executionSnapshot.maxRounds = 2
+    mocks.generateWebSearchQueries
+      .mockImplementationOnce((input) => registeredQueryGeneration(input, ["initial overview"], "query-stream-0"))
+      .mockRejectedValueOnce(new Error("Interrupted before the next plan registered"))
+      .mockImplementationOnce((input) => registeredQueryGeneration(input, ["provider existing customer eligibility terms"], "query-stream-1"))
+    mocks.startRoundReview.mockImplementationOnce((input) => {
+      const streamId = "material-gap-review"
+      input.onRegistered?.(streamId, transaction)
+      const round = executionSnapshot.rounds[0]
+      round.reviewGeneration = persistedGeneration(streamId, "completed", rawText)
+      input.onCompleted?.({ id: streamId, output: effectiveReview }, transaction)
+      return Promise.resolve({ streamId, review: Promise.resolve(effectiveReview), completion: completedOutcome(rawText) })
+    })
+    const publish = createPublisher()
+    const input = { userId: "test-user-id", deepSearchJobId: "deep-search-job-id", researchRequest: "Research this", publish }
+
+    await expect(deepSearch(input)).rejects.toThrow("Interrupted before the next plan registered")
+    expect(executionSnapshot.rounds[0]).toMatchObject({ reviewDecision: "continue", reviewGeneration: { text: rawText } })
+    expect(publish).toHaveBeenCalledWith({ type: "round-review", round: 0, decision: "continue", reason: effectiveReview.reason })
+    expect(mocks.answerResearchRequest).toHaveBeenCalledTimes(1)
+    executionSnapshot = structuredClone(executionSnapshot)
+
+    await expect(deepSearch(input)).resolves.toBe("Completed answer")
+
+    expect(mocks.generateWebSearchQueries).toHaveBeenCalledTimes(3)
+    expect(mocks.generateWebSearchQueries.mock.calls.at(-1)?.[0]).toMatchObject({
+      round: 1, previousQueries: ["initial overview"], previousCandidateAnswer: "Completed answer", requirements: rawReview.requirements,
+    })
+    expect(mocks.generateWebSearchQueries.mock.calls.at(-1)?.[0].previousReviewReason).toContain(rawReview.gaps[0].description)
+    expect(mocks.generateWebSearchQueries.mock.calls.at(-1)?.[0].previousReviewReason).toContain(rawReview.gaps[0].evidenceToFind)
+    expect(mocks.startRoundReview).toHaveBeenCalledOnce()
+    expect(mocks.webSearch.mock.calls.map(([query]) => (query as { query: string }).query)).toEqual(["initial overview", "provider existing customer eligibility terms"])
+    expect(executionSnapshot.rounds.map(({ position }) => position)).toEqual([0, 1])
+    expect(executionSnapshot.rounds[0].reviewGeneration?.text).toBe(rawText)
+    expect(mocks.answerResearchRequest).toHaveBeenCalledTimes(3)
+    expect(mocks.analyzeResearchAnswer).toHaveBeenCalledOnce()
+    expect(mocks.completeReviewedAnswer).toHaveBeenCalledOnce()
+  })
+
+  it("preserves a completed legacy stop checkpoint even when its wording mentions an unresolved gap", async () => {
+    executionSnapshot.maxRounds = 1
+    const input = { userId: "test-user-id", deepSearchJobId: "deep-search-job-id", researchRequest: "Research this", publish: ignoreEvent }
+    await deepSearch(input)
+    const legacy = { decision: "stop", reason: "An unresolved qualification remains; report the limitation." }
+    const round = executionSnapshot.rounds[0]
+    round.reviewDecision = "stop"
+    round.reviewReason = legacy.reason
+    round.reviewCompletedAt = new Date()
+    round.reviewGeneration = persistedGeneration("legacy-stopped-review", "completed", JSON.stringify(legacy))
+    executionSnapshot.maxRounds = 3
+    mocks.generateWebSearchQueries.mockClear()
+    mocks.startRoundReview.mockClear()
+    mocks.webSearch.mockClear()
+
+    await expect(deepSearch(input)).resolves.toBe("Completed answer")
+
+    expect(mocks.generateWebSearchQueries).not.toHaveBeenCalled()
+    expect(mocks.startRoundReview).not.toHaveBeenCalled()
+    expect(mocks.webSearch).not.toHaveBeenCalled()
+    expect(executionSnapshot.rounds).toHaveLength(1)
+    expect(round.reviewGeneration.text).toBe(JSON.stringify(legacy))
+  })
+
   it("runs another bounded round when the review requests more research", async () => {
     mocks.generateWebSearchQueries
       .mockImplementationOnce((input) =>
@@ -1302,7 +1725,7 @@ describe("deepSearch", () => {
       }),
     )
     expect(mocks.startPageSummary).toHaveBeenCalledTimes(1)
-    expect(mocks.answerResearchRequest).toHaveBeenCalledTimes(2)
+    expect(mocks.answerResearchRequest).toHaveBeenCalledTimes(3)
     expect(mocks.answerResearchRequest).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
@@ -1315,6 +1738,33 @@ describe("deepSearch", () => {
         ],
       }),
     )
+  })
+
+  it.each([true, false])("restores each round's own requirement coverage on Resume (later coverage present=%s)", async (hasLaterRequirements) => {
+    executionSnapshot.maxRounds = 2
+    mocks.generateWebSearchQueries
+      .mockImplementationOnce((input) => registeredQueryGeneration(input, ["first query"], "query-stream-0"))
+      .mockImplementationOnce((input) => registeredQueryGeneration(input, ["second query"], "query-stream-1"))
+    mocks.startRoundReview.mockResolvedValueOnce({ streamId: "review-0", review: Promise.resolve({ decision: "continue", reason: "Eligibility unresolved." }), completion: completedOutcome("continued") })
+    const input = { userId: "test-user-id", deepSearchJobId: "deep-search-job-id", researchRequest: "Research this", publish: ignoreEvent }
+    await deepSearch(input)
+    const unresolved = [{ requirement: "Establish eligibility", kind: "requirement", status: "unresolved", sources: [], explanation: "No eligibility policy inspected yet." }]
+    const supported = hasLaterRequirements ? [{ ...unresolved[0], status: "supported", sources: [results[0].link], explanation: "The eligibility policy supports the finding." }] : []
+    for (const round of executionSnapshot.rounds) {
+      round.planningGeneration.text = JSON.stringify({ version: 1, queries: round.queries.map(({ query }) => query), requirements: round.position === 0 ? unresolved : supported })
+    }
+    const earlierRound = executionSnapshot.rounds[0]
+    earlierRound.reviewDecision = "continue"
+    earlierRound.reviewReason = "Eligibility unresolved."
+    earlierRound.reviewGeneration = persistedGeneration("review-0", "completed", JSON.stringify({ decision: "continue", reason: "Eligibility unresolved.", requirements: unresolved }))
+    const publish = createPublisher()
+    await deepSearch({ ...input, publish })
+    const coverage = publish.mock.calls.map(([event]) => event).filter((event) => event.type === "research-requirements")
+    expect(coverage.filter(({ round }) => round === 0).every(({ requirements }) => JSON.stringify(requirements) === JSON.stringify(unresolved))).toBe(true)
+    expect(coverage).toContainEqual({ type: "research-requirements", round: 0, requirements: unresolved })
+    expect(coverage).toContainEqual({ type: "research-requirements", round: 1, requirements: supported })
+    expect(mocks.generateWebSearchQueries).toHaveBeenCalledTimes(2)
+    expect(mocks.webSearch).toHaveBeenCalledTimes(2)
   })
 
   it("persists review failure and falls back to the current evidence", async () => {
@@ -1348,11 +1798,10 @@ describe("deepSearch", () => {
       getPublishOrder(publish, "round-review-error"),
     )
     expect(mocks.generateWebSearchQueries).toHaveBeenCalledTimes(1)
-    expect(mocks.answerResearchRequest).toHaveBeenCalledTimes(1)
-    expect(mocks.promoteRoundAnswer).toHaveBeenCalledWith({
+    expect(mocks.answerResearchRequest).toHaveBeenCalledTimes(2)
+    expect(mocks.completeReviewedAnswer).toHaveBeenCalledWith(expect.anything(), {
       jobId: "deep-search-job-id",
-      roundId: "round-0",
-      generationId: "round-answer-stream-0",
+      generationId: "corrected-answer-stream",
       researchAnalysisGenerationId: "research-analysis-generation-id",
     })
   })
@@ -1556,16 +2005,19 @@ describe("deepSearch", () => {
           title: "Explored result",
           url: "https://example.com/explored",
           content: "Full explored-page summary",
+          evidenceType: "page-summary",
         },
         {
           title: "Failed result",
           url: "https://example.com/failed",
           content: "Failed result description",
+          evidenceType: "search-snippet",
         },
         {
           title: "Unselected result",
           url: "https://example.com/unselected",
           content: "Unselected result description",
+          evidenceType: "search-snippet",
         },
       ],
     }))
@@ -1647,11 +2099,11 @@ describe("deepSearch", () => {
     await vi.waitFor(() => {
       expect(mocks.analyzeResearchAnswer).toHaveBeenCalledOnce()
     })
-    expect(mocks.promoteRoundAnswer).not.toHaveBeenCalled()
+    expect(mocks.completeReviewedAnswer).not.toHaveBeenCalled()
 
     analysis.resolve(researchAnalysis)
     await expect(run).resolves.toBe("Completed answer")
-    expect(mocks.promoteRoundAnswer).toHaveBeenCalledOnce()
+    expect(mocks.completeReviewedAnswer).toHaveBeenCalledOnce()
   })
 
   it("does not promote the answer when structured analysis fails", async () => {
@@ -1676,7 +2128,7 @@ describe("deepSearch", () => {
       }),
     ).rejects.toThrow("Research analysis failed")
 
-    expect(mocks.promoteRoundAnswer).not.toHaveBeenCalled()
+    expect(mocks.completeReviewedAnswer).not.toHaveBeenCalled()
   })
 
   it("does not start dependent work when query generation fails", async () => {
@@ -1867,6 +2319,89 @@ describe("deepSearch", () => {
     ).rejects.toThrow("Final answer failed")
   })
 
+  it.each([
+    { format: "actual wrapped generateArrayStream output", planningText: '{"elements":["settled legacy query"]}', duplicateOnlyLaterRound: false },
+    { format: "bare array output", planningText: '["settled legacy query"]', duplicateOnlyLaterRound: false },
+    { format: "wrapped legacy output with a duplicate-only empty second round", planningText: '{"elements":["settled legacy query"]}', duplicateOnlyLaterRound: true },
+  ])("resumes $format with settled work and no invented requirements", async ({ planningText, duplicateOnlyLaterRound }) => {
+    executionSnapshot.maxRounds = 1
+    const url = "https://example.com/legacy-evidence"
+    executionSnapshot.pages.push({
+      ...pendingPage(url), pageId: "legacy-page", status: "completed", creditsUsed: 1,
+      summaryGeneration: persistedGeneration("legacy-page-summary", "completed", "Retained original page summary."),
+      completedAt: new Date(),
+    })
+    executionSnapshot.rounds.push({
+      roundId: "round-0", position: 0,
+      planningGeneration: persistedGeneration("legacy-plan", "completed", planningText),
+      answerGeneration: null, reviewGeneration: null, reviewDecision: null,
+      reviewReason: null, reviewError: null, reviewCompletedAt: null,
+      queries: [{
+        queryId: "legacy-query", position: 0, query: "settled legacy query", creditsUsed: 1,
+        status: "completed", completedAt: new Date(), errorStage: null, errorMessage: null,
+        selectionGeneration: persistedGeneration("legacy-selection", "completed", '{"elements":["legacy-result"]}'),
+        summaryGeneration: persistedGeneration("legacy-query-summary", "completed", "Retained query evidence."),
+        results: [{ resultId: "legacy-result", position: 0, title: "Legacy evidence", shortText: "Original provider snippet", url, selectedWebPageId: "legacy-page" }],
+      }],
+    })
+    if (duplicateOnlyLaterRound) {
+      executionSnapshot.maxRounds = 2
+      const firstRound = executionSnapshot.rounds[0]
+      firstRound.answerGeneration = persistedGeneration("legacy-first-answer", "completed", "The available evidence has a gap.")
+      firstRound.reviewGeneration = persistedGeneration("legacy-review", "completed", '{"decision":"continue","reason":"Check the remaining gap."}')
+      firstRound.reviewDecision = "continue"
+      firstRound.reviewReason = "Check the remaining gap."
+      firstRound.reviewCompletedAt = new Date()
+      executionSnapshot.rounds.push({
+        ...firstRound, roundId: "round-1", position: 1,
+        // The old planner kept raw duplicate output but atomically saved no
+        // new query rows after filtering queries already executed in round 0.
+        planningGeneration: persistedGeneration("legacy-duplicate-plan", "completed", '{"elements":["settled legacy query"]}'),
+        queries: [],
+        answerGeneration: persistedGeneration("legacy-second-answer", "completed", "The gap remains unresolved."),
+        reviewGeneration: null, reviewDecision: null, reviewReason: null, reviewCompletedAt: null,
+      })
+    }
+    const completedQueries = structuredClone(executionSnapshot.rounds.map(({ queries }) => queries))
+    const completedPages = structuredClone(executionSnapshot.pages)
+    const publish = createPublisher()
+    await expect(deepSearch({ userId: "test-user-id", deepSearchJobId: "deep-search-job-id", researchRequest: "Research this", publish })).resolves.toBe("Completed answer")
+
+    expect(mocks.generateWebSearchQueries).not.toHaveBeenCalled()
+    expect(mocks.savePlannedQueries).not.toHaveBeenCalled()
+    expect(mocks.webSearch).not.toHaveBeenCalled()
+    expect(mocks.selectWebSearchResults).not.toHaveBeenCalled()
+    expect(mocks.startPageSummary).not.toHaveBeenCalled()
+    expect(mocks.summarizeSearchQuery).not.toHaveBeenCalled()
+    expect(mocks.answerResearchRequest.mock.calls[0]?.[0]).toMatchObject({
+      requirements: [],
+      searchSummaries: [{ round: 0, query: "settled legacy query", content: "Retained query evidence." }],
+      sourceEvidence: [{ url, title: "Legacy evidence", evidenceType: "page-summary", content: "Retained original page summary." }],
+    })
+    expect(publish.mock.calls.map(([event]) => event).filter((event) => event.type === "research-requirements")).toEqual([])
+    expect(executionSnapshot.rounds[0]?.planningGeneration.text).toBe(planningText)
+    expect(executionSnapshot.rounds.map(({ queries }) => queries)).toEqual(completedQueries)
+    expect(executionSnapshot.pages).toEqual(completedPages)
+    expect(mocks.answerResearchRequest).toHaveBeenCalledTimes(duplicateOnlyLaterRound ? 1 : 2)
+    expect(mocks.answerResearchRequest.mock.calls.at(-1)?.[0].candidateAnswer).toBe(duplicateOnlyLaterRound ? "The gap remains unresolved." : "Completed answer")
+    expect(executionSnapshot.rounds[1]?.planningGeneration.text).toBe(duplicateOnlyLaterRound ? '{"elements":["settled legacy query"]}' : undefined)
+    expect(executionSnapshot.rounds[1]?.queries).toEqual(duplicateOnlyLaterRound ? [] : undefined)
+  })
+
+  it("still recovers missing query rows from a completed version-1 plan", async () => {
+    executionSnapshot.maxRounds = 1
+    executionSnapshot.rounds.push({
+      roundId: "round-0", position: 0,
+      planningGeneration: persistedGeneration("versioned-plan", "completed", '{"version":1,"requirements":[],"queries":["recovered query"]}'),
+      answerGeneration: null, reviewGeneration: null, reviewDecision: null,
+      reviewReason: null, reviewError: null, reviewCompletedAt: null, queries: [],
+    })
+    await expect(deepSearch({ userId: "test-user-id", deepSearchJobId: "deep-search-job-id", researchRequest: "Research this", publish: ignoreEvent })).resolves.toBe("Completed answer")
+    expect(mocks.generateWebSearchQueries).not.toHaveBeenCalled()
+    expect(mocks.savePlannedQueries).toHaveBeenCalledExactlyOnceWith({ jobId: "deep-search-job-id", roundId: "round-0", queries: ["recovered query"] })
+    expect(mocks.webSearch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ query: "recovered query" }))
+  })
+
   it("resumes mixed query fan-out without repeating settled provider or selection work", async () => {
     executionSnapshot.maxRounds = 1
     executionSnapshot.rounds.push({
@@ -2005,6 +2540,9 @@ describe("deepSearch", () => {
         creditsUsed: 1,
         status: "failed",
         extractedContent: "Durably extracted content",
+        originalPassages: "Durably extracted content",
+        linkSelectionGeneration: null,
+        links: [],
         summaryGeneration: persistedGeneration(
           "failed-page-summary",
           "failed",

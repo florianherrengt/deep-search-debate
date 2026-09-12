@@ -8,7 +8,7 @@ normalized typed tables at stage boundaries. There is no JSON snapshot or
 database event log.
 
 For a conceptual walkthrough of query generation, result selection, page
-extraction, layered summarization, candidate review, and answer promotion, see
+extraction, layered summarization, candidate review, and final correction, see
 [How deep search works](deep-search-pipeline.md).
 
 Closing a browser tab does not stop a job. An owner may explicitly stop a
@@ -56,16 +56,22 @@ slug is already used by any search, creation appends `-2`, `-3`, and so on and
 adds the same number to the displayed title because slugs are globally unique.
 
 The request defaults to three searches, three explored results per search, and
-two search rounds. Configured server ceilings default to 5 searches, 5
-explored results per search, 2 rounds, 15 selected URLs per round, and 10,000
+three search rounds. Configured server ceilings default to 5 searches, 5
+explored results per search, 3 rounds, 15 search-selected URLs per round, and 10,000
 characters for `researchRequest`. The
 product of the two search breadth limits cannot exceed the per-round
 selected-URL ceiling. The same validation runs again in the job manager so
 idea-generated and other internal child searches cannot bypass it. A job can
 never execute more than `maxRounds`, even when the review model repeatedly asks
 for more research. The complete root request also has a configured worst-case
-selected-page budget (200 by default). A standalone search can therefore select
-at most 30 pages under the default server configuration.
+selected-page budget (1,200 by default). Let `B` be the smaller of
+`maxSearches * maxResultsPerSearch` and the configured per-round selected-URL
+ceiling. Each round may select `B` search results and `3B` distinct linked pages.
+Each later hop reserves `B`: with the default two hops, the first may use `2B`
+and the second may use the remaining capacity up to `3B` cumulatively. Setting
+`DEEP_SEARCH_MAX_LINK_DEPTH=0` disables that work and its admission allowance.
+The default standalone request allows at most 108 pages; the default server
+ceilings allow at most 180 across three rounds.
 
 Standalone creation returns `429` when the user already has the configured
 number of active root research workflows (two by default, counting standalone
@@ -209,26 +215,49 @@ Returns the replay-and-follow NDJSON feed. Live jobs use the retained in-memory 
 
 Each non-empty completed search round emits:
 
-1. `query-stream` and `search-results`, both keyed by zero-based `round`.
+1. `query-stream`, then `research-requirements` for a completed versioned
+   checklist (including an empty array), then `search-results`, all keyed by zero-based `round`. The
+   checklist entries carry `requirement`, `kind` (`requirement` or `preference`),
+   `status` (`unresolved`, `supported`, or `conflicting`), `sources`, and
+   `explanation`. Completed legacy query plans (`{elements:[...]}` or bare arrays) have no invented checklist event.
 2. `selection-stream` and `selected-search-results` per executed query, keyed
    by `round` and query.
 3. `page-summary-stream` or `page-summary-error` per unique selected URL. Page
    work is job-wide and a URL is never extracted twice across rounds.
+   After these roots settle, bounded breadth-first source verification emits
+   `linked-page-selection-stream` with `sourceUrl` and `streamId`, followed by
+   `selected-linked-pages` with `sourceUrl` and `links: [{url,title}]` after
+   selection commits. An empty array records a completed empty selection.
+   Selected targets use the same page-summary/error events, including at the
+   next permitted link depth. These are linked sources, not search-engine rows.
 4. `query-summary-stream` per executed query, keyed by `round` and query.
 5. `round-answer-stream`, keyed by `round`, for the candidate synthesized from
    every query summary accumulated so far.
 6. Unless the hard round limit has been reached, `round-review-stream` followed
-   by either `round-review` (`continue` or `stop`) or `round-review-error`.
+   by either `round-review` (`continue` or `stop`) or `round-review-error`. A
+   successful review also publishes its updated `research-requirements`.
+   Replay preserves plan/review updates in round order.
+
+New reviews return a version-1 gap assessment rather than a model stop vote.
+The application derives `continue` if any material gap has a non-null external
+`evidenceToFind` target; gaps that web research cannot resolve have null targets
+and explain the limitation. The existing review reason carries all actionable
+gap descriptions and targets into the next round's planning context. Raw gaps
+remain in the existing generation JSON. The effective decision and reason
+commit with that generation and are reused by Resume and replay. Legacy reviews
+retain their recorded outcomes. No additional model stage or table is added.
 
 `continue` starts the next numbered round using the previous candidate and
 review reason as additional planning context. `stop`, review failure, or the
-hard round limit promotes the current candidate. Normal completion publishes
-`final-answer-stream`, referencing the same stream ID as the promoted
-`round-answer-stream`, then `research-analysis`, followed by `done`. The typed
-analysis payload contains `facts`, `disagreements`, `gaps`, and `assumptions`;
-all but gaps carry source URL arrays. Ordinary failure publishes `error`, then
-`done`; it may already have published a final-answer stream if terminal
-persistence was the failing boundary. An interrupted durable root publishes
+hard round limit starts one mandatory source-backed answer correction.
+`final-answer-stream` references that distinct generation before it completes.
+A separate analysis then audits the corrected answer; successful completion
+publishes `research-analysis`, followed by `done`. The typed analysis contains
+`facts`, `disagreements`, `gaps`, `assumptions`, and an updated `requirements`
+checklist; all but gaps carry source URL arrays. The checklist is optional only
+when reading legacy analysis payloads. Ordinary failure publishes `error`, then
+`done`; a final-answer stream may already exist when correction, analysis, or
+terminal persistence fails. An interrupted durable root publishes
 `interrupted`, then `done`; it has `stop-requested` only when an effective root
 Stop caused that interruption.
 
@@ -246,20 +275,33 @@ inherited Stop renders as `Stopped`. A child that completed before the root
 request keeps its normal completed replay without either Stop event.
 
 Each candidate-answer call receives the original research request and a bounded
-in-memory projection of every completed query-level summary from every round.
-Full summaries remain durable; when their combined prompt representation would
-exceed the configured character budget, each keeps an equal serialized slot
-with middle omission markers. The same projection feeds next-round planning and
-round review, and executed queries are not serialized a second time outside
-their labeled summaries. The accepted candidate and those summaries feed a
-separate structured research-analysis generation. Promotion verifies every
-planned query has a completed row, verifies the candidate generation's
-persisted text and the schema-valid analysis, attaches the candidate as the
-job's final answer, and marks the job completed in one transaction.
+in-memory projection of every completed query-level summary from every round,
+plus source-level evidence reconstructed from selected results and linked pages.
+This identifies page summaries, retained verbatim original passages, snippet
+fallbacks, and unavailable linked sources explicitly. Anchor text alone is never evidence from an unread page.
+Full summaries remain durable; all query/source entries share the configured
+character budget, keeping URLs and evidence types intact while fairly shortening
+content with omission markers. Passage narrowing uses the request and each
+full source summary to retain supporting qualifications before the summary
+itself is shortened. The same projection feeds next-round planning and
+round review. Planning also receives an explicit list of previously executed
+queries so it can avoid repeating them. The latest requirements accompany planning, result
+selection, link selection, candidate writing, review, correction, and analysis.
+Link selection also receives known page statuses and available titles and
+completed summaries under a shared source-context bound. These help assess
+whether a different URL would add evidence; exact URL identity remains the
+deterministic retrieval rule.
+Search-result selection also sees known page URLs/statuses and review findings.
+The accepted candidate and source context feed the final correction; structured
+analysis receives the corrected text. Completion verifies every planned query
+has a completed row, verifies the registered corrected generation's persisted
+text and schema-valid analysis belong to the job, requires selected page and
+link-selection work to have settled, and marks the job completed in one
+transaction.
 Page-summary failures stay attached to their web-page row. A standalone search
 keeps the failure as its accepted snippet fallback; an idea-owned search uses
 its persisted strict-quality flag and retries that model-backed summary before
-it can complete. A query-summary, candidate-answer, research-analysis, or wider
+it can complete. A query-summary, candidate-answer, final-correction, research-analysis, or wider
 pipeline failure marks the job failed.
 
 Internally, model-backed stages return their stream ID, durable completion, and
@@ -267,11 +309,16 @@ typed result separately. Deep-search orchestration awaits those handles rather
 than subscribing to `/api/streams`; the public stream remains solely a live and
 replayable presentation interface. Page and query completion commit inside the
 same transaction as the corresponding generation outcome. A candidate answer
-becomes durable before review; after acceptance, the separate structured
-analysis becomes durable. A later transaction verifies both generations,
-promotes the already completed candidate, and marks the job completed. The
-runner returns the same candidate text without a second answer call or copied
-output.
+becomes durable before review and remains immutable. After exploration, a
+separate correction generation uses the job's existing final-answer link, then
+analysis uses the existing analysis link. A later transaction verifies both
+completed generations and marks the job completed. The runner returns the
+durable corrected text. Resume reuses a completed correction while retrying
+failed analysis, and reuses both after a terminal persistence failure.
+
+The compatibility exception is an older unfinished job with completed valid
+analysis but no final-answer link: it promotes the original candidate without
+rerunning that completed audit. Older completed jobs remain unchanged.
 
 `routes/deepSearch/pipeline.ts` is the single Effect-owned workflow coordinator:
 it owns the bounded round loop, stage ordering, fallback decisions, URL
@@ -312,15 +359,17 @@ The failure policy is:
 | Page-summary registration or generation | Page fails at `summary`; the query uses its search snippet and the standalone job may complete | The strict child fails and retries the summary from persisted extracted content when its root resumes |
 | Query summary | Query and job fail; candidate-answer generation does not start | Parent fails |
 | Candidate answer | Job fails | Parent fails |
-| Structured research analysis | Job fails; candidate is not promoted | Parent fails |
-| Round review | Exploration stops and the current candidate is promoted | Parent accepts the completed child |
+| Final answer correction | Job fails; Resume retries the incomplete correction | Parent fails |
+| Structured research analysis | Job fails; completed correction is retained for Resume | Parent fails |
+| Round review | Exploration stops; mandatory correction and analysis still run | Parent accepts the child only after both complete |
 | Terminal database persistence | The live feed emits `error` then `done` and remains retained; Resume reconciles the still-durable checkpoint | Parent fails until its root is resumed |
 
-An empty validated query list is not a failure. It skips retrieval work for
-that round and asks the candidate-answer agent to answer from the accumulated
-summary list, which may be empty in round one. Empty rounds publish and replay
-their `query-stream`, but do not
-fabricate an empty `search-results` event because no web-search batch completed.
+New query planning requires a version-1 object with `requirements` and exactly
+`maxSearches` non-empty, case-insensitively distinct `queries`, excluding prior
+queries. Invalid output fails planning. A completed legacy query plan (`{elements:[...]}` or a bare array) remains
+readable, including an empty list: that older checkpoint skips retrieval and
+answers from accumulated summaries. It replays `query-stream` without inventing
+`search-results` when no web-search batch completed.
 
 Search-provider rows without a non-empty title, snippet, or public extractable
 HTTPS URL are omitted at the provider boundary because they cannot support the
@@ -369,7 +418,10 @@ command commits. Job lifecycle writes remain in `jobLifecycle.ts`.
   navigation. They have no update route.
 - `deep_search_rounds` stores one ordered round, links its query-plan and
   candidate-answer generations, and stores its optional review generation and
-  terminal continuation decision.
+  terminal continuation decision. Planning and review requirements remain in
+  their existing generation JSON; replay validates that payload rather than
+  storing a parallel checklist. Version-1 plans carry requirements and ordered
+  queries; the reader accepts legacy `{elements:[...]}` and bare query arrays without requirements.
 - `deep_search_queries` stores each ordered planned query before web search and
   carries that same stable ID through search, selection, and synthesis. Its
   `credits_used` is set only after the search provider returns successfully.
@@ -384,7 +436,24 @@ command commits. Job lifecycle writes remain in `jobLifecycle.ts`.
   ScrapingAnt attempt for that URL, including unsuccessful attempts. After
   extraction settles it retains the bounded extracted content until summary
   success clears it, so a resumed summary retry does not extract or charge the
-  page again.
+  page again. Separately, nullable `original_passages` retains up to 16,000
+  query-relevant characters selected verbatim at extraction settlement. Summary
+  completion refines them using the request and completed summary before
+  clearing extraction, atomically with the page's completion. These survive
+  Resume, and already-completed pages are not rewritten. The additive `0002` migration leaves
+  existing rows null and preserves pages, selected results, and linked edges.
+  Older completed pages are reused without re-extraction or invented passages.
+  Its optional link-selection generation records the completed choice, including
+  an empty selection, and supports replacement of incomplete attempts on Resume.
+- `deep_search_page_links` stores discovered links in ranked source-page order
+  (article/main content first, then ordinary content, then navigation, with
+  document order breaking ties). Each
+  has a stable ID, actual title and URL, and optional selected target-page and
+  selecting-round references. Discovery commits with extraction; selected
+  targets commit with the selector generation. The selecting round owns the
+  distinct linked-page allowance. Depth and visited state are derived from
+  selected edges and existing page lifecycles. A forward migration preserves
+  older pages; they are reused without re-extraction and have no invented links.
 - `llm_generations` stores one terminal text/reasoning pair per invocation.
 
 Every workflow generation points back to the deep-search job that created it.
@@ -405,10 +474,11 @@ have a summary generation, and selected results to have a page. Active and
 terminal timestamp/error fields cannot be mixed. Page-summary and query-summary
 generation registration, success, and failure update both sides of each
 relationship transactionally. The current pipeline also requires the research
-analysis generation before promotion; the link is nullable while a running job
-has not started or completed that generation. Candidate promotion and
-successful job completion are one transaction after the answer and structured
-analysis generations complete. Every durable
+analysis generation before completion; the link is nullable while a running job
+has not started that generation. Successful job completion is one transaction
+after the registered corrected answer and structured analysis generations
+complete. The legacy completed-analysis checkpoint may still promote the
+original candidate as described above. Every durable
 work-start transaction, plus normal success, failure, and credit transitions,
 asserts that the effective root is still running and has no stop request. A
 completion race lost to cancellation becomes interruption rather than ordinary

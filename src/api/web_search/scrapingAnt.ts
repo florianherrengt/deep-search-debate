@@ -213,7 +213,7 @@ export function createScrapingAntClient(
     try {
       const response = await fetchImpl(requestUrl, {
         headers: {
-          Accept: "text/html,application/xhtml+xml,application/pdf,text/plain",
+          Accept: "text/html,application/xhtml+xml,application/pdf,application/json,text/plain",
           "x-api-key": config.apiKey,
         },
         signal: timedSignal.signal,

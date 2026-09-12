@@ -1,4 +1,5 @@
 import { getErrorMessage } from "../../helpers/getErrorMessage.ts"
+import { selectRelevantPassages } from "../../helpers/boundedText.ts"
 import {
   calculateScrapingAntCredits,
   requirePositiveCreditBalance,
@@ -9,25 +10,9 @@ import {
   type GenerationOutcome,
   type TextGenerationPersistenceCallbacks,
 } from "../../llms/streams.ts"
-import { webExtract } from "../../web_search/webExtract.ts"
+import { webExtract, type WebExtractResult } from "../../web_search/webExtract.ts"
 
 const maxPageContentChars = 100_000
-const pageContentOmission =
-  "\n\n[... page content omitted to fit the model context ...]\n\n"
-
-/** Keeps page-summary requests bounded while preserving introductions and conclusions. */
-function fitPageContent(content: string): string {
-  if (content.length <= maxPageContentChars) return content
-
-  const availableChars = maxPageContentChars - pageContentOmission.length
-  const startChars = Math.ceil(availableChars * 0.75)
-  const endChars = availableChars - startChars
-  return [
-    content.slice(0, startChars),
-    pageContentOmission,
-    content.slice(-endChars),
-  ].join("")
-}
 
 type SummarizePageInput = TextGenerationPersistenceCallbacks & {
   userId: string
@@ -50,7 +35,7 @@ export type PageSummaryGeneration = {
 export async function summarizePage(
   params: SummarizePageInput,
 ): Promise<PageSummaryGeneration> {
-  const content = fitPageContent(params.content)
+  const content = selectRelevantPassages(params.content, params.researchRequest, maxPageContentChars)
   const prompt = [
     `user_query: ${params.researchRequest}`,
     `source_url: ${params.url}`,
@@ -88,6 +73,7 @@ type StartPageSummaryInput = TextGenerationPersistenceCallbacks & {
   onExtractionSettled?: (settlement: {
     content: string
     creditsUsed: number
+    links: WebExtractResult["links"]
   }) => void
   workflowSignal?: AbortSignal
 }
@@ -107,10 +93,10 @@ export type PageSummaryStart =
 
 type PageExtractionResult =
   | { status: "failed"; message: string }
-  | { status: "completed"; content: string; creditsUsed: number }
+  | { status: "completed"; content: string; creditsUsed: number; links: WebExtractResult["links"] }
 
 async function extractPage(
-  params: Pick<StartPageSummaryInput, "userId" | "url" | "workflowSignal">,
+  params: Pick<StartPageSummaryInput, "userId" | "url" | "researchRequest" | "workflowSignal">,
 ): Promise<PageExtractionResult> {
   try {
     requirePositiveCreditBalance(params.userId)
@@ -125,6 +111,7 @@ async function extractPage(
       status: "completed",
       content: page.content,
       creditsUsed: calculateScrapingAntCredits(page.scrapingAntCredits ?? 0),
+      links: page.links,
     }
   } catch (error) {
     return {
@@ -149,10 +136,11 @@ export async function startPageSummary(
       message: extraction.message,
     }
   }
-  const content = fitPageContent(extraction.content)
+  const content = selectRelevantPassages(extraction.content, params.researchRequest, maxPageContentChars)
   params.onExtractionSettled?.({
     content,
     creditsUsed: extraction.creditsUsed,
+    links: extraction.links,
   })
 
   try {

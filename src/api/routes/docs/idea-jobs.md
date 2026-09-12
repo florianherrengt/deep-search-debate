@@ -128,21 +128,28 @@ Starts a run and returns `202 Accepted`:
   "deepSearchCount": 2,
   "maxSearches": 3,
   "maxResultsPerSearch": 3,
-  "maxRounds": 2
+  "maxRounds": 3
 }
 ```
 
 Only `prompt` is required. `numberOfIdeas` is an integer from 6 through 12 and
 defaults to 8. The remaining numeric fields are positive integers with the
 defaults shown above. The configured defaults cap `deepSearchCount` at 2,
-`maxSearches` and `maxResultsPerSearch` at 5 each, `maxRounds` at 2, selected
-URLs per child-search round at 15, and `prompt` at 10,000 characters. The same
+`maxSearches` and `maxResultsPerSearch` at 5 each, `maxRounds` at 3, selected
+search URLs per child-search round at 15, and `prompt` at 10,000 characters.
+Each round has an additional linked-page allowance three times its
+search-selected page allowance, shared across at most two link hops by default.
+The first hop can consume two thirds, reserving one third for the second;
+unused capacity carries forward. The same
 deep-search limits apply to both initial briefing searches and refined-idea
 searches; the manager validates generated child requests again before starting
 provider work. The root request also accounts for all initial searches plus up
-to 12 selected-idea searches against a 200-page aggregate worst-case selected
-page budget by default. Invalid limit combinations fail before title generation
-or job creation.
+to 12 selected-idea searches against a 1,200-page aggregate worst-case selected
+page budget by default. The default eight ideas and two initial searches can
+use at most 1,080 selected pages including linked pages. Invalid limit
+combinations fail before title generation or job creation. Each child uses the
+same durable requirements checklist, retained source passages, mandatory final
+answer correction, and corrected-answer analysis as standalone deep search.
 
 Creation returns `429` when the user already has the configured active root-job
 limit (two by default). A running idea or debate pipeline consumes one root

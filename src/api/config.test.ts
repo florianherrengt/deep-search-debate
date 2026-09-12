@@ -609,6 +609,7 @@ describe("config", () => {
       "DEEP_SEARCH_MAX_RESULTS_PER_SEARCH",
       "DEEP_SEARCH_MAX_SELECTED_URLS_PER_ROUND",
       "DEEP_SEARCH_MAX_ROUNDS",
+      "DEEP_SEARCH_MAX_LINK_DEPTH",
       "DEEP_SEARCH_MAX_REQUEST_CHARS",
       "DEEP_SEARCH_MAX_SUMMARY_CONTEXT_CHARS",
       "DEEP_SEARCH_MAX_CONCURRENT_JOBS",
@@ -634,13 +635,14 @@ describe("config", () => {
       maxSearches: 5,
       maxResultsPerSearch: 5,
       maxSelectedUrlsPerRound: 15,
-      maxRounds: 2,
+      maxRounds: 3,
+      maxLinkDepth: 2,
       maxRequestChars: 10_000,
       maxSummaryContextChars: 100_000,
       maxConcurrentJobs: 2,
       maxConcurrentPageTasks: 4,
       maxActiveRootJobsPerUser: 2,
-      maxSelectedPagesPerRootJob: 200,
+      maxSelectedPagesPerRootJob: 1_200,
       maxInitialIdeaSearches: 2,
       maxIdeaCount: 12,
     })
@@ -649,8 +651,8 @@ describe("config", () => {
       maxInitialDeepSearches: 1,
       maxSearchesPerChild: 3,
       maxResultsPerSearch: 3,
-      maxResearchRoundsPerChild: 1,
-      maxSelectedPagesPerJob: 81,
+      maxResearchRoundsPerChild: 2,
+      maxSelectedPagesPerJob: 400,
     })
   })
 
@@ -661,6 +663,28 @@ describe("config", () => {
     await expect(import("./config.ts")).rejects.toThrow(
       "DEEP_SEARCH_MAX_SELECTED_URLS_PER_ROUND",
     )
+  })
+
+  it("reserves extra page capacity only when linked-page exploration is enabled", async () => {
+    vi.stubEnv("DEEP_SEARCH_MAX_LINK_DEPTH", "0")
+    vi.resetModules()
+    const { getLinkedPageBudget, getLinkedPageDepthBudget, maximumSelectedPagesForChildren } = await import("./routes/deepSearch/resourceLimits.ts")
+    expect(getLinkedPageBudget({ maxSearches: 3, maxResultsPerSearch: 3 })).toBe(0)
+    expect(getLinkedPageDepthBudget({ maxSearches: 3, maxResultsPerSearch: 3 }, 0)).toBe(0)
+    expect(maximumSelectedPagesForChildren({ maxSearches: 3, maxResultsPerSearch: 3, maxRounds: 3 }, 2)).toBe(54)
+  })
+
+  it.each([
+    { depth: 1, cumulativeAllowances: [27] },
+    { depth: 2, cumulativeAllowances: [18, 27] },
+    { depth: 3, cumulativeAllowances: [9, 18, 27] },
+  ])("reserves page capacity for every deeper hop when max depth is $depth", async ({ depth, cumulativeAllowances }) => {
+    vi.stubEnv("DEEP_SEARCH_MAX_LINK_DEPTH", String(depth))
+    vi.resetModules()
+    const { getLinkedPageBudget, getLinkedPageDepthBudget } = await import("./routes/deepSearch/resourceLimits.ts")
+    const breadth = { maxSearches: 3, maxResultsPerSearch: 3 }
+    expect(getLinkedPageBudget(breadth)).toBe(27)
+    expect(Array.from({ length: depth }, (_, hop) => getLinkedPageDepthBudget(breadth, hop))).toEqual(cumulativeAllowances)
   })
 
   it("rejects an unsafe accumulated-summary context limit", async () => {

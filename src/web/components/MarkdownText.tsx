@@ -1,8 +1,50 @@
 import Box from "@mui/material/Box"
 import Link from "@mui/material/Link"
+import Table from "@mui/material/Table"
+import TableBody from "@mui/material/TableBody"
+import TableCell from "@mui/material/TableCell"
+import TableContainer from "@mui/material/TableContainer"
+import TableHead from "@mui/material/TableHead"
+import TableRow from "@mui/material/TableRow"
 import Typography from "@mui/material/Typography"
 import type { SxProps, Theme } from "@mui/material/styles"
-import ReactMarkdown from "react-markdown"
+import { useId, useMemo } from "react"
+import ReactMarkdown, { type Components } from "react-markdown"
+import remarkGfm from "remark-gfm"
+
+// Stable component identities preserve table focus and scrolling as tokens arrive.
+const markdownComponents: Components = {
+  table: ({ children }) => (
+    <TableContainer
+      aria-label="Scrollable table"
+      role="region"
+      tabIndex={0}
+      sx={{
+        my: 2,
+        border: 1,
+        borderColor: "divider",
+        borderRadius: 1,
+        "&:focus-visible": {
+          outline: "2px solid",
+          outlineColor: "primary.main",
+          outlineOffset: 2,
+        },
+      }}
+    >
+      <Table size="small" sx={{
+        "& th, & td": { minWidth: "8rem", verticalAlign: "top" },
+        "& th": { bgcolor: "action.hover" },
+      }}>
+        {children}
+      </Table>
+    </TableContainer>
+  ),
+  thead: ({ children }) => <TableHead>{children}</TableHead>,
+  tbody: ({ children }) => <TableBody>{children}</TableBody>,
+  tr: ({ children }) => <TableRow>{children}</TableRow>,
+  th: ({ children, style }) => <TableCell component="th" scope="col" style={style}>{children}</TableCell>,
+  td: ({ children, style }) => <TableCell style={style}>{children}</TableCell>,
+}
 
 export function MarkdownText({
   sx,
@@ -13,6 +55,21 @@ export function MarkdownText({
   testId?: string
   text: string
 }) {
+  const id = useId()
+  const components = useMemo<Components>(() => ({
+    ...markdownComponents,
+    a: ({ node: _node, ...props }) => (
+      <Link
+        {...props}
+        aria-describedby={props["aria-describedby"] === "footnote-label" ? `${id}-footnote-label` : props["aria-describedby"]}
+        rel="noopener noreferrer"
+        target={props.href?.startsWith("#") ? undefined : "_blank"}
+      />
+    ),
+    h2: ({ node: _node, ...props }) => (
+      <h2 {...props} id={props.id === "footnote-label" ? `${id}-footnote-label` : props.id} />
+    ),
+  }), [id])
   return (
     <Box data-testid={testId} sx={sx}>
       <Typography
@@ -50,13 +107,9 @@ export function MarkdownText({
         }}
       >
         <ReactMarkdown
-          components={{
-            a: ({ children, href }) => (
-              <Link href={href} rel="noopener noreferrer" target="_blank">
-                {children}
-              </Link>
-            ),
-          }}
+          components={components}
+          remarkPlugins={[remarkGfm]}
+          remarkRehypeOptions={{ clobberPrefix: `user-content-${id}-` }}
         >
           {text}
         </ReactMarkdown>

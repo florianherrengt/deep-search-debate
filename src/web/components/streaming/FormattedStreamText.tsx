@@ -4,7 +4,7 @@ import ListItemText from "@mui/material/ListItemText"
 import Typography from "@mui/material/Typography"
 import { MarkdownText } from "../MarkdownText.tsx"
 
-export type StreamTextFormat = "text" | "markdown" | "structured-list"
+export type StreamTextFormat = "text" | "markdown" | "structured-list" | "research-plan"
 
 type StructuredListItem = {
   primary: string
@@ -34,6 +34,10 @@ function parseStructuredList(text: string): StructuredListItem[] | undefined {
     const parsed = JSON.parse(text) as unknown
     const elements =
       Array.isArray(parsed) ? parsed :
+      typeof parsed === "object" && parsed !== null && "version" in parsed &&
+          parsed.version === 1 && "queries" in parsed && Array.isArray(parsed.queries) &&
+          parsed.queries.every((query: unknown) => typeof query === "string")
+        ? parsed.queries :
       typeof parsed === "object" && parsed !== null &&
           Array.isArray((parsed as { elements?: unknown }).elements)
         ? (parsed as { elements: unknown[] }).elements
@@ -106,10 +110,12 @@ export function FormattedStreamText({
   format,
   text,
   testId,
+  fallbackText,
 }: {
   format: StreamTextFormat
   text: string
   testId: string
+  fallbackText?: string
 }) {
   if (format === "markdown") {
     return (
@@ -120,10 +126,13 @@ export function FormattedStreamText({
       />
     )
   }
-  if (format === "structured-list") {
+  if (format === "structured-list" || format === "research-plan") {
     const items = parseStructuredList(text)
     if (items !== undefined) {
       return <StructuredList items={items} testId={testId} />
+    }
+    if (format === "research-plan") {
+      return <PlainText text={fallbackText ?? "No search queries were saved."} testId={testId} />
     }
   }
   return <PlainText text={text} testId={testId} />

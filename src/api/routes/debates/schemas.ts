@@ -41,7 +41,7 @@ export const createDebateJobInputSchema = createIdeaJobInputSchema
       .int()
       .positive()
       .max(config.debate.maxResearchRoundsPerChild)
-      .default(Math.min(1, config.debate.maxResearchRoundsPerChild)),
+      .default(Math.min(2, config.debate.maxResearchRoundsPerChild)),
     isPublic: z.boolean().default(false),
   })
   .refine(

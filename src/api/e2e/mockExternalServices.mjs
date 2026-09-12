@@ -635,7 +635,9 @@ function deepSeekRequestKey(body) {
         ? "generate-websearch-queries"
         : system.includes("You are a search-result selection agent")
           ? "select-websearch-results"
-          : system.includes("You decide whether a deep-research job")
+          : system.includes("You select which links discovered on a retrieved page")
+            ? "select-linked-pages"
+          : system.includes("You analyse the evidence gaps in a deep-research candidate")
             ? "review-deep-search-round"
             : system.includes("You summarize an extracted web page")
               ? "summarize-web-page"
@@ -643,6 +645,8 @@ function deepSeekRequestKey(body) {
                 ? "summarize-search-query"
                 : system.includes("You write the current candidate answer for a deep research run")
                   ? "answer-research-request"
+                  : system.includes("You perform the final source-backed check")
+                    ? "correct-research-answer"
                   : system.includes("You analyse a completed deep-research answer")
                     ? "analyze-research-answer"
                     : system.includes("Combine the supplied research texts")
@@ -670,6 +674,7 @@ function deepSeekRequestKey(body) {
     "summarize-web-page",
     "summarize-search-query",
     "answer-research-request",
+    "correct-research-answer",
     "analyze-research-answer",
   ].includes(stage)
     ? `:${researchAngle(user)}`
@@ -710,7 +715,9 @@ function assertThinkingMode(body) {
 
 function modelOutput(system, user) {
   if (system.includes("You create short, descriptive titles")) {
-    const title = user.includes("official MDN documentation")
+    const title = user.includes("Linked-source research")
+      ? "Linked-source research"
+      : user.includes("official MDN documentation")
       ? "JavaScript Array Documentation"
       : user.includes("London renters")
         ? "London Renter Energy Products"
@@ -720,6 +727,89 @@ function modelOutput(system, user) {
     return {
       reasoning: "",
       text: JSON.stringify({ title }),
+    }
+  }
+
+  if (user.includes("Linked-source research")) {
+    const policyUrl = "https://e2e-content.test/linked-source/policy.json"
+    const durationUrl = "https://e2e-content.test/linked-source/duration.json"
+    const qualification = "The advertised £14 offer excludes existing customers."
+    const duration = "The £14 promotional price lasts six months."
+    const durationEvidenceTarget = "The provider's published duration of the £14 promotional price before standard pricing applies."
+    const requirement = {
+      requirement: "Establish eligibility for the advertised offer", kind: "requirement",
+      status: "unresolved", sources: [], explanation: "Read the exact eligibility conditions.",
+    }
+    const durationRequirement = {
+      requirement: "Establish how long the advertised price lasts", kind: "requirement",
+      status: "unresolved", sources: [], explanation: "Find the provider's published offer duration.",
+    }
+    if (system.includes("You generate search-engine queries")) {
+      const count = Number(/Generate exactly (\d+) (?:new )?search queries/.exec(user)?.[1])
+      const followUp = parseTaggedJson(user, "previous_queries").length > 0
+      if (followUp && !taggedText(user, "previous_review_reason").includes(durationEvidenceTarget)) throw new Error("Follow-up planning lost the concrete missing evidence target")
+      return { reasoning: "Find the offer, then resolve the identified evidence gap.", text: JSON.stringify({ version: 1, requirements: followUp ? parseTaggedJson(user, "requirements") : [requirement, durationRequirement], queries: Array.from({ length: count }, (_, index) => `linked-source ${followUp ? "duration " : ""}evidence ${index + 1}`) }) }
+    }
+    if (system.includes("You select which links discovered on a retrieved page")) {
+      const links = parseTaggedJson(user, "discovered_links")
+      if (!parseTaggedJson(user, "requirements").some(({ requirement: text }) => text === requirement.requirement)) throw new Error("Link selection lost the eligibility requirement")
+      const link = links.find(({ url }) => url.endsWith("/terms") || url === policyUrl)
+      if (!link) throw new Error("Linked-source discovery lost the eligibility link")
+      if (link.url === policyUrl) {
+        const pageContext = taggedText(user, "page_context")
+        const knownPages = [...pageContext.matchAll(/<known_page>\n([^\n]+)\n([\s\S]*?)\n<\/known_page>/g)]
+        const offer = knownPages.find((match) => JSON.parse(match[1]).url === "https://e2e-content.test/linked-source/offer")
+        if (pageContext.length > 100_000 || !offer || JSON.parse(offer[1]).status !== "completed" || JSON.parse(offer[1]).title !== "Advertised offer" || offer[2] !== "The advertised offer has eligibility qualifications.") {
+          throw new Error("Second-hop link selection lost bounded evidence from the completed offer page")
+        }
+      }
+      return { reasoning: "Follow the supplied qualification link.", text: JSON.stringify({ selectedIds: [link.id] }) }
+    }
+    if (system.includes("You summarize an extracted web page")) {
+      const sourceUrl = /^source_url:\s*(.*)$/m.exec(user)?.[1]
+      if (sourceUrl === policyUrl && !taggedText(user, "page_content").includes(qualification)) throw new Error("The short JSON policy was not actually extracted")
+      if (sourceUrl === durationUrl) {
+        if (!taggedText(user, "page_content").includes(duration)) throw new Error("The follow-up duration source was not actually extracted")
+        return { reasoning: "Summarize the broad finding.", text: "The advertised offer has a time-limited promotional price." }
+      }
+      // Deliberately lose the condition in both levels of generated summaries.
+      return { reasoning: "Summarize the broad finding.", text: "The advertised offer has eligibility qualifications." }
+    }
+    if (system.includes("You summarize the results returned for one web search")) {
+      return { reasoning: "Summarize the broad finding.", text: "The offer has eligibility qualifications." }
+    }
+    if (
+      system.includes("You write the current candidate answer for a deep research run") ||
+      system.includes("You perform the final source-backed check") ||
+      system.includes("You analyse the evidence gaps in a deep-research candidate") ||
+      system.includes("You analyse a completed deep-research answer")
+    ) {
+      const sourceBlocks = [...user.matchAll(/<source_evidence>\n([^\n]+)\nContent:\n([\s\S]*?)\n<\/source_evidence>/g)]
+      const evidence = sourceBlocks.find((match) => JSON.parse(match[1]).url === policyUrl)
+      if (!evidence || JSON.parse(evidence[1]).evidenceType !== "page-summary" || !evidence[2].includes(qualification) || !evidence[2].includes("Original source passages")) {
+        throw new Error("Linked-source stage lost original policy passages or their provenance")
+      }
+      const durationEvidence = sourceBlocks.find((match) => JSON.parse(match[1]).url === durationUrl)
+      if (durationEvidence && (JSON.parse(durationEvidence[1]).evidenceType !== "page-summary" || !durationEvidence[2].includes(duration) || !durationEvidence[2].includes("Original source passages"))) throw new Error("Follow-up research lost the original duration evidence")
+      const requirements = [
+        { ...requirement, status: "supported", sources: [policyUrl], explanation: qualification },
+        durationEvidence ? { ...durationRequirement, status: "supported", sources: [durationUrl], explanation: duration } : durationRequirement,
+      ]
+      if (!parseTaggedJson(user, "requirements").some(({ requirement: text }) => text === requirement.requirement)) throw new Error("Research stage lost the eligibility requirement")
+      if (system.includes("You write the current candidate answer")) {
+        return { reasoning: "Inject an unsupported candidate for the correction regression.", text: "The advertised £14 offer is available to everyone." }
+      }
+      if (system.includes("You perform the final source-backed check")) {
+        if (!taggedText(user, "candidate_answer").includes("available to everyone")) throw new Error("Correction did not receive the unsupported candidate")
+        if (!durationEvidence) throw new Error("The search finalized before resolving its searchable duration gap")
+        return { reasoning: "Correct the unsupported claim using both retained original sources.", text: `| Finding | Source |\n| --- | --- |\n| ${qualification} | [Eligibility policy](${policyUrl}) |\n| ${duration} | [Offer duration](${durationUrl}) |` }
+      }
+      if (system.includes("You analyse the evidence gaps")) {
+        return { reasoning: "Check the remaining evidence gaps before deciding whether research is complete.", text: JSON.stringify({ version: 1, reason: "The inspected sources establish the findings available so far.", gaps: durationEvidence ? [] : [{ title: "The promotional duration is unverified", description: "How long the £14 price applies materially changes the offer's value.", evidenceToFind: durationEvidenceTarget }], requirements }) }
+      }
+      if (!taggedText(user, "final_answer").includes(qualification)) throw new Error("Analysis received the unsupported candidate instead of the corrected answer")
+      if (!taggedText(user, "final_answer").includes(duration)) throw new Error("The corrected answer omitted its follow-up research finding")
+      return { reasoning: "", text: JSON.stringify({ facts: [{ title: "Existing customers are excluded", description: qualification, sources: [policyUrl] }, { title: "The promotional price lasts six months", description: duration, sources: [durationUrl] }], disagreements: [], gaps: [], assumptions: [], requirements }) }
     }
   }
 
@@ -752,10 +842,11 @@ function modelOutput(system, user) {
     return {
       reasoning: `Use one focused ${angle} query for the deterministic test.`,
       text: JSON.stringify({
-        elements:
-          restartControlEnabled && user.includes("[E2E_RESTART_TWO_QUERIES]")
-            ? [`${query} primary`, `${query} secondary`]
-            : [query],
+        version: 1,
+        requirements: [],
+        queries: restartControlEnabled && user.includes("[E2E_RESTART_TWO_QUERIES]")
+          ? [`${query} primary`, `${query} secondary`]
+          : Array.from({ length: Number(/Generate exactly (\d+) (?:new )?search queries/.exec(user)?.[1]) }, (_, index) => index === 0 ? query : `${query} ${index + 1}`),
       }),
       ...(user.includes(deepSearchStopMarker) || user.includes(ideaStopMarker)
         ? { delayMs: 20, secondTextDelayMs: 2_000 }
@@ -768,12 +859,14 @@ function modelOutput(system, user) {
       text: JSON.stringify({ elements: [firstSearchResultId(user)] }),
     }
   }
-  if (system.includes("You decide whether a deep-research job")) {
+  if (system.includes("You analyse the evidence gaps in a deep-research candidate")) {
     return {
       reasoning: "The deterministic evidence is sufficient for the answer.",
       text: JSON.stringify({
-        decision: "stop",
+        version: 1,
+        gaps: [],
         reason: "The current evidence directly answers the request.",
+        requirements: parseTaggedJson(user, "requirements"),
       }),
     }
   }
@@ -819,6 +912,9 @@ function modelOutput(system, user) {
       text,
     }
   }
+  if (system.includes("You perform the final source-backed check")) {
+    return { reasoning: "The supplied original sources support the candidate.", text: taggedText(user, "candidate_answer") }
+  }
   if (system.includes("You analyse a completed deep-research answer")) {
     return {
       reasoning: "",
@@ -840,6 +936,7 @@ function modelOutput(system, user) {
           },
         ],
         assumptions: [],
+        requirements: parseTaggedJson(user, "requirements"),
       }),
     }
   }
@@ -1130,13 +1227,12 @@ function codexStructuredOutput(body, prompt, output) {
   const propertyNames = Object.keys(schema?.properties ?? {})
   if (
     schema?.type !== "object" ||
-    propertyNames.length !== 1 ||
     !Array.isArray(schema.required) ||
-    !schema.required.includes(propertyNames[0])
+    propertyNames.some((name) => !schema.required.includes(name))
   ) {
     throw new Error("Codex structured request used an unexpected schema")
   }
-  if (propertyNames[0] === "title") {
+  if (propertyNames.length === 1 && propertyNames[0] === "title") {
     const title = schema.properties.title
     if (
       title?.type !== "string" ||
@@ -1147,18 +1243,25 @@ function codexStructuredOutput(body, prompt, output) {
     }
     return JSON.stringify({ title: "E2E Codex Structured Title" })
   }
-  if (propertyNames[0] === "elements") {
-    const elements = schema.properties.elements
-    if (elements?.type !== "array" || elements.items?.type !== "string") {
-      throw new Error("Codex array request used an unexpected schema")
+  if (propertyNames.includes("queries")) {
+    assertExactKeys(schema.properties, ["version", "requirements", "queries"], "Codex research plan schema")
+    const { version, requirements, queries } = schema.properties
+    if (
+      version.const !== 1 ||
+      requirements?.type !== "array" || requirements.items?.type !== "object" ||
+      queries?.type !== "array" || queries.items?.type !== "string"
+    ) {
+      throw new Error("Codex research plan request used an unexpected schema")
     }
     const requestedCount = /Generate exactly (\d+) (?:new )?search queries\./
       .exec(prompt)?.[1]
-    if (!requestedCount) {
-      throw new Error("Unsupported Codex array request")
+    if (!requestedCount || queries.minItems !== Number(requestedCount) || queries.maxItems !== Number(requestedCount)) {
+      throw new Error("Codex research plan request lost its exact query count")
     }
     return JSON.stringify({
-      elements: Array.from(
+      version: 1,
+      requirements: [],
+      queries: Array.from(
         { length: Number(requestedCount) },
         (_, index) => `E2E Codex structured query ${index + 1}`,
       ),
@@ -1372,6 +1475,12 @@ async function openAiAuthResponse(request, url) {
 
 function searXngResponse(url) {
   const query = url.searchParams.get("q") ?? "unknown query"
+  if (query.startsWith("linked-source duration evidence")) {
+    return Response.json({ results: [{ title: "Offer duration", url: "https://e2e-content.test/linked-source/duration.json", content: "The provider publishes the duration of the promotional price." }] })
+  }
+  if (query.startsWith("linked-source evidence")) {
+    return Response.json({ results: [{ title: "Advertised offer", url: "https://e2e-content.test/linked-source/offer", content: "The provider advertises a £14 offer; linked eligibility terms apply." }] })
+  }
   const slug = encodeURIComponent(query)
   return Response.json({
     results: [
@@ -1390,6 +1499,22 @@ function searXngResponse(url) {
 }
 
 function pageResponse(url) {
+  if (url.pathname === "/linked-source/duration.json") {
+    return Response.json({ duration: "The £14 promotional price lasts six months." })
+  }
+  if (url.pathname === "/linked-source/policy.json") {
+    return Response.json({ eligibility: "The advertised £14 offer excludes existing customers." })
+  }
+  if (url.pathname.startsWith("/linked-source/")) {
+    const documents = {
+      "/linked-source/offer": { content: "The advertised offer is subject to linked terms.", links: '<a href="/linked-source/terms">Offer terms</a>' },
+      "/linked-source/terms": { content: "The detailed eligibility policy governs the offer.", links: '<a href="/linked-source/offer">Back to offer</a><a href="/linked-source/policy.json">Eligibility policy</a>' },
+    }
+    const document = documents[url.pathname]
+    if (!document) throw new Error(`Linked-source extraction exceeded its depth: ${url.href}`)
+    const navigation = Array.from({ length: 40 }, (_, index) => `<a href="/linked-source/navigation-${index}">Navigation ${index}</a>`).join("")
+    return new Response(`<html><body><nav>${navigation}</nav><main><h1>Offer eligibility</h1><p>${Array.from({ length: 16 }, () => document.content).join(" ")}</p>${document.links}</main></body></html>`, { headers: { "content-type": "text/html; charset=utf-8" } })
+  }
   const topic = decodeURIComponent(url.pathname.split("/")[1] ?? "research")
   const repeatedEvidence = Array.from(
     { length: 8 },
@@ -1434,7 +1559,7 @@ async function scrapingAntResponse(request, url) {
   const targetResponse = pageResponse(targetUrl)
   return new Response(await targetResponse.text(), {
     headers: {
-      "content-type": "text/html; charset=utf-8",
+      "content-type": targetResponse.headers.get("content-type"),
       "ant-credits-cost": browser === "false" ? "1" : "10",
     },
   })

@@ -7,6 +7,8 @@ import type {
 } from "@earendil-works/pi-ai"
 import z from "zod"
 
+import { secureJsonParse } from "../helpers/secureJsonParse.ts"
+import { OpenAiCodexError } from "./codexErrors.ts"
 import {
   compareAndSwapOpenAiCodexCredentials,
   deleteOpenAiCodexConnectionForUser,
@@ -28,6 +30,18 @@ const oauthCredentialSchema = z.looseObject({
   accountId: z.string().min(1).max(1_000),
 })
 
+const legacyCredentialSchema = z.object({
+  type: z.undefined().optional(),
+  auth_mode: z.literal("chatgpt").optional(),
+  tokens: z.object({
+    access_token: oauthCredentialSchema.shape.access,
+    refresh_token: oauthCredentialSchema.shape.refresh,
+    account_id: oauthCredentialSchema.shape.accountId,
+  }),
+})
+
+const tokenExpirySchema = z.object({ exp: z.number().int().positive() })
+
 export function encodePiCodexCredential(
   credential: OAuthCredential,
 ): Buffer {
@@ -41,9 +55,31 @@ function decodePiCodexCredential(
   connection: OpenAiCodexConnectionSnapshot,
 ): OAuthCredential {
   try {
-    return oauthCredentialSchema.parse(
-      JSON.parse(connection.credentials.toString("utf8")),
-    )
+    const stored = secureJsonParse(connection.credentials.toString("utf8"))
+    const current = oauthCredentialSchema.safeParse(stored)
+    if (current.success) return current.data
+
+    // Pre-Pi connections contain Codex's auth.json. Adapt on read; the existing
+    // refresh path persists the next rotated credential in Pi's format.
+    const { tokens } = legacyCredentialSchema.parse(stored)
+    const parts = tokens.access_token.split(".")
+    const payload = parts[1]
+    if (parts.length !== 3 || !payload || !/^[A-Za-z0-9_-]+$/.test(payload)) {
+      throw new OpenAiCodexError("protocol-incompatible")
+    }
+    // The claim only schedules refresh. OpenAI still authenticates the token.
+    const { exp } = tokenExpirySchema.parse(secureJsonParse(
+      Buffer.from(payload, "base64url").toString("utf8"),
+    ))
+    return oauthCredentialSchema.parse({
+      type: "oauth",
+      access: tokens.access_token,
+      refresh: tokens.refresh_token,
+      expires: exp * 1_000,
+      accountId: tokens.account_id,
+    })
+  } catch {
+    throw new OpenAiCodexError("protocol-incompatible")
   } finally {
     connection.credentials.fill(0)
   }

@@ -12,6 +12,7 @@ import {
   deepSearchRounds,
 } from "./deepSearchQueries.ts"
 import {
+  deepSearchPageLinks,
   deepSearchResults,
   deepSearchWebPages,
 } from "./deepSearchResults.ts"
@@ -137,6 +138,7 @@ export const deepSearchRoundsRelations = relations(
       relationName: "deepSearchRoundReviewGeneration",
     }),
     queries: many(deepSearchQueries),
+    selectedPageLinks: many(deepSearchPageLinks),
   }),
 )
 
@@ -196,8 +198,40 @@ export const deepSearchWebPagesRelations = relations(
     summaryGeneration: one(llmGenerations, {
       fields: [deepSearchWebPages.summaryGenerationId],
       references: [llmGenerations.llmGenerationId],
+      relationName: "deepSearchPageSummaryGeneration",
+    }),
+    linkSelectionGeneration: one(llmGenerations, {
+      fields: [deepSearchWebPages.linkSelectionGenerationId],
+      references: [llmGenerations.llmGenerationId],
+      relationName: "deepSearchPageLinkSelectionGeneration",
     }),
     results: many(deepSearchResults),
+    discoveredLinks: many(deepSearchPageLinks, {
+      relationName: "deepSearchPageDiscoveredLinks",
+    }),
+    incomingLinks: many(deepSearchPageLinks, {
+      relationName: "deepSearchPageSelectedLinks",
+    }),
+  }),
+)
+
+export const deepSearchPageLinksRelations = relations(
+  deepSearchPageLinks,
+  ({ one }) => ({
+    sourcePage: one(deepSearchWebPages, {
+      fields: [deepSearchPageLinks.sourceWebPageId],
+      references: [deepSearchWebPages.deepSearchWebPageId],
+      relationName: "deepSearchPageDiscoveredLinks",
+    }),
+    selectedPage: one(deepSearchWebPages, {
+      fields: [deepSearchPageLinks.selectedWebPageId],
+      references: [deepSearchWebPages.deepSearchWebPageId],
+      relationName: "deepSearchPageSelectedLinks",
+    }),
+    selectedRound: one(deepSearchRounds, {
+      fields: [deepSearchPageLinks.selectedRoundId],
+      references: [deepSearchRounds.deepSearchRoundId],
+    }),
   }),
 )
 

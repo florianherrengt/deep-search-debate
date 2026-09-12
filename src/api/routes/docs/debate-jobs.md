@@ -126,12 +126,19 @@ parent; history includes that user's debates. Debates are private by default.
 
 Creation accepts the same `deepSearchCount`, `maxSearches`,
 `maxResultsPerSearch`, and `maxRounds` controls as an idea job. Their debate
-defaults are `1`, `2`, `2`, and `1`, with server ceilings of `1`, `3`, `3`, and
-`1`. Debate-owned research can select at most 81 pages by default. Both this
+defaults are `1`, `2`, `2`, and `2`, with server ceilings of `1`, `3`, `3`, and
+`2`. Each child-search round also has a linked-page allowance three times its
+search-selected page allowance, shared across at most two link hops by default.
+The first hop can consume two thirds, reserving one third for the second;
+unused capacity carries forward. Debate-owned research can select at most 400
+pages by default. The default eight ideas plus one initial search admit at most
+288 pages. Both this
 debate-specific budget and the shared root-workflow page budget apply before any
 row or provider call is created. Narrower values let
 operators run a complete real-provider tournament smoke without a parallel
-test-only workflow.
+test-only workflow. Child searches use the same durable requirements checklist,
+retained source passages, mandatory final answer correction, and corrected-answer
+analysis as standalone deep search.
 
 Detail and event reads allow either the owner or any viewer when the debate is
 public. Public read access follows the aggregate into the debate-owned idea job,

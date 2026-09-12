@@ -6,12 +6,13 @@ import Paper from "@mui/material/Paper"
 import Stack from "@mui/material/Stack"
 import Typography from "@mui/material/Typography"
 
-import type { ResearchAnalysis as ResearchAnalysisResult } from "../../../lib/deepSearchJobs.ts"
+import type { ResearchAnalysis as ResearchAnalysisResult, ResearchRequirements } from "../../../lib/deepSearchJobs.ts"
 
 type AnalysisItem = {
   title: string
   description: string
   sources?: string[]
+  label?: string
 }
 
 type AnalysisCategory = {
@@ -68,7 +69,8 @@ function AnalysisCategory({ category }: { category: AnalysisCategory }) {
                 key={JSON.stringify(item)}
                 sx={{ alignItems: "flex-start", display: "block", py: 1.5 }}
               >
-                <Typography component="h4" variant="subtitle1">
+                {item.label && <Typography color="text.secondary" variant="caption">{item.label}</Typography>}
+                <Typography component="h4" variant="subtitle1" sx={{ overflowWrap: "anywhere" }}>
                   {item.title}
                 </Typography>
                 <Typography
@@ -109,6 +111,23 @@ function AnalysisCategory({ category }: { category: AnalysisCategory }) {
       )}
     </Paper>
   )
+}
+
+export function RequirementCoverage({ requirements }: { requirements: ResearchRequirements }) {
+  if (requirements.length === 0) return null
+  const labels = { supported: "Supported by evidence", unresolved: "Unresolved", conflicting: "Conflicting evidence" }
+  return <AnalysisCategory category={{
+    id: "research-requirements",
+    title: "Requirement coverage",
+    description: "Requirements and preferences checked against the available evidence.",
+    emptyMessage: "No requirements were recorded.",
+    items: requirements.map((item) => ({
+      title: item.requirement,
+      description: item.explanation,
+      sources: item.sources,
+      label: `${item.kind === "requirement" ? "Requirement" : "Preference"} · ${labels[item.status]}`,
+    })),
+  }} />
 }
 
 export function ResearchAnalysis({
@@ -162,6 +181,7 @@ export function ResearchAnalysis({
           leaves open, and assumes.
         </Typography>
       </Stack>
+      {analysis.requirements && <RequirementCoverage requirements={analysis.requirements} />}
       <Box
         sx={{
           display: "grid",

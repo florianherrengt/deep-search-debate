@@ -7,6 +7,7 @@ vi.mock("../../llms/generateText.ts", () => ({
 }))
 
 import { summarizeSearchQuery } from "./querySummaries.ts"
+import { config } from "../../config.ts"
 
 function completedGeneration(text = "Completed query summary") {
   return {
@@ -22,7 +23,7 @@ function completedGeneration(text = "Completed query summary") {
 describe("query summaries", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("registers a synthesis stream with uniform result content", async () => {
+  it("distinguishes explored-page evidence from search snippets", async () => {
     mocks.generateTextStream.mockResolvedValueOnce(completedGeneration())
 
     const generation = await summarizeSearchQuery({
@@ -35,11 +36,13 @@ describe("query summaries", () => {
           title: "Beginner boards",
           url: "https://example.com/beginners",
           content: "A detailed summary of the explored page.",
+          evidenceType: "page-summary",
         },
         {
           title: "Cruising boards",
           url: "https://example.com/cruising",
           content: "Search result description for cruising boards.",
+          evidenceType: "search-snippet",
         },
       ],
     })
@@ -52,21 +55,25 @@ describe("query summaries", () => {
         "search_query: best beginner longboards",
         "results:",
         "<results>",
-        "<result>",
+        "<source_evidence>",
         JSON.stringify({
-          title: "Beginner boards",
           url: "https://example.com/beginners",
-          content: "A detailed summary of the explored page.",
+          title: "Beginner boards",
+          evidenceType: "page-summary",
         }),
-        "</result>",
+        "Content:",
+        "A detailed summary of the explored page.",
+        "</source_evidence>",
         "",
-        "<result>",
+        "<source_evidence>",
         JSON.stringify({
-          title: "Cruising boards",
           url: "https://example.com/cruising",
-          content: "Search result description for cruising boards.",
+          title: "Cruising boards",
+          evidenceType: "search-snippet",
         }),
-        "</result>",
+        "Content:",
+        "Search result description for cruising boards.",
+        "</source_evidence>",
         "</results>",
       ].join("\n"),
       promptName: "summarize-search-query",
@@ -74,6 +81,39 @@ describe("query summaries", () => {
     })
     expect(generation.streamId).toBe("query-summary-stream-id")
     await expect(generation.summary).resolves.toBe("Completed query summary")
+  })
+
+  it("retains every source URL and evidence type when result content is truncated", async () => {
+    mocks.generateTextStream.mockResolvedValueOnce(completedGeneration())
+    await summarizeSearchQuery({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
+      researchRequest: "Compare the published terms",
+      query: "published terms",
+      results: [
+        {
+          title: "Terms",
+          url: "https://example.com/terms?version=2026-09",
+          evidenceType: "page-summary",
+          content: "A published qualification. ".repeat(10_000),
+        },
+        {
+          title: "Other terms",
+          url: "https://other.example.com/terms",
+          evidenceType: "search-snippet",
+          content: "An unverified search description. ".repeat(10_000),
+        },
+      ],
+    })
+
+    const { prompt } = mocks.generateTextStream.mock.calls[0]?.[0] as { prompt: string }
+    const context = /<results>\n([\s\S]*)\n<\/results>/.exec(prompt)?.[1]
+    expect(context?.length).toBeLessThanOrEqual(config.deepSearch.maxSummaryContextChars)
+    expect(context).toContain('"url":"https://example.com/terms?version=2026-09"')
+    expect(context).toContain('"url":"https://other.example.com/terms"')
+    expect(context).toContain('"evidenceType":"page-summary"')
+    expect(context).toContain('"evidenceType":"search-snippet"')
+    expect(context).toContain("[... omitted ...]")
   })
 
   it("propagates stream registration failures", async () => {

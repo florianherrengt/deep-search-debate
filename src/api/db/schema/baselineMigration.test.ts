@@ -1,4 +1,6 @@
-import { readdirSync } from "node:fs"
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import Database from "better-sqlite3"
 import { drizzle } from "drizzle-orm/better-sqlite3"
@@ -195,7 +197,7 @@ describe("database migrations", () => {
   it("creates the complete current schema from the fresh baseline", () => {
     expect(
       readdirSync(migrationsFolder).filter((name) => name.endsWith(".sql")),
-    ).toEqual(["0000_fresh-baseline.sql"])
+    ).toEqual(["0000_fresh-baseline.sql", "0001_linked-page-discovery.sql", "0002_original-source-passages.sql"])
 
     const sqlite = new Database(":memory:")
     sqlite.pragma("foreign_keys = ON")
@@ -216,12 +218,13 @@ describe("database migrations", () => {
     expect(tableNames.has("waitlist_entries")).toBe(true)
     expect(tableNames.has("openai_codex_connections")).toBe(true)
     expect(tableNames.has("llm_model_settings")).toBe(true)
+    expect(tableNames.has("deep_search_page_links")).toBe(true)
     expect(
       sqlite
         .prepare("SELECT count(*) FROM __drizzle_migrations")
         .pluck()
         .get(),
-    ).toBe(1)
+    ).toBe(3)
     expect(
       sqlite
         .prepare("PRAGMA table_info('openai_codex_connections')")
@@ -408,4 +411,72 @@ describe("database migrations", () => {
     sqlite.close()
   })
 
+  it("adds retained passages without changing completed pages, provider selections, linked edges, or triggers", () => {
+    const previousFolder = mkdtempSync(join(tmpdir(), "rethinkloop-previous-schema-"))
+    const sqlite = new Database(":memory:")
+    sqlite.pragma("foreign_keys = ON")
+    try {
+      mkdirSync(join(previousFolder, "meta"))
+      copyFileSync(join(migrationsFolder, "0000_fresh-baseline.sql"), join(previousFolder, "0000_fresh-baseline.sql"))
+      copyFileSync(join(migrationsFolder, "0001_linked-page-discovery.sql"), join(previousFolder, "0001_linked-page-discovery.sql"))
+      writeFileSync(join(previousFolder, "meta", "_journal.json"), JSON.stringify({ version: "7", dialect: "sqlite", entries: [
+        { idx: 0, version: "6", when: 1788526464242, tag: "0000_fresh-baseline", breakpoints: true },
+        { idx: 1, version: "6", when: 1788806288034, tag: "0001_linked-page-discovery", breakpoints: true },
+      ] }))
+      const database = drizzle(sqlite)
+      migrate(database, { migrationsFolder: previousFolder })
+      sqlite.exec(`
+        INSERT INTO user (id, name, email, email_verified) VALUES ('upgrade-owner', 'Owner', 'upgrade-owner@example.com', 1);
+        INSERT INTO deep_search_jobs (deep_search_job_id, user_id, research_request, max_searches, max_results_per_search, strict_quality)
+          VALUES ('old-job', 'upgrade-owner', 'Preserved question', 1, 1, 0);
+        INSERT INTO llm_generations (llm_generation_id, user_id, deep_search_job_id, status, text, reasoning, completed_at)
+          VALUES ('old-summary', 'upgrade-owner', 'old-job', 'completed', 'Preserved source evidence', '', 1000),
+                 ('old-target-summary', 'upgrade-owner', 'old-job', 'completed', 'Preserved linked evidence', '', 1000),
+                 ('old-query-summary', 'upgrade-owner', 'old-job', 'completed', 'Preserved query summary', '', 1000),
+                 ('old-plan', 'upgrade-owner', 'old-job', 'completed', '["Preserved query"]', '', 1000),
+                 ('old-selection', 'upgrade-owner', 'old-job', 'completed', '["old-result"]', '', 1000),
+                 ('old-link-selection', 'upgrade-owner', 'old-job', 'completed', '{"selectedIds":["old-link"]}', '', 1000),
+                 ('old-answer', 'upgrade-owner', 'old-job', 'completed', 'Preserved final answer', '', 1000);
+        INSERT INTO deep_search_rounds (deep_search_round_id, deep_search_job_id, llm_generation_id, answer_generation_id)
+          VALUES ('old-round', 'old-job', 'old-plan', 'old-answer');
+        INSERT INTO deep_search_queries (deep_search_query_id, deep_search_round_id, position, query, credits_used, status, selection_generation_id, summary_generation_id, completed_at)
+          VALUES ('old-query', 'old-round', 0, 'Preserved query', 1, 'completed', 'old-selection', 'old-query-summary', 1000);
+        INSERT INTO deep_search_web_pages (deep_search_web_page_id, deep_search_job_id, url, status, credits_used, summary_generation_id, link_selection_generation_id, completed_at)
+          VALUES ('old-page', 'old-job', 'https://example.com/old-source', 'completed', 1, 'old-summary', 'old-link-selection', 1000),
+                 ('old-target', 'old-job', 'https://example.com/old-target', 'completed', 1, 'old-target-summary', null, 1000);
+        INSERT INTO deep_search_results (deep_search_result_id, deep_search_query_id, position, title, short_text, url, selected_web_page_id)
+          VALUES ('old-result', 'old-query', 0, 'Preserved source', 'Preserved provider snippet', 'https://example.com/old-source', 'old-page');
+        INSERT INTO deep_search_page_links (deep_search_page_link_id, source_web_page_id, position, url, title, selected_web_page_id, selected_round_id)
+          VALUES ('old-link', 'old-page', 0, 'https://example.com/old-target', 'Preserved linked source', 'old-target', 'old-round');
+        UPDATE deep_search_jobs SET status = 'completed', final_answer_generation_id = 'old-answer', completed_at = 1000 WHERE deep_search_job_id = 'old-job';
+      `)
+      const oldJob = sqlite.prepare("SELECT * FROM deep_search_jobs WHERE deep_search_job_id = 'old-job'").get()
+      const oldResults = sqlite.prepare("SELECT * FROM deep_search_results").all()
+      const oldLinks = sqlite.prepare("SELECT * FROM deep_search_page_links").all()
+      const oldGenerations = sqlite.prepare("SELECT * FROM llm_generations ORDER BY llm_generation_id").all()
+      const oldTriggers = sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").pluck().all()
+      migrate(database, { migrationsFolder })
+      expect(sqlite.prepare("SELECT * FROM deep_search_jobs WHERE deep_search_job_id = 'old-job'").get()).toEqual(oldJob)
+      expect(sqlite.prepare("SELECT status, credits_used, extracted_content, original_passages, summary_generation_id, link_selection_generation_id FROM deep_search_web_pages WHERE deep_search_web_page_id = 'old-page'").get()).toEqual({ status: "completed", credits_used: 1, extracted_content: null, original_passages: null, summary_generation_id: "old-summary", link_selection_generation_id: "old-link-selection" })
+      expect(sqlite.prepare("SELECT * FROM deep_search_results").all()).toEqual(oldResults)
+      expect(sqlite.prepare("SELECT * FROM deep_search_page_links").all()).toEqual(oldLinks)
+      expect(sqlite.prepare("SELECT * FROM llm_generations ORDER BY llm_generation_id").all()).toEqual(oldGenerations)
+      expect(sqlite.prepare("SELECT original_passages FROM deep_search_web_pages").pluck().all()).toEqual([null, null])
+      sqlite.prepare("UPDATE deep_search_web_pages SET original_passages = ? WHERE deep_search_web_page_id = 'old-page'").run("x".repeat(16_000))
+      expect(() => sqlite.prepare("UPDATE deep_search_web_pages SET original_passages = ? WHERE deep_search_web_page_id = 'old-page'").run("x".repeat(16_001))).toThrow(/original_passages_check/)
+      expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").pluck().all()).toEqual(expect.arrayContaining(oldTriggers))
+      expect(() => sqlite.prepare("UPDATE deep_search_web_pages SET url = 'https://example.com/changed' WHERE deep_search_web_page_id = 'old-page'").run()).toThrow(/immutable/)
+      expect(() => sqlite.prepare("UPDATE deep_search_page_links SET selected_web_page_id = null, selected_round_id = null WHERE deep_search_page_link_id = 'old-link'").run()).toThrow(/immutable/)
+      expect(sqlite.pragma("foreign_key_check")).toEqual([])
+      expect(sqlite.pragma("integrity_check", { simple: true })).toBe("ok")
+      sqlite.prepare("DELETE FROM deep_search_jobs WHERE deep_search_job_id = 'old-job'").run()
+      expect(sqlite.prepare("SELECT * FROM deep_search_web_pages").all()).toEqual([])
+      expect(sqlite.prepare("SELECT * FROM deep_search_results").all()).toEqual([])
+      expect(sqlite.prepare("SELECT * FROM deep_search_page_links").all()).toEqual([])
+      expect(sqlite.prepare("SELECT * FROM llm_generations").all()).toEqual([])
+    } finally {
+      sqlite.close()
+      rmSync(previousFolder, { recursive: true, force: true })
+    }
+  })
 })

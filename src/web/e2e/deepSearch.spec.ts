@@ -14,6 +14,79 @@ function parseEvents<Event>(body: string): Event[] {
 // External HTTP responses are deterministic; the API, persistence, streaming,
 // extraction pipeline, and browser behavior remain real.
 test.describe("Deep search", () => {
+  test("follows a two-hop policy, researches a material gap in a second round, and retains the corrected answer after refresh", async ({ page, request }) => {
+    test.setTimeout(30_000)
+    await page.goto("/deep-search")
+    const createdResponse = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/deep-search-jobs")
+    await page.getByLabel("Research request").fill("Linked-source research: What eligibility qualification applies to the advertised offer, and how long does its promotional price last?")
+    await page.getByRole("button", { name: "Start deep search" }).click()
+    const created = await createdResponse
+    expect(created.status()).toBe(202)
+    const { deepSearchJobId, slug } = await created.json() as { deepSearchJobId: string; slug: string }
+    const finalAnswer = page.getByTestId("final-answer")
+    const answerTable = finalAnswer.getByRole("table")
+    await expect(page.getByRole("link", { name: /^Round 2/ })).toBeVisible()
+    await expect(finalAnswer).toContainText("The advertised £14 offer excludes existing customers.")
+    await expect(finalAnswer.getByRole("link", { name: "Eligibility policy" })).toHaveAttribute("href", "https://e2e-content.test/linked-source/policy.json")
+    await expect(answerTable.getByRole("columnheader")).toHaveText(["Finding", "Source"])
+    await expect(answerTable.getByRole("cell")).toHaveText(["The advertised £14 offer excludes existing customers.", "Eligibility policy", "The £14 promotional price lasts six months.", "Offer duration"])
+    await expect(answerTable.getByRole("link", { name: "Eligibility policy" })).toHaveAttribute("href", "https://e2e-content.test/linked-source/policy.json")
+    await expect(answerTable.getByRole("link", { name: "Offer duration" })).toHaveAttribute("href", "https://e2e-content.test/linked-source/duration.json")
+    await expect(page.getByText("Existing customers are excluded", { exact: true })).toBeVisible()
+
+    const replay = await request.get(`/api/deep-search-jobs/${deepSearchJobId}/events`)
+    const events = parseEvents<DeepSearchJobEvent>(await replay.text())
+    expect(events.at(-1)).toEqual({ type: "done" })
+    expect(events.filter((event) => event.type === "research-requirements")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ round: 0, requirements: expect.arrayContaining([expect.objectContaining({ requirement: "Establish eligibility for the advertised offer", status: "unresolved" })]) }),
+    ]))
+    expect(events.find((event) => event.type === "research-analysis")).toMatchObject({ analysis: { requirements: [{ requirement: "Establish eligibility for the advertised offer", status: "supported", sources: ["https://e2e-content.test/linked-source/policy.json"] }, { requirement: "Establish how long the advertised price lasts", status: "supported", sources: ["https://e2e-content.test/linked-source/duration.json"] }] } })
+    const durationEvidenceTarget = "The provider's published duration of the £14 promotional price before standard pricing applies."
+    expect(events.filter((event) => event.type === "round-review")).toEqual([
+      expect.objectContaining({ round: 0, decision: "continue", reason: expect.stringContaining(durationEvidenceTarget) }),
+      expect.objectContaining({ round: 1, decision: "stop" }),
+    ])
+    const firstReviewEvent = events.filter((event) => event.type === "round-review-stream").find(({ round }) => round === 0)
+    expect(firstReviewEvent).toBeDefined()
+    const reviewStream = await request.get(`/api/streams/${firstReviewEvent?.streamId}`)
+    const rawReview = JSON.parse(parseEvents<TextStreamEvent>(await reviewStream.text()).flatMap((event) => event.type === "text" ? [event.text] : []).join("")) as Record<string, unknown>
+    expect(rawReview).toMatchObject({ version: 1, gaps: [{ evidenceToFind: durationEvidenceTarget }] })
+    expect(rawReview).not.toHaveProperty("decision")
+    const candidateEvent = events.find((event) => event.type === "round-answer-stream")
+    const finalEvent = events.find((event) => event.type === "final-answer-stream")
+    expect(candidateEvent).toBeDefined()
+    expect(finalEvent).toBeDefined()
+    expect(finalEvent?.streamId).not.toBe(candidateEvent?.streamId)
+    const candidateStream = await request.get(`/api/streams/${candidateEvent?.streamId}`)
+    expect(await candidateStream.text()).toContain("available to everyone")
+    expect(events.filter((event) => event.type === "error")).toEqual([])
+    const searchUrls = events.flatMap((event) => event.type === "search-results" ? event.searches.flatMap(({ results }) => results.map(({ link }) => link)) : [])
+    expect(searchUrls).toEqual([
+      ...Array.from({ length: 3 }, () => "https://e2e-content.test/linked-source/offer"),
+      ...Array.from({ length: 3 }, () => "https://e2e-content.test/linked-source/duration.json"),
+    ])
+    expect(events.filter((event) => event.type === "query-stream").map(({ round }) => round)).toEqual([0, 1])
+    expect(events.flatMap((event) => event.type === "search-results" && event.round === 1 ? event.searches.map(({ query }) => query) : [])).toEqual(["linked-source duration evidence 1", "linked-source duration evidence 2", "linked-source duration evidence 3"])
+    expect(events.filter((event) => event.type === "selected-linked-pages")).toEqual([
+      { type: "selected-linked-pages", sourceUrl: "https://e2e-content.test/linked-source/offer", links: [{ url: "https://e2e-content.test/linked-source/terms", title: "Offer terms" }] },
+      { type: "selected-linked-pages", sourceUrl: "https://e2e-content.test/linked-source/terms", links: [{ url: "https://e2e-content.test/linked-source/policy.json", title: "Eligibility policy" }] },
+    ])
+    expect(events.filter((event) => event.type === "page-summary-stream").map(({ url }) => url)).toEqual([
+      "https://e2e-content.test/linked-source/offer", "https://e2e-content.test/linked-source/terms", "https://e2e-content.test/linked-source/policy.json", "https://e2e-content.test/linked-source/duration.json",
+    ])
+
+    await page.reload()
+    await expect(page).toHaveURL(new RegExp(`/deep-search/${slug}$`))
+    await expect(finalAnswer).toContainText("The advertised £14 offer excludes existing customers.")
+    await expect(finalAnswer.getByRole("link", { name: "Eligibility policy" })).toHaveAttribute("href", "https://e2e-content.test/linked-source/policy.json")
+    await expect(page.getByRole("link", { name: /^Round 2/ })).toBeVisible()
+    await expect(answerTable.getByRole("columnheader")).toHaveText(["Finding", "Source"])
+    await expect(answerTable.getByRole("cell")).toHaveText(["The advertised £14 offer excludes existing customers.", "Eligibility policy", "The £14 promotional price lasts six months.", "Offer duration"])
+    await expect(answerTable.getByRole("link", { name: "Eligibility policy" })).toHaveAttribute("href", "https://e2e-content.test/linked-source/policy.json")
+    await expect(answerTable.getByRole("link", { name: "Offer duration" })).toHaveAttribute("href", "https://e2e-content.test/linked-source/duration.json")
+    await expect(page.getByText("Existing customers are excluded", { exact: true })).toBeVisible()
+  })
+
   test("stops an active root and reconstructs the stopped state", async ({
     page,
     request,
@@ -237,7 +310,7 @@ test.describe("Deep search", () => {
       expect(coveredSummaryUrls).toContain(url)
     }
 
-    const firstPageSummary = pageSummaryStreams[0]
+    const firstPageSummary = pageSummaryStreams.find(({ url }) => selectedResults?.selectedLinks.includes(url))
     expect(firstPageSummary).toBeDefined()
     const summaryPath = `/api/streams/${firstPageSummary?.streamId ?? ""}`
 
@@ -293,7 +366,7 @@ test.describe("Deep search", () => {
     expect(querySummaryStreams).toHaveLength(
       searchResults?.searches.length ?? 0,
     )
-    const firstQuerySummary = querySummaryStreams[0]
+    const firstQuerySummary = querySummaryStreams.find(({ query }) => query === summarizedSearch?.query)
     expect(firstQuerySummary).toBeDefined()
     expect(firstQuerySummary?.query).toBe(summarizedSearch?.query)
     const querySummaryPath = `/api/streams/${firstQuerySummary?.streamId ?? ""}`
@@ -322,10 +395,8 @@ test.describe("Deep search", () => {
     const roundAnswerStream = liveEvents.find(
       (event) => event.type === "round-answer-stream",
     )
-    expect(roundAnswerStream).toMatchObject({
-      round: 0,
-      streamId: finalAnswerStream?.streamId,
-    })
+    expect(roundAnswerStream).toMatchObject({ round: 0 })
+    expect(roundAnswerStream?.streamId).not.toBe(finalAnswerStream?.streamId)
     const finalAnswerPath =
       `/api/streams/${finalAnswerStream?.streamId ?? ""}`
     await expect
@@ -351,6 +422,7 @@ test.describe("Deep search", () => {
         events: selectionEvents,
         section: page
           .getByRole("heading", { name: "Source selection" })
+          .first()
           .locator(".."),
       },
       {
@@ -460,7 +532,7 @@ test.describe("Deep search", () => {
       links.map((link) => link.getAttribute("href")),
     )
     expect(highlightedLinks.toSorted()).toEqual(
-      (selectedResults?.selectedLinks ?? []).toSorted(),
+      liveEvents.flatMap((event) => event.type === "selected-search-results" ? event.selectedLinks : []).toSorted(),
     )
 
     await sourceResultsAccordion.click()
@@ -476,8 +548,10 @@ test.describe("Deep search", () => {
     expect(replay.headers()["content-type"]).toContain(
       "application/x-ndjson",
     )
-    expect(parseEvents<DeepSearchJobEvent>(await replay.text())).toEqual(
-      liveEvents,
+    // Concurrent query completions can arrive in a different order from the
+    // durable replay's query-position order; every event must still survive.
+    expect(parseEvents<DeepSearchJobEvent>(await replay.text()).map((event) => JSON.stringify(event)).toSorted()).toEqual(
+      liveEvents.map((event) => JSON.stringify(event)).toSorted(),
     )
 
     const summaryReplay = await request.get(summaryPath)

@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react"
+import { fireEvent, render, screen, within } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { DeepSearchRunState } from "../../../lib/deepSearchState.ts"
@@ -15,6 +15,8 @@ function run(
   overrides: Partial<DeepSearchRunState> = {},
 ): DeepSearchRunState {
   return {
+    roundRequirements: [],
+    linkedSources: [],
     error: null,
     finalAnswerStreamId: "final-answer",
     researchAnalysis: null,
@@ -81,6 +83,12 @@ describe("DeepSearchRoundDetail", () => {
     mocks.subscribeToTextStream.mockImplementation(
       async function* (streamId: string) {
         await Promise.resolve()
+        if (streamId === "linked-selector") {
+          yield { type: "reasoning" as const, text: "The linked terms resolve the missing eligibility condition." }
+          yield { type: "text" as const, text: '{"selectedIds":[1]}' }
+          yield { type: "done" as const }
+          return
+        }
         const text =
           streamId === "queries-round-1"
             ? '["official storage evidence"]'
@@ -91,6 +99,76 @@ describe("DeepSearchRoundDetail", () => {
         yield { type: "done" as const }
       },
     )
+  })
+
+  it("shows this round's requirement coverage and source links without borrowing another round", () => {
+    renderDetail({ run: run({ roundRequirements: [
+      { round: 0, requirements: [
+        { requirement: "Confirm eligibility", kind: "requirement", status: "supported", sources: ["https://example.com/terms"], explanation: "The terms confirm eligibility." },
+        { requirement: "Prefer independent verification", kind: "preference", status: "unresolved", sources: [], explanation: "No independent source was found." },
+        { requirement: "Confirm the same price in every region", kind: "requirement", status: "conflicting", sources: ["https://example.com/regions"], explanation: "Regional prices differ." },
+      ] },
+      { round: 1, requirements: [{ requirement: "Later requirement", kind: "requirement", status: "unresolved", sources: [], explanation: "Later round only." }] },
+    ] }) })
+    const coverage = screen.getByRole("region", { name: "Requirement coverage" })
+    expect(within(coverage).getByText("Requirement · Supported by evidence")).toBeVisible()
+    expect(within(coverage).getByText("Preference · Unresolved")).toBeVisible()
+    expect(within(coverage).getByText("Requirement · Conflicting evidence")).toBeVisible()
+    expect(within(coverage).getByRole("link", { name: "Open source: https://example.com/terms" })).toHaveAttribute("href", "https://example.com/terms")
+    expect(screen.queryByText("Later requirement")).not.toBeInTheDocument()
+  })
+
+  it("shows reachable linked-source provenance and retained findings without raw selector JSON", async () => {
+    renderDetail({ run: run({ linkedSources: [
+      { sourceUrl: "https://example.com/evidence", selectionStreamId: "linked-selector", links: [{ url: "https://example.com/terms", title: "Plan terms", summary: { status: "stream", streamId: "terms-summary" } }] },
+      { sourceUrl: "https://example.com/terms", links: [{ url: "https://example.com/conditions", title: "Eligibility conditions", summary: { status: "stream", streamId: "conditions-summary" } }] },
+      { sourceUrl: "https://example.com/conditions", links: [{ url: "https://example.com/appendix", title: "Terms appendix", summary: { status: "stream", streamId: "appendix-summary" } }] },
+      { sourceUrl: "https://example.com/appendix", links: [{ url: "https://example.com/evidence", title: "Original evidence", summary: { status: "stream", streamId: "evidence-summary" } }] },
+      { sourceUrl: "https://example.com/other-round", links: [{ url: "https://example.com/unrelated", title: "Unrelated source", summary: { status: "extracting" } }] },
+    ] }) })
+
+    const linkedSources = screen.getByRole("region", { name: "Linked sources" })
+    expect(within(linkedSources).getAllByRole("heading", { level: 4, name: /^Linked from/ })).toHaveLength(4)
+    expect(within(linkedSources).getByRole("link", { name: "Plan terms" })).toHaveAttribute("href", "https://example.com/terms")
+    expect(within(linkedSources).getByRole("link", { name: "Terms appendix" })).toBeVisible()
+    expect(screen.queryByText("Unrelated source")).not.toBeInTheDocument()
+    expect(await within(linkedSources).findAllByTestId("page-summary-text")).toHaveLength(4)
+    const reasoning = await within(linkedSources).findByRole("button", { name: "Show reasoning" })
+    fireEvent.click(reasoning)
+    expect(within(linkedSources).getByText("The linked terms resolve the missing eligibility condition.")).toBeVisible()
+    expect(screen.queryByText('{"selectedIds":[1]}')).not.toBeInTheDocument()
+    expect(within(linkedSources).queryByRole("progressbar")).not.toBeInTheDocument()
+  })
+
+  it.each(["completed", "failed", "stopping", "interrupted"] as const)(
+    "does not show unfinished linked work as active in a %s run",
+    (status) => {
+      renderDetail({ run: run({ status, linkedSources: [
+        { sourceUrl: "https://example.com/evidence", links: [{ url: "https://example.com/terms", title: "Plan terms", summary: { status: "extracting" } }] },
+        { sourceUrl: "https://example.com/terms", selectionStreamId: "linked-selector" },
+      ] }) })
+
+      const linkedSources = screen.getByRole("region", { name: "Linked sources" })
+      expect(within(linkedSources).queryByRole("progressbar")).not.toBeInTheDocument()
+      expect(within(linkedSources).getByText("No source findings were saved.")).toBeVisible()
+      expect(within(linkedSources).getByText("Link selection did not finish.")).toBeVisible()
+      expect(within(linkedSources).queryByText("Extracting page content…")).not.toBeInTheDocument()
+      expect(within(linkedSources).queryByText("Selecting linked sources…")).not.toBeInTheDocument()
+    },
+  )
+
+  it("shows independent linked selection progress and completed empty selections", () => {
+    renderDetail({ run: run({ status: "running", finalAnswerStreamId: null, roundAnswers: [], roundReviews: [], queryGenerations: [{ round: 0, streamId: "queries-round-1" }], linkedSources: [
+      { sourceUrl: "https://example.com/evidence", links: [{ url: "https://example.com/terms", title: "Plan terms", summary: { status: "extracting" } }, { url: "https://example.com/manual", title: "Manual", summary: { status: "error", message: "The manual could not be read." } }] },
+      { sourceUrl: "https://example.com/terms", selectionStreamId: "linked-selector" },
+      { sourceUrl: "https://example.com/manual", links: [] },
+    ] }) })
+
+    const linkedSources = screen.getByRole("region", { name: "Linked sources" })
+    expect(within(linkedSources).getByRole("progressbar", { name: "Selecting linked sources" })).toBeVisible()
+    expect(within(linkedSources).getByText("Extracting page content…")).toBeVisible()
+    expect(within(linkedSources).getByText("The manual could not be read.")).toBeVisible()
+    expect(within(linkedSources).getByText("No linked sources selected.")).toBeVisible()
   })
 
   it("renders one round as a page without a nested round accordion", async () => {
@@ -147,7 +225,7 @@ describe("DeepSearchRoundDetail", () => {
       "The evidence supports a diversified storage strategy.",
     )
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "Research is sufficient. The available evidence covers the requested angles.",
+      "No further searches. The available evidence covers the requested angles.",
     )
     expect(
       screen.getByRole("heading", {
