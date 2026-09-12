@@ -66,6 +66,7 @@ export function modelRoleForPrompt(promptName: PromptName): LlmModelRole {
   switch (promptName) {
     case "generate-prompt-title":
     case "select-websearch-results":
+    case "select-linked-pages":
     case "summarize-web-page":
     case "summarize-search-query":
     case "summarize-idea-research":
@@ -73,6 +74,7 @@ export function modelRoleForPrompt(promptName: PromptName): LlmModelRole {
     case "default":
     case "generate-websearch-queries":
     case "answer-research-request":
+    case "correct-research-answer":
     case "analyze-research-answer":
     case "review-deep-search-round":
     case "generate-idea-research-prompts":

@@ -107,6 +107,13 @@ and disconnect writes use the existing encrypted per-user row. Refreshes use a
 compare-and-swap, so an older active call cannot recreate a connection deleted
 by the user.
 
+Connections saved before the Pi integration remain readable: the credential
+store adapts Codex's `auth.json` token fields in memory and uses the access
+token's expiry claim to schedule Pi's normal refresh. Reading does not rewrite
+the encrypted row; a successful refresh saves the rotated credentials in Pi's
+format through the existing lock and compare-and-swap. Invalid saved formats
+report an incompatible connection instead of an expired session.
+
 Users assign one exact model and reasoning effort to each Small and Big model
 role in Settings. The API discovers the two priced DeepSeek text models through
 Pi's bundled catalogs and discovers connected OpenAI models and their supported
@@ -161,15 +168,19 @@ so revoking a debate's visibility also removes it from public discovery.
 
 Deep-search work is bounded in application configuration. Defaults allow at
 most 5 searches, 5 explored results per search, 15 selected URLs per round,
-2 rounds, 200 selected pages across one complete root workflow, and 10,000
-characters per research request. Accumulated query, result, idea, evaluation, and
+3 rounds, three times the search-selected allowance for linked pages per round
+across up to 2 link hops, 1,200 selected pages across one complete root workflow, and 10,000
+characters per research request. At the default two-hop depth, the first hop
+can consume at most two thirds of the linked allowance, reserving the remainder
+for the second; unused capacity carries forward. A zero link depth removes both
+linked exploration and its admission allowance. Accumulated query, result, idea, evaluation, and
 debate context is rebuilt in memory under a 100,000-character ceiling while
 retaining a bounded entry for every item. Internally synthesized refined-idea
 requests allocate that same external request budget across the original prompt
 and generated fields before a child can start. Idea jobs generate at most 12
 candidates and may request at most 2 initial child searches by default. Debate
-jobs generate at most 8 candidates, start one initial briefing search, allow one
-research round per child, and select at most 81 pages across the complete
+jobs generate at most 8 candidates, start one initial briefing search, allow two
+research rounds per child, and select at most 400 pages across the complete
 debate-owned research tree. At most two root research workflows per user may be active, two
 deep-search pipelines execute per process, and four selected page
 extraction-plus-summary tasks execute per process. Four LLM generations execute
@@ -180,7 +191,7 @@ these ceilings within the hard safety ranges
 validated by `config.ts` through `DEEP_SEARCH_MAX_SEARCHES`,
 `DEEP_SEARCH_MAX_RESULTS_PER_SEARCH`,
 `DEEP_SEARCH_MAX_SELECTED_URLS_PER_ROUND`, `DEEP_SEARCH_MAX_ROUNDS`,
-`DEEP_SEARCH_MAX_REQUEST_CHARS`, `DEEP_SEARCH_MAX_SUMMARY_CONTEXT_CHARS`,
+`DEEP_SEARCH_MAX_LINK_DEPTH`, `DEEP_SEARCH_MAX_REQUEST_CHARS`, `DEEP_SEARCH_MAX_SUMMARY_CONTEXT_CHARS`,
 `DEEP_SEARCH_MAX_CONCURRENT_JOBS`,
 `DEEP_SEARCH_MAX_CONCURRENT_PAGE_TASKS`,
 `LLM_MAX_CONCURRENT_GENERATIONS`,
@@ -294,8 +305,13 @@ key are real runtime dependencies, not mocked outside tests:
   content escalates once to headless-browser rendering through a US datacenter
   proxy; failure there remains a page-level failure so deep research can use the
   search snippet. Both tiers pass through the same local content extraction and
-  cheap validation. HTML uses the shared visible-text cleanup, while bounded PDF
-  responses use the existing memory-limited PDF parser. Declared non-document
+  cheap validation. HTML uses the shared visible-text cleanup and ranks article
+  and main-content links ahead of navigation before retaining 30 candidates.
+  Bounded PDF responses use the existing memory-limited PDF parser. Declared
+  `application/json` and `application/*+json` responses are validated as UTF-8
+  JSON up to 100,000 characters, retaining original text rather than reserializing
+  values. Valid JSON bypasses the HTML minimum-length and error-page heuristics.
+  Declared non-document
   media and binary-looking untyped bodies are rejected rather than decoded as
   text. There are no provider
   retries, residential proxies, domain rules, or caches. Configure

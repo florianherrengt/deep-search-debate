@@ -191,6 +191,12 @@ const nonSecretEnvironmentShape = {
     .int()
     .min(1)
     .max(10)
+    .default(3),
+  DEEP_SEARCH_MAX_LINK_DEPTH: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(3)
     .default(2),
   DEEP_SEARCH_MAX_REQUEST_CHARS: z.coerce
     .number()
@@ -227,7 +233,7 @@ const nonSecretEnvironmentShape = {
     .int()
     .min(50)
     .max(2_000)
-    .default(200),
+    .default(1_200),
   IDEA_JOB_MAX_IDEA_COUNT: z.coerce
     .number()
     .int()
@@ -270,13 +276,13 @@ const nonSecretEnvironmentShape = {
     .int()
     .min(1)
     .max(3)
-    .default(1),
+    .default(2),
   DEBATE_MAX_SELECTED_PAGES_PER_JOB: z.coerce
     .number()
     .int()
     .min(20)
     .max(500)
-    .default(81),
+    .default(400),
   DATABASE_URL: z.string().min(1).optional(),
   IDEA_SITES_DIR: z.string().min(1).optional(),
   API_HOST: z.string().trim().min(1).default("127.0.0.1"),
@@ -603,6 +609,7 @@ export const config = {
     maxSelectedUrlsPerRound:
       environment.DEEP_SEARCH_MAX_SELECTED_URLS_PER_ROUND,
     maxRounds: environment.DEEP_SEARCH_MAX_ROUNDS,
+    maxLinkDepth: environment.DEEP_SEARCH_MAX_LINK_DEPTH,
     maxRequestChars: environment.DEEP_SEARCH_MAX_REQUEST_CHARS,
     maxSummaryContextChars: environment.DEEP_SEARCH_MAX_SUMMARY_CONTEXT_CHARS,
     maxConcurrentJobs: environment.DEEP_SEARCH_MAX_CONCURRENT_JOBS,

@@ -28,6 +28,29 @@ ignores this one documented peer-resolution shim.
 
 ## Schema and migrations
 
+Deep-search pages retain discovered links in `deep_search_page_links`, with
+stable IDs and order scoped to the originating page. Extraction content,
+discovery, and extraction charges commit together. A page's optional
+`link_selection_generation_id` owns its structured link choice; selected
+target-page and round references commit with that generation. The selected
+round records allocation against the per-round browsing allowance. The store
+checks source, target, generation, and round ownership. Depth and page retrieval
+state are derived rather than duplicated. Migration `0001_linked-page-discovery`
+preserves existing pages and handwritten triggers. The subsequent additive
+`0002_original-source-passages` uses `ALTER TABLE ... ADD` for nullable
+`original_passages` with a 16,000-character CHECK. It does not rebuild pages or
+change the temporary extraction lifecycle. Existing pages, selected results,
+linked edges, and triggers survive the upgrade; older completed pages have null
+passages and remain usable through their summaries without re-extraction.
+
+Gap assessments reuse each round's existing review-generation link. New
+version-1 JSON contains material gaps and external evidence targets; legacy
+unversioned JSON contains the model's decision. The application derives new
+continuation decisions from the validated targets and saves the effective
+decision and explanation in the existing round columns in the generation's
+terminal transaction. Resume and replay reuse those fields, preserving older
+completed outcomes. No gap table, new column, or migration is needed.
+
 - Schema modules live in `src/api/db/schema/` and are exported from
   `schema/index.ts`. Drizzle migrations live in `src/api/drizzle/`.
 - Better Auth owns the `user`, `session`, `account`, and `verification` tables.
@@ -134,7 +157,15 @@ ignores this one documented peer-resolution shim.
   has no database default. A page stores at most 100,000 characters of
   `extracted_content` after extraction settles and until its summary commits;
   this lets a resumed summary retry avoid a second extraction and charge. The
-  content is cleared after successful summary completion.
+  content is cleared after successful summary completion. The same extraction
+  settlement separately retains query-relevant verbatim excerpts in nullable
+  `original_passages` (at most 16,000 characters), using the owning job's research
+  request. Successful summary completion refines those excerpts using the
+  request and the completed summary before clearing the temporary extraction,
+  in the same transaction. Failed summaries retain their initial excerpts;
+  completed-page retries leave the saved excerpts unchanged. They remain until
+  the owning page/job is deleted. No generated summary is substituted for
+  original text.
 - Idea jobs persist `max_searches`, `max_results_per_search`, and `max_rounds`
   alongside their other requested controls. These columns have no database
   defaults: every creation path writes the validated values explicitly, and
@@ -170,9 +201,12 @@ ignores this one documented peer-resolution shim.
   `0000_fresh-baseline` migration, including encrypted Codex connections and
   per-user LLM model settings. Databases created from any superseded history are
   unsupported and must be recreated; there is no data-preserving upgrade path
-  because the production database reset was explicitly approved.
-  `baselineMigration.test.ts` verifies complete fresh creation through the same
-  Drizzle migrator used by the application.
+  because the production database reset was explicitly approved. Databases on
+  that baseline do have the forward-preserving `0001` and `0002` upgrade path
+  described above. `baselineMigration.test.ts` verifies fresh creation and
+  upgrades with existing selected results and linked edges through the same
+  Drizzle migrator used by the application, including checks, cascades, and
+  foreign-key integrity.
 
 ### Known application-enforced integrity boundaries
 
@@ -255,11 +289,19 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
   `idea_jobs` parent. Child searches store their planning-generation position.
   Its normalized query, result, web-page, and
   generation rows preserve research progress without a JSON snapshot. Each
-  search round links its candidate-answer generation. A separate structured
-  generation stores facts, disagreements, gaps, and assumptions; the job links
-  that generation instead of duplicating its JSON. Completion promotes the
-  accepted or final permitted candidate through the job's final-answer link
-  without copying its text.
+  search round links its immutable candidate-answer generation. After searching,
+  a distinct final correction generation is registered through the existing
+  job final-answer link. A separate structured generation analyzes the corrected
+  text and stores facts, disagreements, gaps, assumptions, and requirements;
+  the job links that generation instead of duplicating its JSON. Completion
+  validates both owned, completed generations and the analysis schema before
+  marking the job completed. Failed/interrupted correction attempts use the
+  same exact-attempt replacement policy as other generations; completed
+  correction and analysis are reused on Resume. An older completed-analysis
+  checkpoint without a final link preserves its original candidate promotion.
+  Planning and review also retain the requirement/evidence checklist in existing
+  generation JSON. Version-1 plans contain requirements and queries; completed
+  legacy arrays remain readable without invented requirements.
 - `idea_jobs` owns the LLM-generated title and slug used by both idea and debate
   URLs, the user prompt, requested idea/search counts and child-search limits,
   current stage, lifecycle, planning, briefing, idea-generation, and

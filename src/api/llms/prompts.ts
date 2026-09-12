@@ -9,6 +9,7 @@ const promptsDir = resolve(__dirname, "prompts")
 export const PromptName = {
   AnalyzeResearchAnswer: "analyze-research-answer",
   AnswerResearchRequest: "answer-research-request",
+  CorrectResearchAnswer: "correct-research-answer",
   CreateIdeaSite: "create-idea-site",
   DebateJudge: "debate-judge",
   DebateOpening: "debate-opening",
@@ -23,6 +24,7 @@ export const PromptName = {
   GenerateIdeas: "generate-ideas",
   SelectIdeas: "select-ideas",
   SelectWebSearchResults: "select-websearch-results",
+  SelectLinkedPages: "select-linked-pages",
   SummarizeIdeaResearch: "summarize-idea-research",
   SummarizeSearchQuery: "summarize-search-query",
   SummarizeWebPage: "summarize-web-page",

@@ -5,6 +5,27 @@ import { TextStreamOutput } from "./TextStreamOutput.tsx"
 describe("TextStreamOutput", () => {
   afterEach(() => vi.unstubAllGlobals())
 
+  it.each([
+    JSON.stringify({ version: 1, requirements: [{ requirement: "Private structured criterion" }], queries: ["Primary eligibility source", "Independent verification"] }),
+    JSON.stringify(["Primary eligibility source", "Independent verification"]),
+  ])("renders current and legacy research plans as queries with retained reasoning", (text) => {
+    render(<TextStreamOutput format="research-plan" stream={{ status: "completed", reasoning: "Check the qualification first.", text }} textTestId="plan" waitingText="Generating queries…" />)
+    expect(screen.getAllByRole("listitem")).toHaveLength(2)
+    expect(screen.getByText("Primary eligibility source")).toBeVisible()
+    expect(screen.queryByText(/Private structured criterion/)).not.toBeInTheDocument()
+    expect(screen.getByTestId("plan")).not.toHaveTextContent("version")
+    fireEvent.click(screen.getByRole("button", { name: "Show reasoning" }))
+    expect(screen.getByText("Check the qualification first.")).toBeVisible()
+  })
+
+  it("keeps an incomplete research plan envelope hidden while reasoning streams", () => {
+    render(<TextStreamOutput format="research-plan" stream={{ status: "streaming", reasoning: "Identify the missing condition.", text: '{"version":1,"requirements":[' }} textTestId="plan" waitingText="Generating queries…" />)
+    expect(screen.getByTestId("plan")).toHaveTextContent("Generating queries…")
+    expect(screen.queryByText(/"version"/)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Show reasoning" }))
+    expect(screen.getByText("Identify the missing condition.")).toBeVisible()
+  })
+
   it("announces only stream state and disables custom motion when requested", () => {
     vi.stubGlobal(
       "matchMedia",

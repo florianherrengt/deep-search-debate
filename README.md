@@ -63,21 +63,24 @@ SCRAPINGANT_MAX_RESPONSE_BYTES=2000000
 DEEP_SEARCH_MAX_SEARCHES=5
 DEEP_SEARCH_MAX_RESULTS_PER_SEARCH=5
 DEEP_SEARCH_MAX_SELECTED_URLS_PER_ROUND=15
-DEEP_SEARCH_MAX_ROUNDS=2
+DEEP_SEARCH_MAX_ROUNDS=3
+# Linked allowance is 3 times the search-selected allowance per round.
+# Default depth 2 reserves one third for the second hop; 0 disables exploration.
+DEEP_SEARCH_MAX_LINK_DEPTH=2
 DEEP_SEARCH_MAX_REQUEST_CHARS=10000
 DEEP_SEARCH_MAX_SUMMARY_CONTEXT_CHARS=100000
 DEEP_SEARCH_MAX_CONCURRENT_JOBS=2
 DEEP_SEARCH_MAX_CONCURRENT_PAGE_TASKS=4
 RESEARCH_MAX_ACTIVE_ROOT_JOBS_PER_USER=2
-RESEARCH_MAX_SELECTED_PAGES_PER_ROOT_JOB=200
+RESEARCH_MAX_SELECTED_PAGES_PER_ROOT_JOB=1200
 IDEA_JOB_MAX_IDEA_COUNT=12
 IDEA_JOB_MAX_DEEP_SEARCH_COUNT=2
 DEBATE_MAX_IDEA_COUNT=8
 DEBATE_MAX_INITIAL_DEEP_SEARCH_COUNT=1
 DEBATE_MAX_SEARCHES_PER_CHILD=3
 DEBATE_MAX_RESULTS_PER_SEARCH=3
-DEBATE_MAX_RESEARCH_ROUNDS_PER_CHILD=1
-DEBATE_MAX_SELECTED_PAGES_PER_JOB=81
+DEBATE_MAX_RESEARCH_ROUNDS_PER_CHILD=2
+DEBATE_MAX_SELECTED_PAGES_PER_JOB=400
 WEB_SEARCH_TIMEOUT_MS=30000
 WEB_SEARCH_MAX_RESPONSE_BYTES=2000000
 WEB_SEARCH_CREDITS_COST=1
@@ -261,9 +264,49 @@ shown as `Interrupted`. Automated child searches inherit their idea or debate
 root's cancellation and do not expose a direct Stop action. Closing or
 reloading the page alone never stops work.
 
-After the page summaries settle, every executed query receives a query-level Markdown synthesis. All returned results are included: successfully explored results contribute their full page summaries, while unselected results and failed extractions fall back to their search descriptions. The synthesis receives one uniform content field and is not told which form was used.
+After the page summaries settle, the search can follow relevant links discovered
+on those pages, such as original studies, detailed terms, or supporting data.
+HTML link discovery ranks article and main-content links ahead of navigation
+before retaining up to 30 candidates. Exploration follows two hops by default,
+with three times the search-selected page allowance per round: up to two thirds
+are available on the first hop, reserving one third for the second. Discovered
+links, selection, and findings survive resume and replay. Declared JSON sources
+are validated and read as original text, preserving exact values.
+Link selection receives the status and available summaries of pages already
+known to the job, helping it spend the remaining allowance on additional
+evidence rather than redundant page variants.
 
-The page displays the research request, generated queries, result-selection output, model reasoning, query summaries, and page summaries. Results are grouped by executed search query. Sources explored in depth are distinguished from listings represented by their search descriptions. Queries and results are priority ordered; the client currently runs at most three searches and explores at most three results per search.
+Every executed query then receives a Markdown synthesis. Successfully explored
+results contribute page summaries; unselected results and failed extractions
+contribute search snippets, explicitly labeled as such. The planner, answer
+writer, reviewer, and structured analysis also receive direct source summaries
+with URLs, evidence types, and up to 16,000 retained characters of verbatim
+source passages selected for relevance to the request and refined using the
+completed page summary. Later context narrowing also uses the full summary to
+retain supporting qualifications while keeping the existing character budget.
+Older pages without
+retained passages remain usable through their summaries. Failed linked pages
+are marked unavailable rather than treated as evidence about their contents.
+
+Queries target distinct information needs and consequential gaps identified
+by the review. Planning and review maintain a visible checklist of explicit
+requirements, preferences, supporting sources, and unresolved or conflicting
+evidence. Result selection also sees previously explored URLs. Standalone
+searches permit three rounds by default; debate research permits two. Explicit
+lower request limits remain respected. After searching ends, one mandatory Big
+model pass corrects the candidate against the sources and checklist. A separate
+structured analysis then audits that corrected answer before the job completes.
+Both stages are durable and resume from completed work.
+
+Before stopping, the round reviewer audits material evidence gaps. The
+application starts another round while capacity remains if any gap names
+concrete external evidence to find, and passes those targets to the planner.
+Uncertainty that depends on private user details or cannot usefully be resolved
+by web research can remain qualified. The model no longer makes a separate
+stop vote that could override identified searchable gaps; existing completed
+reviews keep their recorded outcomes.
+
+The page displays the research request, generated queries, result-selection output, model reasoning, query summaries, and page summaries. Results are grouped by executed search query, with a separate linked-source section showing each discovery's origin. Sources explored in depth are distinguished from listings represented by their search descriptions. Queries and results are priority ordered; the client currently requests at most three searches and explores at most three search results per query.
 
 The history page lists durable jobs newest first. Structural progress is stored in normalized typed SQLite tables; no JSON snapshot or event log is stored. See [how the deep-search pipeline works](src/api/routes/docs/deep-search-pipeline.md) for the query, extraction, and layered-summary data flow, and [the deep-search job contract](src/api/routes/docs/deep-search-jobs.md) for the HTTP, persistence, and failure contracts.
 

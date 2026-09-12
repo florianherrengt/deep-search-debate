@@ -1,8 +1,15 @@
 import { eq } from "drizzle-orm"
-import { beforeEach, describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { db } from "../../db/index.ts"
+import { startRoundReview } from "../../agents/deep_search/reviewRound.ts"
+import type { TextStreamPersistenceTransaction } from "../../llms/streams.ts"
+
+const reviewModel = vi.hoisted(() => ({ generateObjectStream: vi.fn() }))
+vi.mock("../../llms/generateText.ts", () => ({ generateObjectStream: reviewModel.generateObjectStream }))
+import { reconstructDeepSearchJobEvents } from "./replay.ts"
 import {
   deepSearchJobs,
+  deepSearchPageLinks,
   deepSearchQueries,
   deepSearchRounds,
   deepSearchResults,
@@ -13,6 +20,7 @@ import {
 import {
   attachFinalAnswerGeneration,
   attachPageSummaryGeneration,
+  attachPageLinkSelectionGeneration,
   createSearchRound,
   attachQuerySummaryGeneration,
   attachResearchAnalysisGeneration,
@@ -21,12 +29,15 @@ import {
   attachSelectionGeneration,
   completeEmptySearchQuery,
   completePageSummaryGeneration,
+  completePageLinkSelection,
   completeQuerySummaryGeneration,
   failPageSummaryGeneration,
   failQuerySummaryGeneration,
   loadDeepSearchExecutionSnapshot,
   replaceRoundAnswerGeneration,
+  replaceFinalAnswerGeneration,
   replacePageSummaryGeneration,
+  replacePageLinkSelectionGeneration,
   replaceQuerySelectionGeneration,
   replaceQuerySummaryGeneration,
   replaceResearchAnalysisGeneration,
@@ -72,7 +83,10 @@ function insertGenerations(
     .run()
 }
 
-function createSummarizingStage(deepSearchJobId: string) {
+function createSummarizingStage(
+  deepSearchJobId: string,
+  content = "Bounded extracted page content",
+) {
   const queryGenerationId = crypto.randomUUID()
   const selectionGenerationId = crypto.randomUUID()
   const pageSummaryGenerationId = crypto.randomUUID()
@@ -130,7 +144,7 @@ function createSummarizingStage(deepSearchJobId: string) {
     userId: "test-user-id",
     jobId: deepSearchJobId,
     pageId: page.pageId,
-    content: "Bounded extracted page content",
+    content,
     creditsUsed: 1,
   })
   db.transaction((transaction) => {
@@ -153,10 +167,124 @@ function createSummarizingStage(deepSearchJobId: string) {
   }
 }
 
+function createLinkJob() {
+  const jobId = crypto.randomUUID()
+  const planningId = crypto.randomUUID()
+  insertJob(jobId)
+  insertGenerations(jobId, [planningId])
+  const round = createSearchRound({ jobId, position: 0, generationId: planningId })
+  return { jobId, roundId: round.roundId }
+}
+
+function createLinkSource(jobId: string, url: string, links: Array<{ url: string; title: string }>) {
+  const pageId = crypto.randomUUID()
+  const generationId = crypto.randomUUID()
+  db.insert(deepSearchWebPages).values({ deepSearchWebPageId: pageId, deepSearchJobId: jobId, url, status: "extracting" }).run()
+  settlePageExtraction({ jobId, pageId, userId: "test-user-id", content: "Extracted source material", creditsUsed: 1, links })
+  insertGenerations(jobId, [generationId])
+  db.transaction((transaction) => attachPageLinkSelectionGeneration(transaction, { jobId, pageId, generationId }))
+  const page = loadDeepSearchExecutionSnapshot(jobId)!.pages.find((candidate) => candidate.pageId === pageId)!
+  return { pageId, generationId, links: page.links }
+}
+
+function completeLinkSelection(input: Parameters<typeof completePageLinkSelection>[1]) {
+  return db.transaction((transaction) => {
+    transaction.update(llmGenerations).set({ status: "completed", text: JSON.stringify({ selectedIds: input.selectedLinkIds }), reasoning: "", completedAt: new Date() })
+      .where(eq(llmGenerations.llmGenerationId, input.generationId)).run()
+    return completePageLinkSelection(transaction, input)
+  })
+}
+
 describe("deep-search store", () => {
   beforeEach(() => {
     db.delete(deepSearchJobs).run()
     db.delete(llmGenerations).run()
+  })
+
+  it("settles discovered links and extraction credits atomically and only once", () => {
+    const { jobId } = createLinkJob()
+    const pageId = crypto.randomUUID()
+    db.insert(deepSearchWebPages).values({ deepSearchWebPageId: pageId, deepSearchJobId: jobId, url: "https://example.com/source", status: "extracting" }).run()
+    const credits = db.select({ balance: user.credits }).from(user).where(eq(user.id, "test-user-id")).get()!.balance
+    const input = { jobId, pageId, userId: "test-user-id", content: "Extracted source material", creditsUsed: 2 }
+    expect(() => settlePageExtraction({ ...input, links: [{ url: "https://example.com/target", title: "" }] })).toThrow(/content_check/)
+    expect(loadDeepSearchExecutionSnapshot(jobId)!.pages[0]).toMatchObject({ status: "extracting", extractedContent: null, originalPassages: null, creditsUsed: null, links: [] })
+    expect(db.select({ balance: user.credits }).from(user).where(eq(user.id, "test-user-id")).get()!.balance).toBe(credits)
+
+    const links = [{ url: "https://example.com/target", title: "Primary evidence" }]
+    settlePageExtraction({ ...input, links })
+    const firstLinks = loadDeepSearchExecutionSnapshot(jobId)!.pages[0].links
+    settlePageExtraction({ ...input, links })
+    expect(loadDeepSearchExecutionSnapshot(jobId)!.pages[0].links).toEqual(firstLinks)
+    expect(db.select({ balance: user.credits }).from(user).where(eq(user.id, "test-user-id")).get()!.balance).toBe(credits - 2)
+    expect(() => settlePageExtraction({ ...input, links: [] })).toThrow("Page links conflict with persisted extraction")
+  })
+
+  it("deduplicates linked destinations across parents without fabricating search results", () => {
+    const { jobId, roundId } = createLinkJob()
+    const target = { url: "https://example.com/primary", title: "Primary evidence" }
+    const first = createLinkSource(jobId, "https://example.com/source-one", [target])
+    const second = createLinkSource(jobId, "https://example.com/source-two", [target])
+    const selection = (source: typeof first) => ({ jobId, roundId, sourcePageId: source.pageId, generationId: source.generationId, selectedLinkIds: [source.links[0].linkId] })
+    const firstPages = completeLinkSelection(selection(first))
+    expect(completeLinkSelection(selection(second))).toEqual(firstPages)
+    expect(db.select().from(deepSearchResults).all()).toEqual([])
+    expect(loadDeepSearchExecutionSnapshot(jobId)!.pages).toHaveLength(3)
+    const selectedLinks = db.select().from(deepSearchPageLinks).all()
+    expect(selectedLinks.map((link) => link.selectedWebPageId)).toEqual([firstPages[0].pageId, firstPages[0].pageId])
+    expect(selectedLinks.map((link) => link.selectedRoundId)).toEqual([roundId, roundId])
+    expect(db.transaction((transaction) => completePageLinkSelection(transaction, selection(first)))).toEqual(firstPages)
+    expect(() => db.transaction((transaction) => completePageLinkSelection(transaction, { ...selection(first), selectedLinkIds: [] }))).toThrow("conflicts with completed generation output")
+    expect(() => db.update(deepSearchPageLinks).set({ selectedWebPageId: null, selectedRoundId: null }).where(eq(deepSearchPageLinks.sourceWebPageId, first.pageId)).run()).toThrow("selected page link is immutable")
+    db.delete(deepSearchJobs).where(eq(deepSearchJobs.deepSearchJobId, jobId)).run()
+    expect(db.select().from(deepSearchPageLinks).all()).toEqual([])
+    expect(db.select().from(deepSearchWebPages).all()).toEqual([])
+    expect(db.select().from(llmGenerations).all()).toEqual([])
+  })
+
+  it("retains completed empty link selection after page content is cleared", () => {
+    const { jobId, roundId } = createLinkJob()
+    const source = createLinkSource(jobId, "https://example.com/source", [{ url: "https://example.com/unused", title: "Unneeded appendix" }])
+    completeLinkSelection({ jobId, roundId, sourcePageId: source.pageId, generationId: source.generationId, selectedLinkIds: [] })
+    const summaryId = crypto.randomUUID()
+    const replacementId = crypto.randomUUID()
+    insertGenerations(jobId, [summaryId, replacementId])
+    db.transaction((transaction) => {
+      attachPageSummaryGeneration(transaction, { jobId, pageId: source.pageId, generationId: summaryId })
+      transaction.update(llmGenerations).set({ status: "completed", text: "Source evidence", reasoning: "", completedAt: new Date() }).where(eq(llmGenerations.llmGenerationId, summaryId)).run()
+      completePageSummaryGeneration(transaction, { jobId, pageId: source.pageId, generationId: summaryId })
+    })
+    expect(loadDeepSearchExecutionSnapshot(jobId)!.pages[0]).toMatchObject({ status: "completed", extractedContent: null, links: [{ url: "https://example.com/unused", selectedWebPageId: null }], linkSelectionGeneration: { status: "completed", text: '{"selectedIds":[]}' } })
+    expect(() => db.transaction((transaction) => replacePageLinkSelectionGeneration(transaction, { jobId, pageId: source.pageId, oldGenerationId: source.generationId, newGenerationId: replacementId }))).toThrow("Completed LLM generation cannot be replaced")
+  })
+
+  it("enforces one cumulative linked-page allowance per round before creating targets", () => {
+    const { jobId, roundId } = createLinkJob()
+    const links = Array.from({ length: 13 }, (_, index) => ({ url: `https://example.com/evidence-${index}`, title: `Evidence ${index}` }))
+    const first = createLinkSource(jobId, "https://example.com/source-one", links.slice(0, 6))
+    const second = createLinkSource(jobId, "https://example.com/source-two", links.slice(6))
+    completeLinkSelection({ jobId, roundId, sourcePageId: first.pageId, generationId: first.generationId, selectedLinkIds: first.links.map(({ linkId }) => linkId) })
+    expect(() => completeLinkSelection({ jobId, roundId, sourcePageId: second.pageId, generationId: second.generationId, selectedLinkIds: second.links.map(({ linkId }) => linkId) })).toThrow("round exploration limit")
+    expect(loadDeepSearchExecutionSnapshot(jobId)!.pages).toHaveLength(8)
+    expect(loadDeepSearchExecutionSnapshot(jobId)!.pages.find((page) => page.pageId === second.pageId)).toMatchObject({ linkSelectionGeneration: { status: "running" } })
+    expect(db.select().from(deepSearchPageLinks).where(eq(deepSearchPageLinks.sourceWebPageId, second.pageId)).all().every((link) => link.selectedWebPageId === null)).toBe(true)
+  })
+
+  it("rejects foreign candidates and rounds and resumes only an unfinished selector", () => {
+    const { jobId, roundId } = createLinkJob()
+    const other = createLinkJob()
+    const source = createLinkSource(jobId, "https://example.com/source", [{ url: "https://example.com/target", title: "Target" }])
+    const input = { jobId, roundId, sourcePageId: source.pageId, generationId: source.generationId, selectedLinkIds: [source.links[0].linkId] }
+    expect(() => completeLinkSelection({ ...input, roundId: other.roundId })).toThrow("Deep-search round must belong")
+    expect(() => completeLinkSelection({ ...input, selectedLinkIds: [crypto.randomUUID()] })).toThrow("was not discovered")
+    const replacementId = crypto.randomUUID()
+    insertGenerations(jobId, [replacementId])
+    db.transaction((transaction) => replacePageLinkSelectionGeneration(transaction, { jobId, pageId: source.pageId, oldGenerationId: source.generationId, newGenerationId: replacementId, staleRunningMessage: "Server restarted" }))
+    expect(loadDeepSearchExecutionSnapshot(jobId)!.pages[0]).toMatchObject({ creditsUsed: 1, extractedContent: "Extracted source material", linkSelectionGeneration: { generationId: replacementId, status: "running" } })
+    expect(db.select().from(llmGenerations).where(eq(llmGenerations.llmGenerationId, source.generationId)).get()).toMatchObject({ status: "interrupted", error: "Server restarted" })
+    const selectedPages = completeLinkSelection({ ...input, generationId: replacementId })
+    expect(selectedPages).toHaveLength(1)
+    expect(selectedPages[0].url).toBe("https://example.com/target")
   })
 
   it("writes planned queries through the supplied terminal transaction", () => {
@@ -961,6 +1089,55 @@ describe("deep-search store", () => {
     expect(storedRound?.reviewCompletedAt).toBeInstanceOf(Date)
   })
 
+  it("atomically retains raw material gaps and the derived review outcome for replay", async () => {
+    const jobId = crypto.randomUUID()
+    const planId = crypto.randomUUID()
+    const reviewId = crypto.randomUUID()
+    insertJob(jobId)
+    insertGenerations(jobId, [planId, reviewId])
+    const round = createSearchRound({ jobId, position: 0, generationId: planId })
+    const raw = {
+      version: 1,
+      reason: "The general answer is supported, but a decision-changing condition is missing.",
+      requirements: [{ requirement: "Confirm eligibility", kind: "requirement", status: "unresolved", sources: [], explanation: "Eligibility evidence is missing." }],
+      gaps: [{ title: "Eligibility terms", description: "The price cannot be recommended before checking who qualifies.", evidenceToFind: "Find official eligibility terms for the advertised price." }],
+    }
+    const rawText = JSON.stringify(raw)
+    let completeReview: ((completed: { id: string; output: unknown }, transaction: TextStreamPersistenceTransaction) => void) | undefined
+    reviewModel.generateObjectStream.mockImplementationOnce((input: { onCompleted: typeof completeReview }) => {
+      completeReview = input.onCompleted
+      return Promise.resolve({ id: reviewId, output: Promise.resolve(raw), completion: Promise.resolve({ status: "completed", text: rawText, reasoning: "" }) })
+    })
+    const review = await startRoundReview({
+      userId: "test-user-id", deepSearchJobId: jobId, researchRequest: "Research this", candidateAnswer: "The advertised option meets the request.", completedRound: 0, maxRounds: 3, searchSummaries: [],
+      onCompleted: (completed, transaction) => saveRoundReviewCompletion(transaction, { jobId, roundId: round.roundId, generationId: completed.id, review: completed.output }),
+    })
+    const effective = await review.review
+    db.transaction((transaction) => attachRoundReviewGeneration(transaction, { jobId, roundId: round.roundId, generationId: reviewId }))
+    const complete = (transaction: TextStreamPersistenceTransaction) => {
+      transaction.update(llmGenerations).set({ status: "completed", text: rawText, reasoning: "", completedAt: new Date() })
+        .where(eq(llmGenerations.llmGenerationId, reviewId)).run()
+      if (!completeReview) throw new Error("Review terminal adapter was not registered")
+      completeReview({ id: reviewId, output: raw }, transaction)
+    }
+
+    expect(() => db.transaction((transaction) => {
+      complete(transaction)
+      throw new Error("Later terminal write failed")
+    })).toThrow("Later terminal write failed")
+    expect(loadDeepSearchExecutionSnapshot(jobId)?.rounds[0]).toMatchObject({ reviewDecision: null, reviewReason: null, reviewCompletedAt: null, reviewGeneration: { status: "running", text: null } })
+
+    db.transaction(complete)
+
+    expect(loadDeepSearchExecutionSnapshot(jobId)?.rounds[0]).toMatchObject({ reviewDecision: "continue", reviewReason: effective.reason, reviewGeneration: { status: "completed", text: rawText } })
+    expect(effective.reason).toContain(raw.gaps[0].description)
+    expect(effective.reason).toContain(raw.gaps[0].evidenceToFind)
+    const events = reconstructDeepSearchJobEvents(jobId) ?? []
+    expect(events.filter((event) => event.type === "round-review")).toEqual([{ type: "round-review", round: 0, decision: "continue", reason: effective.reason }])
+    expect(events.filter((event) => event.type === "research-requirements")).toEqual([{ type: "research-requirements", round: 0, requirements: raw.requirements }])
+    expect(JSON.parse(rawText)).not.toHaveProperty("decision")
+  })
+
   it("attaches one candidate answer generation to a stable round", () => {
     const deepSearchJobId = crypto.randomUUID()
     const queryGenerationId = crypto.randomUUID()
@@ -1107,7 +1284,7 @@ describe("deep-search store", () => {
     })
   })
 
-  it("settles extraction once and clears retained content only on summary completion", () => {
+  it("settles extraction once and preserves original passages after summary completion", () => {
     const deepSearchJobId = crypto.randomUUID()
     const stage = createSummarizingStage(deepSearchJobId)
     const creditsBeforeRetry = db
@@ -1161,12 +1338,133 @@ describe("deep-search store", () => {
         .select({
           status: deepSearchWebPages.status,
           extractedContent: deepSearchWebPages.extractedContent,
+          originalPassages: deepSearchWebPages.originalPassages,
           creditsUsed: deepSearchWebPages.creditsUsed,
         })
         .from(deepSearchWebPages)
         .where(eq(deepSearchWebPages.deepSearchWebPageId, stage.pageId))
         .get(),
-    ).toEqual({ status: "completed", extractedContent: null, creditsUsed: 1 })
+    ).toEqual({ status: "completed", extractedContent: null, originalPassages: "Bounded extracted page content", creditsUsed: 1 })
+    expect(loadDeepSearchExecutionSnapshot(deepSearchJobId)?.pages[0]).toMatchObject({
+      originalPassages: "Bounded extracted page content",
+      extractedContent: null,
+      summaryGeneration: { text: "Page summary" },
+    })
+    settlePageExtraction({
+      userId: "test-user-id", jobId: deepSearchJobId, pageId: stage.pageId,
+      content: "Bounded extracted page content", creditsUsed: 1,
+    })
+    expect(loadDeepSearchExecutionSnapshot(deepSearchJobId)?.pages[0].originalPassages).toBe("Bounded extracted page content")
+    expect(() => db.update(deepSearchWebPages).set({ originalPassages: "x".repeat(16_001) })
+      .where(eq(deepSearchWebPages.deepSearchWebPageId, stage.pageId)).run()).toThrow(/original_passages_check/)
+  })
+
+  it("refines original passages from the completed summary before clearing extraction", () => {
+    const jobId = crypto.randomUUID()
+    const qualification = "Sealed exports require unchanged media; modifying them can produce stale results."
+    const content = `${"General storage background. ".repeat(1_000)}\n${qualification}\n${"General storage background. ".repeat(1_000)}`
+    const stage = createSummarizingStage(jobId, content)
+    const before = loadDeepSearchExecutionSnapshot(jobId)!.pages[0]
+    expect(before.originalPassages).not.toContain(qualification)
+
+    db.transaction((transaction) => {
+      transaction.update(llmGenerations).set({
+        status: "completed", text: `${qualification} An unsupported guarantee appears only in this summary.`,
+        reasoning: "", completedAt: new Date(),
+      }).where(eq(llmGenerations.llmGenerationId, stage.pageSummaryGenerationId)).run()
+      completePageSummaryGeneration(transaction, {
+        jobId, pageId: stage.pageId, generationId: stage.pageSummaryGenerationId,
+      })
+    })
+
+    const completed = loadDeepSearchExecutionSnapshot(jobId)!.pages[0]
+    expect(completed).toMatchObject({ status: "completed", extractedContent: null, creditsUsed: before.creditsUsed })
+    expect(completed.originalPassages).toContain(qualification)
+    expect(completed.originalPassages!.length).toBeLessThanOrEqual(16_000)
+    for (const passage of completed.originalPassages!.split("\n[... omitted ...]\n")) {
+      expect(content).toContain(passage)
+    }
+    expect(completed.originalPassages).not.toContain("unsupported guarantee")
+
+    db.transaction((transaction) => completePageSummaryGeneration(transaction, {
+      jobId, pageId: stage.pageId, generationId: stage.pageSummaryGenerationId,
+    }))
+    expect(loadDeepSearchExecutionSnapshot(jobId)!.pages[0]).toEqual(completed)
+
+    // Completed pre-upgrade pages have neither extraction nor original passages.
+    db.update(deepSearchWebPages).set({ originalPassages: null })
+      .where(eq(deepSearchWebPages.deepSearchWebPageId, stage.pageId)).run()
+    const legacy = loadDeepSearchExecutionSnapshot(jobId)!.pages[0]
+    db.transaction((transaction) => completePageSummaryGeneration(transaction, {
+      jobId, pageId: stage.pageId, generationId: stage.pageSummaryGenerationId,
+    }))
+    expect(loadDeepSearchExecutionSnapshot(jobId)!.pages[0]).toEqual(legacy)
+  })
+
+  it.each(["running", "failed", "blank"] as const)(
+    "does not discard extracted evidence for a %s page summary generation",
+    (state) => {
+      const jobId = crypto.randomUUID()
+      const stage = createSummarizingStage(jobId)
+      if (state !== "running") {
+        db.update(llmGenerations).set(state === "failed" ? {
+          status: "failed", error: "Summary failed", completedAt: new Date(),
+        } : {
+          status: "completed", text: "\u00a0", reasoning: "", completedAt: new Date(),
+        }).where(eq(llmGenerations.llmGenerationId, stage.pageSummaryGenerationId)).run()
+      }
+      const before = loadDeepSearchExecutionSnapshot(jobId)!.pages[0]
+
+      expect(() => db.transaction((transaction) => completePageSummaryGeneration(transaction, {
+        jobId, pageId: stage.pageId, generationId: stage.pageSummaryGenerationId,
+      }))).toThrow()
+      expect(loadDeepSearchExecutionSnapshot(jobId)!.pages[0]).toEqual(before)
+    },
+  )
+
+  it.each(["same job", "another job"])(
+    "rejects an unregistered completed summary from %s without changing passages",
+    (owner) => {
+      const jobId = crypto.randomUUID()
+      const stage = createSummarizingStage(jobId)
+      const generationId = crypto.randomUUID()
+      const ownerId = owner === "same job" ? jobId : crypto.randomUUID()
+      if (ownerId !== jobId) insertJob(ownerId)
+      insertGenerations(ownerId, [generationId])
+      db.update(llmGenerations).set({
+        status: "completed", text: "A different summary", reasoning: "", completedAt: new Date(),
+      }).where(eq(llmGenerations.llmGenerationId, generationId)).run()
+      const before = loadDeepSearchExecutionSnapshot(jobId)!.pages[0]
+
+      expect(() => db.transaction((transaction) => completePageSummaryGeneration(transaction, {
+        jobId, pageId: stage.pageId, generationId,
+      }))).toThrow()
+      expect(loadDeepSearchExecutionSnapshot(jobId)!.pages[0]).toEqual(before)
+    },
+  )
+
+  it("rolls back passage refinement and extraction cleanup with summary completion", () => {
+    const jobId = crypto.randomUUID()
+    const qualification = "Sealed exports require unchanged media; modifying them can produce stale results."
+    const content = `${"General storage background. ".repeat(1_000)}\n${qualification}\n${"General storage background. ".repeat(1_000)}`
+    const stage = createSummarizingStage(jobId, content)
+    const before = loadDeepSearchExecutionSnapshot(jobId)!.pages[0]
+    expect(before.originalPassages).not.toContain(qualification)
+
+    expect(() => db.transaction((transaction) => {
+      transaction.update(llmGenerations).set({
+        status: "completed", text: qualification, reasoning: "", completedAt: new Date(),
+      }).where(eq(llmGenerations.llmGenerationId, stage.pageSummaryGenerationId)).run()
+      completePageSummaryGeneration(transaction, {
+        jobId, pageId: stage.pageId, generationId: stage.pageSummaryGenerationId,
+      })
+      expect(transaction.select({ passages: deepSearchWebPages.originalPassages })
+        .from(deepSearchWebPages).where(eq(deepSearchWebPages.deepSearchWebPageId, stage.pageId)).get()?.passages)
+        .toContain(qualification)
+      throw new Error("Later completion write failed")
+    })).toThrow("Later completion write failed")
+
+    expect(loadDeepSearchExecutionSnapshot(jobId)!.pages[0]).toEqual(before)
   })
 
   it("resets only unsettled search and extraction provider failures", () => {
@@ -1345,6 +1643,7 @@ describe("deep-search store", () => {
         "querySummaryOld", "querySummaryNew",
         "pageSummaryOld", "pageSummaryNew",
         "analysisOld", "analysisNew",
+        "finalOld", "finalNew",
       ].map((name) => [name, crypto.randomUUID()]),
     ) as Record<string, string>
     insertJob(deepSearchJobId)
@@ -1393,6 +1692,10 @@ describe("deep-search store", () => {
         jobId: deepSearchJobId,
         generationId: attempts.analysisOld,
       })
+      attachFinalAnswerGeneration(transaction, {
+        jobId: deepSearchJobId,
+        generationId: attempts.finalOld,
+      })
     })
     for (const generationId of [
       attempts.planningOld,
@@ -1400,6 +1703,7 @@ describe("deep-search store", () => {
       attempts.reviewOld,
       attempts.selectionOld,
       attempts.analysisOld,
+      attempts.finalOld,
     ]) {
       db.update(llmGenerations)
         .set({ status: "failed", error: "Failed attempt", completedAt: new Date() })
@@ -1441,6 +1745,11 @@ describe("deep-search store", () => {
         jobId: deepSearchJobId,
         oldGenerationId: attempts.analysisOld,
         newGenerationId: attempts.analysisNew,
+      })
+      replaceFinalAnswerGeneration(transaction, {
+        jobId: deepSearchJobId,
+        oldGenerationId: attempts.finalOld,
+        newGenerationId: attempts.finalNew,
       })
     })
 
@@ -1511,6 +1820,7 @@ describe("deep-search store", () => {
     })
 
     expect(loadDeepSearchExecutionSnapshot(deepSearchJobId)).toMatchObject({
+      finalAnswerGeneration: { generationId: attempts.finalNew, status: "running" },
       researchAnalysisGeneration: {
         generationId: attempts.analysisNew,
         status: "running",
@@ -1530,6 +1840,7 @@ describe("deep-search store", () => {
       pages: [{
         status: "summarizing",
         extractedContent: "Bounded extracted page content",
+        originalPassages: "Bounded extracted page content",
         summaryGeneration: { generationId: attempts.pageSummaryNew },
         errorMessage: null,
       }],

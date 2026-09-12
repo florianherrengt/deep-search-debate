@@ -94,9 +94,14 @@ hooks link a newly inserted generation to its owning stage before provider
 construction or consumption starts. Completion and failure hooks run in the
 same transaction as the generation's terminal update, so a deep-search query or
 page cannot claim a different outcome from its LLM generation. Deep-search
-candidate answers are linked to their round at registration; after completion,
-a separate promotion transaction verifies the required query rows, links that
-same generation as the final answer, and completes the job. A hook or terminal-write failure rejects
+candidate answers are linked to their round at registration. After searching,
+a separate correction generation is registered as the job's final answer; the
+round candidate remains unchanged. Structured analysis then uses the corrected
+text. A completion transaction verifies both completed generations and the
+settled query, page, and link-selection work before completing the job. Resume
+reuses completed correction and analysis attempts. A pre-upgrade completed
+analysis without a final-answer link retains its original candidate checkpoint.
+A hook or terminal-write failure rejects
 `completion`; it is not converted into an ordinary provider failure.
 
 Terminal settlement compare-and-swaps the durable generation from `running`.

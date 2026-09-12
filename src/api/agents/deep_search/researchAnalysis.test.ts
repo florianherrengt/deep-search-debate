@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { ZodType } from "zod"
 
 import { loadPrompt, PromptName } from "../../llms/prompts.ts"
 
@@ -9,9 +10,9 @@ vi.mock("../../llms/generateText.ts", () => ({
 }))
 
 import { analyzeResearchAnswer } from "./researchAnalysis.ts"
+import { config } from "../../config.ts"
 import {
   parseResearchAnalysisText,
-  researchAnalysisSchema,
 } from "./schemas.ts"
 
 const analysis = {
@@ -30,6 +31,7 @@ const analysis = {
     },
   ],
   assumptions: [],
+  requirements: [{ requirement: "Identify regional changes", kind: "requirement" as const, status: "unresolved" as const, sources: [], explanation: "Regional data remains incomplete." }],
 }
 
 describe("research answer analysis", () => {
@@ -58,6 +60,7 @@ describe("research answer analysis", () => {
       deepSearchJobId: "deep-search-job-id",
       researchRequest: "What changed in the market?",
       finalAnswer: "The market expanded during 2025.",
+      requirements: analysis.requirements,
       searchSummaries: [
         {
           round: 0,
@@ -68,13 +71,16 @@ describe("research answer analysis", () => {
       ],
     })
 
-    expect(mocks.generateObjectStream).toHaveBeenCalledWith({
+    expect(mocks.generateObjectStream).toHaveBeenCalledWith(expect.objectContaining({
       userId: "test-user-id",
       owner: { deepSearchJobId: "deep-search-job-id" },
       prompt: [
         "<research_request>",
         "What changed in the market?",
         "</research_request>",
+        "<requirements>",
+        JSON.stringify(analysis.requirements),
+        "</requirements>",
         "<final_answer>",
         "The market expanded during 2025.",
         "</final_answer>",
@@ -87,10 +93,14 @@ describe("research answer analysis", () => {
         "</search_summaries>",
       ].join("\n"),
       promptName: "analyze-research-answer",
-      schema: researchAnalysisSchema,
       reasoning: "disabled",
       workflowSignal: undefined,
-    })
+    }))
+    const { schema } = mocks.generateObjectStream.mock.calls[0]?.[0] as { schema: ZodType<typeof analysis> }
+    expect(schema.parse(analysis)).toEqual(analysis)
+    const { requirements: _requirements, ...legacyAnalysis } = analysis
+    expect(schema.safeParse(legacyAnalysis).success).toBe(false)
+    expect(parseResearchAnalysisText(JSON.stringify(legacyAnalysis))).toEqual(legacyAnalysis)
     expect(generation.generationId).toBe("analysis-generation-id")
     await expect(generation.analysis).resolves.toEqual(analysis)
   })
@@ -110,5 +120,38 @@ describe("research answer analysis", () => {
         }),
       ),
     ).toThrow()
+  })
+
+  it("retains direct attribution and qualifications omitted from query summaries within one budget", async () => {
+    mocks.generateObjectStream.mockResolvedValueOnce({
+      id: "analysis-generation-id",
+      output: Promise.resolve(analysis),
+      completion: Promise.resolve({
+        status: "completed",
+        text: JSON.stringify(analysis),
+        reasoning: "",
+      }),
+    })
+    await analyzeResearchAnswer({
+      userId: "test-user-id",
+      deepSearchJobId: "deep-search-job-id",
+      researchRequest: "What changed?",
+      finalAnswer: "Growth was reported.",
+      searchSummaries: [{ round: 0, query: "growth", content: "Growth reported. ".repeat(10_000) }],
+      sourceEvidence: [{
+        title: "Regional report",
+        url: "https://example.com/regional-report",
+        evidenceType: "page-summary",
+        content: "Only the surveyed region is covered. ".repeat(10_000),
+      }],
+    })
+
+    const { prompt } = mocks.generateObjectStream.mock.calls[0]?.[0] as { prompt: string }
+    const context = /<search_summaries>\n([\s\S]*)\n<\/search_summaries>/.exec(prompt)?.[1]
+    expect(context?.length).toBeLessThanOrEqual(config.deepSearch.maxSummaryContextChars)
+    expect(context).toContain("Growth reported.")
+    expect(context).toContain("https://example.com/regional-report")
+    expect(context).toContain('"evidenceType":"page-summary"')
+    expect(context).toContain("Only the surveyed region is covered.")
   })
 })

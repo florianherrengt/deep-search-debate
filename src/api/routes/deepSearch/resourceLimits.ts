@@ -5,17 +5,33 @@ const selectedUrlBudgetMessage =
   `maxSearches × maxResultsPerSearch must not exceed ` +
   `${config.deepSearch.maxSelectedUrlsPerRound} selected URLs per round`
 
-function maximumSelectedPages(input: {
+type PageBudgetInput = {
   maxSearches: number
   maxResultsPerSearch: number
+}
+
+function getSearchPageBudget(input: PageBudgetInput): number {
+  return Math.min(
+    input.maxSearches * input.maxResultsPerSearch,
+    config.deepSearch.maxSelectedUrlsPerRound,
+  )
+}
+
+/** The total allowance for distinct linked destinations across one round. */
+export function getLinkedPageBudget(input: PageBudgetInput): number {
+  return config.deepSearch.maxLinkDepth > 0 ? 3 * getSearchPageBudget(input) : 0
+}
+
+/** Cumulative allowance at a zero-based hop, reserving one search-page allowance for each later hop. */
+export function getLinkedPageDepthBudget(input: PageBudgetInput, depth: number): number {
+  const reserved = Math.max(0, config.deepSearch.maxLinkDepth - depth - 1) * getSearchPageBudget(input)
+  return Math.max(0, getLinkedPageBudget(input) - reserved)
+}
+
+function maximumSelectedPages(input: PageBudgetInput & {
   maxRounds: number
 }): number {
-  return (
-    Math.min(
-      input.maxSearches * input.maxResultsPerSearch,
-      config.deepSearch.maxSelectedUrlsPerRound,
-    ) * input.maxRounds
-  )
+  return (getSearchPageBudget(input) + getLinkedPageBudget(input)) * input.maxRounds
 }
 
 export function maximumSelectedPagesForChildren(

@@ -1,11 +1,11 @@
 # How deep search works
 
 Deep search turns one research request into a final answer through a sequence of
-search and LLM stages. It does not send raw search results or raw web pages
-directly to the answer model. Instead, it progressively reduces the evidence
-into page summaries and query summaries, then writes and reviews one candidate
-answer per round. The accepted or last permitted candidate becomes the final
-answer without being generated again.
+search and LLM stages. It combines page and query summaries with bounded
+verbatim source passages, follows relevant source links, and writes one candidate
+answer per round. Planning and review track the user's requirements and remaining
+evidence gaps. After exploration stops, a mandatory source-backed correction
+produces the delivered answer, followed by a separate structured analysis.
 
 This document explains that data flow. For the HTTP API, event contract,
 persistence model, and complete failure matrix, see
@@ -15,32 +15,36 @@ persistence model, and complete failure matrix, see
 
 ```mermaid
 flowchart TD
-  request["Research request"] --> queries["Generate new ordered search queries"]
+  request["Research request"] --> queries["Update requirements and generate ordered queries"]
   queries --> search["Run every web search in parallel"]
   search --> select["Select results worth opening"]
   select --> extract["Extract each unique selected URL"]
   extract --> pageSummary["Summarize the extracted page"]
   extract -. "extraction or summary fails" .-> snippet["Use the search snippet"]
   select -. "result was not selected" .-> snippet
-  pageSummary --> evidence["One content value per search result"]
+  pageSummary --> linked["Select and read relevant linked sources within the browsing allowance"]
+  linked --> directEvidence["Keep source summaries, original passages, URLs, and evidence types"]
+  pageSummary --> evidence["Source-attributed content with page or snippet evidence type"]
   snippet --> evidence
   evidence --> querySummary["Synthesize all results for one query"]
-  querySummary --> candidate["Write candidate answer from all query summaries"]
+  querySummary --> candidate["Write candidate answer from query summaries and direct source evidence"]
+  directEvidence --> candidate
   candidate --> review{"Does this answer need more material research?"}
   review -- "continue and below maxRounds" --> queries
-  review -- "stop or failure" --> accepted["Accept this candidate unchanged"]
-  candidate -- "hard round limit" --> accepted
-  accepted --> analysis["Classify facts, disagreements, gaps, and assumptions"]
-  analysis --> finalAnswer["Promote the accepted candidate"]
+  review -- "stop or failure" --> correction["Correct the answer against sources and requirements"]
+  candidate -- "hard round limit" --> correction
+  correction --> analysis["Analyze the corrected answer and unresolved requirements"]
+  analysis --> finalAnswer["Complete with the corrected answer"]
 ```
 
 The important boundary is candidate generation: the answer model sees the
-original research request and every completed query summary so far. It does not
-see raw pages, result-selection output, or search-result snippets directly.
-The reviewer then sees that candidate plus the same accumulated evidence.
-Every cumulative-summary prompt keeps one entry per query under a shared
-character ceiling; only the in-memory prompt projection is shortened, never the
-durable summary rows.
+original research request, every completed query summary, and the selected
+sources' page summaries, retained original passages, or explicitly labeled
+snippet fallbacks. Failed linked sources have no search snippet and are marked
+unavailable. The planner, reviewer, final correction, and final analysis receive
+this same source context. Every cumulative
+prompt shares one character ceiling across query and source entries. Source
+URLs and evidence types survive truncation; durable summaries are unchanged.
 
 ## Implementation code map
 
@@ -101,10 +105,14 @@ The client submits:
 }
 ```
 
-Search count and results per search default to `3`; rounds default to `2`.
+Search count, results per search, and rounds default to `3`.
 Application configuration sets configurable
 ceilings and also limits `maxSearches * maxResultsPerSearch`, which bounds the
-maximum number of selected URLs in each round. `maxRounds` is an unconditional
+maximum number of search-selected URLs in each round. Bounded link traversal
+may select three times as many additional URLs per round; admission includes
+both allowances. With `B = min(maxSearches * maxResultsPerSearch,
+maxSelectedUrlsPerRound)`, a round admits up to `B` search-selected and `3B`
+linked pages. Disabling link exploration removes the `3B` allowance. `maxRounds` is an unconditional
 hard stop; the model cannot override it. The root workflow has a second
 aggregate worst-case selected-page bound so multiplying child searches and
 rounds cannot bypass the per-round limit.
@@ -137,28 +145,56 @@ Already-started callbacks settle before the durable job becomes interrupted. See
 [Deep-search jobs](deep-search-jobs.md#post-apideep-search-jobsdeepsearchjobidcancel)
 for the HTTP and event contract.
 
-## 2. Generate search queries
+## 2. Plan requirements and search queries
 
 In the first round, the query-generation model receives:
 
-- the original research request; and
+- the original research request;
+- the latest requirements checklist, initially empty; and
 - the exact requested number of searches.
 
 In later rounds it also receives every previously executed query, every
-completed query summary, the previous candidate answer, and the critic's reason
-for continuing. It is instructed to return a structured array of new,
-prioritized queries that address the stated deficiency without repeating prior
-work. Queries should cover distinct, useful angles rather than repeat the same
-search with minor wording changes.
+completed query summary, bounded direct source evidence, the previous candidate answer, and the critic's reason
+for continuing. It returns a structured version-1 plan containing the updated
+requirements checklist and new, prioritized queries that address the stated
+deficiency without repeating prior work. Queries should cover distinct, useful angles rather than repeat the same
+search with minor wording changes. Each query targets one answerable information
+need; it must not concatenate the full brief, unrelated sectors, dates, and many
+site restrictions into an omnibus query.
 Relevant angles can include subquestions, alternative terminology, primary
 sources, counterarguments, and recent developments.
 
-The API validates every array element as a non-empty string, removes
-case-insensitive exact duplicates within and across rounds while preserving
-order, and applies the requested per-round limit. Therefore, the number of
-executed searches can be lower than `maxSearches`. An empty list performs no
-retrieval in that round, but still produces a candidate from the accumulated
-summaries and remains bounded by review plus `maxRounds`.
+The live model contract is:
+
+```ts
+{
+  version: 1
+  requirements: Array<{
+    requirement: string
+    kind: "requirement" | "preference"
+    status: "unresolved" | "supported" | "conflicting"
+    sources: string[]
+    explanation: string
+  }>
+  queries: string[]
+}
+```
+
+The checklist contains at most 12 entries, each with up to eight source URLs.
+The prompt distinguishes explicit user requirements from preferences and asks
+for evidence-based status without inventing constraints. The API requires
+exactly `maxSearches` non-empty queries, each at most 500 characters, and rejects
+case-insensitive duplicates within the round or against prior queries. Invalid
+output fails planning; it is not silently shortened or repaired.
+
+The complete plan remains in its owned generation JSON. Ordered query rows are
+still the execution checkpoint. Completed legacy query plans (`{elements:[...]}` or bare arrays) remain readable
+with an empty checklist, including their previously valid empty rounds. Their
+persisted query rows are authoritative: Resume does not recreate them from raw
+legacy output, because the old planner filtered duplicates before writing rows.
+New plans and completed reviews publish `research-requirements` with the zero-based
+round and checklist; replay restores these updates in round order. No separate
+requirements table or evidence ledger is introduced.
 
 Prompt: [generate-websearch-queries.md](../../llms/prompts/generate-websearch-queries.md)
 
@@ -197,7 +233,8 @@ For each executed query, the selection model receives:
 
 - the original research request;
 - the executed search query;
-- the exploration limit; and
+- the exploration limit;
+- the latest requirements, prior review findings, and known page URLs/statuses; and
 - every result's stable temporary ID, title, URL, and snippet.
 
 It returns only result IDs, ordered from highest to lowest priority. Using IDs
@@ -211,7 +248,9 @@ structure or override the selector's system instructions.
 
 The selection prompt favors relevant evidence, primary sources, independent
 verification, and useful contrary evidence. It may choose fewer than the limit,
-including no results.
+including no results. Known pages let the selector favor missing evidence and
+new sources while retaining useful already explored results when appropriate.
+Job-wide URL deduplication remains the retrieval authority.
 
 Prompt: [select-websearch-results.md](../../llms/prompts/select-websearch-results.md)
 
@@ -226,11 +265,15 @@ starts after every query in the round has completed selection.
 ScrapingAnt first tries a cheaper HTTP retrieval. If the returned content is
 empty, too short, blocked by an anti-bot challenge, or looks like an error page,
 the extractor tries browser rendering through a US datacenter proxy. HTML is
-converted to visible text; PDF responses use the PDF extractor. Content shorter
-than 200 characters is rejected as unusable.
+converted to visible text; PDF responses use the PDF extractor. Non-JSON
+content shorter than 200 characters is rejected as unusable.
 
-Only HTML, XHTML, plain text, Markdown, and recognized PDF bodies are accepted.
-Other declared media types are rejected. A response without a content type must
+HTML, XHTML, plain text, Markdown, recognized PDF bodies, and declared JSON
+documents are accepted. `application/json` and `application/*+json` bodies must
+be valid UTF-8 JSON and at most 100,000 characters. Their original text is
+preserved rather than reserialized, retaining large identifiers, numeric
+precision, and escaping. Valid JSON bypasses HTML error-page and minimum-length
+heuristics. Other declared media types are rejected. A response without a content type must
 still pass a text-likeness check, so a long image or other binary body is never
 decoded and summarized as a web page.
 
@@ -251,20 +294,37 @@ The page-summary model receives only:
 - the visible text extracted from that page.
 
 The prompt asks for a concise, self-contained summary focused on the research
-request. It must preserve useful evidence, dates, qualifications, limitations,
-and disagreements without adding outside facts.
+request. It must attach source URLs to useful evidence and retain exact dates,
+figures, units, entity/variant qualifications, limitations, and disagreements
+without adding outside facts.
 
 Page and query summaries use the user's current Small assignment. Candidate
-answer synthesis, structured selection, and round review use the current Big
+answer synthesis, final answer correction, structured research analysis, and
+round review use the current Big
 assignment. Each role's selected reasoning effort is authoritative.
 
-Page content is capped at 100,000 characters before it is sent to the model. If
-it is longer, the pipeline preserves roughly the first 75% and last 25%, with an
-omission marker between them. This retains introductions and conclusions while
-keeping the request bounded. That bounded content and the extraction credit
-settlement commit before summary generation. SQLite retains the content until
-the summary succeeds, then clears it; a summary retry after restart therefore
-does not repeat extraction or charge it again.
+Page content is capped at 100,000 characters before it is sent to the model.
+When it exceeds that bound, the existing bounded-text helper scores document
+windows against terms in the research request, keeps relevant verbatim windows
+in document order, and marks omissions. With no matching terms it falls back to
+bounded beginning/end text. This is a lexical selection heuristic, not a
+promise that every relevant passage survives.
+
+That bounded content and the extraction credit settlement commit before summary
+generation. SQLite retains this temporary `extracted_content` until the summary
+succeeds, then clears it; a summary retry after restart therefore does not repeat
+extraction or charge it again. The same settlement separately retains up to
+16,000 characters in nullable `original_passages`, selected for relevance to the
+request. When the summary succeeds, its full text and the request guide a
+second selection from the retained extraction, so qualifications discovered
+during summarization can survive. This refinement and clearing the temporary
+extraction occur in the existing page-completion transaction. A failed summary
+keeps its initial excerpts; already-completed pages are not rewritten.
+These original excerpts survive Resume and travel with direct source summaries
+under the cumulative prompt budget. That later narrowing also uses the full
+source summary before shortening it. Summary vocabulary only ranks excerpts;
+all retained passage text still comes verbatim from the source. Older
+pages without them continue using their summaries, without re-extraction.
 
 If summary creation or generation fails, or the model returns no usable text,
 the standalone query-summary stage uses the search snippet instead. Idea-owned
@@ -276,13 +336,55 @@ Prompt: [summarize-web-page.md](../../llms/prompts/summarize-web-page.md)
 
 Implementation: [summaries.ts](../../agents/deep_search/summaries.ts)
 
+## Linked-source verification
+
+Successful HTML extraction discovers canonical public HTTPS links with titles
+and stable IDs. Before keeping at most 30, it ranks article/main-content links
+above ordinary content and navigation/header/footer/sidebar links, retaining
+source order within each priority. It scans the bounded HTML rather than
+stopping at the first 30 anchors, and includes declared JSON document links.
+The same transaction persists discoveries, extracted content, original passages,
+and extraction cost. Plain text, PDF, and JSON contents do not fabricate link
+candidates.
+
+After the selected search pages settle, the Small model chooses useful links
+from their actual discovered IDs, using the research requirements, source
+summary, and known page statuses with available titles and completed summaries.
+Source and known-page summaries share the existing context bound. The selector
+can reject likely redundant page variants and navigation while preserving
+links that may add a distinct version, qualification, or primary source.
+This is model-guided selection, not proof of document identity: hostnames,
+paths, and meaningful query parameters remain distinct, and exact URL
+deduplication remains authoritative. Its structured output rejects unknown or
+duplicate IDs and selections over the remaining allowance. Breadth-first
+traversal follows up to two link hops by default (`DEEP_SEARCH_MAX_LINK_DEPTH`),
+with a round-wide allowance of `3B` distinct linked targets, where `B` is the
+search-selected page allowance. Each later permitted hop reserves `B`: at the
+default two-hop depth, the first hop may use at most `2B`, then the second may
+use the remainder up to `3B` cumulatively. Unused capacity carries forward.
+Link selection is sequential; each depth's selected pages use
+the existing concurrent extraction/summary queue. URLs already known to the
+job are reused rather than fetched again. Discovery order is deterministic,
+and source selection is checkpointed even when it chooses no links.
+
+Selected linked pages reach the answer and reviewer as direct source evidence.
+An unreadable destination is unavailable evidence; its anchor title is never
+treated as a snippet. Existing strict-quality summary failure policy also
+applies to linked pages. Link-selector failure fails the run and is retryable
+through normal Resume, without automatic workflow retries.
+
+`linked-page-selection-stream` exposes selection progress; `selected-linked-pages`
+records selected URLs and their originating source. The browser presents these
+as linked sources, separately from search-engine results. Replay reconstructs
+both their provenance and ordinary page summaries/errors.
+
 ## 7. Synthesize each search query
 
 After all selected page-summary tasks settle, the pipeline creates one query
 summary for every executed search. Crucially, this stage receives **all** search
 results, not only the selected ones.
 
-Each result has a title, URL, and one uniform `content` value. Page evidence is
+Each result has a title, URL, `content`, and `evidenceType`. Page evidence is
 deduplicated job-wide, so selection by any query makes the successful summary
 available to every result with the same URL:
 
@@ -291,9 +393,9 @@ available to every result with the same URL:
 | The URL was selected anywhere in the job and successfully summarized | Full page summary |
 | No successful job-wide page summary exists for the URL | Search-engine snippet |
 
-The model is not told whether `content` came from a page summary or a snippet.
-It synthesizes the results collectively, preserves source URLs and conflicts,
-and must not add facts from outside the supplied material.
+The model receives `page-summary` or `search-snippet` explicitly. It preserves
+URLs alongside the claims they support, keeps conditions and conflicts, and
+labels snippet-only support rather than implying the destination was read.
 
 All query-summary streams start concurrently. The pipeline waits for every
 query summary in the round before it writes the candidate answer.
@@ -309,27 +411,47 @@ Implementation: [querySummaries.ts](../../agents/deep_search/querySummaries.ts)
 After a round's query summaries complete, the pipeline first writes a candidate
 answer from all accumulated summaries. A structured review generation then
 receives the original request, that candidate, every accumulated query summary,
-the number of completed rounds, and the hard limit. It returns:
+direct source evidence, the latest requirements, the number of completed
+rounds, and the hard limit. It returns:
 
 ```ts
 {
-  decision: "continue" | "stop"
+  version: 1
+  requirements: ResearchRequirements // same bounded checklist as planning
+  gaps: { title: string; description: string; evidenceToFind: string | null }[]
   reason: string
 }
 ```
 
-The prompt requires a specific, searchable, material deficiency in the answer
-before choosing `continue`; asking for more volume is insufficient. Its reason
-must explain why the candidate is inadequate and what concrete evidence the
-next round should seek. Summaries and candidate text are explicitly treated as
-untrusted data. A `continue` decision starts the next round with prior queries,
-summaries, the candidate, and this reason as context. The final allowed round
-skips review because no decision can exceed `maxRounds`.
+The review audits claim support, requirement coverage, disagreements, and
+unsupported assumptions before judging the answer adequate. It lists up to 12
+material gaps. Each contains a concrete external evidence target, or null when
+web research cannot usefully resolve it; the description must explain that
+limitation. Missing private user information and inherent uncertainty do not
+force another search. Facts already established by supplied evidence belong in
+the final correction, not a request to retrieve the same material again.
+
+The model does not vote to stop. Application code derives `continue` whenever
+any validated gap has an evidence target, otherwise `stop`. The continuation
+reason contains the actionable gap descriptions and exact evidence targets;
+the existing planner context therefore carries them into focused next-round
+queries along with prior queries, summaries, and the candidate. A stopping
+review retains its assessment reason, including any unsearchable limitations.
+The final allowed round skips review because no decision can exceed `maxRounds`.
+
+The raw version-1 assessment stays in the existing review generation. Its
+derived decision and explanation commit together in the existing round fields
+inside that generation's completion transaction. Resume and replay use those
+durable fields. Legacy unversioned reviews retain their saved decision/reason;
+no completed assessment is regenerated or reinterpreted. Unknown versions and
+malformed gaps fail validation. Summaries, candidate text, and evidence targets
+remain untrusted prompt data. Model classification of a gap can still be wrong;
+the deterministic rule ensures identified searchable gaps are acted on.
 
 Review is optional control logic after its generation has been registered. If
 that attempt then fails during generation or parsing, the failure and the
-decision to stop exploring are persisted before the current candidate is
-promoted. A later process restart or Resume preserves that durable fallback and
+decision to stop exploring are persisted before the mandatory final correction
+begins. A later process restart or Resume preserves that durable fallback and
 does not retry the optional review. Failure before registration, or failure to
 persist the fallback checkpoint, fails the current run so Resume can retry the
 unfinished stage.
@@ -338,50 +460,61 @@ Prompt: [review-deep-search-round.md](../../llms/prompts/review-deep-search-roun
 
 Implementation: [reviewRound.ts](../../agents/deep_search/reviewRound.ts)
 
-## 9. Produce and promote the answer
+## 9. Write the candidate and correct the final answer
 
-Every round's candidate-answer model receives:
+Every round's candidate-answer model receives the original request, every
+completed query summary labeled with its query, the latest requirements, and
+bounded direct source evidence. Source evidence includes page summaries,
+retained original passages, labeled snippet fallbacks, and unavailable linked
+sources. It should synthesize across searches, preserve links and limitations,
+and report missing evidence rather than infer completeness from the round
+limit. The candidate generation is attached to its round before streaming and
+remains immutable after completion.
 
-- the original research request; and
-- every completed query summary from every round, labeled with its search
-  query.
+When review returns `stop`, optional review fails, or the hard round limit is
+reached, a separate mandatory Big model call uses `correct-research-answer`.
+It receives the candidate, current requirements and review findings, and the
+same source context. The prompt checks decisive claims against original
+passages where available, preserves supported findings, fixes or removes
+unsupported claims, verifies citation support, and qualifies unresolved or
+conflicting requirements. Excerpts may omit context, and sources without
+original passages are less directly checked. This is one bounded correction
+pass with no further retrieval; model instructions do not guarantee factual
+correctness.
 
-It is instructed to synthesize across searches rather than repeat each summary
-in sequence. It should preserve facts, links, limitations, uncertainty, and
-conflicting evidence. It cannot inspect a raw page at this stage, so information
-omitted by both the page and query summaries cannot be recovered in the final
-answer. The candidate stream is attached to its round before generation starts.
+The corrected generation is registered through the job's existing
+`finalAnswerGenerationId` before `final-answer-stream` is published. The round
+candidate is neither overwritten nor copied into that generation. Correction
+failure fails the run. Resume retries an incomplete correction attempt; a
+completed correction is reused if the later analysis or completion fails.
 
-When review returns `stop`, review fails, or the round hard limit is reached,
-the accepted candidate is passed to the separate structured research-analysis
-stage described below. After that stage completes, the job atomically points
-`finalAnswerGenerationId` at the completed candidate generation and becomes
-terminal. No answer text is copied and no second final-answer model call runs.
-
-Prompt: [answer-research-request.md](../../llms/prompts/answer-research-request.md)
+Prompts: [answer-research-request.md](../../llms/prompts/answer-research-request.md),
+[correct-research-answer.md](../../llms/prompts/correct-research-answer.md)
 
 Implementation: [finalAnswer.ts](../../agents/deep_search/finalAnswer.ts)
 
-## 10. Analyse the accepted answer
+## 10. Analyze the corrected answer and complete
 
-One separate structured model call receives the original request, the accepted
-answer, and every accumulated query summary. It classifies the result into:
+One separate structured Big model call receives the original request, corrected
+answer, requirements, accumulated query summaries, and direct source evidence.
+It returns bounded, Zod-validated facts, disagreements, gaps, assumptions, and an
+updated requirements checklist. All collections except gaps carry source URLs.
+The prompt permits only URLs from the supplied evidence and asks for empty
+collections when no defensible items exist. The role's selected reasoning effort
+remains authoritative.
 
-- supported facts, with source URLs;
-- material disagreements, with source URLs;
-- unresolved gaps;
-- material assumptions, with source URLs.
+The JSON remains in its owned `llm_generations` row; the job stores only its
+existing analysis-generation link. Completion verifies both owned, completed
+generations and schema-valid analysis, checks query and page work has settled,
+and marks the job completed transactionally. Analysis failure preserves the
+corrected answer for a retry of analysis alone. The browser receives the typed
+`research-analysis` event, including the final checklist, after completion.
+Replay reads the durable generations rather than duplicating their contents.
 
-The output is constrained and parsed with Zod. Titles, descriptions, collection
-sizes, and source URLs are bounded. The model is instructed to cite only URLs
-present in the supplied answer or summaries and to return an empty array when a
-category has no defensible item. This analysis uses the current Big model and
-reasoning-effort assignment.
-
-The structured JSON remains in its owned `llm_generations` row and the job stores
-only its generation link. Completed replay parses that validated JSON rather
-than copying the four collections into another table. The browser receives a
-typed `research-analysis` event, not the raw structured generation stream.
+For compatibility, an older unfinished job that already has a completed valid
+analysis but no final-answer link finishes by promoting its original candidate.
+That existing completed audit is not regenerated. Older completed jobs are also
+reused unchanged; all new finalization paths require the correction pass.
 
 Prompt: [analyze-research-answer.md](../../llms/prompts/analyze-research-answer.md)
 
@@ -408,16 +541,17 @@ The pipeline deliberately mixes sequential and concurrent work:
    enter a process-wide queue with a small configured concurrency. The
    ScrapingAnt client further serializes only the provider requests through its
    own single-request queue.
-5. Query summaries start concurrently after every page task has settled.
+5. Bounded linked-source selection and each depth's page tasks settle before
+   query summaries start concurrently.
 6. Candidate-answer generation starts only after the round's query summaries
    complete.
 7. The round review starts only after the candidate answer completes.
 8. A `continue` decision repeats steps 1–7 with globally deduplicated queries
    and URLs plus the candidate and review reason as planning context.
-9. A stopped, failed-review, or final-round candidate receives the separate
-   structured research analysis.
-10. After that analysis completes, the candidate is promoted unchanged and the
-    job becomes terminal.
+9. A stopped, failed-review, or final-round candidate receives the mandatory
+   source-backed final correction.
+10. The corrected answer receives structured research analysis. After both
+    generations complete and validate, the job becomes terminal.
 
 This ordering preserves query priority in the UI and database while overlapping
 the slow page work where possible.
@@ -443,8 +577,9 @@ The terminal job feed emits `interrupted`, then `done`, without an ordinary
 | Page summary | Standalone search uses its snippet; strict idea-owned search fails until the summary is retried |
 | Query summary | Job fails; candidate generation does not start |
 | Candidate answer | Job fails |
-| Structured research analysis | Job fails; the candidate is not promoted |
-| Round review | Exploration stops; the current candidate is promoted |
+| Final answer correction | Job fails; Resume retries the unfinished correction |
+| Structured research analysis | Job fails; the completed correction is retained for Resume |
+| Round review | Exploration stops; mandatory final correction and analysis still run |
 
 See [Deep-search jobs](deep-search-jobs.md) for persistence details and the
 stricter behavior when a deep search belongs to an idea job.
@@ -452,11 +587,13 @@ stricter behavior when a deep search belongs to an idea job.
 ## Streaming and persistence
 
 Each LLM call has its own stream ID. The deep-search event feed announces those
-IDs through `query-stream`, `selection-stream`, `page-summary-stream`,
+IDs through `query-stream`, `selection-stream`, `linked-page-selection-stream`, `page-summary-stream`,
 `query-summary-stream`, `round-answer-stream`, `round-review-stream`, and
 `final-answer-stream` events.
 Round-scoped events carry a zero-based `round`, and review outcomes use the
-typed `round-review` or `round-review-error` events. The client then reads the
+typed `round-review` or `round-review-error` events. Completed plans and reviews
+also publish `research-requirements`; replay parses that checklist from their
+existing generation JSON in round order. The client then reads the
 corresponding LLM streams to display reasoning and text while generation is
 running.
 
@@ -477,11 +614,12 @@ their terminal page or query status commits with the generation's terminal
 outcome. Provider page-summary failures therefore enable snippet fallback
 without a later repair scan, while query-summary failures become durable before
 the pipeline raises the fatal error. Each candidate-answer generation is linked
-to its round before its stream is published. After that generation completes,
-the structured analysis runs and stores its generation link. Promotion verifies
-every required query, the candidate output, and the completed schema-valid
-analysis, then atomically links the candidate as the final answer and completes
-the job. The runner returns that durable text directly. Fatal pipeline cleanup atomically fails all
+to its round before its stream is published. After exploration ends, final
+correction registers a distinct job-owned generation and streams its output.
+Analysis then checks the corrected text and stores its generation link.
+Completion verifies every required query, settled page/link work, the corrected
+output, and completed schema-valid analysis before completing the job. The
+runner returns that durable corrected text directly. Fatal pipeline cleanup atomically fails all
 still-active query and page rows with the owning job before publishing the
 terminal error. Stop cleanup settles active generation, query, and page records
 before publishing the interrupted terminal suffix; interrupted generation

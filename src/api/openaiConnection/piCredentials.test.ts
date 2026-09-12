@@ -52,6 +52,38 @@ beforeEach(() => {
 })
 
 describe("Pi Codex credential persistence", () => {
+  it("reads legacy Codex auth-file credentials without rewriting the connection", async () => {
+    const payload = Buffer.from(JSON.stringify({ exp: 1_900_000_000 }))
+      .toString("base64url")
+    const access = `test.${payload}.signature`
+    const stored = {
+      userId: "user-1",
+      connectionId: "connection-1",
+      credentials: Buffer.from(JSON.stringify({
+        auth_mode: "chatgpt",
+        tokens: {
+          access_token: access,
+          refresh_token: "legacy-refresh",
+          account_id: "legacy-account",
+        },
+        last_refresh: "2026-09-04T12:00:00Z",
+      })),
+    }
+    mocks.getConnection.mockReturnValue(stored)
+    const store = new PiCodexCredentialStore("user-1")
+
+    await expect(store.read(PI_CODEX_PROVIDER_ID)).resolves.toEqual({
+      type: "oauth",
+      access,
+      refresh: "legacy-refresh",
+      expires: 1_900_000_000_000,
+      accountId: "legacy-account",
+    })
+    expect(mocks.replaceConnection).not.toHaveBeenCalled()
+    expect(mocks.compareAndSwap).not.toHaveBeenCalled()
+    expect(stored.credentials.every((byte) => byte === 0)).toBe(true)
+  })
+
   it("reads and lists the existing encrypted-row payload", async () => {
     const stored = snapshot(first)
     mocks.getConnection.mockReturnValue(stored)

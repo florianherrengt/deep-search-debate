@@ -7,6 +7,7 @@ import {
   createWebExtractor,
   type PageRetrievalLog,
 } from "./webExtract.ts"
+import { MAX_WEB_SEARCH_RESULTS, MAX_WEB_SEARCH_TITLE_CHARS } from "./types.ts"
 
 function usableHtml(label = "Useful evidence"): string {
   return `<html><head><title>${label}</title></head><body><main><h1>${label}</h1><p>${`${label} explains the concrete facts required for this research question. `.repeat(8)}</p></main></body></html>`
@@ -117,6 +118,199 @@ describe("webExtract", () => {
     expect(info).not.toHaveBeenCalled()
   })
 
+  it("preserves discovered anchor links before text cleanup and resolves the document base", async () => {
+    const harness = createHarness()
+    const html = usableHtml()
+      .replace("<head>", `<head>
+        <!-- <base href="https://wrong.example/"> -->
+        <script>const example = '<base href="https://wrong.example/">';</script>
+        <base href="/docs/">
+        <base href="https://ignored.example/">`)
+      .replace("</main>", `
+        <!-- <a href="/comment">Comment example</a> -->
+        <script>const example = '<a href="/script">Script example</a>';</script>
+        <style>.example::after { content: '<a href="/style">Style example</a>'; }</style>
+        <textarea><a href="/textarea">Text example</a></textarea>
+        <div title="<a href='/attribute'>Attribute example</a>">Text</div>
+        <a title="Terms > details" data-note='href="/wrong"'
+          href="terms?coverage=full&amp;region=GB#details">Terms &amp; <strong>conditions</strong></a>
+        <a href=&#47;specifications>Technical &#x73;pecifications</a>
+        <a href="//cdn.example.com/manual.pdf">Manual</a>
+        </main><nav><a href="/catalog">Catalog</a></nav>`)
+    harness.fetchPage.mockResolvedValueOnce(htmlPage(html, { credits: 1 }))
+
+    const result = await harness.extract({ url: "https://example.com/start/page" })
+
+    expect(result.links).toEqual([
+      { url: "https://example.com/docs/terms?coverage=full&region=GB", title: "Terms & conditions" },
+      { url: "https://example.com/specifications", title: "Technical specifications" },
+      { url: "https://cdn.example.com/manual.pdf", title: "Manual" },
+      { url: "https://example.com/catalog", title: "Catalog" },
+    ])
+    expect(result.content).not.toContain("Catalog")
+    expect(result.scrapingAntCredits).toBe(1)
+    expect(harness.fetchPage).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps only canonical unique public HTTPS links to other resources", async () => {
+    const harness = createHarness()
+    const hrefs = [
+      "", "#details", "/page#details", "/page/?utm_source=source",
+      "mailto:test@example.com", "javascript:alert(1)", "&#106;avascript:alert(1)",
+      "http://example.com/plain", "https://localhost/private", "https://127.0.0.1/private",
+      "https://10.0.0.1/private", "https://[::1]/private", "https://example.local/private",
+      "https://user:password@example.com/private", "https://[malformed]/",
+      "https://EXAMPLE.com/manual/?utm_source=source#intro", "https://example.com/manual",
+      `/oversized?value=${"x".repeat(2_048)}`,
+    ]
+    harness.fetchPage.mockResolvedValueOnce(htmlPage(usableHtml().replace(
+      "</main>",
+      `${hrefs.map((href) => `<a href="${href}">Manual</a>`).join("")}</main>`,
+    )))
+
+    const result = await harness.extract({ url: "https://example.com/page" })
+
+    expect(result.links).toEqual([{ url: "https://example.com/manual", title: "Manual" }])
+  })
+
+  it("bounds discovered link count and titles", async () => {
+    const harness = createHarness()
+    const anchors = Array.from({ length: MAX_WEB_SEARCH_RESULTS + 5 }, (_, index) =>
+      `<a href="item-${index}">${"t".repeat(MAX_WEB_SEARCH_TITLE_CHARS + 20)}</a>`,
+    ).join("")
+    harness.fetchPage.mockResolvedValueOnce(htmlPage(usableHtml()
+      .replace("</main>", `${anchors}</main>`)))
+
+    const result = await harness.extract({ url: "https://example.com/docs/page" })
+
+    expect(result.links).toHaveLength(MAX_WEB_SEARCH_RESULTS)
+    expect(result.links[0]).toEqual({
+      url: "https://example.com/docs/item-0",
+      title: "t".repeat(MAX_WEB_SEARCH_TITLE_CHARS),
+    })
+    expect(result.links.at(-1)?.url).toBe(`https://example.com/docs/item-${MAX_WEB_SEARCH_RESULTS - 1}`)
+  })
+
+  it("finds primary evidence after hundreds of navigation links before applying the limit", async () => {
+    const harness = createHarness()
+    const navigation = Array.from({ length: 300 }, (_, index) =>
+      `<a href="/navigation-${index}">Navigation ${index}</a>`,
+    ).join("")
+    const html = usableHtml()
+      .replace("<body>", `<body><header><nav>${navigation}</nav></header><a href="/background">Background</a>`)
+      .replace("</main>", '<a href="/evidence">Primary evidence</a><div role="navigation"><a href="/sidebar">Sidebar</a></div></main>')
+    harness.fetchPage.mockResolvedValueOnce(htmlPage(html))
+
+    const result = await harness.extract({ url: "https://example.com/page" })
+
+    expect(result.links).toHaveLength(MAX_WEB_SEARCH_RESULTS)
+    expect(result.links.slice(0, 3)).toEqual([
+      { url: "https://example.com/evidence", title: "Primary evidence" },
+      { url: "https://example.com/background", title: "Background" },
+      { url: "https://example.com/navigation-0", title: "Navigation 0" },
+    ])
+  })
+
+  it("prefers descriptive body duplicates while retaining footer-only terms", async () => {
+    const harness = createHarness()
+    harness.fetchPage.mockResolvedValueOnce(htmlPage(usableHtml()
+      .replace("<body>", '<body><nav><a href="/terms?utm_source=menu">Menu terms</a></nav>')
+      .replace("</main>", '<a href="/terms">Eligibility terms and exclusions</a></main>')
+      .replace("</body>", '<footer><a href="/policy">Published policy</a></footer></body>')))
+
+    const result = await harness.extract({ url: "https://example.com/page" })
+
+    expect(result.links).toEqual([
+      { url: "https://example.com/terms", title: "Eligibility terms and exclusions" },
+      { url: "https://example.com/policy", title: "Published policy" },
+    ])
+  })
+
+  it("discovers advertised JSON documents without inventing endpoints or accepting private advertisements", async () => {
+    const harness = createHarness()
+    harness.fetchPage.mockResolvedValueOnce(htmlPage(usableHtml().replace("<head>", `<head>
+      <base href="/data/">
+      <!-- <link type="application/json" href="/comment"> -->
+      <script>const example = '<link type="application/json" href="/script">';</script>
+      <link rel="alternate" type="application/json" href="inventory" title="Inventory &amp; availability">
+      <link rel="alternate" type="application/ld+json" href="metadata" title="Metadata">
+      <link type="application/json" href="https://127.0.0.1/private">
+      <link type="application/json" href="javascript:alert(1)">
+      <link rel="stylesheet" href="/style.css">
+      <link rel="alternate" type="text/html" href="/other-page">`)))
+
+    const result = await harness.extract({ url: "https://example.com/page" })
+
+    expect(result.links).toEqual([
+      { url: "https://example.com/data/inventory", title: "Inventory & availability" },
+      { url: "https://example.com/data/metadata", title: "Metadata" },
+    ])
+  })
+
+  it.each(["application/json; charset=utf-8", "application/ld+json", "application/vnd.api+json"])(
+    "preserves short %s documents exactly, including numbers and escaped markup",
+    async (contentType) => {
+      const harness = createHarness()
+      const content = ' {"id":9007199254740993,"price":14.00,"scale":1e-20,"available":false,"note":null,"label":"<a href=\\"/fake\\">A &amp; B</a>","magic":"%PDF-"}\n'
+      harness.fetchPage.mockResolvedValueOnce(htmlPage(content, { contentType, credits: 1 }))
+
+      const result = await harness.extract({ url: "https://example.com/data.json" })
+
+      expect(result.content).toBe(content)
+      expect(result.links).toEqual([])
+      expect(result.scrapingAntCredits).toBe(1)
+      expect(harness.fetchPage).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it("retains a JSON document at the persisted content limit without truncating fields", async () => {
+    const harness = createHarness()
+    const content = JSON.stringify({ value: "x".repeat(100_000 - 12) })
+    harness.fetchPage.mockResolvedValueOnce(htmlPage(content, { contentType: "application/json" }))
+
+    expect(content).toHaveLength(100_000)
+    expect((await harness.extract({ url: "https://example.com/data" })).content).toBe(content)
+  })
+
+  it.each([
+    { name: "malformed JSON", body: new TextEncoder().encode('{"incomplete":') },
+    { name: "prototype properties", body: new TextEncoder().encode('{"nested":{"__proto__":{"polluted":true}}}') },
+    { name: "oversized JSON", body: new TextEncoder().encode(JSON.stringify({ value: "x".repeat(100_000 - 11) })) },
+    { name: "invalid UTF-8 inside otherwise valid JSON", body: new Uint8Array([123, 34, 120, 34, 58, 34, 255, 34, 125]) },
+  ])("rejects $name while retaining retrieval costs and fallback behavior", async ({ body }) => {
+    const harness = createHarness()
+    harness.fetchPage.mockResolvedValue({ body, contentType: "application/json", credits: 1 })
+
+    await expect(harness.extract({ url: "https://example.com/data" })).rejects.toMatchObject({
+      message: "No retrieval method returned usable content for https://example.com/data",
+      scrapingAntCredits: 2,
+    })
+    expect(harness.fetchPage.mock.calls.map(([call]) => call.mode)).toEqual(["http", "browser-us"])
+    expect(harness.logs.map(({ outcome }) => outcome)).toEqual(["failure", "failure"])
+  })
+
+  it("rejects relative links resolving through a private base without changing their destination", async () => {
+    const harness = createHarness()
+    harness.fetchPage.mockResolvedValueOnce(htmlPage(usableHtml()
+      .replace("<head>", '<head><base href="https://localhost/private/">')
+      .replace("</main>", '<a href="manual">Private manual</a><a href="https://example.com/public">Public manual</a></main>')))
+
+    const result = await harness.extract({ url: "https://example.com/docs/page" })
+
+    expect(result.links).toEqual([{ url: "https://example.com/public", title: "Public manual" }])
+  })
+
+  it("does not interpret anchor-like text in a plain-text document as links", async () => {
+    const harness = createHarness()
+    const content = `${"Document evidence. ".repeat(20)}<a href="https://example.com/manual">Example markup</a>`
+    harness.fetchPage.mockResolvedValueOnce(htmlPage(content, { contentType: "text/plain" }))
+
+    const result = await harness.extract({ url: "https://example.com/readme.txt" })
+
+    expect(result.content).toBe(content)
+    expect(result.links).toEqual([])
+  })
+
   it("extracts PDF text instead of accepting the binary payload as HTML", async () => {
     const harness = createHarness()
     harness.fetchPage.mockResolvedValueOnce({
@@ -131,6 +325,7 @@ describe("webExtract", () => {
 
     expect(result.content).toContain("# PDF document")
     expect(result.content).toContain("Useful PDF evidence line 8")
+    expect(result.links).toEqual([])
   })
 
   it("rejects non-document binary payloads before visible-text extraction", async () => {

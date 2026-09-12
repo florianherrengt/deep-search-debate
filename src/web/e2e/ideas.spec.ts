@@ -108,7 +108,9 @@ test.describe("Ideas", () => {
     page,
     request,
   }) => {
-    test.setTimeout(30_000)
+    // Ten child searches now execute all three queries through the real 1/s
+    // search queue, before final correction, assessment, and replay checks.
+    test.setTimeout(60_000)
     await page.goto("/ideas")
 
     const prompt =
@@ -322,6 +324,9 @@ test.describe("Ideas", () => {
       const childEvents = parseEvents<DeepSearchJobEvent>(
         await childReplay.text(),
       )
+      expect(childEvents.flatMap((event) =>
+        event.type === "search-results" ? event.searches : [],
+      )).toHaveLength(3)
       expect(childEvents.at(-1)).toEqual({ type: "done" })
       expect(childEvents.some((event) => event.type === "error")).toBe(false)
       const finalAnswer = childEvents.find(
@@ -353,6 +358,9 @@ test.describe("Ideas", () => {
       const childEvents = parseEvents<DeepSearchJobEvent>(
         await childReplay.text(),
       )
+      expect(childEvents.flatMap((event) =>
+        event.type === "search-results" ? event.searches : [],
+      )).toHaveLength(3)
       const finalAnswer = childEvents.find(
         (event) => event.type === "final-answer-stream",
       )

@@ -22,10 +22,18 @@ const dbml = `${generated.replace(
 // openai_codex_connections requires a non-empty trimmed connection ID,
 // non-empty ciphertext, a 12-byte nonce, and a 16-byte authentication tag; its
 // three encrypted values must be BLOBs.
+// llm_model_settings restricts both providers to deepseek or openai, restricts
+// both reasoning efforts to none, minimal, low, medium, high, xhigh, max, or
+// ultra, and requires both model IDs to remain non-empty after trimming.
 // The fresh baseline migration also defines triggers that require selected
 // result/page ownership, require tournament participants to be selected ideas
 // from the debate's idea job, and freeze aggregate structure and generation
 // ownership. DBML cannot represent SQLite triggers or partial-index predicates;
 // the migration and schema regression tests are authoritative.
+// The linked-page migration enforces same-job source, target, and round
+// ownership, exact target URLs, and immutable discoveries/selections. The store
+// checks selector-generation ownership in the selection transaction.
+// original_passages is nullable and limited to 16,000 characters. Its additive
+// migration preserves existing pages, links, and temporary extraction checks.
 `
 writeFileSync(new URL("./schema.dbml", import.meta.url), dbml)

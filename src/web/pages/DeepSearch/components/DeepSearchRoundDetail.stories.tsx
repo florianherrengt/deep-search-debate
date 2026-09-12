@@ -4,6 +4,7 @@ import type { Meta, StoryObj } from "@storybook/react"
 import { TextStreamProvider } from "../../../components/streaming/useTextStream.ts"
 import {
   moreResearchRequestedRun,
+  mixedRequirements,
   refinedAnswerRun,
   researchRequest,
   reviewingEvidenceRun,
@@ -40,6 +41,49 @@ export default meta
 type Story = StoryObj<typeof DeepSearchRoundDetail>
 
 export const Completed: Story = {}
+
+export const RequirementCoverage: Story = {
+  args: {
+    run: { ...sufficientEvidenceRun, queryGenerations: [{ round: 0, streamId: "query-plan-requirements" }], searches: [], roundRequirements: [{ round: 0, requirements: mixedRequirements }] },
+  },
+}
+
+export const PlanningRequirements: Story = {
+  args: {
+    run: { ...sufficientEvidenceRun, status: "running", finalAnswerStreamId: null, researchAnalysis: null, queryGenerations: [{ round: 0, streamId: "query-plan-incomplete" }], searches: [], roundAnswers: [], roundReviews: [] },
+  },
+}
+
+export const LegacyQueryPlan: Story = {
+  args: { run: { ...sufficientEvidenceRun, searches: [] } },
+}
+
+export const LinkedSourceEvidence: Story = {
+  args: {
+    run: {
+      ...sufficientEvidenceRun,
+      linkedSources: [
+        {
+          sourceUrl: "https://openai.com/products/",
+          selectionStreamId: "linked-source-selection",
+          links: [{
+            url: "https://platform.openai.com/docs/overview",
+            title: "API documentation and product capabilities",
+            summary: { status: "stream", streamId: "linked-source-summary" },
+          }],
+        },
+        {
+          sourceUrl: "https://platform.openai.com/docs/overview",
+          links: [{
+            url: "https://platform.openai.com/docs/models",
+            title: "Model availability and compatibility",
+            summary: { status: "error", message: "The linked page could not be read. The available evidence is retained." },
+          }],
+        },
+      ],
+    },
+  },
+}
 
 export const FollowUpRound: Story = {
   args: {

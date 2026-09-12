@@ -12,7 +12,7 @@ const meta: Meta<typeof RoundReview> = {
     docs: {
       description: {
         component:
-          "The optional post-round reviewer inspects all accumulated query summaries. It either requests another bounded search round, stops exploration, or fails non-fatally and lets final synthesis use the evidence already collected. Expand the retained reasoning in stream-backed stories to inspect how the decision was reached.",
+          "The post-round reviewer checks the candidate against accumulated evidence and identifies answer-changing gaps. It requests a focused search round when a useful external source could resolve a gap, or stops when another search would not help. The hard round limit still applies. Expand the retained reasoning in stream-backed stories to inspect how the decision was reached.",
       },
     },
   },
@@ -56,7 +56,7 @@ export const RequestsAnotherRound: Story = {
       streamId: "round-review-continue",
       status: "continue",
       reason:
-        "The official product and history sources are strong, but an independent source is still needed to verify how the governance changes affected accountability.",
+        "The answer does not establish who can overrule the board after the governance changes. Search for an independent analysis of OpenAI board authority to verify whether the claimed accountability safeguards are enforceable.",
     },
   },
   parameters: {
@@ -73,17 +73,17 @@ export const StopsResearch: Story = {
   args: {
     review: {
       round: 1,
-      streamId: "round-review-stop",
+      streamId: "round-review-user-preference",
       status: "stop",
       reason:
-        "The completed searches now cover the requested products, history, and major criticisms with both primary and independent sources.",
+        "The comparison explains each product's capabilities, but the user's preferred balance of cost, control, and support is unknown. Only the user can resolve that preference; another web search would not change the evidence.",
     },
   },
   parameters: {
     docs: {
       description: {
         story:
-          "The reviewer considers the accumulated evidence sufficient and stops exploration before final synthesis.",
+          "An illustrative product comparison stops with a remaining uncertainty that only the user can resolve. Completion does not claim that every question has been answered.",
       },
     },
   },

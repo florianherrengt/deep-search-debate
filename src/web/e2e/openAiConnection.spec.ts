@@ -253,7 +253,7 @@ test("connects ChatGPT, uses Codex without credits, and falls back after disconn
       modelId: "gpt-5.6-luna",
       promptName: "generate-websearch-queries",
       status: "completed",
-      text: '{"elements":["E2E Codex structured query 1","E2E Codex structured query 2","E2E Codex structured query 3"]}',
+      text: '{"version":1,"requirements":[],"queries":["E2E Codex structured query 1","E2E Codex structured query 2","E2E Codex structured query 3"]}',
     },
   ])
 
@@ -429,6 +429,7 @@ test.describe("OpenAI debate", () => {
     const expectedStageCounts = {
       "generate-idea-research-prompts": 1,
       "generate-websearch-queries": 9,
+      "correct-research-answer": 9,
       "analyze-research-answer": 9,
       "summarize-idea-research": 1,
       "generate-ideas": 1,

@@ -4,8 +4,11 @@ import { describe, expect, it } from "vitest"
 
 import type { DeepSearchRunState } from "../../../lib/deepSearchState.ts"
 import { DeepSearchOverview } from "./DeepSearchOverview.tsx"
+import { TextStreamProvider } from "../../../components/streaming/useTextStream.ts"
 
 const baseRun: DeepSearchRunState = {
+  roundRequirements: [],
+  linkedSources: [],
   status: "running",
   queryGenerations: [{ round: 0, streamId: "round-one-queries" }],
   roundAnswers: [{ round: 0, streamId: "round-one-answer" }],
@@ -51,6 +54,42 @@ function renderOverview(
 }
 
 describe("DeepSearchOverview", () => {
+  it("keeps even completed correction text provisional until the job completes", async () => {
+    const subscribe = async function* () {
+      await Promise.resolve()
+      yield { type: "text" as const, text: "The revised answer retains the qualification." }
+      yield { type: "done" as const }
+    }
+    const view = (status: DeepSearchRunState["status"]) => <TextStreamProvider subscribe={subscribe}><MemoryRouter><DeepSearchOverview jobSlug="checked-answer" title="Checked answer" researchRequest="Check the qualification" run={{ ...baseRun, finalAnswerStreamId: "correction", status }} /></MemoryRouter></TextStreamProvider>
+    const { rerender } = render(view("running"))
+    expect(await screen.findByText("The revised answer retains the qualification.")).toBeVisible()
+    expect(screen.getByRole("heading", { name: "Answer under review" })).toBeVisible()
+    expect(screen.getByText("Checking final answer…")).toBeVisible()
+    expect(screen.queryByRole("heading", { name: "Final answer" })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Research is complete/)).not.toBeInTheDocument()
+    rerender(view("completed"))
+    expect(screen.getByRole("heading", { name: "Final answer" })).toBeVisible()
+    expect(screen.queryByText("Checking final answer…")).not.toBeInTheDocument()
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument()
+    expect(screen.getByText("The revised answer retains the qualification.")).toBeVisible()
+  })
+
+  it.each(["failed", "interrupted", "stopping"] as const)("shows a %s correction as a partial answer without active copy", (status) => {
+    renderOverview({ ...baseRun, status, finalAnswerStreamId: "correction" })
+    expect(screen.getByRole("heading", { name: "Partial answer" })).toBeVisible()
+    expect(screen.queryByText("Checking final answer…")).not.toBeInTheDocument()
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument()
+  })
+
+  it("shows final requirement coverage while legacy analysis remains valid", () => {
+    renderOverview({ ...baseRun, status: "completed", researchAnalysis: { facts: [], disagreements: [], gaps: [], assumptions: [], requirements: [
+      { requirement: "Verify the latest release", kind: "requirement", status: "conflicting", sources: ["https://example.com/releases"], explanation: "The sources disagree about which release is available." },
+    ] } })
+    const coverage = screen.getByRole("region", { name: "Requirement coverage" })
+    expect(within(coverage).getByText("Requirement · Conflicting evidence")).toBeVisible()
+    expect(within(coverage).getByText("The sources disagree about which release is available.")).toBeVisible()
+    expect(within(coverage).getByRole("link", { name: "Open source: https://example.com/releases" })).toHaveAttribute("href", "https://example.com/releases")
+  })
   it("keeps the main page compact and links to round details", () => {
     renderOverview()
 

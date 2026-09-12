@@ -1,10 +1,14 @@
 import { randomUUID } from "node:crypto"
-import { and, asc, eq, inArray, isNull } from "drizzle-orm"
-import type { DeepSearchSearch } from "../../agents/deep_search/schemas.ts"
+import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm"
+import {
+  pageLinkSelectionSchema,
+  type DeepSearchSearch,
+} from "../../agents/deep_search/schemas.ts"
 import type { RoundReview } from "../../agents/deep_search/reviewRound.ts"
 import { db } from "../../db/index.ts"
 import {
   deepSearchJobs,
+  deepSearchPageLinks,
   deepSearchQueries,
   deepSearchRounds,
   deepSearchResults,
@@ -13,7 +17,11 @@ import {
 } from "../../db/schema/index.ts"
 import type { TextStreamPersistenceTransaction } from "../../llms/streams.ts"
 import { debitCredits } from "../../credits.ts"
+import { secureJsonParse } from "../../helpers/secureJsonParse.ts"
+import { selectRelevantPassages } from "../../helpers/boundedText.ts"
+import { MAX_WEB_SEARCH_RESULTS } from "../../web_search/types.ts"
 import { assertEffectiveResearchRootRunning } from "../researchCancellation.ts"
+import { getLinkedPageBudget } from "./resourceLimits.ts"
 import type {
   DeepSearchExecutionSnapshot,
   ExecutedQuery,
@@ -168,6 +176,16 @@ export function loadDeepSearchExecutionSnapshot(
       asc(deepSearchWebPages.deepSearchWebPageId),
     )
     .all()
+  const pageIds = pages.map(({ deepSearchWebPageId }) => deepSearchWebPageId)
+  const links = pageIds.length === 0
+    ? []
+    : db
+        .select()
+        .from(deepSearchPageLinks)
+        .where(inArray(deepSearchPageLinks.sourceWebPageId, pageIds))
+        .orderBy(asc(deepSearchPageLinks.position))
+        .all()
+  const linksByPageId = Map.groupBy(links, ({ sourceWebPageId }) => sourceWebPageId)
 
   const generationIds = new Set<string>()
   const addGenerationId = (generationId: string | null): void => {
@@ -184,7 +202,10 @@ export function loadDeepSearchExecutionSnapshot(
     addGenerationId(query.selectionGenerationId)
     addGenerationId(query.summaryGenerationId)
   }
-  for (const page of pages) addGenerationId(page.summaryGenerationId)
+  for (const page of pages) {
+    addGenerationId(page.summaryGenerationId)
+    addGenerationId(page.linkSelectionGenerationId)
+  }
 
   const generations = generationIds.size === 0
     ? []
@@ -276,7 +297,17 @@ export function loadDeepSearchExecutionSnapshot(
       creditsUsed: page.creditsUsed,
       status: page.status,
       extractedContent: page.extractedContent,
+      originalPassages: page.originalPassages,
       summaryGeneration: getGeneration(page.summaryGenerationId),
+      linkSelectionGeneration: getGeneration(page.linkSelectionGenerationId),
+      links: (linksByPageId.get(page.deepSearchWebPageId) ?? []).map((link) => ({
+        linkId: link.deepSearchPageLinkId,
+        position: link.position,
+        url: link.url,
+        title: link.title,
+        selectedWebPageId: link.selectedWebPageId,
+        selectedRoundId: link.selectedRoundId,
+      })),
       errorStage: page.errorStage,
       errorMessage: page.errorMessage,
       completedAt: page.completedAt,
@@ -604,6 +635,30 @@ type SaveSelectedResultsInput = {
   selectedResultIds: string[]
 }
 
+function persistWebPage(
+  transaction: TextStreamPersistenceTransaction,
+  jobId: string,
+  url: string,
+): SelectedPage {
+  transaction
+    .insert(deepSearchWebPages)
+    .values({
+      deepSearchWebPageId: randomUUID(),
+      deepSearchJobId: jobId,
+      url,
+      status: "extracting",
+    })
+    .onConflictDoNothing()
+    .run()
+  const page = transaction
+    .select({ pageId: deepSearchWebPages.deepSearchWebPageId, url: deepSearchWebPages.url })
+    .from(deepSearchWebPages)
+    .where(and(eq(deepSearchWebPages.deepSearchJobId, jobId), eq(deepSearchWebPages.url, url)))
+    .get()
+  if (!page) throw new Error(`Web page was not persisted: ${url}`)
+  return page
+}
+
 export function saveSelectedResults(
   input: SaveSelectedResultsInput,
 ): SelectedPage[]
@@ -665,43 +720,14 @@ export function saveSelectedResults(
       string,
       SelectedPage
     >()
-    const persistWebPage = (url: string): string => {
-      transaction
-        .insert(deepSearchWebPages)
-        .values({
-          deepSearchWebPageId: randomUUID(),
-          deepSearchJobId: input.jobId,
-          url,
-          status: "extracting",
-        })
-        .onConflictDoNothing()
-        .run()
-      const webPage = transaction
-        .select({
-          deepSearchWebPageId: deepSearchWebPages.deepSearchWebPageId,
-          url: deepSearchWebPages.url,
-        })
-        .from(deepSearchWebPages)
-        .where(
-          and(
-            eq(deepSearchWebPages.deepSearchJobId, input.jobId),
-            eq(deepSearchWebPages.url, url),
-          ),
-        )
-        .get()
-      if (!webPage) throw new Error(`Web page was not persisted: ${url}`)
-      selectedPages.set(url, {
-        pageId: webPage.deepSearchWebPageId,
-        url: webPage.url,
-      })
-      return webPage.deepSearchWebPageId
-    }
-
     for (const result of results) {
       const isSelected = selectedIds.has(result.deepSearchResultId)
       const selectedWebPageId = isSelected
-        ? persistWebPage(result.url)
+        ? persistWebPage(transaction, input.jobId, result.url).pageId
         : null
+      if (selectedWebPageId) {
+        selectedPages.set(result.url, { pageId: selectedWebPageId, url: result.url })
+      }
       const update = transaction
         .update(deepSearchResults)
         .set({
@@ -935,6 +961,7 @@ export function settlePageExtraction(input: {
   pageId: string
   content: string
   creditsUsed: number
+  links?: Array<{ url: string; title: string }>
 }): { content: string | null; creditsUsed: number } {
   if (!input.content.trim()) {
     throw new Error("Web page extraction content must not be empty")
@@ -942,11 +969,18 @@ export function settlePageExtraction(input: {
   if (input.content.length > 100_000) {
     throw new Error("Web page extraction content exceeds the persisted limit")
   }
+  const links = input.links ?? []
+  if (links.length > MAX_WEB_SEARCH_RESULTS) {
+    throw new Error("Page links exceed the extraction limit")
+  }
+  if (new Set(links.map(({ url }) => url)).size !== links.length) {
+    throw new Error("Extracted page links contain duplicate URLs")
+  }
   return db.transaction((transaction) => {
     assertDeepSearchActive(transaction, input.jobId)
     assertPageOwnedByJob(transaction, input.jobId, input.pageId)
     const owner = transaction
-      .select({ userId: deepSearchJobs.userId })
+      .select({ userId: deepSearchJobs.userId, researchRequest: deepSearchJobs.researchRequest })
       .from(deepSearchJobs)
       .where(eq(deepSearchJobs.deepSearchJobId, input.jobId))
       .get()
@@ -970,6 +1004,19 @@ export function settlePageExtraction(input: {
       ) {
         throw new Error("Web page extraction conflicts with persisted settlement")
       }
+      if (input.links !== undefined) {
+        const existingLinks = transaction
+          .select({ url: deepSearchPageLinks.url, title: deepSearchPageLinks.title })
+          .from(deepSearchPageLinks)
+          .where(eq(deepSearchPageLinks.sourceWebPageId, input.pageId))
+          .orderBy(asc(deepSearchPageLinks.position))
+          .all()
+        if (existingLinks.length !== links.length || existingLinks.some((link, index) =>
+          link.url !== links[index].url || link.title !== links[index].title
+        )) {
+          throw new Error("Page links conflict with persisted extraction")
+        }
+      }
       return { content: page.content, creditsUsed: page.creditsUsed }
     }
     const result = transaction
@@ -977,6 +1024,7 @@ export function settlePageExtraction(input: {
       .set({
         status: "summarizing",
         extractedContent: input.content,
+        originalPassages: selectRelevantPassages(input.content, owner.researchRequest, 16_000),
         creditsUsed: input.creditsUsed,
       })
       .where(
@@ -990,8 +1038,146 @@ export function settlePageExtraction(input: {
     if (result.changes !== 1) {
       throw new Error("Web page was not ready for extraction settlement")
     }
+    if (links.length > 0) {
+      transaction.insert(deepSearchPageLinks).values(links.map((link, position) => ({
+        deepSearchPageLinkId: randomUUID(),
+        sourceWebPageId: input.pageId,
+        position,
+        ...link,
+      }))).run()
+    }
     debitCredits(transaction, input.userId, input.creditsUsed)
     return { content: input.content, creditsUsed: input.creditsUsed }
+  })
+}
+
+export function attachPageLinkSelectionGeneration(
+  transaction: TextStreamPersistenceTransaction,
+  input: { jobId: string; pageId: string; generationId: string },
+): void {
+  assertDeepSearchActive(transaction, input.jobId)
+  assertPageOwnedByJob(transaction, input.jobId, input.pageId)
+  assertGenerationOwnedByJob(transaction, input.jobId, input.generationId)
+  const generation = transaction
+    .select({ status: llmGenerations.status })
+    .from(llmGenerations)
+    .where(eq(llmGenerations.llmGenerationId, input.generationId))
+    .get()
+  if (generation?.status !== "running") {
+    throw new Error("Page link selection requires a running generation")
+  }
+  const result = transaction
+    .update(deepSearchWebPages)
+    .set({ linkSelectionGenerationId: input.generationId })
+    .where(
+      and(
+        eq(deepSearchWebPages.deepSearchWebPageId, input.pageId),
+        isNotNull(deepSearchWebPages.creditsUsed),
+        isNull(deepSearchWebPages.linkSelectionGenerationId),
+      ),
+    )
+    .run()
+  if (result.changes !== 1) {
+    throw new Error("Page link selection is already registered or extraction is incomplete")
+  }
+}
+
+/** Applies only the terminal generation's structured selection, including an empty result. */
+export function completePageLinkSelection(
+  transaction: TextStreamPersistenceTransaction,
+  input: {
+    jobId: string
+    sourcePageId: string
+    roundId: string
+    generationId: string
+    selectedLinkIds: string[]
+  },
+): SelectedPage[] {
+  assertDeepSearchActive(transaction, input.jobId)
+  assertPageOwnedByJob(transaction, input.jobId, input.sourcePageId)
+  assertRoundOwnedByJob(transaction, input.jobId, input.roundId)
+  assertGenerationOwnedByJob(transaction, input.jobId, input.generationId)
+  const source = transaction
+    .select({ generationId: deepSearchWebPages.linkSelectionGenerationId })
+    .from(deepSearchWebPages)
+    .where(eq(deepSearchWebPages.deepSearchWebPageId, input.sourcePageId))
+    .get()
+  if (source?.generationId !== input.generationId) {
+    throw new Error("Page link selection generation was not registered")
+  }
+  const generation = transaction
+    .select({ status: llmGenerations.status, text: llmGenerations.text })
+    .from(llmGenerations)
+    .where(eq(llmGenerations.llmGenerationId, input.generationId))
+    .get()
+  if (generation?.status !== "completed" || generation.text === null) {
+    throw new Error("Page link selection generation must complete before its selection")
+  }
+  const output = pageLinkSelectionSchema.parse(secureJsonParse(generation.text))
+  if (JSON.stringify(output.selectedIds) !== JSON.stringify(input.selectedLinkIds)) {
+    throw new Error("Page link selection conflicts with completed generation output")
+  }
+  const links = transaction
+    .select()
+    .from(deepSearchPageLinks)
+    .where(eq(deepSearchPageLinks.sourceWebPageId, input.sourcePageId))
+    .orderBy(asc(deepSearchPageLinks.position))
+    .all()
+  const byId = new Map(links.map((link) => [link.deepSearchPageLinkId, link]))
+  const selectedIds = new Set(input.selectedLinkIds)
+  const selected = input.selectedLinkIds.map((id) => {
+    const link = byId.get(id)
+    if (!link) throw new Error("Selected page link was not discovered on this page")
+    if (link.selectedRoundId !== null && link.selectedRoundId !== input.roundId) {
+      throw new Error("Page link selection was already committed in another round")
+    }
+    return link
+  })
+  const previouslySelected = links.filter((link) => link.selectedWebPageId !== null)
+  if (previouslySelected.some((link) => !selectedIds.has(link.deepSearchPageLinkId))) {
+    throw new Error("Page link selection was already committed")
+  }
+  const job = transaction
+    .select({
+      maxSearches: deepSearchJobs.maxSearches,
+      maxResultsPerSearch: deepSearchJobs.maxResultsPerSearch,
+    })
+    .from(deepSearchJobs)
+    .where(eq(deepSearchJobs.deepSearchJobId, input.jobId))
+    .get()!
+  const roundUrls = new Set(
+    transaction
+      .select({ url: deepSearchPageLinks.url })
+      .from(deepSearchPageLinks)
+      .where(eq(deepSearchPageLinks.selectedRoundId, input.roundId))
+      .all()
+      .map(({ url }) => url),
+  )
+  for (const link of selected) roundUrls.add(link.url)
+  const maxLinkedPages = getLinkedPageBudget(job)
+  if (roundUrls.size > maxLinkedPages) {
+    throw new Error("Selected page links exceed the round exploration limit")
+  }
+  return selected.map((link) => {
+    const page = persistWebPage(transaction, input.jobId, link.url)
+    if (link.selectedWebPageId !== null) {
+      if (link.selectedWebPageId !== page.pageId) {
+        throw new Error("Selected linked page does not match its source URL")
+      }
+      return page
+    }
+    const result = transaction
+      .update(deepSearchPageLinks)
+      .set({ selectedWebPageId: page.pageId, selectedRoundId: input.roundId })
+      .where(
+        and(
+          eq(deepSearchPageLinks.deepSearchPageLinkId, link.deepSearchPageLinkId),
+          isNull(deepSearchPageLinks.selectedWebPageId),
+        ),
+      )
+      .run()
+    if (result.changes !== 1) throw new Error("Page link selection was already committed")
+    return page
   })
 }
 
@@ -1009,17 +1195,47 @@ export function completePageSummaryGeneration(
     .select({
       status: deepSearchWebPages.status,
       generationId: deepSearchWebPages.summaryGenerationId,
+      extractedContent: deepSearchWebPages.extractedContent,
+      researchRequest: deepSearchJobs.researchRequest,
     })
     .from(deepSearchWebPages)
+    .innerJoin(deepSearchJobs, eq(deepSearchJobs.deepSearchJobId, deepSearchWebPages.deepSearchJobId))
     .where(eq(deepSearchWebPages.deepSearchWebPageId, input.pageId))
     .get()
   if (stored?.status === "completed" && stored.generationId === input.generationId) {
     return
   }
+  if (
+    stored?.status !== "summarizing" ||
+    stored.generationId !== input.generationId ||
+    stored.extractedContent === null
+  ) {
+    throw new Error("Page summary generation was not registered")
+  }
+  const generation = transaction
+    .select({
+      jobId: llmGenerations.deepSearchJobId,
+      status: llmGenerations.status,
+      text: llmGenerations.text,
+    })
+    .from(llmGenerations)
+    .where(eq(llmGenerations.llmGenerationId, input.generationId))
+    .get()
+  if (generation?.jobId !== input.jobId) {
+    throw new Error("LLM generation must belong to the deep-search job owner")
+  }
+  if (generation.status !== "completed" || !generation.text?.trim()) {
+    throw new Error("Page summary generation did not complete with usable text")
+  }
   const result = transaction
     .update(deepSearchWebPages)
     .set({
       status: "completed",
+      originalPassages: selectRelevantPassages(
+        stored.extractedContent,
+        `${stored.researchRequest}\n${generation.text}`,
+        16_000,
+      ),
       extractedContent: null,
       errorStage: null,
       errorMessage: null,
@@ -1688,6 +1904,27 @@ export function replacePageSummaryGeneration(
   assertGenerationLinkReplaced(result, "Page summary")
 }
 
+export function replacePageLinkSelectionGeneration(
+  transaction: TextStreamPersistenceTransaction,
+  input: ReplaceGenerationAttemptInput & { pageId: string },
+): void {
+  assertPageOwnedByJob(transaction, input.jobId, input.pageId)
+  const page = transaction
+    .select({ generationId: deepSearchWebPages.linkSelectionGenerationId })
+    .from(deepSearchWebPages)
+    .where(eq(deepSearchWebPages.deepSearchWebPageId, input.pageId))
+    .get()
+  assertGenerationLink(page?.generationId, input.oldGenerationId, "Page link selection")
+  prepareGenerationAttemptReplacement(transaction, input)
+  const result = transaction.update(deepSearchWebPages)
+    .set({ linkSelectionGenerationId: input.newGenerationId })
+    .where(and(
+      eq(deepSearchWebPages.deepSearchWebPageId, input.pageId),
+      eq(deepSearchWebPages.linkSelectionGenerationId, input.oldGenerationId),
+    )).run()
+  assertGenerationLinkReplaced(result, "Page link selection")
+}
+
 export function replaceResearchAnalysisGeneration(
   transaction: TextStreamPersistenceTransaction,
   input: ReplaceGenerationAttemptInput,
@@ -1713,6 +1950,28 @@ export function replaceResearchAnalysisGeneration(
     )
     .run()
   assertGenerationLinkReplaced(result, "Research analysis")
+}
+
+export function replaceFinalAnswerGeneration(
+  transaction: TextStreamPersistenceTransaction,
+  input: ReplaceGenerationAttemptInput,
+): void {
+  const job = transaction
+    .select({ generationId: deepSearchJobs.finalAnswerGenerationId })
+    .from(deepSearchJobs)
+    .where(eq(deepSearchJobs.deepSearchJobId, input.jobId))
+    .get()
+  assertGenerationLink(job?.generationId, input.oldGenerationId, "Final answer")
+  prepareGenerationAttemptReplacement(transaction, input)
+  const result = transaction
+    .update(deepSearchJobs)
+    .set({ finalAnswerGenerationId: input.newGenerationId })
+    .where(and(
+      eq(deepSearchJobs.deepSearchJobId, input.jobId),
+      eq(deepSearchJobs.finalAnswerGenerationId, input.oldGenerationId),
+    ))
+    .run()
+  assertGenerationLinkReplaced(result, "Final answer")
 }
 
 export function attachRoundReviewGeneration(

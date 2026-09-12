@@ -57,6 +57,7 @@ function StreamText({
         {showText && stream.text && (
           <FormattedStreamText
             format={format}
+            fallbackText={waitingText}
             text={stream.text}
             testId={textTestId}
           />
@@ -70,6 +71,7 @@ function StreamText({
   return (
     <FormattedStreamText
       format={format}
+      fallbackText={waitingText}
       text={stream.text || waitingText}
       testId={textTestId}
     />

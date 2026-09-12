@@ -5,7 +5,11 @@ import {
   type GenerationOutcome,
   type TextGenerationPersistenceCallbacks,
 } from "../../llms/streams.ts"
-import { formatSearchSummaryContext } from "./searchSummaryContext.ts"
+import {
+  formatSearchSummaryContext,
+  type SourceEvidence,
+} from "./searchSummaryContext.ts"
+import type { ResearchRequirements } from "./schemas.ts"
 
 type SearchSummary = {
   round?: number
@@ -18,6 +22,10 @@ type AnswerResearchRequestInput = TextGenerationPersistenceCallbacks & {
   deepSearchJobId: string
   researchRequest: string
   searchSummaries: SearchSummary[]
+  sourceEvidence?: SourceEvidence[]
+  requirements?: ResearchRequirements
+  candidateAnswer?: string
+  reviewReason?: string
   workflowSignal?: AbortSignal
 }
 
@@ -27,14 +35,24 @@ export type FinalAnswerGeneration = {
   completion: Promise<GenerationOutcome>
 }
 
-/** Starts a candidate answer that may be promoted as the job's final answer. */
+/** Starts a candidate or, when supplied a candidate, its final source-backed correction. */
 export async function answerResearchRequest(
   params: AnswerResearchRequestInput,
 ): Promise<FinalAnswerGeneration> {
-  const formattedSummaries = formatSearchSummaryContext(params.searchSummaries)
+  const formattedSummaries = formatSearchSummaryContext(
+    params.searchSummaries,
+    undefined,
+    params.sourceEvidence,
+    params.researchRequest,
+  )
 
   const prompt = [
     `user_query: ${params.researchRequest}`,
+    "<requirements>", JSON.stringify(params.requirements ?? []), "</requirements>",
+    ...(params.candidateAnswer === undefined ? [] : [
+      "<candidate_answer>", params.candidateAnswer, "</candidate_answer>",
+      "<review_findings>", params.reviewReason ?? "No separate review findings are available; check the source passages directly.", "</review_findings>",
+    ]),
     "search_summaries:",
     "<search_summaries>",
     formattedSummaries,
@@ -45,7 +63,7 @@ export async function answerResearchRequest(
     userId: params.userId,
     owner: { deepSearchJobId: params.deepSearchJobId },
     prompt,
-    promptName: PromptName.AnswerResearchRequest,
+    promptName: params.candidateAnswer === undefined ? PromptName.AnswerResearchRequest : PromptName.CorrectResearchAnswer,
     reasoning: "disabled",
     workflowSignal: params.workflowSignal,
     ...(params.onRegistered ? { onRegistered: params.onRegistered } : {}),

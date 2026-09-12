@@ -8,9 +8,10 @@ import { TextStreamOutput } from "../../../components/streaming/TextStreamOutput
 
 type PageSummaryProps = {
   summary: DeepSearchPageSummary
+  active?: boolean
 }
 
-type PageSummaryStatus = "extracting" | TextStreamState["status"]
+type PageSummaryStatus = "extracting" | "inactive" | TextStreamState["status"]
 
 function getPageSummaryLabel(status: PageSummaryStatus): string {
   switch (status) {
@@ -22,6 +23,7 @@ function getPageSummaryLabel(status: PageSummaryStatus): string {
     case "reconnecting":
       return "Reconnecting to source findings…"
     case "completed":
+    case "inactive":
       return "Source findings"
     case "error":
       return "Source findings unavailable"
@@ -50,10 +52,13 @@ function getPageSummaryColor(
   return "text.secondary"
 }
 
-export function PageSummary({ summary }: PageSummaryProps) {
+export function PageSummary({ summary, active = true }: PageSummaryProps) {
   const hasStream = summary.status === "stream"
   const stream = useTextStream(getPageSummaryStreamId(summary))
-  const status = getPageSummaryStatus(summary, stream)
+  const observedStatus = getPageSummaryStatus(summary, stream)
+  const status = !active && observedStatus !== "error" && observedStatus !== "completed"
+    ? "inactive"
+    : observedStatus
   const isWorking =
     status === "extracting" ||
     status === "streaming" ||
@@ -80,10 +85,16 @@ export function PageSummary({ summary }: PageSummaryProps) {
       {hasStream && (
         <TextStreamOutput
           format="markdown"
-          stream={stream}
-          waitingText="Waiting for source findings…"
+          stream={!active && stream.status !== "error" ? { ...stream, status: "completed" } : stream}
+          waitingText={active ? "Waiting for source findings…" : "No source findings were saved."}
           textTestId="page-summary-text"
         />
+      )}
+
+      {!active && summary.status === "extracting" && (
+        <Typography variant="body2" color="text.secondary">
+          No source findings were saved.
+        </Typography>
       )}
 
       {summary.status === "error" && (

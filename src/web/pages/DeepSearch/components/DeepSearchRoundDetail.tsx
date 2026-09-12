@@ -14,9 +14,12 @@ import type { DeepSearchRunState } from "../../../lib/deepSearchState.ts"
 import {
   getDeepSearchRoundNumbers,
   getDeepSearchRoundStatus,
+  getDeepSearchLinkedSources,
 } from "../deepSearchPresentation.ts"
 import { RoundReview } from "./RoundReview.tsx"
 import { SearchResults } from "./SearchResults.tsx"
+import { LinkedSources } from "./LinkedSources.tsx"
+import { RequirementCoverage } from "./ResearchAnalysis.tsx"
 import { MarkdownText } from "../../../components/MarkdownText.tsx"
 
 export type DeepSearchRoundDetailProps = {
@@ -215,6 +218,7 @@ export function DeepSearchRoundDetail({
   const searches = presentationRun.searches.filter(
     ({ round }) => round === roundIndex,
   )
+  const requirements = presentationRun.roundRequirements.find(({ round }) => round === roundIndex)?.requirements
   const status = getDeepSearchRoundStatus(
     presentationRun,
     roundIndex,
@@ -299,18 +303,26 @@ export function DeepSearchRoundDetail({
           Round research
         </Typography>
 
+        {requirements && <RequirementCoverage requirements={requirements} />}
+
         {queryStreamId && searches.length === 0 && (
           <GenerationOutput
-            format="structured-list"
+            format="research-plan"
+            active={!terminal && status === "in-progress"}
             headingComponent="h3"
             streamId={queryStreamId}
             title="Search queries"
-            waitingText="Generating search queries…"
+            waitingText={terminal ? "No search queries were saved." : "Generating search queries…"}
             testId={`generated-search-queries-${roundIndex}`}
           />
         )}
 
         <SearchResults searches={searches} />
+
+        <LinkedSources
+          sources={getDeepSearchLinkedSources(presentationRun, roundIndex)}
+          active={!terminal && status === "in-progress"}
+        />
 
         {answerStreamId && (
           <GenerationOutput

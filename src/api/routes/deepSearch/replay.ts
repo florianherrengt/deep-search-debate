@@ -1,8 +1,11 @@
 import { and, asc, eq, inArray, type SQL } from "drizzle-orm"
-import { parseResearchAnalysisText } from "../../agents/deep_search/schemas.ts"
+import { pageLinkSelectionSchema, parseResearchAnalysisText, parseResearchPlan } from "../../agents/deep_search/schemas.ts"
+import { roundReviewSchema } from "../../agents/deep_search/reviewRound.ts"
+import { secureJsonParse } from "../../helpers/secureJsonParse.ts"
 import { db } from "../../db/index.ts"
 import {
   deepSearchJobs as deepSearchJobsTable,
+  deepSearchPageLinks,
   deepSearchQueries,
   deepSearchRounds,
   deepSearchResults,
@@ -49,6 +52,16 @@ export function reconstructDeepSearchJobEvents(
     .where(eq(deepSearchRounds.deepSearchJobId, deepSearchJobId))
     .orderBy(asc(deepSearchRounds.position))
     .all()
+
+  const roundGenerationIds = rounds.flatMap((round) => [
+    round.llmGenerationId,
+    ...(round.reviewGenerationId ? [round.reviewGenerationId] : []),
+  ])
+  const completedRoundGenerations = new Map(roundGenerationIds.length === 0 ? [] : db
+    .select({ id: llmGenerations.llmGenerationId, text: llmGenerations.text })
+    .from(llmGenerations)
+    .where(and(inArray(llmGenerations.llmGenerationId, roundGenerationIds), eq(llmGenerations.status, "completed")))
+    .all().map(({ id, text }) => [id, text]))
 
   const queryRows = db
     .select({
@@ -210,7 +223,63 @@ export function reconstructDeepSearchJobEvents(
     return []
   })
 
+  const links = pages.length === 0 ? [] : db.select()
+    .from(deepSearchPageLinks)
+    .where(inArray(deepSearchPageLinks.sourceWebPageId, pages.map((page) => page.deepSearchWebPageId)))
+    .orderBy(asc(deepSearchPageLinks.position)).all()
+  const linksByPageId = Map.groupBy(links, ({ sourceWebPageId }) => sourceWebPageId)
+  const selectorIds = pages.flatMap((page) => page.linkSelectionGenerationId ? [page.linkSelectionGenerationId] : [])
+  const completedSelectors = new Map(selectorIds.length === 0 ? [] : db
+    .select({ id: llmGenerations.llmGenerationId, text: llmGenerations.text }).from(llmGenerations)
+    .where(and(inArray(llmGenerations.llmGenerationId, selectorIds), eq(llmGenerations.status, "completed")))
+    .all().map(({ id, text }) => [id, text]))
+  const linkedPageEvents = pages.flatMap<DeepSearchJobEvent>((page) => {
+    if (!page.linkSelectionGenerationId) return []
+    const output = completedSelectors.get(page.linkSelectionGenerationId)
+    const sourceLinks = new Map((linksByPageId.get(page.deepSearchWebPageId) ?? [])
+      .map((link) => [link.deepSearchPageLinkId, link]))
+    return [
+      { type: "linked-page-selection-stream", sourceUrl: page.url, streamId: page.linkSelectionGenerationId },
+      ...(output !== undefined && output !== null ? [{
+        type: "selected-linked-pages" as const,
+        sourceUrl: page.url,
+        links: pageLinkSelectionSchema.parse(secureJsonParse(output)).selectedIds.map((id) => {
+          const link = sourceLinks.get(id)
+          if (!link || link.selectedWebPageId === null) {
+            throw new Error("Completed link selection is missing its selected page")
+          }
+          return { url: link.url, title: link.title }
+        }),
+      }] : []),
+    ]
+  })
+
   const summaryAndReviewEvents = rounds.flatMap<DeepSearchJobEvent>((round) => {
+    const planningRequirementsEvents: DeepSearchJobEvent[] = []
+    const reviewRequirementsEvents: DeepSearchJobEvent[] = []
+    const planningText = completedRoundGenerations.get(round.llmGenerationId)
+    if (planningText) {
+      try {
+        const plan = parseResearchPlan(planningText)
+        if (plan.version === 1) {
+          planningRequirementsEvents.push({ type: "research-requirements", round: round.position, requirements: plan.requirements })
+        }
+      } catch {
+        // Legacy or manually edited generation text has no validated checklist.
+      }
+    }
+    const reviewText = round.reviewGenerationId
+      ? completedRoundGenerations.get(round.reviewGenerationId) : undefined
+    if (reviewText && round.reviewDecision !== null) {
+      try {
+        const review = roundReviewSchema.parse(secureJsonParse(reviewText))
+        if (review.requirements !== undefined) {
+          reviewRequirementsEvents.push({ type: "research-requirements", round: round.position, requirements: review.requirements })
+        }
+      } catch {
+        // The relational review outcome remains replayable without a checklist.
+      }
+    }
     const summaryEvents = queryRows.flatMap<DeepSearchJobEvent>((query) =>
       query.round === round.position && query.summaryGenerationId
         ? [
@@ -261,10 +330,12 @@ export function reconstructDeepSearchJobEvents(
             ]
           : []
     return [
+      ...planningRequirementsEvents,
       ...summaryEvents,
       ...answerEvents,
       ...reviewStreamEvents,
       ...reviewOutcomeEvents,
+      ...reviewRequirementsEvents,
     ]
   })
 
@@ -327,6 +398,7 @@ export function reconstructDeepSearchJobEvents(
 
   return [
     ...planningAndSelectionEvents,
+    ...linkedPageEvents,
     ...pageEvents,
     ...summaryAndReviewEvents,
     ...finalAnswerEvents,

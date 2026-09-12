@@ -1,25 +1,21 @@
 import { generateTextStream } from "../../llms/generateText.ts"
-import { config } from "../../config.ts"
-import { formatBoundedTextEntries } from "../../helpers/boundedText.ts"
 import { PromptName } from "../../llms/prompts.ts"
 import {
   awaitGenerationText,
   type GenerationOutcome,
   type TextGenerationPersistenceCallbacks,
 } from "../../llms/streams.ts"
-
-type QuerySummaryResult = {
-  title: string
-  url: string
-  content: string
-}
+import {
+  formatSearchSummaryContext,
+  type SourceEvidence,
+} from "./searchSummaryContext.ts"
 
 type SummarizeSearchQueryInput = TextGenerationPersistenceCallbacks & {
   userId: string
   deepSearchJobId: string
   researchRequest: string
   query: string
-  results: QuerySummaryResult[]
+  results: SourceEvidence[]
   workflowSignal?: AbortSignal
 }
 
@@ -33,13 +29,11 @@ export type QuerySummaryGeneration = {
 export async function summarizeSearchQuery(
   params: SummarizeSearchQueryInput,
 ): Promise<QuerySummaryGeneration> {
-  const formattedResults = formatBoundedTextEntries(
-    params.results.map((result) => ({
-      opening: "<result>\n",
-      text: JSON.stringify(result),
-      closing: "\n</result>",
-    })),
-    config.deepSearch.maxSummaryContextChars,
+  const formattedResults = formatSearchSummaryContext(
+    [],
+    undefined,
+    params.results,
+    params.researchRequest,
   )
 
   const prompt = [

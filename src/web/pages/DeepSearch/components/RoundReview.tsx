@@ -12,7 +12,7 @@ function getOutcomeCopy(review: DeepSearchRoundReviewState): string {
     case "continue":
       return "More research requested. "
     case "stop":
-      return "Research is sufficient. "
+      return "No further searches. "
     case "error":
       return "Review failed; using the current answer. "
     case "running":

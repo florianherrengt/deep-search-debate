@@ -6,14 +6,19 @@ import { summarizeSearchQuery } from "../../agents/deep_search/querySummaries.ts
 import { analyzeResearchAnswer } from "../../agents/deep_search/researchAnalysis.ts"
 import {
   startRoundReview,
+  roundReviewSchema,
   type RoundReview,
 } from "../../agents/deep_search/reviewRound.ts"
 import {
   researchAnalysisSchema,
+  pageLinkSelectionSchema,
+  parseResearchPlan,
+  type ResearchRequirements,
   type DeepSearchEvent,
   type DeepSearchSearch,
 } from "../../agents/deep_search/schemas.ts"
-import { selectWebSearchResults } from "../../agents/deep_search/selection.ts"
+import { selectPageLinks, selectWebSearchResults } from "../../agents/deep_search/selection.ts"
+import type { SourceEvidence } from "../../agents/deep_search/searchSummaryContext.ts"
 import {
   startPageSummary,
   summarizePage,
@@ -22,12 +27,15 @@ import { getErrorMessage } from "../../helpers/getErrorMessage.ts"
 import { addAbortableQueueTask } from "../../helpers/addAbortableQueueTask.ts"
 import { webSearch } from "../../web_search/index.ts"
 import { config } from "../../config.ts"
+import { secureJsonParse } from "../../helpers/secureJsonParse.ts"
 import {
   runWorkflowEffect,
   WorkflowFailure,
   WorkflowInterruptedError,
 } from "../../workflowRuntime.ts"
-import { promoteRoundAnswer } from "./jobLifecycle.ts"
+import { completeReviewedAnswer, promoteRoundAnswer } from "./jobLifecycle.ts"
+import { db } from "../../db/index.ts"
+import { getLinkedPageDepthBudget } from "./resourceLimits.ts"
 import type {
   DeepSearchExecutionSnapshot,
   ExecutedQuery,
@@ -38,11 +46,14 @@ import type {
 } from "./records.ts"
 import {
   attachPageSummaryGeneration,
+  attachFinalAnswerGeneration,
+  attachPageLinkSelectionGeneration,
   attachQuerySummaryGeneration,
   attachRoundAnswerGeneration,
   attachRoundReviewGeneration,
   attachResearchAnalysisGeneration,
   completePageSummaryGeneration,
+  completePageLinkSelection,
   completeEmptySearchQuery,
   completeQuerySummaryGeneration,
   failPageSummaryGeneration,
@@ -54,6 +65,8 @@ import {
   registerSearchRound,
   registerSelectionGeneration,
   replacePageSummaryGeneration,
+  replaceFinalAnswerGeneration,
+  replacePageLinkSelectionGeneration,
   replaceQuerySelectionGeneration,
   replaceQuerySummaryGeneration,
   replaceResearchAnalysisGeneration,
@@ -209,6 +222,202 @@ function settleAll<Value>(
   })
 }
 
+/** Source-level evidence survives a query summary omitting a URL or qualification. */
+function sourceEvidenceFromSnapshot(snapshot: DeepSearchExecutionSnapshot): SourceEvidence[] {
+  const descriptions = new Map<string, { title: string; snippet?: string }>()
+  for (const round of snapshot.rounds) {
+    for (const query of round.queries) {
+      for (const result of query.results) {
+        if (result.selectedWebPageId && !descriptions.has(result.selectedWebPageId)) {
+          descriptions.set(result.selectedWebPageId, { title: result.title, snippet: result.shortText })
+        }
+      }
+    }
+  }
+  for (const page of snapshot.pages) {
+    for (const link of page.links) {
+      if (link.selectedWebPageId && !descriptions.has(link.selectedWebPageId)) {
+        descriptions.set(link.selectedWebPageId, { title: link.title })
+      }
+    }
+  }
+  return snapshot.pages.flatMap<SourceEvidence>((page) => {
+    const description = descriptions.get(page.pageId)
+    if (!description) return []
+    const source = { url: page.url, title: description.title }
+    if (page.status === "completed" && page.summaryGeneration?.status === "completed") {
+      return [{ ...source, evidenceType: "page-summary", content: completedText(page.summaryGeneration),
+        ...(page.originalPassages ? { originalPassages: page.originalPassages } : {}),
+      }]
+    }
+    if (page.status !== "failed") return []
+    if (description.snippet) {
+      return [{ ...source, evidenceType: "search-snippet", content: description.snippet }]
+    }
+    return [{
+      ...source,
+      evidenceType: "unavailable",
+      content: "This linked source could not be read or summarized. Its link title is a discovery lead, not evidence from the destination. No conclusion about its contents is supported.",
+    }]
+  })
+}
+
+function requirementsFromSnapshot(snapshot: DeepSearchExecutionSnapshot, throughRound: number): ResearchRequirements {
+  for (const round of snapshot.rounds.toReversed()) {
+    if (round.position > throughRound) continue
+    if (round.reviewGeneration?.status === "completed") {
+      const review = roundReviewSchema.parse(secureJsonParse(completedText(round.reviewGeneration)))
+      if (review.requirements) return review.requirements
+    }
+    if (round.planningGeneration.status === "completed") {
+      const text = completedText(round.planningGeneration)
+      const plan = parseResearchPlan(text)
+      if (plan.version === 1) return plan.requirements
+    }
+  }
+  return []
+}
+
+/** Follow a bounded breadth-first frontier using the same durable page lifecycle. */
+function exploreLinkedPages(
+  params: DeepSearchPipelineInput,
+  round: SearchRound,
+  roots: SelectedPage[],
+  pageSummaries: Map<string, string | undefined>,
+  strictQuality: boolean,
+  maxSearches: number,
+  maxResultsPerSearch: number,
+): Effect.Effect<void, WorkflowFailure> {
+  return Effect.gen(function*() {
+    let frontier = roots
+    const visitedSources = new Set<string>()
+    for (let depth = 0; depth < config.deepSearch.maxLinkDepth; depth += 1) {
+      const maximumLinkedPages = getLinkedPageDepthBudget({ maxSearches, maxResultsPerSearch }, depth)
+      const nextPages = new Map<string, SelectedPage>()
+      for (const source of frontier) {
+        if (visitedSources.has(source.pageId)) continue
+        visitedSources.add(source.pageId)
+        let snapshot = yield* workflowEffect(() => loadSnapshot(params.deepSearchJobId))
+        let page = snapshot.pages.find(({ pageId }) => pageId === source.pageId)
+        if (!page) throw new WorkflowFailure({ message: "Linked-page source was not persisted" })
+        if (page.links.length === 0) continue
+
+        if (page.linkSelectionGeneration?.status !== "completed") {
+          const selectedThisRound = new Set(snapshot.pages.flatMap((item) =>
+            item.links.flatMap((link) =>
+              link.selectedRoundId === round.roundId && link.selectedWebPageId
+                ? [link.selectedWebPageId] : [],
+            ),
+          ))
+          const remaining = maximumLinkedPages - selectedThisRound.size
+          if (remaining <= 0) continue
+          const knownUrls = new Set(snapshot.pages.map(({ url }) => url))
+          const candidates = page.links.filter(({ url }) => !knownUrls.has(url))
+          if (candidates.length === 0) continue
+          const knownEvidence = new Map(sourceEvidenceFromSnapshot(snapshot).map((evidence) => [evidence.url, evidence]))
+          const previousGeneration = page.linkSelectionGeneration
+          const generation = yield* workflowEffect(() => selectPageLinks({
+            userId: params.userId,
+            deepSearchJobId: params.deepSearchJobId,
+            userQuery: params.researchRequest,
+            sourceUrl: source.url,
+            sourceSummary: pageSummaries.get(source.url) ?? "No source summary is available.",
+            knownPages: snapshot.pages.map(({ url, status }) => {
+              const evidence = knownEvidence.get(url)
+              return {
+                url,
+                status,
+                ...(evidence ? { title: evidence.title } : {}),
+                ...(evidence?.evidenceType === "page-summary" ? { summary: evidence.content } : {}),
+              }
+            }),
+            requirements: requirementsFromSnapshot(snapshot, round.position),
+            links: candidates.map(({ linkId, url, title }) => ({ id: linkId, url, title })),
+            maxResultsToExplore: Math.min(remaining, maxResultsPerSearch),
+            workflowSignal: params.workflowSignal,
+            onRegistered: (generationId, transaction) => {
+              if (previousGeneration) {
+                replacePageLinkSelectionGeneration(transaction, {
+                  ...replacementInput(params.deepSearchJobId, previousGeneration, generationId),
+                  pageId: source.pageId,
+                })
+              } else {
+                attachPageLinkSelectionGeneration(transaction, {
+                  jobId: params.deepSearchJobId, pageId: source.pageId, generationId,
+                })
+              }
+            },
+            onCompleted: (completed, transaction) => {
+              completePageLinkSelection(transaction, {
+                jobId: params.deepSearchJobId,
+                sourcePageId: source.pageId,
+                roundId: round.roundId,
+                generationId: completed.id,
+                selectedLinkIds: completed.output,
+              })
+            },
+          }))
+          yield* workflowEffect(async () => {
+            try {
+              params.publish({ type: "linked-page-selection-stream", sourceUrl: source.url, streamId: generation.streamId })
+            } catch (error) {
+              await generation.selectedIds.catch(() => undefined)
+              throw error
+            }
+            await generation.selectedIds
+          })
+          snapshot = yield* workflowEffect(() => loadSnapshot(params.deepSearchJobId))
+          page = snapshot.pages.find(({ pageId }) => pageId === source.pageId)
+          if (!page) throw new WorkflowFailure({ message: "Linked-page source was not persisted" })
+        }
+
+        if (page.linkSelectionGeneration?.status !== "completed") {
+          throw new WorkflowFailure({ message: "Linked-page selection did not complete" })
+        }
+        const selectedIds = pageLinkSelectionSchema.parse(
+          secureJsonParse(completedText(page.linkSelectionGeneration)),
+        ).selectedIds
+        const linksById = new Map(page.links.map((link) => [link.linkId, link]))
+        const selectedLinks = selectedIds.map((id) => {
+          const link = linksById.get(id)
+          if (!link?.selectedWebPageId) {
+            throw new WorkflowFailure({ message: "Completed link selection has no selected target" })
+          }
+          return link
+        })
+        yield* workflowEffect(() => params.publish({
+          type: "selected-linked-pages",
+          sourceUrl: source.url,
+          links: selectedLinks.map(({ url, title }) => ({ url, title })),
+        }))
+        for (const link of selectedLinks) {
+          const selected = snapshot.pages.find(({ pageId }) => pageId === link.selectedWebPageId)
+          if (!selected) throw new WorkflowFailure({ message: "Selected linked page was not persisted" })
+          nextPages.set(selected.pageId, { pageId: selected.pageId, url: selected.url })
+        }
+      }
+
+      const snapshot = yield* workflowEffect(() => loadSnapshot(params.deepSearchJobId))
+      const pagesById = new Map(snapshot.pages.map((page) => [page.pageId, page]))
+      const summaries = yield* settleAll([...nextPages.values()].map((page) =>
+        workflowEffect(async () => {
+          const stored = pagesById.get(page.pageId)
+          if (!stored) throw new Error("Selected linked page was not persisted")
+          const summary = await addAbortableQueueTask(
+            pageSummaryQueue,
+            () => summarizeSelectedPage(params, stored, strictQuality),
+            params.workflowSignal,
+          )
+          return [page.url, summary] as const
+        }),
+      ))
+      for (const [url, summary] of summaries) pageSummaries.set(url, summary)
+      frontier = [...nextPages.values()]
+      if (frontier.length === 0) break
+    }
+  })
+}
+
 async function summarizeSelectedPage(
   params: DeepSearchPipelineInput,
   page: SnapshotPage,
@@ -284,13 +493,14 @@ async function summarizeSelectedPage(
         researchRequest: params.researchRequest,
         url: page.url,
         workflowSignal: params.workflowSignal,
-        onExtractionSettled: ({ content, creditsUsed }) => {
+        onExtractionSettled: ({ content, creditsUsed, links }) => {
           settlePageExtraction({
             userId: params.userId,
             jobId: params.deepSearchJobId,
             pageId: page.pageId,
             content,
             creditsUsed,
+            links,
           })
         },
         ...callbacks,
@@ -393,6 +603,8 @@ async function reviewSearchRound(
     completedRound: round.position,
     maxRounds,
     searchSummaries: [...searchSummaries],
+    sourceEvidence: sourceEvidenceFromSnapshot(loadSnapshot(params.deepSearchJobId)),
+    requirements: requirementsFromSnapshot(loadSnapshot(params.deepSearchJobId), round.position),
     workflowSignal: params.workflowSignal,
     onCompleted: (completed, transaction) => {
       saveRoundReviewCompletion(transaction, {
@@ -460,14 +672,69 @@ async function promoteCandidateAnswer(
   generationId: string,
   candidateAnswer: string,
   searchSummaries: readonly SearchSummary[],
-  previousAnalysis?: PersistedGeneration,
-): Promise<void> {
+): Promise<string> {
+  const snapshot = loadSnapshot(params.deepSearchJobId)
+  const previousAnalysis = snapshot.researchAnalysisGeneration
+  const previousFinal = snapshot.finalAnswerGeneration
+  if (previousAnalysis?.status === "completed" && !previousFinal) {
+    // A pre-upgrade completed audit belongs to its original candidate. Keep
+    // that completed checkpoint instead of silently pairing it with new text.
+    const analysis = researchAnalysisSchema.parse(secureJsonParse(completedText(previousAnalysis)))
+    promoteRoundAnswer({ jobId: params.deepSearchJobId, roundId: round.roundId,
+      generationId, researchAnalysisGenerationId: previousAnalysis.generationId })
+    params.publish({ type: "final-answer-stream", streamId: generationId })
+    params.publish({ type: "research-analysis", analysis })
+    return candidateAnswer
+  }
+  const sourceEvidence = sourceEvidenceFromSnapshot(snapshot)
+  const requirements = requirementsFromSnapshot(snapshot, round.position)
+  let finalGenerationId: string
+  let finalAnswer: string
+  if (previousFinal?.status === "completed") {
+    finalGenerationId = previousFinal.generationId
+    finalAnswer = completedText(previousFinal)
+    params.publish({ type: "final-answer-stream", streamId: finalGenerationId })
+  } else {
+    const correction = await answerResearchRequest({
+      userId: params.userId, deepSearchJobId: params.deepSearchJobId,
+      researchRequest: params.researchRequest, candidateAnswer,
+      reviewReason: snapshot.rounds.find(({ roundId }) => roundId === round.roundId)?.reviewReason ?? undefined,
+      searchSummaries: [...searchSummaries], sourceEvidence, requirements,
+      workflowSignal: params.workflowSignal,
+      onRegistered: (id, transaction) => {
+        if (previousFinal) {
+          replaceFinalAnswerGeneration(transaction, replacementInput(params.deepSearchJobId, previousFinal, id))
+        } else {
+          attachFinalAnswerGeneration(transaction, { jobId: params.deepSearchJobId, generationId: id })
+        }
+      },
+    })
+    finalGenerationId = correction.streamId
+    try {
+      params.publish({ type: "final-answer-stream", streamId: finalGenerationId })
+    } catch (error) {
+      await correction.answer.catch(() => undefined)
+      throw error
+    }
+    finalAnswer = await correction.answer
+  }
+  if (previousAnalysis?.status === "completed") {
+    const analysis = researchAnalysisSchema.parse(secureJsonParse(completedText(previousAnalysis)))
+    db.transaction((transaction) => completeReviewedAnswer(transaction, {
+      jobId: params.deepSearchJobId, generationId: finalGenerationId,
+      researchAnalysisGenerationId: previousAnalysis.generationId,
+    }))
+    params.publish({ type: "research-analysis", analysis })
+    return finalAnswer
+  }
   const researchAnalysisGeneration = await analyzeResearchAnswer({
     userId: params.userId,
     deepSearchJobId: params.deepSearchJobId,
     researchRequest: params.researchRequest,
-    finalAnswer: candidateAnswer,
+    finalAnswer,
     searchSummaries: [...searchSummaries],
+    sourceEvidence,
+    requirements,
     workflowSignal: params.workflowSignal,
     onRegistered: (analysisGenerationId, transaction) => {
       if (previousAnalysis) {
@@ -487,15 +754,14 @@ async function promoteCandidateAnswer(
     },
   })
   const analysis = await researchAnalysisGeneration.analysis
-  promoteRoundAnswer({
+  db.transaction((transaction) => completeReviewedAnswer(transaction, {
     jobId: params.deepSearchJobId,
-    roundId: round.roundId,
-    generationId,
+    generationId: finalGenerationId,
     researchAnalysisGenerationId:
       researchAnalysisGeneration.generationId,
-  })
-  params.publish({ type: "final-answer-stream", streamId: generationId })
+  }))
   params.publish({ type: "research-analysis", analysis })
+  return finalAnswer
 }
 
 /** Coordinates the complete deep-search workflow and persists each stage before publishing it. */
@@ -536,36 +802,14 @@ function deepSearchPipelineEffect(
       round: SearchRound,
       answerGenerationId: string,
       candidateAnswer: string,
-    ): Effect.Effect<void, WorkflowFailure> =>
-      workflowEffect(async () => {
-        const snapshot = loadSnapshot(params.deepSearchJobId)
-        const previousAnalysis = snapshot.researchAnalysisGeneration
-        if (previousAnalysis?.status === "completed") {
-          const analysis = researchAnalysisSchema.parse(
-            JSON.parse(completedText(previousAnalysis)),
-          )
-          promoteRoundAnswer({
-            jobId: params.deepSearchJobId,
-            roundId: round.roundId,
-            generationId: answerGenerationId,
-            researchAnalysisGenerationId: previousAnalysis.generationId,
-          })
-          params.publish({
-            type: "final-answer-stream",
-            streamId: answerGenerationId,
-          })
-          params.publish({ type: "research-analysis", analysis })
-          return
-        }
-        await promoteCandidateAnswer(
+    ): Effect.Effect<string, WorkflowFailure> =>
+      workflowEffect(() => promoteCandidateAnswer(
           durableParams,
           round,
           answerGenerationId,
           candidateAnswer,
           searchSummaries,
-          previousAnalysis ?? undefined,
-        )
-      })
+        ))
 
     for (let roundPosition = 0; roundPosition < maxRounds; roundPosition += 1) {
       let snapshot = yield* workflowEffect(() =>
@@ -582,12 +826,15 @@ function deepSearchPipelineEffect(
           position: snapshotRound.position,
           generationId: snapshotRound.planningGeneration.generationId,
         }
-        if (snapshotRound.queries.length === 0) {
+        const plan = parseResearchPlan(completedText(snapshotRound.planningGeneration))
+        // Legacy planning atomically saved its filtered query rows. An empty
+        // set can mean every raw query repeated earlier work; do not backfill it.
+        if (snapshotRound.queries.length === 0 && plan.version === 1) {
           yield* workflowEffect(() =>
             savePlannedQueries({
               jobId: params.deepSearchJobId,
               roundId: snapshotRound!.roundId,
-              queries: parseStringArray(snapshotRound!.planningGeneration),
+              queries: plan.queries,
             }),
           )
         }
@@ -605,6 +852,8 @@ function deepSearchPipelineEffect(
             previousSearchSummaries: [...searchSummaries],
             previousCandidateAnswer,
             previousReviewReason,
+            requirements: requirementsFromSnapshot(snapshot, roundPosition - 1),
+            sourceEvidence: sourceEvidenceFromSnapshot(snapshot),
             workflowSignal: durableParams.workflowSignal,
             onRegistered: (generationId, transaction) => {
               if (snapshotRound && previousPlanning) {
@@ -686,6 +935,11 @@ function deepSearchPipelineEffect(
       )
       if (!snapshotRound) {
         throw new WorkflowFailure({ message: "Round was not persisted" })
+      }
+      const plan = parseResearchPlan(completedText(snapshotRound.planningGeneration))
+      if (plan.version === 1) {
+        const { requirements } = plan
+        yield* workflowEffect(() => params.publish({ type: "research-requirements", round: roundPosition, requirements }))
       }
       const plannedQueries: PlannedQuery[] = snapshotRound.queries.map(
         ({ queryId, position, query }) => ({ queryId, position, query }),
@@ -799,6 +1053,9 @@ function deepSearchPipelineEffect(
                   snippet: result.shortText,
                 })),
                 maxResultsToExplore: maxResultsPerSearch,
+                requirements: requirementsFromSnapshot(snapshot, roundPosition),
+                knownPages: snapshot.pages.map(({ url, status }) => ({ url, status })),
+                reviewReason: previousReviewReason,
                 workflowSignal: durableParams.workflowSignal,
                 onRegistered: (generationId, transaction) => {
                   if (previousSelection) {
@@ -939,6 +1196,16 @@ function deepSearchPipelineEffect(
         pageSummaries.set(url, summary)
       }
 
+      yield* exploreLinkedPages(
+        durableParams,
+        persistedRound,
+        [...pagesToSummarize.values()],
+        pageSummaries,
+        strictQuality,
+        maxSearches,
+        maxResultsPerSearch,
+      )
+
       const roundSummaries = yield* settleAll(
         executedQueries.map((search) =>
           workflowEffect(async () => {
@@ -973,6 +1240,7 @@ function deepSearchPipelineEffect(
                 title: result.title,
                 url: result.url,
                 content: pageSummaries.get(result.url) || result.shortText,
+                evidenceType: pageSummaries.get(result.url) ? "page-summary" : "search-snippet",
               })),
               workflowSignal: durableParams.workflowSignal,
               onRegistered: (generationId, transaction) => {
@@ -1060,6 +1328,8 @@ function deepSearchPipelineEffect(
             deepSearchJobId: durableParams.deepSearchJobId,
             researchRequest: durableParams.researchRequest,
             searchSummaries: [...searchSummaries],
+            sourceEvidence: sourceEvidenceFromSnapshot(loadSnapshot(params.deepSearchJobId)),
+            requirements: requirementsFromSnapshot(loadSnapshot(params.deepSearchJobId), roundPosition),
             workflowSignal: durableParams.workflowSignal,
             onRegistered: (generationId, transaction) => {
               if (previousAnswer) {
@@ -1098,12 +1368,11 @@ function deepSearchPipelineEffect(
       }
 
       if (roundPosition + 1 >= maxRounds) {
-        yield* promotePersistedCandidate(
+        return yield* promotePersistedCandidate(
           persistedRound,
           answerGenerationId,
           candidateAnswer,
         )
-        return candidateAnswer
       }
 
       snapshot = yield* workflowEffect(() =>
@@ -1141,12 +1410,11 @@ function deepSearchPipelineEffect(
         )
       }
       if (!decision) {
-        yield* promotePersistedCandidate(
+        return yield* promotePersistedCandidate(
           persistedRound,
           answerGenerationId,
           candidateAnswer,
         )
-        return candidateAnswer
       }
 
       if (!decisionWasPersisted) {
@@ -1154,17 +1422,25 @@ function deepSearchPipelineEffect(
           params.publish({
             type: "round-review",
             round: roundPosition,
-            ...decision,
+            decision: decision.decision,
+            reason: decision.reason,
           }),
         )
       }
+      const completedReview = loadSnapshot(params.deepSearchJobId).rounds
+        .find(({ roundId }) => roundId === persistedRound.roundId)?.reviewGeneration
+      if (completedReview?.status === "completed") {
+        const { requirements } = roundReviewSchema.parse(secureJsonParse(completedText(completedReview)))
+        if (requirements !== undefined) {
+          yield* workflowEffect(() => params.publish({ type: "research-requirements", round: roundPosition, requirements }))
+        }
+      }
       if (decision.decision === "stop") {
-        yield* promotePersistedCandidate(
+        return yield* promotePersistedCandidate(
           persistedRound,
           answerGenerationId,
           candidateAnswer,
         )
-        return candidateAnswer
       }
       previousCandidateAnswer = candidateAnswer
       previousReviewReason = decision.reason

@@ -3,6 +3,7 @@ import type {
   DeepSearchJobEvent,
   DeepSearchResults,
   ResearchAnalysis,
+  ResearchRequirements,
 } from "./deepSearchJobs.ts"
 
 export type DeepSearchPageSummary =
@@ -21,6 +22,12 @@ export type DeepSearchSearchState = {
   results: DeepSearchResultState[]
   selectionStreamId?: string
   querySummaryStreamId?: string
+}
+
+export type DeepSearchLinkedSourceState = {
+  sourceUrl: string
+  selectionStreamId?: string
+  links?: Array<{ url: string; title: string; summary: DeepSearchPageSummary }>
 }
 
 type DeepSearchQueryGenerationState = {
@@ -51,9 +58,11 @@ export type DeepSearchRunState = {
   queryGenerations: DeepSearchQueryGenerationState[]
   roundAnswers: DeepSearchRoundAnswerState[]
   roundReviews: DeepSearchRoundReviewState[]
+  roundRequirements: Array<{ round: number; requirements: ResearchRequirements }>
   finalAnswerStreamId: string | null
   researchAnalysis: ResearchAnalysis | null
   searches: DeepSearchSearchState[]
+  linkedSources: DeepSearchLinkedSourceState[]
   error: string | null
 }
 
@@ -62,9 +71,11 @@ export const initialDeepSearchState: DeepSearchRunState = {
   queryGenerations: [],
   roundAnswers: [],
   roundReviews: [],
+  roundRequirements: [],
   finalAnswerStreamId: null,
   researchAnalysis: null,
   searches: [],
+  linkedSources: [],
   error: null,
 }
 
@@ -110,6 +121,11 @@ function setPageSummary(
       }
     }
   }
+  for (const source of state.linkedSources) {
+    for (const link of source.links ?? []) {
+      if (link.url === url) link.summary = summary
+    }
+  }
 }
 
 function findPageSummary(
@@ -120,6 +136,10 @@ function findPageSummary(
     const summary = search.results.find(
       (result) => result.link === url && result.summary !== undefined,
     )?.summary
+    if (summary) return summary
+  }
+  for (const source of state.linkedSources) {
+    const summary = source.links?.find((link) => link.url === url)?.summary
     if (summary) return summary
   }
 }
@@ -141,6 +161,11 @@ export const deepSearchReducer = produce<
         streamId: action.streamId,
       })
       state.queryGenerations.sort((first, second) => first.round - second.round)
+      break
+    case "research-requirements":
+      state.roundRequirements = state.roundRequirements.filter(({ round }) => round !== action.round)
+      state.roundRequirements.push({ round: action.round, requirements: action.requirements })
+      state.roundRequirements.sort((first, second) => first.round - second.round)
       break
     case "search-results":
       state.searches = state.searches.filter(
@@ -169,6 +194,27 @@ export const deepSearchReducer = produce<
           delete result.summary
         }
       }
+      break
+    }
+    case "linked-page-selection-stream": {
+      const source = state.linkedSources.find(({ sourceUrl }) => sourceUrl === action.sourceUrl)
+      if (source) source.selectionStreamId = action.streamId
+      else state.linkedSources.push({ sourceUrl: action.sourceUrl, selectionStreamId: action.streamId })
+      break
+    }
+    case "selected-linked-pages": {
+      const source = state.linkedSources.find(({ sourceUrl }) => sourceUrl === action.sourceUrl)
+      const seen = new Set<string>()
+      const links = action.links.filter(({ url }) => {
+        if (seen.has(url)) return false
+        seen.add(url)
+        return true
+      }).map((link) => ({
+        ...link,
+        summary: findPageSummary(state, link.url) ?? { status: "extracting" as const },
+      }))
+      if (source) source.links = links
+      else state.linkedSources.push({ sourceUrl: action.sourceUrl, links })
       break
     }
     case "page-summary-stream":

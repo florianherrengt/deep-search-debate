@@ -9,8 +9,12 @@ import {
 import {
   researchAnalysisSchema,
   type ResearchAnalysis,
+  type ResearchRequirements,
 } from "./schemas.ts"
-import { formatSearchSummaryContext } from "./searchSummaryContext.ts"
+import {
+  formatSearchSummaryContext,
+  type SourceEvidence,
+} from "./searchSummaryContext.ts"
 
 type SearchSummary = {
   round: number
@@ -24,6 +28,8 @@ type AnalyzeResearchAnswerInput = {
   researchRequest: string
   finalAnswer: string
   searchSummaries: SearchSummary[]
+  sourceEvidence?: SourceEvidence[]
+  requirements?: ResearchRequirements
   workflowSignal?: AbortSignal
   onCompleted?: (
     completed: { id: string; output: ResearchAnalysis },
@@ -47,7 +53,12 @@ export type ResearchAnalysisGeneration = {
 export async function analyzeResearchAnswer(
   input: AnalyzeResearchAnswerInput,
 ): Promise<ResearchAnalysisGeneration> {
-  const summaries = formatSearchSummaryContext(input.searchSummaries)
+  const summaries = formatSearchSummaryContext(
+    input.searchSummaries,
+    undefined,
+    input.sourceEvidence,
+    input.researchRequest,
+  )
   const generation = await generateObjectStream({
     userId: input.userId,
     owner: { deepSearchJobId: input.deepSearchJobId },
@@ -55,6 +66,7 @@ export async function analyzeResearchAnswer(
       "<research_request>",
       input.researchRequest,
       "</research_request>",
+      "<requirements>", JSON.stringify(input.requirements ?? []), "</requirements>",
       "<final_answer>",
       input.finalAnswer,
       "</final_answer>",
@@ -63,7 +75,7 @@ export async function analyzeResearchAnswer(
       "</search_summaries>",
     ].join("\n"),
     promptName: PromptName.AnalyzeResearchAnswer,
-    schema: researchAnalysisSchema,
+    schema: researchAnalysisSchema.required({ requirements: true }),
     reasoning: "disabled",
     workflowSignal: input.workflowSignal,
     ...(input.onRegistered ? { onRegistered: input.onRegistered } : {}),

@@ -76,6 +76,20 @@ and feature tests SHOULD remain colocated there.
   change, not an incidental frontend refactor.
 - New standards MUST be adopted without a big-bang feature-directory migration.
 
+### Markdown rendering
+
+`MarkdownText` is the shared renderer for research answers and other Markdown.
+It uses `react-markdown` with `remark-gfm` for tables, footnotes, autolinks,
+strikethrough, and task lists. The plugin extends the existing parser instead
+of introducing a separate Markdown parser. Keep the default URL filtering and
+raw-HTML escaping. External citations retain their exact URLs and open safely
+in a new tab; footnote links stay within the page and retain their reference
+IDs and accessibility attributes. Each renderer prefixes footnote targets and
+labels so separate answers remain independently linked. Tables use MUI semantics
+and local theme styles, with a focusable container that confines horizontal scrolling to the
+table. Renderer component identities remain stable while text streams so
+updates preserve keyboard focus and scroll position.
+
 ## 4. Components and React behavior
 
 - Existing MUI primitives MUST be preferred for buttons, links, inputs, menus,

@@ -36,6 +36,11 @@ export class OpenAiCodexError extends Error {
 
 export function classifyCodexError(error: unknown): OpenAiCodexError {
   if (error instanceof OpenAiCodexError) return error
+  // Pi wraps credential-store errors. Preserve a safe local diagnosis instead
+  // of relabeling an incompatible saved format as an expired connection.
+  if (error instanceof Error && error.cause instanceof OpenAiCodexError) {
+    return error.cause
+  }
 
   // Inspect upstream fields only inside this boundary. The original error and
   // its text must never be logged, persisted, or returned to the caller.
@@ -48,6 +53,11 @@ export function classifyCodexError(error: unknown): OpenAiCodexError {
     record?.code,
     record?.status,
   ].join(" ").toLowerCase()
+
+  // Pi's lazy stream flattens setup errors into text instead of retaining cause.
+  if (text.includes(safeMessages["protocol-incompatible"].toLowerCase())) {
+    return new OpenAiCodexError("protocol-incompatible")
+  }
 
   if (
     text.includes("usage_limit_exceeded") ||
