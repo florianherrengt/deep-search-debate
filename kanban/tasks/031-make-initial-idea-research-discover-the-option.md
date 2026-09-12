@@ -1,12 +1,12 @@
 ---
 id: 31
 title: Make initial idea research discover the option space
-status: in-progress
+status: review
 priority: medium
 created: 2026-09-12T21:26:43.816524+01:00
-updated: 2026-09-13T00:12:01.658112+01:00
-claimed_by: vaginula-sonar
-claimed_at: 2026-09-13T00:12:01.658249+01:00
+updated: 2026-09-13T00:16:37.494467+01:00
+blocked: true
+block_reason: 'Waiting on user: shared run limits, one coordinated discovery versus several searches, and handling existing unfinished runs.'
 class: standard
 ---
 
@@ -26,3 +26,6 @@ Limit this change to the initial space-discovery phase shared by Ideas and Debat
 
 [[2026-09-13]] Sun 00:12
 User replaced the prompt-only scope. Implement a real initial space-discovery workflow that reuses search rounds, retrieval, durable execution and coverage checks; produces a broad unranked option inventory for idea generation; and pauses after generated ideas. Both Ideas and the direct-debate form use this preview flow. Start debate continues with the same persisted ideas through existing selection, refinement, individual research and tournament. Detailed candidate research begins only after the click. Leave source code uncommitted for review.
+
+[[2026-09-13]] Sun 00:16
+Read-only design investigation completed. Recommended implementation: reuse deep-search retrieval, settlement, round persistence and recovery; add a distinct discovery inventory and breadth-coverage review path; pass the original request into discovery without generated research-prompt fan-out; feed all discovered options into existing idea generation; persist a ready state before selection; create and attach one debate on Start debate, preserving idea IDs. Need resolve three product questions sent to user before source edits. Shared limits matter because existing Ideas defaults can exceed the debate page/candidate caps. Existing unfinished jobs need an explicit durable distinction if they retain the original automatic flow. A single discovery child requires new jobs deepSearchCount=1 and removal of mandatory planner generation. Tests planned: cumulative inventory/coverage continuation, stable pause and no downstream work, owner-only idempotent continuation, restart after idea commit, both UI entry points. Migration must preserve incoming FK children and handwritten triggers; ready must be excluded from startup and normal Resume. Worktree remains /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-31-space-discovery on codex/ticket-31-space-discovery. No new source changes or validation this resumed turn; four previous uncommitted files remain. Source code uncommitted; no merge, push or deployment.
