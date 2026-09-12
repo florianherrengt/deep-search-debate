@@ -475,3 +475,6 @@
 {"timestamp":"2026-09-12T21:08:14.928731+01:00","action":"move","task_id":30,"detail":"review -\u003e done"}
 {"timestamp":"2026-09-12T21:08:46.57944+01:00","action":"edit","task_id":30,"detail":"Improve deep search with preserved evidence and linked-source verification"}
 {"timestamp":"2026-09-12T21:26:43.818861+01:00","action":"create","task_id":31,"detail":"Make initial idea research discover the option space"}
+{"timestamp":"2026-09-12T21:54:38.708882+01:00","action":"move","task_id":31,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-09-12T21:54:38.710019+01:00","action":"handoff","task_id":31,"detail":"Make initial idea research discover the option space"}
+{"timestamp":"2026-09-12T21:54:38.710138+01:00","action":"release","task_id":31,"detail":"Make initial idea research discover the option space"}
