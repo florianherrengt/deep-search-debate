@@ -1,10 +1,12 @@
 ---
 id: 30
 title: Improve deep search with preserved evidence and linked-source verification
-status: review
+status: done
 priority: high
 created: 2026-09-07T19:29:18.713132+01:00
-updated: 2026-09-09T02:11:57.456309+01:00
+updated: 2026-09-12T21:08:46.577837+01:00
+started: 2026-09-12T21:08:14.928288+01:00
+completed: 2026-09-12T21:08:14.928288+01:00
 tags:
     - feature
     - research
@@ -85,3 +87,12 @@ User approved gap-informed continuation: analyze material searchable gaps before
 - Validation note: one intermediate full gate hit an intermittent UND_ERR_SOCKET in the unchanged deliberate-process-kill restart test. That test uses maxRounds=1 and never invokes the new reviewer; its feed helper can reject when the process dies before a complete event arrives. Focused rerun and final isolated full gate passed without changing that test. No unrelated fix was made.
 - Dedicated root, API, database, and web checklist reviews have no remaining actionable findings. All task code remains uncommitted in /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-30-deep-search-evidence on codex/ticket-30-deep-search-evidence. No merge, push, or deployment.
 - Final logs: /tmp/rethinkloop-ticket30-gap-verified-gatekeep.log, /tmp/rethinkloop-ticket30-gap-e2e.log, /tmp/rethinkloop-ticket30-gap-restart-focused.log.
+
+[[2026-09-12]] Sat 21:08
+## Release — completed
+- User approved committing, pushing, merging into main, and deploying. Task commit: 351eb33. Main release merge: 706ec96c0f4677f4fa852bbe7f44e27298944427. Both main and codex/ticket-30-deep-search-evidence were pushed; the clean task worktree is retained.
+- Fresh Node 26 gatekeep passed: 834 API and 375 web tests (1,209 total), plus lint, typecheck, and knip. Dedicated root, API, database, and web release reviews found no blockers. Application code on main matches the verified worktree; only board history differs. The unchanged full browser suite previously passed all 15 cases. Production image build passed with the existing large-chunk warning.
+- Published image florianherrengt/rethinkloop:706ec96c0f4677f4fa852bbe7f44e27298944427, digest sha256:25dc587bfbe9e25e55f20f6f52ba81085f14ea3e7ab934b9560057c1b9ad3296. Coolify deployment lq2zmpikc8k1fin8vtgkhojd finished at 2026-09-12T20:06:54Z.
+- Production verification: running:healthy, migrations applied successfully, public /api/health passed, and the homepage serves the image build's index-wWVQHhJV.js asset with HTTP 200. Rendered production homepage verified. Existing /data/rethinkloop/data to /app/data storage binding and runtime credentials were preserved; no search-budget overrides are configured, so the new defaults apply.
+- Fresh saved real-provider run fa2a5e3c-4f37-49f6-a6ee-8028b912c35b visibly reached three rounds and 33 retained pages at http://localhost:5180/deep-search/sqlite-wal-multi-process-support-2. It resumed from durable checkpoints after the local services restarted, then the user stopped it during the third candidate answer and accepted the multiple-round behavior. It is not a completed final-answer run. Remaining quality limitation: bounded reviewer context can omit already-retained details and trigger redundant searches; extra rounds did not resolve the two backup edge questions.
+- Release logs: /tmp/rethinkloop-ticket30-release-gatekeep.log, /tmp/rethinkloop-ticket30-release-publish.log, and /tmp/rethinkloop-ticket30-release-deployment.log.
