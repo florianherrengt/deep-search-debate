@@ -4,9 +4,9 @@ title: Make initial idea research discover the option space
 status: in-progress
 priority: medium
 created: 2026-09-12T21:26:43.816524+01:00
-updated: 2026-09-13T01:01:43.879253+01:00
+updated: 2026-09-13T01:45:12.958964+01:00
 claimed_by: vaginula-sonar
-claimed_at: 2026-09-13T01:01:43.879367+01:00
+claimed_at: 2026-09-13T01:45:12.95908+01:00
 class: standard
 ---
 
@@ -32,3 +32,6 @@ Read-only design investigation completed. Recommended implementation: reuse deep
 
 [[2026-09-13]] Sun 01:01
 User confirmed all three decisions: one coordinated discovery search; existing debate limits for the shared new flow; existing unfinished jobs retain their original workflow. Implementing the saved discovery and ready/start transition with stable idea IDs.
+
+[[2026-09-13]] Sun 01:45
+Implementation complete in the existing worktree: persisted discovery workflow and ready pause; owner-only idempotent Start debate preserves idea IDs; both browser forms use preview; old saved research jobs retain their workflow. Full gate passes (841 API + 383 web tests), web build and Storybook build pass, migration upgrade/rollback and all six restart cases pass. Four dedicated checklist reviews completed; documentation and premature comparison copy findings fixed, inventory rendering coverage added. Fresh controlled browser run completed discovery, pause, all debate matches and winner website using the same IDs; a second ready example is open at http://localhost:5181/ideas/london-renter-energy-products-2. Final affected browser batch is running. Fresh configured DeepSeek running-shoes pilot discovered 128 options in round one and requested broader track/XC, wide-fit, women-specific and other coverage; continuing the same saved pilot after its 15-minute diagnostic observation window interrupted second-round startup. Final live quality assessment remains pending. Source remains uncommitted.
