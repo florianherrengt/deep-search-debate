@@ -488,3 +488,6 @@
 {"timestamp":"2026-09-13T01:01:43.881266+01:00","action":"unblock","task_id":31,"detail":"Make initial idea research discover the option space"}
 {"timestamp":"2026-09-13T01:01:43.881383+01:00","action":"claim","task_id":31,"detail":"vaginula-sonar"}
 {"timestamp":"2026-09-13T01:45:12.960365+01:00","action":"edit","task_id":31,"detail":"Make initial idea research discover the option space"}
+{"timestamp":"2026-09-13T02:11:43.154741+01:00","action":"move","task_id":31,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-09-13T02:11:43.154882+01:00","action":"handoff","task_id":31,"detail":"Make initial idea research discover the option space"}
+{"timestamp":"2026-09-13T02:11:43.15497+01:00","action":"release","task_id":31,"detail":"Make initial idea research discover the option space"}

@@ -1,12 +1,10 @@
 ---
 id: 31
 title: Make initial idea research discover the option space
-status: in-progress
+status: review
 priority: medium
 created: 2026-09-12T21:26:43.816524+01:00
-updated: 2026-09-13T01:45:12.958964+01:00
-claimed_by: vaginula-sonar
-claimed_at: 2026-09-13T01:45:12.95908+01:00
+updated: 2026-09-13T02:11:43.153052+01:00
 class: standard
 ---
 
@@ -35,3 +33,16 @@ User confirmed all three decisions: one coordinated discovery search; existing d
 
 [[2026-09-13]] Sun 01:45
 Implementation complete in the existing worktree: persisted discovery workflow and ready pause; owner-only idempotent Start debate preserves idea IDs; both browser forms use preview; old saved research jobs retain their workflow. Full gate passes (841 API + 383 web tests), web build and Storybook build pass, migration upgrade/rollback and all six restart cases pass. Four dedicated checklist reviews completed; documentation and premature comparison copy findings fixed, inventory rendering coverage added. Fresh controlled browser run completed discovery, pause, all debate matches and winner website using the same IDs; a second ready example is open at http://localhost:5181/ideas/london-renter-energy-products-2. Final affected browser batch is running. Fresh configured DeepSeek running-shoes pilot discovered 128 options in round one and requested broader track/XC, wide-fit, women-specific and other coverage; continuing the same saved pilot after its 15-minute diagnostic observation window interrupted second-round startup. Final live quality assessment remains pending. Source remains uncommitted.
+
+[[2026-09-13]] Sun 02:11
+Ready for review in /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-31-space-discovery on codex/ticket-31-space-discovery. Source remains uncommitted; no merge, push or deployment.
+
+Implemented the confirmed pipeline: original request -> one coordinated round-based discovery with coverage checks -> cumulative unranked option inventory -> existing idea generation -> persisted ready pause. Both browser entrypoints show the saved ideas and Start debate. Starting creates one debate and continues the same idea IDs through existing selection, refinement, individual research, tournament and winner website. Shared new flow uses the existing debate limits; saved legacy research jobs retain their original workflow. Reused retrieval, source provenance, generation persistence, replay, cancellation and restart mechanisms. Migration preserves existing rows and incoming children.
+
+Final validation: Node 26.5.1 npm run gatekeep passed (lint, typecheck, knip, 843 API and 383 web tests). All six process-restart cases and all seven final controlled-provider browser scenarios passed, including both entrypoints, stable pause/reload, ownership and idempotent continuation, DeepSeek/OpenAI full tournaments and winner websites. Web and Storybook builds passed. Dedicated root/API/DB/web checklist reviews completed and findings resolved; final diff check clean.
+
+Real-model quality proof: configured DeepSeek performed two rounds, four searches and eight retrieved pages for 'What are the best shoes for running?'. Inventory grew from 72 to 143 options, retaining every previous exact name, position and source. It then generated eight saved ideas and stopped ready; no selection, candidate research or debate calls. Independent quality review accepted broad neutral categories, brief entries and grounded additions. Trail, waterproof, wide-fit, budget and hybrid coverage expanded; track spikes and dedicated barefoot models remain uncovered within the existing two-round limit. This is broad discovery, not an exhaustive market census.
+
+The earlier 128-option pilot was stopped after quality problems and is superseded by this result. Current-round catalogue context now takes priority over duplicate source prose. The final real run initially used a pre-fix loaded formatter and failed on missing source-heading budget; current code reproduced and fixed the exact 520-character shortfall, and resuming the same saved run completed successfully without repeating its searches. The existing saturation regression, full gate and final browser batch all use the corrected code. Live probe used task-only link depth 0; linked retrieval is covered by real-pipeline tests and the earlier live crawl.
+
+Evidence: /tmp/ticket31-gatekeep-final.log; /tmp/ticket31-browser-final-context-proof.log; /tmp/ticket31-web-build-final.log; /tmp/ticket31-storybook-build-final.log; /tmp/ticket31-discovery-context-final-tests.log; /tmp/ticket31-context-reproduction-0lDICZ/report.json; /tmp/rethinkloop-ticket31-live-discovery-W5UfB7/report.json and inventory.json; /tmp/ticket31-live-final-recovery.log. Desktop/narrow browser inspection and actual Start debate verified. A separate ready preview with test data remains open at http://localhost:5181/ideas/london-renter-energy-products-2.
