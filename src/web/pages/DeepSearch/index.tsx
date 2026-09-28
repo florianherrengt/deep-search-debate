@@ -247,6 +247,7 @@ function DeepSearchJobContent({
   if (routeRoundNumber !== undefined) {
     return (
       <DeepSearchRoundDetail
+        mode={job.mode}
         jobSlug={job.slug}
         jobTitle={job.title}
         maxRounds={job.maxRounds}
@@ -260,6 +261,7 @@ function DeepSearchJobContent({
 
   return (
     <DeepSearchOverview
+      mode={job.mode}
       feedbackControl={feedbackControl}
       jobSlug={job.slug}
       researchRequest={job.researchRequest}

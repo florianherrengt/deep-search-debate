@@ -35,6 +35,24 @@ async function readTextStream(
 // External HTTP responses are deterministic; the API, persistence, streaming,
 // extraction pipeline, and browser behavior remain real.
 test.describe("Ideas", () => {
+  let continuedDebate: { debateJobId: string; slug: string } | undefined
+
+  test.afterEach(async ({ request }) => {
+    if (!continuedDebate) return
+    const { debateJobId, slug } = continuedDebate
+    continuedDebate = undefined
+    const detail = await request.get(`/api/debate-jobs/${slug}`)
+    expect(detail.status()).toBe(200)
+    const { debateJob } = await detail.json() as { debateJob: { status: string } }
+    if (debateJob.status === "running") {
+      const cancellation = await request.post(`/api/debate-jobs/${debateJobId}/cancel`)
+      expect([200, 202, 409]).toContain(cancellation.status())
+    }
+    const settled = await request.get(`/api/debate-jobs/${debateJobId}/events`, { timeout: 20_000 })
+    expect(settled.status()).toBe(200)
+    expect(parseEvents<{ type: string }>(await settled.text()).at(-1)).toEqual({ type: "done" })
+  })
+
   test("stops an active root and cascades to its child searches", async ({
     page,
     request,
@@ -85,7 +103,7 @@ test.describe("Ideas", () => {
       (event): event is Extract<IdeaJobEvent, { type: "deep-search-started" }> =>
         event.type === "deep-search-started",
     )
-    expect(children).toHaveLength(2)
+    expect(children).toHaveLength(1)
     for (const child of children) {
       const response = await request.get(`/api/deep-search-jobs/${child.slug}`)
       await expect(response.json()).resolves.toMatchObject({
@@ -108,9 +126,8 @@ test.describe("Ideas", () => {
     page,
     request,
   }) => {
-    // Ten child searches now execute all three queries through the real 1/s
-    // search queue, before final correction, assessment, and replay checks.
-    test.setTimeout(60_000)
+    // Discovery pauses durably before the same ideas enter candidate research.
+    test.setTimeout(120_000)
     await page.goto("/ideas")
 
     const prompt =
@@ -135,10 +152,6 @@ test.describe("Ideas", () => {
     expect(created.status()).toBe(202)
     expect(created.request().postDataJSON()).toEqual({
       prompt,
-      numberOfIdeas: 8,
-      deepSearchCount: 2,
-      maxSearches: 3,
-      maxResultsPerSearch: 3,
     })
 
     const { ideaJobId, slug } = (await created.json()) as {
@@ -158,7 +171,28 @@ test.describe("Ideas", () => {
     const live = await liveResponse
     expect(live.status()).toBe(200)
     expect(live.headers()["content-type"]).toContain("application/x-ndjson")
-    const liveEvents = parseEvents<IdeaJobEvent>(await live.text())
+    const discoveryEvents = parseEvents<IdeaJobEvent>(await live.text())
+    expect(discoveryEvents.slice(-2)).toEqual([{ type: "ready" }, { type: "done" }])
+    expect(discoveryEvents.filter((event) => event.type === "idea")).toHaveLength(8)
+    expect(discoveryEvents.some((event) => ["idea-selection-stream", "idea-refinement-stream", "idea-deep-search-started", "idea-evaluated"].includes(event.type))).toBe(false)
+    const originalIdeas = discoveryEvents.filter((event) => event.type === "idea")
+    const readyDetail = await request.get(`/api/idea-jobs/${slug}`)
+    expect(await readyDetail.json()).toMatchObject({ ideaJob: { status: "ready", workflow: "discovery", canStartDebate: true, debateJobId: null } })
+    await expect(page.getByRole("button", { name: "Start debate", exact: true })).toBeVisible()
+    await page.reload()
+    await expect(page.getByRole("button", { name: "Start debate", exact: true })).toBeVisible()
+    for (const idea of originalIdeas) await expect(page.getByText(idea.description, { exact: true })).toBeVisible()
+    const startedResponse = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === `/api/idea-jobs/${ideaJobId}/debate`)
+    await page.getByRole("button", { name: "Start debate", exact: true }).click()
+    const started = await startedResponse
+    expect(started.status()).toBe(202)
+    continuedDebate = await started.json() as { debateJobId: string; slug: string }
+    const { slug: debateSlug } = continuedDebate
+    await expect(page).toHaveURL(new RegExp(`/debates/${debateSlug}$`))
+    const continued = await request.get(`/api/idea-jobs/${ideaJobId}/events`)
+    const liveEvents = parseEvents<IdeaJobEvent>(await continued.text())
+    expect(liveEvents.filter((event) => event.type === "idea")).toEqual(originalIdeas)
+    await page.goto(`/ideas/${slug}`)
     expect(liveEvents.at(-1)).toEqual({ type: "done" })
     const jobError = liveEvents.find((event) => event.type === "error")
     expect(
@@ -209,11 +243,11 @@ test.describe("Ideas", () => {
         event.type === "idea",
     )
 
-    expect(planning).toBeDefined()
-    expect(research).toHaveLength(2)
-    expect(new Set(research.map((item) => item.deepSearchJobId)).size).toBe(2)
-    expect(new Set(research.map((item) => item.researchRequest)).size).toBe(2)
-    expect(summary).toBeDefined()
+    expect(planning).toBeUndefined()
+    expect(research).toHaveLength(1)
+    expect(new Set(research.map((item) => item.deepSearchJobId)).size).toBe(1)
+    expect(new Set(research.map((item) => item.researchRequest)).size).toBe(1)
+    expect(summary).toBeUndefined()
     expect(ideaGeneration).toBeDefined()
     expect(evaluations).toHaveLength(8)
     expect(ideas).toHaveLength(8)
@@ -227,7 +261,7 @@ test.describe("Ideas", () => {
     )
     expect(
       Math.max(...research.map((item) => liveEvents.indexOf(item))),
-    ).toBeLessThan(liveEvents.indexOf(summary!))
+    ).toBeLessThan(liveEvents.indexOf(ideaGeneration!))
     expect(
       Math.max(...ideas.map((idea) => liveEvents.indexOf(idea))),
     ).toBeLessThan(liveEvents.indexOf(selection!))
@@ -258,11 +292,6 @@ test.describe("Ideas", () => {
       )
     }
 
-    const planningStream = await readTextStream(
-      request,
-      planning?.streamId ?? "",
-    )
-    const summaryStream = await readTextStream(request, summary?.streamId ?? "")
     const ideaStream = await readTextStream(
       request,
       ideaGeneration?.streamId ?? "",
@@ -272,9 +301,6 @@ test.describe("Ideas", () => {
         readTextStream(request, generation.streamId),
       ),
     )
-    expect(planningStream.text.trim()).not.toBe("")
-    expect(summaryStream.text).toContain("insulation, heating-control")
-    expect(summaryStream.text).toContain("Removable controls")
     expect(ideaStream.text.trim()).not.toBe("")
     const evaluationByIdeaId = new Map(
       evaluations.map((evaluation) => [evaluation.ideaId, evaluation]),
@@ -326,7 +352,9 @@ test.describe("Ideas", () => {
       )
       expect(childEvents.flatMap((event) =>
         event.type === "search-results" ? event.searches : [],
-      )).toHaveLength(3)
+      )).toHaveLength(4)
+      expect(childEvents.filter((event) => event.type === "round-answer-stream")).toHaveLength(2)
+      expect(childEvents.some((event) => event.type === "research-analysis")).toBe(false)
       expect(childEvents.at(-1)).toEqual({ type: "done" })
       expect(childEvents.some((event) => event.type === "error")).toBe(false)
       const finalAnswer = childEvents.find(
@@ -337,7 +365,10 @@ test.describe("Ideas", () => {
         request,
         finalAnswer?.streamId ?? "",
       )
-      expect(childFinalStream.text.trim()).not.toBe("")
+      const inventory = JSON.parse(childFinalStream.text) as { options: Array<{ name: string; category: string; description: string; sources: string[] }> }
+      expect(inventory.options.map(({ name }) => name)).toEqual(["Removable heating controls", "Draught-proofing kits", "Shared energy-use monitoring"])
+      expect(new Set(inventory.options.map(({ category }) => category)).size).toBe(3)
+      expect(inventory.options.every(({ description, sources }) => description.length > 0 && sources.every((source) => source.startsWith("https://e2e-content.test/")))).toBe(true)
     }
     for (const child of ideaResearch) {
       const detail = await request.get(`/api/deep-search-jobs/${child.slug}`)
@@ -347,8 +378,8 @@ test.describe("Ideas", () => {
           deepSearchJobId: child.deepSearchJobId,
           ideaJobId,
           researchRequest: child.researchRequest,
-          maxSearches: 3,
-          maxResultsPerSearch: 3,
+          maxSearches: 2,
+          maxResultsPerSearch: 2,
           status: "completed",
         },
       })
@@ -360,7 +391,7 @@ test.describe("Ideas", () => {
       )
       expect(childEvents.flatMap((event) =>
         event.type === "search-results" ? event.searches : [],
-      )).toHaveLength(3)
+      )).toHaveLength(2)
       const finalAnswer = childEvents.find(
         (event) => event.type === "final-answer-stream",
       )
@@ -375,7 +406,7 @@ test.describe("Ideas", () => {
     }
 
     await expect(
-      page.getByRole("heading", { name: "Initial deep research" }),
+      page.getByRole("heading", { name: "Space discovery" }),
     ).toBeVisible()
     await expect(
       page.getByText("Open the source research that informed these ideas."),
@@ -421,7 +452,7 @@ test.describe("Ideas", () => {
     }
 
     const researchLinks = page.locator('a[href^="/deep-search/"]')
-    await expect(researchLinks).toHaveCount(2)
+    await expect(researchLinks).toHaveCount(1)
     for (const child of research) {
       const link = page.locator(`a[href="/deep-search/${child.slug}"]`)
       await expect(link).toHaveAttribute("target", "_blank")
@@ -499,7 +530,7 @@ test.describe("Ideas", () => {
     await page.getByRole("link", { name: "Back to ideas" }).click()
     await expect(page).toHaveURL(new RegExp(`/ideas/${slug}$`))
     await expect(
-      page.getByRole("heading", { name: "Initial deep research" }),
+      page.getByRole("heading", { name: "Space discovery" }),
     ).toBeVisible()
 
     const replay = await request.get(`/api/idea-jobs/${ideaJobId}/events`)
@@ -548,7 +579,7 @@ test.describe("Ideas", () => {
         ideaJobId,
         prompt,
         numberOfIdeas: 8,
-        deepSearchCount: 2,
+        deepSearchCount: 1,
         stage: "ideas",
         status: "completed",
       },
@@ -556,7 +587,7 @@ test.describe("Ideas", () => {
 
     await page.reload()
     await expect(
-      page.getByRole("heading", { name: "Initial deep research" }),
+      page.getByRole("heading", { name: "Space discovery" }),
     ).toBeVisible()
     await expect(
       page.getByRole("group", { name: "Idea generation stages" }),

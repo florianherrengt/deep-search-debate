@@ -52,10 +52,10 @@ describe("idea job manager", () => {
         title: "London Energy Options",
         prompt: "Generate energy ideas",
         numberOfIdeas: 8,
-        deepSearchCount: 2,
-        maxSearches: 3,
-        maxResultsPerSearch: 3,
-        maxRounds: 3,
+        deepSearchCount: 1,
+        maxSearches: 2,
+        maxResultsPerSearch: 2,
+        maxRounds: 2,
       },
     )
 

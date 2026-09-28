@@ -168,3 +168,14 @@ export const Interrupted: Story = {
     stopRequested: false,
   },
 }
+
+
+export const LongDiscoveryInventory: Story = {
+  args: {
+    jobSlug: "running-options",
+    title: "Running options",
+    researchRequest: "What are the best shoes for running?",
+    mode: "discovery",
+    run: { ...completedRun, roundAnswers: [], searches: [], researchAnalysis: null, finalAnswerStreamId: "long-discovery-inventory" },
+  },
+}

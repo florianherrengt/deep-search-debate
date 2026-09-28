@@ -122,6 +122,7 @@ function createReadApp(viewerUserId: string | null): Hono<AppEnv> {
   }
   const debateJobManager: DebateJobManager = {
     start: vi.fn(),
+    startFromIdeas: vi.fn(),
     resumeExisting: vi.fn(),
     stop: vi.fn(),
     getLiveJob: vi.fn(),

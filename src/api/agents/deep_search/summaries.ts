@@ -6,6 +6,7 @@ import {
 } from "../../credits.ts"
 import { generateTextStream } from "../../llms/generateText.ts"
 import { PromptName } from "../../llms/prompts.ts"
+import type { DeepSearchMode } from "./schemas.ts"
 import {
   type GenerationOutcome,
   type TextGenerationPersistenceCallbacks,
@@ -18,6 +19,7 @@ type SummarizePageInput = TextGenerationPersistenceCallbacks & {
   userId: string
   deepSearchJobId: string
   researchRequest: string
+  mode?: DeepSearchMode
   url: string
   content: string
   workflowSignal?: AbortSignal
@@ -49,7 +51,7 @@ export async function summarizePage(
     userId: params.userId,
     owner: { deepSearchJobId: params.deepSearchJobId },
     prompt,
-    promptName: PromptName.SummarizeWebPage,
+    promptName: params.mode === "discovery" ? PromptName.SummarizeDiscoveryPage : PromptName.SummarizeWebPage,
     reasoning: "disabled",
     workflowSignal: params.workflowSignal,
     ...(params.onRegistered ? { onRegistered: params.onRegistered } : {}),
@@ -69,6 +71,7 @@ type StartPageSummaryInput = TextGenerationPersistenceCallbacks & {
   userId: string
   deepSearchJobId: string
   researchRequest: string
+  mode?: DeepSearchMode
   url: string
   onExtractionSettled?: (settlement: {
     content: string
@@ -148,6 +151,7 @@ export async function startPageSummary(
       userId: params.userId,
       deepSearchJobId: params.deepSearchJobId,
       researchRequest: params.researchRequest,
+      mode: params.mode,
       url: params.url,
       content,
       workflowSignal: params.workflowSignal,

@@ -1,13 +1,20 @@
 # Debate jobs
 
-Debate jobs are durable automatic tournaments. A fresh user prompt first runs
+Debate jobs are durable automatic tournaments. Both browser entry forms first
+create a standalone discovery idea job and show its saved ideas. Start debate
+attaches that same job to a new private debate, then selection, refinement,
+individual research, evaluation, and the tournament continue. Discovery and
+generated ideas are never repeated by this action. The original prompt-based
+`POST /api/debate-jobs` remains an explicit immediate-start API: a fresh user prompt first runs
 the existing researched, selected, refined, individually researched, and
 finally evaluated idea pipeline, then admits only its selected normalized ideas to
 Swiss play and a top-four knockout. The
 selection agent compares the generated candidates before refinement. Tournament
 advocates and judges do not consume the final structured evaluations. Pros,
 cons, critiques, and the selection output remain
-available on the linked idea-job view.
+available on the linked idea-job view. New jobs use the coordinated discovery
+inventory as their shared briefing; existing saved jobs keep their original
+planning and research workflow.
 The authenticated owner may explicitly stop the root debate; public viewers
 cannot. The durable request propagates through its idea job, child searches,
 advocates, and judges. Closing or reloading the page does not cancel work. Live

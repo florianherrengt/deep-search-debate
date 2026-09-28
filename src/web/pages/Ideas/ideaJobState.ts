@@ -17,6 +17,7 @@ export type IdeaJobRunState = {
   status:
     | "idle"
     | "running"
+    | "ready"
     | "stopping"
     | "completed"
     | "failed"
@@ -98,6 +99,9 @@ export function getIdeaPresentation(
     return { ...base, color: "default", label: "Not selected" }
   }
   if (idea.selection === "pending") {
+    if (run.status === "ready") {
+      return { ...base, color: "primary", label: "Ready for debate" }
+    }
     return run.status === "running"
       ? { ...base, color: "default", label: "Awaiting selection" }
       : { ...base, color: "error", label: "Selection incomplete" }
@@ -255,6 +259,9 @@ export const ideaJobReducer = produce<IdeaJobRunState, [IdeaJobAction]>(
           state.status = "stopping"
         }
         break
+      case "ready":
+        state.status = "ready"
+        break
       case "interrupted":
         state.status = "interrupted"
         state.error = action.message
@@ -269,6 +276,7 @@ export const ideaJobReducer = produce<IdeaJobRunState, [IdeaJobAction]>(
           state.status !== "failed" &&
           state.status !== "interrupted" &&
           state.status !== "stopping"
+          && state.status !== "ready"
         ) {
           state.status = "completed"
         }

@@ -1,6 +1,8 @@
 import z from "zod"
 import { generateObjectStream } from "../../llms/generateText.ts"
-import { researchPlanSchema, type ResearchRequirements } from "./schemas.ts"
+import { researchPlanSchema, type DeepSearchMode, type ResearchRequirements } from "./schemas.ts"
+import { formatDiscoveryInventory, type DiscoveryInventory } from "./discovery.ts"
+import { config } from "../../config.ts"
 import { PromptName } from "../../llms/prompts.ts"
 import {
   awaitGenerationOutput,
@@ -20,6 +22,7 @@ type GenerateWebSearchQueriesInput = Pick<
   userId: string
   deepSearchJobId: string
   researchRequest: string
+  mode?: DeepSearchMode
   maxSearches: number
   round?: number
   previousQueries?: string[]
@@ -29,6 +32,7 @@ type GenerateWebSearchQueriesInput = Pick<
     content: string
   }[]
   previousCandidateAnswer?: string
+  previousInventory?: DiscoveryInventory
   sourceEvidence?: SourceEvidence[]
   previousReviewReason?: string
   requirements?: ResearchRequirements
@@ -55,9 +59,12 @@ export async function generateWebSearchQueries(
   const round = params.round ?? 0
   const previousQueries = params.previousQueries ?? []
   const previousSearchSummaries = params.previousSearchSummaries ?? []
+  const inventoryContext = params.previousInventory
+    ? formatDiscoveryInventory(params.previousInventory, Math.floor(config.deepSearch.maxSummaryContextChars / 2))
+    : ""
   const previousResearch = formatSearchSummaryContext(
     previousSearchSummaries,
-    undefined,
+    config.deepSearch.maxSummaryContextChars - inventoryContext.length,
     params.sourceEvidence,
     params.researchRequest,
   )
@@ -78,6 +85,7 @@ export async function generateWebSearchQueries(
       "</research_request>",
       "<requirements>", JSON.stringify(params.requirements ?? []), "</requirements>",
       "<previous_queries>", JSON.stringify(previousQueries), "</previous_queries>",
+      ...(inventoryContext ? ["<previous_inventory>", inventoryContext, "</previous_inventory>"] : []),
       ...(previousResearch
         ? [
             "<previous_search_summaries>",
@@ -85,7 +93,7 @@ export async function generateWebSearchQueries(
             "</previous_search_summaries>",
           ]
         : []),
-      ...(params.previousCandidateAnswer
+      ...(params.mode !== "discovery" && params.previousCandidateAnswer
         ? [
             "<previous_candidate_answer>",
             params.previousCandidateAnswer,
@@ -101,7 +109,7 @@ export async function generateWebSearchQueries(
         : []),
       `Generate exactly ${params.maxSearches} ${round === 0 ? "" : "new "}search queries.`,
     ].join("\n"),
-    promptName: PromptName.GenerateWebSearchQueries,
+    promptName: params.mode === "discovery" ? PromptName.GenerateDiscoveryQueries : PromptName.GenerateWebSearchQueries,
     schema,
     workflowSignal: params.workflowSignal,
     ...(params.onRegistered ? { onRegistered: params.onRegistered } : {}),

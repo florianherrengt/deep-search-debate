@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { config } from "../../config.ts"
 import {
   createIdeaJobInputSchema,
+  createLegacyIdeaJobInputSchema,
   ideaSelectionSchema,
 } from "../ideas/schemas.ts"
 import { deepSearchExecutionInputSchema, getLinkedPageBudget, getLinkedPageDepthBudget, maximumSelectedPagesForChildren } from "./resourceLimits.ts"
@@ -115,7 +116,7 @@ describe("deep-search resource limits", () => {
   })
 
   it("caps the aggregate selected-page budget across every idea-job child", () => {
-    const result = createIdeaJobInputSchema.safeParse({
+    const result = createLegacyIdeaJobInputSchema.safeParse({
       prompt: "Generate ideas",
       numberOfIdeas: 20,
       deepSearchCount: config.deepSearch.maxInitialIdeaSearches,

@@ -106,6 +106,7 @@ export type IdeaJobEvent =
       researchRequest: string
     }
   | { type: "idea-research-completed" }
+  | { type: "ready" }
   | { type: "stop-requested" }
   | { type: "interrupted"; message: string }
   | { type: "error"; message: string; stage: IdeaEventStage }
@@ -113,7 +114,7 @@ export type IdeaJobEvent =
 
 export type LiveIdeaJob = ReplayableEventLog<IdeaJobEvent>
 
-export const createIdeaJobInputSchema = deepSearchControlsSchema
+export const createLegacyIdeaJobInputSchema = deepSearchControlsSchema
   .safeExtend({
     prompt: deepSearchResearchRequestSchema,
     numberOfIdeas: z
@@ -141,7 +142,26 @@ export const createIdeaJobInputSchema = deepSearchControlsSchema
       path: ["maxRounds"],
     },
   )
-export type CreateIdeaJobRequest = z.input<typeof createIdeaJobInputSchema>
+
+/** Shared discovery and debate admission; stored legacy jobs retain their controls. */
+export const createIdeaJobInputSchema = createLegacyIdeaJobInputSchema
+  .safeExtend({
+    numberOfIdeas: z.number().int().min(MIN_SELECTED_IDEAS)
+      .max(config.debate.maxIdeaCount).default(Math.min(DEFAULT_IDEAS, config.debate.maxIdeaCount)),
+    deepSearchCount: z.literal(1).default(1),
+    maxSearches: z.number().int().positive().max(config.debate.maxSearchesPerChild)
+      .default(Math.min(2, config.debate.maxSearchesPerChild)),
+    maxResultsPerSearch: z.number().int().positive().max(config.debate.maxResultsPerSearch)
+      .default(Math.min(2, config.debate.maxResultsPerSearch)),
+    maxRounds: z.number().int().positive().max(config.debate.maxResearchRoundsPerChild)
+      .default(Math.min(2, config.debate.maxResearchRoundsPerChild)),
+  })
+  .refine((input) => maximumSelectedPagesForChildren(input, 1 + input.numberOfIdeas)
+    <= config.debate.maxSelectedPagesPerJob, {
+    message: `A debate cannot select more than ${config.debate.maxSelectedPagesPerJob} research pages`,
+    path: ["maxRounds"],
+  })
+export type LegacyCreateIdeaJobRequest = z.input<typeof createLegacyIdeaJobInputSchema>
 
 export const ideaJobEventParamsSchema = z.object({ ideaJobId: z.uuid() })
 

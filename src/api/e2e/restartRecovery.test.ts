@@ -8,8 +8,7 @@ import { spawn, type ChildProcess } from "node:child_process"
 import type { Readable, Writable } from "node:stream"
 
 import Database from "better-sqlite3"
-import { drizzle } from "drizzle-orm/better-sqlite3"
-import { migrate } from "drizzle-orm/better-sqlite3/migrator"
+import { migrateDatabase as applyMigrations } from "../db/migrate.ts"
 import { afterEach, describe, expect, it } from "vitest"
 
 type ControlMessage = {
@@ -105,7 +104,7 @@ async function reservePort(): Promise<number> {
 function migrateDatabase(databasePath: string): void {
   const sqlite = new Database(databasePath)
   try {
-    migrate(drizzle(sqlite), { migrationsFolder: migrationsDirectory })
+    applyMigrations(sqlite, { migrationsFolder: migrationsDirectory })
   } finally {
     sqlite.close()
   }
@@ -355,28 +354,24 @@ async function createDeepSearch(
   return response.json() as Promise<DeepSearchCreated>
 }
 
-async function createIdeaJob(
+async function resumeLegacyIdeaJob(
   api: ApiProcess,
   cookie: string,
+  databasePath: string,
+  userId: string,
 ): Promise<IdeaJobCreated> {
-  const response = await fetch(`${api.origin}/api/idea-jobs`, {
-    method: "POST",
-    headers: {
-      Cookie: cookie,
-      "Content-Type": "application/json",
-      Origin: api.origin,
-    },
-    body: JSON.stringify({
-      prompt: "Create practical energy products for London renters.",
-      numberOfIdeas: 8,
-      deepSearchCount: 2,
-      maxSearches: 1,
-      maxResultsPerSearch: 1,
-      maxRounds: 1,
-    }),
+  const ideaJobId = crypto.randomUUID()
+  const slug = `legacy-${ideaJobId}`
+  const sqlite = new Database(databasePath)
+  try {
+    sqlite.prepare(`INSERT INTO idea_jobs (idea_job_id, user_id, title, slug, prompt, number_of_ideas, deep_search_count, max_searches, max_results_per_search, max_rounds, status, error, completed_at)
+      VALUES (?, ?, 'London Renter Energy Products', ?, 'Create practical energy products for London renters.', 8, 2, 1, 1, 1, 'interrupted', 'Previous process exited', 1)`).run(ideaJobId, userId, slug)
+  } finally { sqlite.close() }
+  const response = await fetch(`${api.origin}/api/idea-jobs/${ideaJobId}/resume`, {
+    method: "POST", headers: { Cookie: cookie, "Content-Type": "application/json", Origin: api.origin }, body: "{}",
   })
   expect(response.status).toBe(202)
-  return response.json() as Promise<IdeaJobCreated>
+  return { ideaJobId, slug }
 }
 
 async function createDebateJob(
@@ -528,7 +523,7 @@ function canonicalDeepSearchSnapshot(
     maxRounds: number
     strictQuality: number
     finalAnswer: string
-    researchAnalysis: string
+    researchAnalysis: string | null
   }>(
     databasePath,
     `select job.status, job.error,
@@ -542,7 +537,7 @@ function canonicalDeepSearchSnapshot(
      from deep_search_jobs job
      inner join llm_generations answer
        on answer.llm_generation_id = job.final_answer_generation_id
-     inner join llm_generations analysis
+     left join llm_generations analysis
        on analysis.llm_generation_id = job.research_analysis_generation_id
      where job.deep_search_job_id = ?`,
     deepSearchJobId,
@@ -639,7 +634,7 @@ function canonicalDeepSearchSnapshot(
 
   return {
     ...job,
-    researchAnalysis: parseJson(job.researchAnalysis),
+    researchAnalysis: job.researchAnalysis === null ? null : parseJson(job.researchAnalysis),
     rounds,
     queries: queries.map((query) => ({
       ...query,
@@ -684,9 +679,9 @@ function canonicalIdeaSnapshot(
             generation.text as generatedIdeas,
             selection.status as selectionStatus
      from idea_jobs job
-     inner join llm_generations prompts
+     left join llm_generations prompts
        on prompts.llm_generation_id = job.research_prompt_generation_id
-     inner join llm_generations summary
+     left join llm_generations summary
        on summary.llm_generation_id = job.research_summary_generation_id
      inner join llm_generations generation
        on generation.llm_generation_id = job.idea_generation_id
@@ -1334,6 +1329,40 @@ describe("file-backed process restart recovery", () => {
     )
   })
 
+  it("recovers committed discovery ideas into a durable pause and continues the same ideas only after Start debate", { timeout: 90_000 }, async () => {
+    const state = await createTestState()
+    const first = await startApi({ ...state, postCommitHold: { checkpoint: "generation-settled", promptName: "generate-ideas" } })
+    const session = await signInAndGrantCredits(first)
+    const response = await fetch(`${first.origin}/api/idea-jobs`, { method: "POST", headers: { Cookie: session.cookie, "Content-Type": "application/json", Origin: first.origin }, body: JSON.stringify({ prompt: "Create practical energy products for London renters.", numberOfIdeas: 8, deepSearchCount: 1, maxSearches: 1, maxResultsPerSearch: 1, maxRounds: 2 }) })
+    expect(response.status).toBe(202)
+    const created = await response.json() as IdeaJobCreated
+    await first.waitForMessage((message) => message.type === "db-commit-held" && message.promptName === "generate-ideas")
+    const readIdeas = () => queryDatabase<{ ideaId: string; title: string; selected: number | null }>(state.databasePath, "SELECT idea_id as ideaId, title, selected FROM ideas WHERE idea_job_id = ? ORDER BY position", created.ideaJobId)
+    const originalIdeas = readIdeas()
+    expect(originalIdeas).toHaveLength(8)
+    expect(originalIdeas.every(({ selected }) => selected === null)).toBe(true)
+    await first.stop()
+
+    const second = await startApi(state)
+    const recovered = await openEventFeed(second, session.cookie, `/api/idea-jobs/${created.ideaJobId}/events`)
+    expect((await recovered.readAll()).slice(-2)).toEqual([{ type: "ready" }, { type: "done" }])
+    expect(readIdeas()).toEqual(originalIdeas)
+    expect(second.messages.filter(({ type }) => type === "provider-request")).toEqual([])
+    expect(queryDatabase(state.databasePath, "SELECT status, workflow, selection_generation_id FROM idea_jobs WHERE idea_job_id = ?", created.ideaJobId)).toEqual([{ status: "ready", workflow: "discovery", selection_generation_id: null }])
+    await second.stop()
+
+    const third = await startApi({ ...state, hold: { "llm:select-ideas": [1] } })
+    const paused = await openEventFeed(third, session.cookie, `/api/idea-jobs/${created.ideaJobId}/events`)
+    expect((await paused.readAll()).slice(-2)).toEqual([{ type: "ready" }, { type: "done" }])
+    expect(third.messages.filter(({ type }) => type === "provider-request")).toEqual([])
+    const started = await fetch(`${third.origin}/api/idea-jobs/${created.ideaJobId}/debate`, { method: "POST", headers: { Cookie: session.cookie, "Content-Type": "application/json", Origin: third.origin }, body: "{}" })
+    expect(started.status).toBe(202)
+    await third.waitForMessage((message) => message.type === "provider-held" && message.key === "llm:select-ideas")
+    expect(readIdeas()).toEqual(originalIdeas)
+    expect(third.messages.filter(({ type }) => type === "provider-request").map(({ key }) => key)).toEqual(["llm:select-ideas"])
+    expect(queryDatabase(state.databasePath, "SELECT count(*) AS count FROM deep_search_jobs WHERE idea_job_id = ?", created.ideaJobId)).toEqual([{ count: 1 }])
+  })
+
   it("reuses a completed idea child while resuming its held fan-out sibling", { timeout: 180_000 }, async () => {
     const state = await createTestState()
     const heldPlanningKey =
@@ -1344,7 +1373,7 @@ describe("file-backed process restart recovery", () => {
       postCommitHold: { checkpoint: "deep-search-completed" },
     })
     const session = await signInAndGrantCredits(first)
-    const created = await createIdeaJob(first, session.cookie)
+    const created = await resumeLegacyIdeaJob(first, session.cookie, state.databasePath, session.userId)
     await first.waitForMessage(
       (message) =>
         message.type === "provider-held" &&
@@ -1503,7 +1532,7 @@ describe("file-backed process restart recovery", () => {
     const controlState = await createTestState()
     const controlApi = await startApi(controlState)
     const controlSession = await signInAndGrantCredits(controlApi)
-    const controlCreated = await createIdeaJob(controlApi, controlSession.cookie)
+    const controlCreated = await resumeLegacyIdeaJob(controlApi, controlSession.cookie, controlState.databasePath, controlSession.userId)
     const controlFeed = await openEventFeed(
       controlApi,
       controlSession.cookie,

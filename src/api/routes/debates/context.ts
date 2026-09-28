@@ -9,6 +9,7 @@ import {
   llmGenerations,
 } from "../../db/schema/index.ts"
 import { formatBoundedTextEntries } from "../../helpers/boundedText.ts"
+import { formatDiscoveryInventory, parseDiscoveryInventory } from "../../agents/deep_search/discovery.ts"
 
 export type DebateContext = {
   userRequest: string
@@ -37,11 +38,11 @@ export function loadDebateContext(ideaJobId: string): DebateContext {
     .where(eq(ideaJobs.ideaJobId, ideaJobId))
     .get()
   if (!job) throw new Error("Idea job was not found")
-  if (!job.researchSummaryGenerationId) {
+  if (job.workflow === "research" && !job.researchSummaryGenerationId) {
     throw new Error("Idea research briefing was not generated")
   }
 
-  const briefing = db
+  const briefing = job.researchSummaryGenerationId === null ? undefined : db
     .select({ text: llmGenerations.text, status: llmGenerations.status })
     .from(llmGenerations)
     .where(
@@ -51,7 +52,7 @@ export function loadDebateContext(ideaJobId: string): DebateContext {
       ),
     )
     .get()
-  if (briefing?.status !== "completed" || briefing.text === null) {
+  if (job.workflow === "research" && (briefing?.status !== "completed" || briefing.text === null)) {
     throw new Error("Idea research briefing did not complete")
   }
 
@@ -85,12 +86,15 @@ export function loadDebateContext(ideaJobId: string): DebateContext {
     throw new Error("Deep-search results did not complete")
   }
 
+  const discoveryBriefing = job.workflow === "discovery"
+    ? formatDiscoveryInventory(parseDiscoveryInventory(results[0].answer!))
+    : undefined
   return {
     userRequest: job.prompt,
-    researchBriefing: briefing.text,
+    researchBriefing: discoveryBriefing ?? briefing!.text!,
     deepSearchResults: results.map((result) => ({
       researchRequest: result.researchRequest,
-      answer: result.answer!,
+      answer: discoveryBriefing ?? result.answer!,
     })),
   }
 }

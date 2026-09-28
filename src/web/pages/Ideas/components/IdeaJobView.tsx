@@ -94,6 +94,8 @@ function IdeaResults({
             ? "Selected ideas are marked below. Open any idea to review its details and supporting research."
             : selectionCompleted
               ? "No ideas were selected for improvement, but you can still review every candidate."
+              : run.status === "ready"
+                ? "Review these ideas before starting a debate. Selection and detailed research begin when you start it."
               : run.status !== "running"
                 ? "Review the ideas that were produced before the run ended."
                 : "Review every candidate here as selection and improvement progress updates."}
@@ -117,13 +119,14 @@ function IdeaResults({
         ideas={ideas}
         jobSlug={jobSlug}
         run={run}
-        showDescriptions={selectionCompleted}
+        showDescriptions={selectionCompleted || run.status === "ready"}
       />
     </Stack>
   )
 }
 
 export function IdeaJobView({
+  debateControl,
   feedbackControl,
   jobSlug,
   title,
@@ -132,7 +135,9 @@ export function IdeaJobView({
   stopControl,
   stopError,
   stopRequested = false,
+  workflow = "research",
 }: {
+  debateControl?: ReactNode
   feedbackControl?: ReactNode
   jobSlug: string
   title: string
@@ -141,7 +146,9 @@ export function IdeaJobView({
   stopControl?: ReactNode
   stopError?: Error | null
   stopRequested?: boolean
+  workflow?: "research" | "discovery"
 }) {
+  const discovery = workflow === "discovery"
   const status =
     stopRequested && run.status === "running" ? "stopping" : run.status
   const presentationRun: IdeaJobRunState =
@@ -199,9 +206,11 @@ export function IdeaJobView({
     running:
       status === "running" &&
       run.research.length > 0 &&
+      (!discovery || !run.ideaGenerationStreamId) &&
       !run.researchSummaryStreamId,
     completed:
-      Boolean(run.researchSummaryStreamId) || completedBeforeFailure("research"),
+      Boolean(run.researchSummaryStreamId) ||
+      (discovery && Boolean(run.ideaGenerationStreamId)) || completedBeforeFailure("research"),
     started: run.research.length > 0,
     stopped: workflowStopped,
   })
@@ -319,7 +328,14 @@ export function IdeaJobView({
         <Alert severity="warning">{run.subscriptionError}</Alert>
       )}
 
-      {status === "completed" && run.research.length > 0 && (
+      {status === "ready" && (
+        <Typography color="text.secondary" role="status">
+          Ideas are ready. Start a debate when you’re ready to compare them.
+        </Typography>
+      )}
+      {debateControl}
+
+      {(status === "completed" || status === "ready") && run.research.length > 0 && (
         <Stack
           component="section"
           spacing={1.5}
@@ -327,7 +343,7 @@ export function IdeaJobView({
         >
           <Stack spacing={0.5}>
             <Typography component="h2" id="initial-idea-research" variant="h5">
-              Initial deep research
+              {discovery ? "Space discovery" : "Initial deep research"}
             </Typography>
             <Typography color="text.secondary">
               Open the source research that informed these ideas.
@@ -349,7 +365,7 @@ export function IdeaJobView({
       )}
       {status === "completed" && feedbackControl}
 
-      {status !== "completed" && (
+      {status !== "completed" && status !== "ready" && (
         <Stack
           component="section"
           key="idea-process"
@@ -394,7 +410,7 @@ export function IdeaJobView({
             },
           })}
         >
-          <ProgressCard title="Plan the research" status={planningStatus}>
+          {!discovery && <ProgressCard title="Plan the research" status={planningStatus}>
             {run.researchPromptStreamId && (
               <GenerationOutput
                 format="structured-list"
@@ -405,13 +421,13 @@ export function IdeaJobView({
                 testId="idea-research-prompts"
               />
             )}
-          </ProgressCard>
+          </ProgressCard>}
 
-          <ProgressCard title="Deep research" status={researchStatus}>
+          <ProgressCard title={discovery ? "Discover the space" : "Deep research"} status={researchStatus}>
             <ResearchProgress research={run.research} />
           </ProgressCard>
 
-          <ProgressCard title="Summarise the research" status={summaryStatus}>
+          {!discovery && <ProgressCard title="Summarise the research" status={summaryStatus}>
             {run.researchSummaryStreamId && (
               <GenerationOutput
                 format="markdown"
@@ -422,7 +438,7 @@ export function IdeaJobView({
                 testId="idea-research-summary"
               />
             )}
-          </ProgressCard>
+          </ProgressCard>}
 
           <ProgressCard
             autoExpandStatuses={["running", "failed"]}
@@ -452,7 +468,7 @@ export function IdeaJobView({
             )}
           </ProgressCard>
 
-          <ProgressCard
+          {(!discovery || run.ideaSelectionStreamId || selectionCompleted) && <ProgressCard
             autoExpandStatuses={
               hasIdeas
                 ? ["waiting", "running", "failed"]
@@ -496,7 +512,7 @@ export function IdeaJobView({
                 improvement.
               </Typography>
             )}
-          </ProgressCard>
+          </ProgressCard>}
 
           {showSelectedIdeaStages && (
             <>

@@ -5,6 +5,9 @@ export const jobStatuses = [
   "interrupted",
 ] as const
 
+export const ideaJobStatuses = [...jobStatuses, "ready"] as const
+export const ideaWorkflows = ["research", "discovery"] as const
+
 export const ideaJobStages = [
   "planning",
   "research",

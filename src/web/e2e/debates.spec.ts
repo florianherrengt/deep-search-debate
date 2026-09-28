@@ -42,7 +42,7 @@ test.describe("Debate tournament", () => {
       }
       if (
         browserRequest.method() === "POST" &&
-        url.pathname === "/api/debate-jobs"
+        /^\/api\/idea-jobs\/[^/]+\/debate$/.test(url.pathname)
       ) {
         createRequestCount += 1
       }
@@ -70,7 +70,7 @@ test.describe("Debate tournament", () => {
     const formActionTops = await Promise.all(
       [
         page.getByRole("button", { name: "Advanced options" }),
-        page.getByRole("button", { name: "Start a debate" }),
+        page.getByRole("button", { name: "Discover ideas" }),
       ].map((control) =>
         control.evaluate((element) => element.getBoundingClientRect().top),
       ),
@@ -81,7 +81,7 @@ test.describe("Debate tournament", () => {
     const createdResponse = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
-        new URL(response.url()).pathname === "/api/debate-jobs",
+        /^\/api\/idea-jobs\/[^/]+\/debate$/.test(new URL(response.url()).pathname),
     )
     const liveResponse = page.waitForResponse(
       (response) =>
@@ -95,15 +95,16 @@ test.describe("Debate tournament", () => {
     await expect(
       page.getByRole("switch", { name: /public/i }),
     ).toHaveCount(0)
-    await page.getByRole("button", { name: "Start a debate" }).click()
+    await page.getByRole("button", { name: "Discover ideas" }).click()
+    await expect(page.getByRole("button", { name: "Start debate", exact: true })).toBeVisible({ timeout: 30_000 })
+    await expect(page).toHaveURL(/\/ideas\/[^/]+$/)
+    await expect(page.getByRole("link", { name: /^View Renter Energy Idea \d+$/ })).toHaveCount(8)
+    await page.reload()
+    await page.getByRole("button", { name: "Start debate", exact: true }).click()
 
     const created = await createdResponse
     expect(created.status()).toBe(202)
-    expect(created.request().postDataJSON()).toEqual({
-      prompt,
-      isPublic: false,
-      numberOfIdeas: 8,
-    })
+    expect(created.request().postDataJSON()).toEqual({})
     const { debateJobId, slug } = (await created.json()) as {
       debateJobId: string
       slug: string
@@ -258,7 +259,7 @@ test.describe("Debate tournament", () => {
     ).toBeVisible()
     await expect(anonymousPage.getByText(prompt, { exact: true })).toBeVisible()
     await expect(
-      anonymousPage.getByRole("heading", { name: "Initial deep research" }),
+      anonymousPage.getByRole("heading", { name: "Space discovery" }),
     ).toBeVisible()
     const publicResearchLink = anonymousPage
       .locator('a[href^="/deep-search/"]')
@@ -274,11 +275,11 @@ test.describe("Debate tournament", () => {
     await expect(publicResearchPage).toHaveURL(/\/deep-search\/[a-z0-9-]+$/)
     await expect(
       publicResearchPage.getByRole("heading", {
-        name: "London Renter Energy Constraints",
+        name: "Apartment Energy Product Ideas",
       }),
     ).toBeVisible()
     await expect(
-      publicResearchPage.getByRole("heading", { name: "Final answer" }),
+      publicResearchPage.getByRole("heading", { name: "Discovered options" }),
     ).toBeVisible()
 
     await page.goto(debateUrl)
@@ -560,10 +561,15 @@ test.describe("Debate tournament", () => {
     const createdResponse = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
-        new URL(response.url()).pathname === "/api/debate-jobs",
+        /^\/api\/idea-jobs\/[^/]+\/debate$/.test(new URL(response.url()).pathname),
     )
     await page.getByLabel("What should the ideas solve?").fill(prompt)
-    await page.getByRole("button", { name: "Start a debate" }).click()
+    await page.getByRole("button", { name: "Discover ideas" }).click()
+    await expect(page.getByRole("button", { name: "Start debate", exact: true })).toBeVisible({ timeout: 30_000 })
+    await expect(page).toHaveURL(/\/ideas\/[^/]+$/)
+    await expect(page.getByRole("link", { name: /^View Renter Energy Idea \d+$/ })).toHaveCount(8)
+    await page.reload()
+    await page.getByRole("button", { name: "Start debate", exact: true }).click()
 
     const created = await createdResponse
     const { debateJobId, slug } = (await created.json()) as {
@@ -656,7 +662,7 @@ test.describe("Debate tournament", () => {
     page.on("request", (browserRequest) => {
       if (
         browserRequest.method() === "POST" &&
-        new URL(browserRequest.url()).pathname === "/api/debate-jobs"
+        /^\/api\/idea-jobs\/[^/]+\/debate$/.test(new URL(browserRequest.url()).pathname)
       ) {
         createRequestCount += 1
       }
@@ -667,10 +673,15 @@ test.describe("Debate tournament", () => {
     const createdResponse = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
-        new URL(response.url()).pathname === "/api/debate-jobs",
+        /^\/api\/idea-jobs\/[^/]+\/debate$/.test(new URL(response.url()).pathname),
     )
     await page.getByLabel("What should the ideas solve?").fill(failurePrompt)
-    await page.getByRole("button", { name: "Start a debate" }).click()
+    await page.getByRole("button", { name: "Discover ideas" }).click()
+    await expect(page.getByRole("button", { name: "Start debate", exact: true })).toBeVisible({ timeout: 30_000 })
+    await expect(page).toHaveURL(/\/ideas\/[^/]+$/)
+    await expect(page.getByRole("link", { name: /^View Renter Energy Idea \d+$/ })).toHaveCount(8)
+    await page.reload()
+    await page.getByRole("button", { name: "Start debate", exact: true }).click()
 
     const created = await createdResponse
     const { debateJobId, slug } = (await created.json()) as {

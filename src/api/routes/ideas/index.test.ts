@@ -235,8 +235,8 @@ describe("idea job routes", () => {
             title: `Existing search ${position}`,
             slug: `existing-search-${position}`,
             researchRequest: "Research this",
-            maxSearches: 3,
-            maxResultsPerSearch: 3,
+            maxSearches: 2,
+            maxResultsPerSearch: 2,
             strictQuality: false,
           }),
         ),
@@ -259,10 +259,10 @@ describe("idea job routes", () => {
 
     const first = manager.start("test-user-id", {
       prompt: "First idea request",
-      numberOfIdeas: 12,
-      deepSearchCount: 2,
-      maxSearches: 3,
-      maxResultsPerSearch: 3,
+      numberOfIdeas: 8,
+      deepSearchCount: 1,
+      maxSearches: 2,
+      maxResultsPerSearch: 2,
       maxRounds: 2,
     })
     await vi.waitFor(() => {
@@ -272,10 +272,10 @@ describe("idea job routes", () => {
     await expect(
       manager.start("test-user-id", {
         prompt: "Second idea request",
-        numberOfIdeas: 12,
-        deepSearchCount: 2,
-        maxSearches: 3,
-        maxResultsPerSearch: 3,
+        numberOfIdeas: 8,
+        deepSearchCount: 1,
+        maxSearches: 2,
+        maxResultsPerSearch: 2,
         maxRounds: 2,
       }),
     ).rejects.toMatchObject({ status: 429 })
@@ -312,10 +312,10 @@ describe("idea job routes", () => {
         "test-user-id",
         {
           prompt: "Generate owned ideas",
-          numberOfIdeas: 12,
-          deepSearchCount: 2,
-          maxSearches: 3,
-          maxResultsPerSearch: 3,
+          numberOfIdeas: 8,
+          deepSearchCount: 1,
+          maxSearches: 2,
+          maxResultsPerSearch: 2,
           maxRounds: 2,
         },
         {

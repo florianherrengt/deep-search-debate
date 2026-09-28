@@ -6,10 +6,10 @@ import {
   deepSearchJobs,
   ideaJobs,
 } from "../db/schema/index.ts"
-import type { jobStatuses } from "../db/schema/statuses.ts"
+import type { ideaJobStatuses } from "../db/schema/statuses.ts"
 
 type ResearchWorkflowKind = "deep-search" | "idea" | "debate"
-export type ResearchJobStatus = (typeof jobStatuses)[number]
+export type ResearchJobStatus = (typeof ideaJobStatuses)[number]
 export type ResearchWorkflowReference = {
   kind: ResearchWorkflowKind
   jobId: string

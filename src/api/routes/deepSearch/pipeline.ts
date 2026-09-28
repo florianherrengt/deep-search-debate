@@ -1,6 +1,11 @@
 import PQueue from "p-queue"
 import { Effect, Result } from "effect"
 import { answerResearchRequest } from "../../agents/deep_search/finalAnswer.ts"
+import {
+  parseDiscoveryInventory,
+  updateDiscoveryInventory,
+  type DiscoveryInventory,
+} from "../../agents/deep_search/discovery.ts"
 import { generateWebSearchQueries } from "../../agents/deep_search/queries.ts"
 import { summarizeSearchQuery } from "../../agents/deep_search/querySummaries.ts"
 import { analyzeResearchAnswer } from "../../agents/deep_search/researchAnalysis.ts"
@@ -16,6 +21,7 @@ import {
   type ResearchRequirements,
   type DeepSearchEvent,
   type DeepSearchSearch,
+  type DeepSearchMode,
 } from "../../agents/deep_search/schemas.ts"
 import { selectPageLinks, selectWebSearchResults } from "../../agents/deep_search/selection.ts"
 import type { SourceEvidence } from "../../agents/deep_search/searchSummaryContext.ts"
@@ -33,7 +39,7 @@ import {
   WorkflowFailure,
   WorkflowInterruptedError,
 } from "../../workflowRuntime.ts"
-import { completeReviewedAnswer, promoteRoundAnswer } from "./jobLifecycle.ts"
+import { completeDeepSearchJob, completeReviewedAnswer, promoteRoundAnswer } from "./jobLifecycle.ts"
 import { db } from "../../db/index.ts"
 import { getLinkedPageDepthBudget } from "./resourceLimits.ts"
 import type {
@@ -87,6 +93,7 @@ export type DeepSearchPipelineInput = {
   userId: string
   deepSearchJobId: string
   researchRequest: string
+  mode?: DeepSearchMode
   maxSearches?: number
   maxResultsPerSearch?: number
   maxRounds?: number
@@ -241,7 +248,7 @@ function sourceEvidenceFromSnapshot(snapshot: DeepSearchExecutionSnapshot): Sour
       }
     }
   }
-  return snapshot.pages.flatMap<SourceEvidence>((page) => {
+  const evidence = snapshot.pages.flatMap<SourceEvidence>((page) => {
     const description = descriptions.get(page.pageId)
     if (!description) return []
     const source = { url: page.url, title: description.title }
@@ -260,6 +267,20 @@ function sourceEvidenceFromSnapshot(snapshot: DeepSearchExecutionSnapshot): Sour
       content: "This linked source could not be read or summarized. Its link title is a discovery lead, not evidence from the destination. No conclusion about its contents is supported.",
     }]
   })
+  if (snapshot.mode === "discovery") {
+    const sourceUrls = new Set(evidence.map(({ url }) => url))
+    for (const round of snapshot.rounds) {
+      for (const query of round.queries) {
+        for (const result of query.results) {
+          if (sourceUrls.has(result.url) || !result.shortText.trim()) continue
+          evidence.push({ url: result.url, title: result.title,
+            evidenceType: "search-snippet", content: result.shortText })
+          sourceUrls.add(result.url)
+        }
+      }
+    }
+  }
+  return evidence
 }
 
 function requirementsFromSnapshot(snapshot: DeepSearchExecutionSnapshot, throughRound: number): ResearchRequirements {
@@ -320,6 +341,7 @@ function exploreLinkedPages(
             userId: params.userId,
             deepSearchJobId: params.deepSearchJobId,
             userQuery: params.researchRequest,
+            mode: params.mode,
             sourceUrl: source.url,
             sourceSummary: pageSummaries.get(source.url) ?? "No source summary is available.",
             knownPages: snapshot.pages.map(({ url, status }) => {
@@ -491,6 +513,7 @@ async function summarizeSelectedPage(
         userId: params.userId,
         deepSearchJobId: params.deepSearchJobId,
         researchRequest: params.researchRequest,
+        mode: params.mode,
         url: page.url,
         workflowSignal: params.workflowSignal,
         onExtractionSettled: ({ content, creditsUsed, links }) => {
@@ -509,6 +532,7 @@ async function summarizeSelectedPage(
         userId: params.userId,
         deepSearchJobId: params.deepSearchJobId,
         researchRequest: params.researchRequest,
+        mode: params.mode,
         url: page.url,
         content: page.extractedContent,
         workflowSignal: params.workflowSignal,
@@ -599,6 +623,7 @@ async function reviewSearchRound(
     userId: params.userId,
     deepSearchJobId: params.deepSearchJobId,
     researchRequest: params.researchRequest,
+    mode: params.mode,
     candidateAnswer,
     completedRound: round.position,
     maxRounds,
@@ -674,6 +699,20 @@ async function promoteCandidateAnswer(
   searchSummaries: readonly SearchSummary[],
 ): Promise<string> {
   const snapshot = loadSnapshot(params.deepSearchJobId)
+  if (snapshot.mode === "discovery") {
+    const inventoryGeneration = snapshot.rounds.find(({ roundId }) => roundId === round.roundId)?.answerGeneration
+    if (inventoryGeneration?.generationId !== generationId) {
+      throw new Error("Discovery inventory generation was not registered for the round")
+    }
+    const inventoryText = completedText(inventoryGeneration)
+    parseDiscoveryInventory(inventoryText)
+    db.transaction((transaction) => {
+      attachFinalAnswerGeneration(transaction, { jobId: params.deepSearchJobId, generationId })
+      completeDeepSearchJob(transaction, { jobId: params.deepSearchJobId, generationId })
+    })
+    params.publish({ type: "final-answer-stream", streamId: generationId })
+    return inventoryText
+  }
   const previousAnalysis = snapshot.researchAnalysisGeneration
   const previousFinal = snapshot.finalAnswerGeneration
   if (previousAnalysis?.status === "completed" && !previousFinal) {
@@ -776,6 +815,7 @@ function deepSearchPipelineEffect(
       ...params,
       userId: initialSnapshot.userId,
       researchRequest: initialSnapshot.researchRequest,
+      mode: initialSnapshot.mode,
       maxSearches: initialSnapshot.maxSearches,
       maxResultsPerSearch: initialSnapshot.maxResultsPerSearch,
       maxRounds: initialSnapshot.maxRounds,
@@ -796,6 +836,7 @@ function deepSearchPipelineEffect(
       ]),
     )
     let previousCandidateAnswer: string | undefined
+    let previousInventory: DiscoveryInventory | undefined
     let previousReviewReason: string | undefined
 
     const promotePersistedCandidate = (
@@ -846,11 +887,13 @@ function deepSearchPipelineEffect(
             userId: durableParams.userId,
             deepSearchJobId: durableParams.deepSearchJobId,
             researchRequest: durableParams.researchRequest,
+            mode: durableParams.mode,
             maxSearches,
             round: roundPosition,
             previousQueries: [...previousQueries],
             previousSearchSummaries: [...searchSummaries],
             previousCandidateAnswer,
+            previousInventory,
             previousReviewReason,
             requirements: requirementsFromSnapshot(snapshot, roundPosition - 1),
             sourceEvidence: sourceEvidenceFromSnapshot(snapshot),
@@ -1045,6 +1088,7 @@ function deepSearchPipelineEffect(
                 userId: durableParams.userId,
                 deepSearchJobId: durableParams.deepSearchJobId,
                 userQuery: durableParams.researchRequest,
+                mode: durableParams.mode,
                 searchQuery: search.query,
                 results: search.results.map((result) => ({
                   id: result.resultId,
@@ -1235,6 +1279,7 @@ function deepSearchPipelineEffect(
               userId: durableParams.userId,
               deepSearchJobId: durableParams.deepSearchJobId,
               researchRequest: durableParams.researchRequest,
+              mode: durableParams.mode,
               query: search.query,
               results: search.results.map((result) => ({
                 title: result.title,
@@ -1322,34 +1367,37 @@ function deepSearchPipelineEffect(
         candidateAnswer = completedText(snapshotRound.answerGeneration)
       } else {
         const previousAnswer = snapshotRound.answerGeneration
-        const candidate = yield* workflowEffect(() =>
-          answerResearchRequest({
-            userId: durableParams.userId,
-            deepSearchJobId: durableParams.deepSearchJobId,
-            researchRequest: durableParams.researchRequest,
-            searchSummaries: [...searchSummaries],
-            sourceEvidence: sourceEvidenceFromSnapshot(loadSnapshot(params.deepSearchJobId)),
-            requirements: requirementsFromSnapshot(loadSnapshot(params.deepSearchJobId), roundPosition),
-            workflowSignal: durableParams.workflowSignal,
-            onRegistered: (generationId, transaction) => {
-              if (previousAnswer) {
-                replaceRoundAnswerGeneration(transaction, {
-                  ...replacementInput(
-                    params.deepSearchJobId,
-                    previousAnswer,
-                    generationId,
-                  ),
-                  roundId: persistedRound.roundId,
-                })
-              } else {
-                attachRoundAnswerGeneration(transaction, {
-                  jobId: params.deepSearchJobId,
-                  roundId: persistedRound.roundId,
+        const outputInput = {
+          userId: durableParams.userId,
+          deepSearchJobId: durableParams.deepSearchJobId,
+          researchRequest: durableParams.researchRequest,
+          searchSummaries: [...searchSummaries],
+          sourceEvidence: sourceEvidenceFromSnapshot(loadSnapshot(params.deepSearchJobId)),
+          requirements: requirementsFromSnapshot(loadSnapshot(params.deepSearchJobId), roundPosition),
+          workflowSignal: durableParams.workflowSignal,
+          onRegistered: (generationId, transaction) => {
+            if (previousAnswer) {
+              replaceRoundAnswerGeneration(transaction, {
+                ...replacementInput(
+                  params.deepSearchJobId,
+                  previousAnswer,
                   generationId,
-                })
-              }
-            },
-          }),
+                ),
+                roundId: persistedRound.roundId,
+              })
+            } else {
+              attachRoundAnswerGeneration(transaction, {
+                jobId: params.deepSearchJobId,
+                roundId: persistedRound.roundId,
+                generationId,
+              })
+            }
+          },
+        } satisfies Parameters<typeof answerResearchRequest>[0]
+        const candidate = yield* workflowEffect(() =>
+          durableParams.mode === "discovery"
+            ? updateDiscoveryInventory({ ...outputInput, previousInventory })
+            : answerResearchRequest(outputInput),
         )
         yield* workflowEffect(async () => {
           try {
@@ -1365,6 +1413,10 @@ function deepSearchPipelineEffect(
         })
         candidateAnswer = yield* workflowEffect(() => candidate.answer)
         answerGenerationId = candidate.streamId
+      }
+
+      if (durableParams.mode === "discovery") {
+        previousInventory = parseDiscoveryInventory(candidateAnswer)
       }
 
       if (roundPosition + 1 >= maxRounds) {
@@ -1442,7 +1494,7 @@ function deepSearchPipelineEffect(
           candidateAnswer,
         )
       }
-      previousCandidateAnswer = candidateAnswer
+      if (durableParams.mode !== "discovery") previousCandidateAnswer = candidateAnswer
       previousReviewReason = decision.reason
     }
 

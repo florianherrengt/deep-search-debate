@@ -1,11 +1,11 @@
 import { fileURLToPath } from "node:url"
-import { migrate } from "drizzle-orm/better-sqlite3/migrator"
+import { migrateDatabase } from "./migrate.ts"
 import { db } from "./index.ts"
 import { user } from "./schema/index.ts"
 
 export const testUserId = "test-user-id"
 
-migrate(db, {
+migrateDatabase(db.$client, {
   migrationsFolder: fileURLToPath(new URL("../drizzle", import.meta.url)),
 })
 

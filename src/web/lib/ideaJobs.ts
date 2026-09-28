@@ -97,6 +97,7 @@ const ideaJobEventSchema = z.discriminatedUnion("type", [
     streamId: z.string().min(1),
   }),
   z.object({ type: z.literal("idea-research-completed") }),
+  z.object({ type: z.literal("ready") }),
   z.object({ type: z.literal("stop-requested") }),
   z.object({
     type: z.literal("interrupted"),
@@ -112,13 +113,15 @@ const ideaJobEventSchema = z.discriminatedUnion("type", [
 
 const ideaJobSchema = z.object({
   ideaJobId: z.string().min(1),
+  debateJobId: z.string().min(1).nullable(),
+  workflow: z.enum(["research", "discovery"]),
   title: z.string().min(1),
   slug: z.string().min(1),
   prompt: z.string(),
   stage: ideaJobStageSchema,
   numberOfIdeas: z.number().int().positive(),
   deepSearchCount: z.number().int().positive(),
-  status: z.enum(["running", "completed", "failed", "interrupted"]),
+  status: z.enum(["running", "ready", "completed", "failed", "interrupted"]),
   stopRequested: z.boolean(),
   error: z.string().nullable(),
   createdAt: z.iso.datetime().transform((value) => new Date(value)),
@@ -131,6 +134,7 @@ const createIdeaJobResponseSchema = z.object({
 })
 const ideaJobsResponseSchema = z.object({ ideaJobs: z.array(ideaJobSchema) })
 const ideaJobDetailSchema = ideaJobSchema.extend({
+  canStartDebate: z.boolean(),
   canResume: z.boolean(),
   canStop: z.boolean(),
   creditsUsed: z.number().int().nonnegative().nullable(),
@@ -154,22 +158,25 @@ export async function createIdeaJob(
     deepSearchCount?: number
     maxSearches?: number
     maxResultsPerSearch?: number
+    maxRounds?: number
   },
   signal?: AbortSignal,
 ): Promise<z.infer<typeof createIdeaJobResponseSchema>> {
   const response = await postJson(
     "/api/idea-jobs",
-    {
-      prompt: input.prompt,
-      numberOfIdeas: input.numberOfIdeas ?? 8,
-      deepSearchCount: input.deepSearchCount ?? 2,
-      maxSearches: input.maxSearches ?? 3,
-      maxResultsPerSearch: input.maxResultsPerSearch ?? 3,
-    },
+    input,
     createIdeaJobResponseSchema,
     signal,
   )
   return response
+}
+
+export async function startDebateFromIdeas(ideaJobId: string) {
+  return postJson(
+    `/api/idea-jobs/${encodeURIComponent(ideaJobId)}/debate`,
+    {},
+    z.object({ debateJobId: z.string().min(1), slug: z.string().min(1) }),
+  )
 }
 
 export async function getIdeaJobs(signal?: AbortSignal): Promise<IdeaJob[]> {

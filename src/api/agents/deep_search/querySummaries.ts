@@ -1,5 +1,6 @@
 import { generateTextStream } from "../../llms/generateText.ts"
 import { PromptName } from "../../llms/prompts.ts"
+import type { DeepSearchMode } from "./schemas.ts"
 import {
   awaitGenerationText,
   type GenerationOutcome,
@@ -14,6 +15,7 @@ type SummarizeSearchQueryInput = TextGenerationPersistenceCallbacks & {
   userId: string
   deepSearchJobId: string
   researchRequest: string
+  mode?: DeepSearchMode
   query: string
   results: SourceEvidence[]
   workflowSignal?: AbortSignal
@@ -49,7 +51,7 @@ export async function summarizeSearchQuery(
     userId: params.userId,
     owner: { deepSearchJobId: params.deepSearchJobId },
     prompt,
-    promptName: PromptName.SummarizeSearchQuery,
+    promptName: params.mode === "discovery" ? PromptName.SummarizeDiscoveryQuery : PromptName.SummarizeSearchQuery,
     reasoning: "disabled",
     workflowSignal: params.workflowSignal,
     ...(params.onRegistered ? { onRegistered: params.onRegistered } : {}),

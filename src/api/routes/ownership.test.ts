@@ -78,6 +78,7 @@ function createApp(viewerUserId: string | null = ownerId): Hono<AppEnv> {
   })
   debateJobReads(app, {
     start: debateStart,
+    startFromIdeas: vi.fn(),
     resumeExisting: vi.fn(),
     stop: vi.fn(),
     getLiveJob: () => undefined,
@@ -97,6 +98,7 @@ function createApp(viewerUserId: string | null = ownerId): Hono<AppEnv> {
   })
   debateJobs(app, {
     start: debateStart,
+    startFromIdeas: vi.fn(),
     resumeExisting: vi.fn(),
     stop: vi.fn(),
     getLiveJob: () => undefined,

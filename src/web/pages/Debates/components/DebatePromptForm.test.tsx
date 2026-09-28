@@ -22,7 +22,7 @@ describe("DebatePromptForm", () => {
     const advancedOptions = screen.getByRole("button", {
       name: "Advanced options",
     })
-    const startDebate = screen.getByRole("button", { name: "Start a debate" })
+    const startDebate = screen.getByRole("button", { name: "Discover ideas" })
 
     expect(
       screen.queryByRole("switch", { name: /public/i }),
@@ -51,7 +51,7 @@ describe("DebatePromptForm", () => {
     fireEvent.change(screen.getByLabelText("What should the ideas solve?"), {
       target: { value: "Choose a market" },
     })
-    fireEvent.click(screen.getByRole("button", { name: "Start a debate" }))
+    fireEvent.click(screen.getByRole("button", { name: "Discover ideas" }))
 
     expect(onSubmit).toHaveBeenCalledWith({
       numberOfIdeas: 6,
@@ -63,7 +63,7 @@ describe("DebatePromptForm", () => {
     renderForm({ initialPrompt: "Should we enter this market?" })
 
     expect(
-      screen.getByRole("heading", { name: "Review and start your debate" }),
+      screen.getByRole("heading", { name: "Explore your question" }),
     ).toBeVisible()
     expect(screen.getByLabelText("What should the ideas solve?")).toHaveValue(
       "Should we enter this market?",

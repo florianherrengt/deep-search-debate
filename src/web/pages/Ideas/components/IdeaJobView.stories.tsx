@@ -1,4 +1,4 @@
-import { Container } from "@mui/material"
+import { Button, Container } from "@mui/material"
 import type { Meta, StoryObj } from "@storybook/react"
 import type { TextStreamEvent } from "../../../lib/textStreams.ts"
 import type { DeepSearchJobEvent } from "../../../lib/deepSearchJobs.ts"
@@ -412,6 +412,24 @@ export const Completed: Story = {
         "prep-forecast": "prep-evaluation",
         "last-hour-bundles": "bundles-evaluation",
       },
+    },
+  },
+}
+
+
+export const ReadyForDebate: Story = {
+  args: {
+    prompt,
+    title,
+    workflow: "discovery",
+    debateControl: <Button variant="contained">Start debate</Button>,
+    run: {
+      ...baseRun,
+      status: "ready",
+      researchPromptStreamId: null,
+      research: research.slice(0, 1),
+      ideaGenerationStreamId: "ideas",
+      ideas,
     },
   },
 }

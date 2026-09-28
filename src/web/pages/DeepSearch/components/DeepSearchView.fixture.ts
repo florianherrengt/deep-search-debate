@@ -16,6 +16,12 @@ export const mixedRequirements: ResearchRequirements = [
 ]
 
 const streamText: Record<string, string> = {
+  "long-discovery-inventory": JSON.stringify({ options: Array.from({ length: 30 }, (_, index) => ({
+    name: `Running option ${index + 1}: ${["everyday road trainer", "trail running shoe", "flexible minimalist shoe"][index % 3]}`,
+    category: ["Road running shoes", "Trail running shoes", "Minimalist shoes"][index % 3],
+    description: "An illustrative available option with a general description of its approach and intended running setting. It remains one of the possibilities to discuss.",
+    sources: [`https://example.com/running/catalogue/option-${index + 1}`],
+  })) }),
   "final-answer-table": [
     "These illustrative plans demonstrate how conditions affect a comparison; the figures are example data.[^1]",
     "",

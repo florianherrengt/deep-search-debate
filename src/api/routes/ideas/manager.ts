@@ -26,12 +26,13 @@ import { interruptIdeaJob, reopenIdeaJob } from "./jobLifecycle.ts"
 import { reconstructIdeaJobEvents } from "./replay.ts"
 import {
   createIdeaJobInputSchema,
-  type CreateIdeaJobRequest,
+  createLegacyIdeaJobInputSchema,
+  type LegacyCreateIdeaJobRequest,
   type IdeaJobEvent,
   type LiveIdeaJob,
 } from "./schemas.ts"
 
-type StartIdeaJobInput = CreateIdeaJobRequest & {
+type StartIdeaJobInput = LegacyCreateIdeaJobRequest & {
   title?: string
 }
 
@@ -48,6 +49,8 @@ type IdeaJobCreationTransaction = Parameters<
 >[0]
 
 type StartIdeaJobOptions = {
+  /** Only existing legacy workflow fixtures opt out of discovery. */
+  workflow?: typeof ideaJobs.$inferSelect.workflow
   /** Creates an optional parent before the owned idea row is inserted. */
   createParent?: (
     transaction: IdeaJobCreationTransaction,
@@ -86,7 +89,7 @@ function createIdeaIdentity(
   )
 }
 
-function requireCompletedIdeaJob(ideaJobId: string): void {
+function requireSuccessfulIdeaExecution(ideaJobId: string): void {
   const job = db
     .select({ status: ideaJobs.status, error: ideaJobs.error })
     .from(ideaJobs)
@@ -94,7 +97,7 @@ function requireCompletedIdeaJob(ideaJobId: string): void {
     .get()
 
   if (!job) throw new Error("Idea job was not found")
-  if (job.status !== "completed") {
+  if (job.status !== "completed" && job.status !== "ready") {
     throw new Error(job.error ?? "Idea generation did not complete")
   }
 }
@@ -184,7 +187,7 @@ export function createIdeaJobManager(
       deepSearchManager,
       workflowSignal: controller.signal,
     })
-      .then(() => requireCompletedIdeaJob(persistedJob.ideaJobId))
+      .then(() => requireSuccessfulIdeaExecution(persistedJob.ideaJobId))
       .finally(() => {
         if (hasDurableTerminalState(persistedJob.ideaJobId)) {
           liveJobs.delete(persistedJob.ideaJobId)
@@ -209,7 +212,8 @@ export function createIdeaJobManager(
 
   return {
     async start(userId, input, options) {
-      const validatedInput = createIdeaJobInputSchema.parse(input)
+      const workflow = options?.workflow ?? "discovery"
+      const validatedInput = (workflow === "research" ? createLegacyIdeaJobInputSchema : createIdeaJobInputSchema).parse(input)
       const normalizedInput = { ...input, ...validatedInput }
       const releaseCapacity = reserveRootResearchCapacity(userId)
       const ideaJobId = randomUUID()
@@ -236,6 +240,7 @@ export function createIdeaJobManager(
               .values({
                 ideaJobId,
                 userId,
+                workflow,
                 ...parent,
                 ...createdIdentity,
                 prompt: normalizedInput.prompt,
@@ -306,9 +311,11 @@ export function createIdeaJobManager(
       if (options?.userId !== undefined && persistedJob.debateJobId !== null) {
         throw new Error("Only root idea jobs can be resumed")
       }
-      if (persistedJob.status === "completed") {
+      if (persistedJob.status === "completed" || persistedJob.status === "ready") {
         if (options?.userId !== undefined) {
-          throw new Error("Completed idea jobs cannot be resumed")
+          throw new Error(persistedJob.status === "ready"
+            ? "Ready ideas require Start debate"
+            : "Completed idea jobs cannot be resumed")
         }
         return {
           ideaJobId,
@@ -328,6 +335,7 @@ export function createIdeaJobManager(
             (event) =>
               event.type !== "stop-requested" &&
               event.type !== "interrupted" &&
+              event.type !== "ready" &&
               event.type !== "error" &&
               event.type !== "done",
           ),

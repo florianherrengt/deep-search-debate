@@ -1,4 +1,5 @@
 import z from "zod"
+import type { ResearchJobStatus } from "./researchCancellation.ts"
 
 export const resultFeedbackInputSchema = z.discriminatedUnion("type", [
   z.object({
@@ -18,15 +19,13 @@ export const resultFeedbackInputSchema = z.discriminatedUnion("type", [
 
 export type ResultFeedbackInput = z.infer<typeof resultFeedbackInputSchema>
 
-type JobStatus = "running" | "completed" | "failed" | "interrupted"
-
 type FeedbackRow = {
   feedbackRating: boolean | null
   feedbackText: string | null
 }
 
 type FeedbackCommands = {
-  getOwnerStatus(): JobStatus | undefined
+  getOwnerStatus(): ResearchJobStatus | undefined
   updateRating(rating: boolean): FeedbackRow | undefined
   updateText(text: string): FeedbackRow | undefined
 }

@@ -59,13 +59,13 @@ export function DebatePromptForm({
         <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
           <AutoAwesomeRounded color="primary" />
           <Typography component="h1" variant="h4">
-            {handedOffPrompt ? "Review and start your debate" : "Debate ideas"}
+            {handedOffPrompt ? "Explore your question" : "Debate ideas"}
           </Typography>
         </Stack>
         <Typography color="text.secondary" variant="body1">
           {handedOffPrompt
-            ? "Your question is ready. Edit it if needed, then start the debate."
-            : "Describe a problem or decision. The agents will research competing ideas, test them head-to-head, and choose a winner."}
+            ? "Your question is ready. Edit it if needed, then explore the possibilities."
+            : "Describe a problem or decision. Explore the possibilities and review the generated ideas before starting a debate."}
         </Typography>
       </Stack>
 
@@ -119,7 +119,7 @@ export function DebatePromptForm({
                 type="submit"
                 variant="contained"
               >
-                Start a debate
+                Discover ideas
               </Button>
               <Collapse
                 in={advancedOptionsOpen}
@@ -130,7 +130,7 @@ export function DebatePromptForm({
                   disabled={isStarting}
                   error={!ideaCountIsValid}
                   fullWidth
-                  helperText="Choose how many candidate ideas enter the tournament."
+                  helperText="Choose how many ideas to generate from the discoveries."
                   label="Candidate ideas"
                   onChange={(event) =>
                     setNumberOfIdeas(Number(event.target.value))

@@ -1,6 +1,7 @@
 import z from "zod"
 import { generateArrayStream, generateObjectStream } from "../../llms/generateText.ts"
 import { PromptName } from "../../llms/prompts.ts"
+import type { DeepSearchMode } from "./schemas.ts"
 import {
   awaitGenerationOutput,
   type GenerationOutcome,
@@ -51,7 +52,7 @@ export async function selectPageLinks(
   const generation = await generateObjectStream({
     userId: params.userId,
     owner: { deepSearchJobId: params.deepSearchJobId },
-    promptName: PromptName.SelectLinkedPages,
+    promptName: params.mode === "discovery" ? PromptName.SelectDiscoveryLinks : PromptName.SelectLinkedPages,
     prompt: [
       "<research_request>", params.userQuery, "</research_request>",
       "<page_context>", pageContext, "</page_context>",
@@ -83,6 +84,7 @@ type SelectWebSearchResultsInput = Pick<
   userId: string
   deepSearchJobId: string
   userQuery: string
+  mode?: DeepSearchMode
   searchQuery: string
   results: IndexedSearchResult[]
   maxResultsToExplore?: number
@@ -144,7 +146,7 @@ export async function selectWebSearchResults(
     userId: params.userId,
     owner: { deepSearchJobId: params.deepSearchJobId },
     prompt,
-    promptName: PromptName.SelectWebSearchResults,
+    promptName: params.mode === "discovery" ? PromptName.SelectDiscoveryResults : PromptName.SelectWebSearchResults,
     element: z.string(),
     workflowSignal: params.workflowSignal,
     ...(params.onRegistered ? { onRegistered: params.onRegistered } : {}),

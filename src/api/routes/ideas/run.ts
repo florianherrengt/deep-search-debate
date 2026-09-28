@@ -1,6 +1,10 @@
 import { and, eq, isNull } from "drizzle-orm"
 import { Effect, Result } from "effect"
 import z from "zod"
+import {
+  formatDiscoveryInventory,
+  parseDiscoveryInventory,
+} from "../../agents/deep_search/discovery.ts"
 import { config } from "../../config.ts"
 import { ideas as ideaRecords } from "../../db/schema/index.ts"
 import {
@@ -42,6 +46,7 @@ import {
   insertIdeaBatch,
   interruptIdeaJob,
   loadIdeaExecutionSnapshot,
+  markIdeaJobReady,
   setIdeaGeneration,
   setIdeaJobGeneration,
   setIdeaJobStage,
@@ -1039,17 +1044,27 @@ function ideaPipelineEffect(
   setEventStage: (stage: IdeaEventStage) => void,
 ): Effect.Effect<void, WorkflowFailure> {
   return Effect.gen(function*() {
-    const prompts = yield* workflowEffect(() => ensureResearchPrompts(input))
+    const checkpoint = loadSnapshot(input.ideaJobId)
+    const discovery = checkpoint.workflow === "discovery"
+    const prompts = discovery
+      ? [{ title: checkpoint.title, prompt: input.prompt }]
+      : yield* workflowEffect(() => ensureResearchPrompts(input))
 
     setEventStage("research")
     yield* workflowEffect(() => setIdeaJobStage(input.ideaJobId, "research"))
     const research = yield* runResearchEffect(input, prompts)
 
-    setEventStage("summary")
-    yield* workflowEffect(() => setIdeaJobStage(input.ideaJobId, "summary"))
-    const summary = yield* workflowEffect(() =>
-      ensureResearchSummary(input, research),
-    )
+    let summary: string
+    if (discovery) {
+      summary = yield* workflowEffect(() => formatDiscoveryInventory(
+        parseDiscoveryInventory(research[0]),
+        config.deepSearch.maxSummaryContextChars,
+      ))
+    } else {
+      setEventStage("summary")
+      yield* workflowEffect(() => setIdeaJobStage(input.ideaJobId, "summary"))
+      summary = yield* workflowEffect(() => ensureResearchSummary(input, research))
+    }
 
     setEventStage("ideas")
     yield* workflowEffect(() => setIdeaJobStage(input.ideaJobId, "ideas"))
@@ -1058,6 +1073,14 @@ function ideaPipelineEffect(
       yield* workflowEffect(() => publishIdeas(input, ensuredIdeas.ideas))
     }
     const persistedIdeas = ensuredIdeas.ideas
+
+    if (discovery && checkpoint.debateJobId === null) {
+      yield* workflowEffect(() => {
+        markIdeaJobReady(input.ideaJobId)
+        input.job.publish({ type: "ready" })
+      })
+      return
+    }
 
     setEventStage("selection")
     const selectedIdeas = yield* workflowEffect(() =>
@@ -1116,6 +1139,10 @@ export async function runIdeaJob(input: RunIdeaJobInput): Promise<void> {
   let stage: IdeaEventStage = "planning"
   try {
     const persisted = loadSnapshot(input.ideaJobId)
+    if (persisted.status === "ready") {
+      input.job.publish({ type: "ready" })
+      return
+    }
     if (persisted.status !== "running") {
       throw new Error("Idea job must be reopened before execution")
     }

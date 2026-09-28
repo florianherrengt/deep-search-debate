@@ -1,9 +1,10 @@
 import CircularProgress from "@mui/material/CircularProgress"
+import Button from "@mui/material/Button"
 import Stack from "@mui/material/Stack"
 import Typography from "@mui/material/Typography"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useState, type ReactNode } from "react"
-import { useNavigate, useParams } from "react-router-dom"
+import { Link, useNavigate, useParams } from "react-router-dom"
 import { JobHistory } from "../../components/JobHistory.tsx"
 import { JobStatusBadge } from "../../components/JobStatusBadge.tsx"
 import { PromptForm } from "../../components/PromptForm.tsx"
@@ -23,6 +24,7 @@ import {
   createIdeaJob,
   getIdeaJob,
   getIdeaJobs,
+  startDebateFromIdeas,
   type IdeaJobDetail,
 } from "../../lib/ideaJobs.ts"
 import { IdeaJobView } from "./components/IdeaJobView.tsx"
@@ -53,7 +55,7 @@ function IdeaHistory() {
   useSeo({
     title: "Generate options — RethinkLoop",
     description:
-      "Generate multiple distinct, researched options from a question, goal, or set of constraints.",
+      "Discover the space and generate distinct ideas to review before starting a debate.",
     noindex: true,
   })
 
@@ -68,8 +70,8 @@ function IdeaHistory() {
           sx={{ maxWidth: "65ch" }}
           variant="body1"
         >
-          Describe the question, goal, or constraints. You’ll get multiple
-          researched options to review.
+          Describe the question, goal, or constraints. Explore the possibilities,
+          review the ideas, then start a debate when you’re ready.
         </Typography>
       </Stack>
       <PromptForm
@@ -112,6 +114,8 @@ function IdeaJobContent({
   onTerminal,
   onResume,
   onStop,
+  onStartDebate,
+  startDebatePending,
   reconnectKey,
   resumePending,
   stopError,
@@ -123,6 +127,8 @@ function IdeaJobContent({
   onTerminal: () => void
   onResume: () => void
   onStop: () => void
+  onStartDebate: () => void
+  startDebatePending: boolean
   reconnectKey: number
   resumePending: boolean
   stopError: Error | null
@@ -138,6 +144,7 @@ function IdeaJobContent({
     idea === undefined &&
     run.ideas.length < job.numberOfIdeas &&
     run.status !== "completed" &&
+    run.status !== "ready" &&
     run.status !== "failed" &&
     run.status !== "interrupted" &&
     run.status !== "stopping"
@@ -235,11 +242,30 @@ function IdeaJobContent({
       stopError={stopError}
       stopRequested={job.stopRequested}
       title={job.title}
+      workflow={job.workflow}
+      debateControl={
+        job.canStartDebate && run.status === "ready" ? (
+          <Button
+            variant="contained"
+            loading={startDebatePending}
+            disabled={startDebatePending}
+            onClick={onStartDebate}
+            sx={{ alignSelf: "flex-start" }}
+          >
+            Start debate
+          </Button>
+        ) : job.debateJobId !== null ? (
+          <Button component={Link} to={`/debates/${encodeURIComponent(job.slug)}`} sx={{ alignSelf: "flex-start" }}>
+            Open debate
+          </Button>
+        ) : undefined
+      }
     />
   )
 }
 
 function IdeaRun({ ideaId, slug }: { ideaId?: string; slug: string }) {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [reconnectKey, setReconnectKey] = useState(0)
   const job = useQuery({
@@ -247,6 +273,14 @@ function IdeaRun({ ideaId, slug }: { ideaId?: string; slug: string }) {
     queryFn: ({ signal }) => getIdeaJob(slug, signal),
   })
   const ideaJobId = job.data?.ideaJobId
+  const startDebate = useMutation({
+    mutationFn: (id: string) => startDebateFromIdeas(id),
+    onSuccess: ({ slug: debateSlug }) => {
+      void queryClient.invalidateQueries({ queryKey: ideaJobsQueryKey })
+      void queryClient.invalidateQueries({ queryKey: ["debate-jobs"] })
+      void navigate(`/debates/${encodeURIComponent(debateSlug)}`)
+    },
+  })
   const reconcileTerminalJob = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: [...ideaJobsQueryKey, slug],
@@ -337,6 +371,7 @@ function IdeaRun({ ideaId, slug }: { ideaId?: string; slug: string }) {
   return (
     <>
       {resume.error && <RequestError error={resume.error} />}
+      {startDebate.error && <RequestError error={startDebate.error} />}
       <IdeaJobContent
         feedbackControl={
           ideaId === undefined &&
@@ -365,6 +400,8 @@ function IdeaRun({ ideaId, slug }: { ideaId?: string; slug: string }) {
         onResume={() => resume.mutate(job.data.ideaJobId)}
         onTerminal={reconcileTerminalJob}
         onStop={() => stop.mutate(job.data.ideaJobId)}
+        onStartDebate={() => startDebate.mutate(job.data.ideaJobId)}
+        startDebatePending={startDebate.isPending}
         reconnectKey={reconnectKey}
         resumePending={resume.isPending}
         stopError={stop.error}

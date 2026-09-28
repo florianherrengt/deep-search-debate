@@ -85,8 +85,10 @@ completed outcomes. No gap table, new column, or migration is needed.
 - Debate ownership follows the creation graph: `debate_jobs` owns an optional
   one-to-one `idea_jobs` child, which owns its `deep_search_jobs`. Standalone
   idea and deep-search jobs have no parent. SQLite triggers keep these ownership
-  links immutable after insertion, so deleting a debate always cascades through
-  its complete generated pipeline.
+  links immutable, with one controlled exception: an unparented, ready
+  discovery idea job can attach to its debate once. Unlinking and reparenting
+  remain forbidden, so deleting a debate always cascades through its complete
+  generated pipeline.
 - Completed `deep_search_jobs`, `idea_jobs`, and `debate_jobs` store their
   owner's mutable feedback directly on the root row. `feedback_rating` is a
   nullable SQLite boolean (`0` negative, `1` positive); `feedback_text` is
@@ -183,8 +185,9 @@ completed outcomes. No gap table, new column, or migration is needed.
   `deepSearchCount + idea.position`, so no mutable reverse link is stored.
   Terminal jobs reject collection additions,
   and deleting the owning job still cascades through the ideas and searches.
-  A completed idea job requires all four pipeline generation links, including
-  the unconditional comparative-selection generation.
+  A completed research-workflow idea job requires all four pipeline generation
+  links. Discovery jobs require idea-generation and comparative-selection
+  links; their initial child inventory supplies the briefing directly.
 - Child-key indexes support aggregate cascades and `NO ACTION` checks without
   scanning unrelated generations, queries, pages, results, or debate matches.
 - All database timestamps use Unix milliseconds. Ordered records use explicit
@@ -197,12 +200,18 @@ completed outcomes. No gap table, new column, or migration is needed.
   ```
 - The API workspace's `predev` and `prestart` lifecycle scripts apply pending
   migrations before either development or production startup.
+- `db/migrate.ts` runs the shared migration chain. Migration `0003` updates
+  guarded CHECK definitions without rebuilding `idea_jobs`, preserving its
+  incoming child references. The helper temporarily permits trusted migration
+  metadata writes, restores driver protections even on failure, and checks
+  database integrity. The migration also validates integrity before commit;
+  a failed guard rolls back its schema and data changes together.
 - Migration history begins with the intentionally fresh
   `0000_fresh-baseline` migration, including encrypted Codex connections and
   per-user LLM model settings. Databases created from any superseded history are
   unsupported and must be recreated; there is no data-preserving upgrade path
   because the production database reset was explicitly approved. Databases on
-  that baseline do have the forward-preserving `0001` and `0002` upgrade path
+  that baseline do have the forward-preserving `0001` through `0003` upgrade path
   described above. `baselineMigration.test.ts` verifies fresh creation and
   upgrades with existing selected results and linked edges through the same
   Drizzle migrator used by the application, including checks, cascades, and
@@ -307,6 +316,14 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
   current stage, lifecycle, planning, briefing, idea-generation, and
   selection-generation links. A debate-created idea job points to its owning
   debate; a standalone idea job leaves that FK null.
+  Immutable `workflow` distinguishes existing `research` jobs from new
+  `discovery` jobs, including before any child exists. Discovery reserves only
+  child position zero and reuses that child's validated option inventory as its
+  briefing, with no initial planning or summary generation links. Its `ready`
+  state records completed discovery and raw idea generation before selection.
+  Ready is idle, has no completion timestamp, and is excluded from recovery and
+  ordinary Resume. Start debate attaches the parent and returns the same job to
+  running atomically; the full pipeline still ends as `completed`.
 - `ideas` stores validated, ordered idea output with stable IDs as soon as idea
   generation completes. Its selected flag remains null until the comparative
   selector atomically marks every idea selected or rejected. A selected row then
@@ -331,7 +348,8 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
   idea.position)` for debate context and UI replay.
 
 On startup, `reconcilePersistedResearchRoots()` loads only effective roots:
-non-completed debates, standalone idea jobs, and standalone deep searches. It
+non-completed debates, standalone idea jobs except those paused at `ready`,
+and non-completed standalone deep searches. It
 schedules each root through its manager before the HTTP listener opens; any
 synchronous reset or scheduling failure aborts startup. Parent coordinators
 resume their descendants, so child jobs are never independently scheduled.

@@ -306,6 +306,7 @@ describe("deep search jobs client", () => {
         Response.json({
           deepSearchJob: {
             ...job,
+            mode: "research",
             canResume: false,
             canStop: false,
             creditsUsed: 123,
@@ -323,6 +324,7 @@ describe("deep search jobs client", () => {
       completedAt: new Date(job.completedAt),
     }
     const parsedDetailJob = {
+      mode: "research",
       deepSearchJobId: "job-id",
       title: "Research This",
       slug: "research-this",

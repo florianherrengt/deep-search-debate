@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   createIdeaJob: vi.fn(),
+  startDebateFromIdeas: vi.fn(),
   getIdeaJob: vi.fn(),
   getIdeaJobs: vi.fn(),
   requestResearchResume: vi.fn(),
@@ -24,6 +25,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../lib/ideaJobs.ts", () => ({
   createIdeaJob: mocks.createIdeaJob,
+  startDebateFromIdeas: mocks.startDebateFromIdeas,
   getIdeaJob: mocks.getIdeaJob,
   getIdeaJobs: mocks.getIdeaJobs,
   subscribeToIdeaJob: mocks.subscribeToIdeaJob,
@@ -66,6 +68,7 @@ function renderIdeas(initialEntry = "/ideas") {
           <Route path="/ideas" element={<Ideas />} />
           <Route path="/ideas/:slug" element={<Ideas />} />
           <Route path="/ideas/:slug/:ideaId" element={<Ideas />} />
+          <Route path="/debates/:slug" element={<div>Continuing saved ideas</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -87,6 +90,9 @@ describe("Ideas", () => {
     mocks.requestResearchResume.mockResolvedValue({ status: "running" })
     mocks.getIdeaJob.mockResolvedValue({
       ideaJobId: "idea-job-id",
+      workflow: "research",
+      debateJobId: null,
+      canStartDebate: false,
       title: "Independent Café Ideas",
       slug: "independent-cafe-ideas",
       prompt: "Ideas for independent cafés",
@@ -160,6 +166,25 @@ describe("Ideas", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("shows ready options and starts a debate from their saved job without generating again", async () => {
+    mocks.getIdeaJob.mockResolvedValue({ ...(await mocks.getIdeaJob()), workflow: "discovery", status: "ready", stage: "ideas", canStartDebate: true, canStop: false })
+    mocks.subscribeToIdeaJob.mockImplementation(async function* () {
+      await Promise.resolve()
+      yield { type: "idea", ideaId: "stable-option", title: "Community plan", description: "A shared approach to the problem." }
+      yield { type: "ready" }
+      yield { type: "done" }
+    })
+    mocks.startDebateFromIdeas.mockResolvedValue({ debateJobId: "debate-id", slug: "independent-cafe-ideas" })
+    renderIdeas("/ideas/independent-cafe-ideas")
+    expect(await screen.findByText("A shared approach to the problem.")).toBeVisible()
+    expect(screen.getByRole("link", { name: "View Community plan" })).toHaveAttribute("href", "/ideas/independent-cafe-ideas/stable-option")
+    expect(screen.queryByRole("button", { name: "Stop workflow" })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Start debate" }))
+    expect(await screen.findByText("Continuing saved ideas")).toBeVisible()
+    expect(mocks.startDebateFromIdeas).toHaveBeenCalledExactlyOnceWith("idea-job-id")
+    expect(mocks.createIdeaJob).not.toHaveBeenCalled()
+  })
+
   it("explains how to generate researched options", async () => {
     renderIdeas()
 
@@ -168,7 +193,7 @@ describe("Ideas", () => {
     ).toBeVisible()
     expect(
       screen.getByText(
-        "Describe the question, goal, or constraints. You’ll get multiple researched options to review.",
+        "Describe the question, goal, or constraints. Explore the possibilities, review the ideas, then start a debate when you’re ready.",
       ),
     ).toBeVisible()
     expect(
@@ -509,6 +534,31 @@ describe("Ideas", () => {
       expect(screen.queryByRole("progressbar")).not.toBeInTheDocument()
     },
   )
+
+  it.each([
+    ["running", null, "Preparing the ideas for review…"],
+    ["ready", null, "Ready to review. Start a debate from the ideas page to begin selection and detailed research."],
+    ["running", "selection-stream", "Comparing this candidate with the others…"],
+  ] as const)("describes pending ideas truthfully at %s with selection %s", (status, ideaSelectionStreamId, expectedCopy) => {
+    render(
+      <MemoryRouter>
+        <IdeaDetailView
+          ideaId="saved-option"
+          jobSlug="generated-ideas"
+          jobTitle="Generated ideas"
+          numberOfIdeas={1}
+          run={{
+            ...initialIdeaJobState,
+            status,
+            ideaSelectionStreamId,
+            ideas: [{ ideaId: "saved-option", title: "Saved option", description: "A possibility to review.", selection: "pending" }],
+          }}
+        />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText(expectedCopy)).toBeVisible()
+    expect(screen.queryAllByText(/Comparing this candidate/)).toHaveLength(ideaSelectionStreamId === null ? 0 : 1)
+  })
 
   it("shows an unselected idea without a stale assessment", () => {
     render(

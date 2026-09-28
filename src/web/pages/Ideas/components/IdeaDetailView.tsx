@@ -168,6 +168,7 @@ export function IdeaDetailView({
         terminal={
           run.ideas.length >= numberOfIdeas ||
           status === "completed" ||
+          status === "ready" ||
           status === "failed" ||
           status === "stopping" ||
           status === "interrupted"
@@ -354,8 +355,16 @@ export function IdeaDetailView({
         <Typography component="h2" variant="h6">
           Decision
         </Typography>
-        {idea.selection === "pending" && status === "running" ? (
-          <WaitingStatus>Comparing this candidate with the others…</WaitingStatus>
+        {idea.selection === "pending" && status === "ready" ? (
+          <Typography color="text.secondary">
+            Ready to review. Start a debate from the ideas page to begin selection and detailed research.
+          </Typography>
+        ) : idea.selection === "pending" && status === "running" ? (
+          <WaitingStatus>
+            {run.ideaSelectionStreamId
+              ? "Comparing this candidate with the others…"
+              : "Preparing the ideas for review…"}
+          </WaitingStatus>
         ) : idea.selection === "pending" ? (
           <Typography color="error" variant="body2">
             Selection did not complete for this idea.

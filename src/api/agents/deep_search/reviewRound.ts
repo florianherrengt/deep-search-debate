@@ -1,5 +1,7 @@
 import z from "zod"
-import { researchAnalysisSchema, researchRequirementsSchema, type ResearchRequirements } from "./schemas.ts"
+import { researchAnalysisSchema, researchRequirementsSchema, type DeepSearchMode, type ResearchRequirements } from "./schemas.ts"
+import { formatDiscoveryInventory, parseDiscoveryInventory } from "./discovery.ts"
+import { config } from "../../config.ts"
 import { generateObjectStream } from "../../llms/generateText.ts"
 import { PromptName } from "../../llms/prompts.ts"
 import {
@@ -67,6 +69,7 @@ type StartRoundReviewInput = {
   userId: string
   deepSearchJobId: string
   researchRequest: string
+  mode?: DeepSearchMode
   candidateAnswer: string
   completedRound: number
   maxRounds: number
@@ -95,9 +98,12 @@ export type StartedRoundReview = {
 export async function startRoundReview(
   input: StartRoundReviewInput,
 ): Promise<StartedRoundReview> {
+  const inventoryContext = input.mode === "discovery"
+    ? formatDiscoveryInventory(parseDiscoveryInventory(input.candidateAnswer), Math.floor(config.deepSearch.maxSummaryContextChars / 2))
+    : ""
   const summaries = formatSearchSummaryContext(
     input.searchSummaries,
-    undefined,
+    config.deepSearch.maxSummaryContextChars - inventoryContext.length,
     input.sourceEvidence,
     input.researchRequest,
   )
@@ -109,16 +115,16 @@ export async function startRoundReview(
       input.researchRequest,
       "</user_request>",
       "<requirements>", JSON.stringify(input.requirements ?? []), "</requirements>",
-      "<candidate_answer>",
-      input.candidateAnswer,
-      "</candidate_answer>",
+      ...(input.mode === "discovery"
+        ? ["<discovery_inventory>", inventoryContext, "</discovery_inventory>"]
+        : ["<candidate_answer>", input.candidateAnswer, "</candidate_answer>"]),
       `completed_rounds: ${input.completedRound + 1}`,
       `maximum_rounds: ${input.maxRounds}`,
       "<search_summaries>",
       summaries,
       "</search_summaries>",
     ].join("\n"),
-    promptName: PromptName.ReviewDeepSearchRound,
+    promptName: input.mode === "discovery" ? PromptName.ReviewDiscoveryRound : PromptName.ReviewDeepSearchRound,
     schema: gapReviewSchema,
     reasoning: "enabled",
     workflowSignal: input.workflowSignal,
