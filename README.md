@@ -312,44 +312,28 @@ The history page lists durable jobs newest first. Structural progress is stored 
 
 ## Ideas
 
-Open `/ideas` and enter a prompt to start a researched idea run. The UI requests
-8 ideas by default, and the API accepts values from 6 through 12 via
-`numberOfIdeas`. The selector keeps an even field of 6 through 12. Runs use two
-parallel deep searches by default; the API also
-accepts `deepSearchCount`, `maxSearches`, and `maxResultsPerSearch`.
+Open `/ideas` and enter a prompt to discover the option space before generating
+ideas. The UI requests 8 ideas by default; the API accepts 6 through 8 via
+`numberOfIdeas` under the default debate limits. New runs use exactly one
+initial discovery search. The API also accepts bounded `maxSearches`,
+`maxResultsPerSearch`, and `maxRounds` controls.
 
-The pipeline uses nine visible phases:
+1. The original request enters a round-based discovery search that gathers
+   concrete options, categories, brief descriptions, and source URLs. Coverage
+   reviews target missing parts of the space within the configured limits.
+2. A cumulative, unranked inventory retains earlier options and feeds idea
+   generation. Its `/deep-search/:slug` page opens from the Ideas run.
+3. Generated ideas are saved with stable IDs and the run pauses at `ready`.
+   Closing, reloading, or restarting the API preserves this pause.
+4. **Start debate** attaches one debate to the same saved ideas. Selection,
+   refinement, individual research, and final evaluation then run before the
+   tournament. The debate generates one website for its winner.
 
-1. One planning generation creates exactly one distinct prompt per requested deep search.
-2. Every child deep-search row starts together and is visible immediately. Its
-   existing `/deep-search/:slug` page opens in a new tab from the Ideas run;
-   actual pipeline execution passes through the shared deep-search queue.
-3. A fresh generation combines only the child searches' final-answer text into one research briefing.
-4. A fresh generation receives the user prompt and briefing, then streams the requested title-and-description ideas.
-5. Every persisted idea receives an independent structured evaluation using the
-   original request and final research briefing. Evaluations start concurrently,
-   and the pipeline waits for all of them to settle.
-6. One structured selector receives the request, briefing, every idea, and each
-   evaluation. It returns an unordered, unique, even set of 6 through
-   12 idea IDs. The UI retains the selector's reasoning and marks every idea as
-   selected or rejected.
-  7. Every selected idea receives a structured refinement generation using its
-     original content, evaluation, request, and shared research briefing.
-  8. A website generation starts immediately after each selected idea's
-     refinement commits; the single-file page is stored on the server under
-     `data/ideas/<idea-id>/websites/index.html` and served through the idea
-     job's read scope.
-  9. Each refined idea starts its own durable deep search through the same shared
-     execution queue.
-  10. The parent completes only after all selected-idea research, evaluations,
-      and websites complete.
-
-The run is all-or-nothing: a planning, child-search, summary, idea-generation,
-evaluation, selection, refinement, website, or selected-idea-research failure
-fails the parent run and prevents later stages.
-Individual blocked, challenged, paywalled, unavailable, or unsupported pages
-remain non-fatal inside a child search because their search snippets can still
-support its synthesis.
+Saved legacy research jobs retain their original automatic workflow and
+completed checkpoints. Required generation or child-search failures fail the
+owning workflow and prevent dependent stages. Individual page-extraction
+failures can fall back to search snippets; failed model summaries remain fatal
+for idea-owned searches.
 
 Runs and their generated output are durable and appear newest first under "Previous idea runs." See [the idea-job contract](src/api/routes/docs/idea-jobs.md).
 
@@ -364,10 +348,11 @@ alone never stops work.
 
 ## Debates
 
-Open `/debates` to run the researched idea pipeline and an automatic tournament.
-The generated candidate count defaults to 8 and is configurable from 6 through
-8 under the conservative server defaults. Only ideas admitted by the selector
-enter the tournament.
+Open `/debates` to start the same discovery and idea-preview flow described
+above. Review the saved ideas, then select **Start debate** to begin detailed
+candidate research and the tournament. The generated candidate count defaults
+to 8 and is configurable from 6 through 8 under the conservative server
+defaults. Only ideas admitted by the selector enter the tournament.
 
 Every admitted idea plays five Swiss rounds without repeat opponents; losing a
 Swiss match does not eliminate it. Later-round matchmaking uses deterministic

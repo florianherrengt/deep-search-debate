@@ -20,7 +20,7 @@ export type SourceEvidence = {
   evidenceType: "page-summary" | "search-snippet" | "unavailable"
 }
 
-function getSourceParts({ url, title, evidenceType, originalPassages }: SourceEvidence) {
+export function getSourceParts({ url, title, evidenceType, originalPassages }: SourceEvidence) {
   const metadata = JSON.stringify({
     url,
     title: truncateMiddle(title, MAX_WEB_SEARCH_TITLE_CHARS),

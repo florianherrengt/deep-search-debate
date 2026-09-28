@@ -18,7 +18,6 @@ import { ResultFeedback } from "../../components/ResultFeedback.tsx"
 import { ResumeWorkflowControl } from "../../components/ResumeWorkflowControl.tsx"
 import { StopWorkflowControl } from "../../components/StopWorkflowControl.tsx"
 import {
-  createDebateJob,
   getDebateJobs,
   updateDebateJob,
   type DebateTournamentSnapshot,
@@ -40,6 +39,7 @@ import { getDebateStatusPresentation } from "./debatePresentation.ts"
 import { getMatch, getWinner } from "./debateSelectors.ts"
 import { debateJobQueryKey, useDebateJob } from "./useDebateJob.ts"
 import { useIdeaJob } from "../Ideas/useIdeaJob.ts"
+import { createIdeaJob } from "../../lib/ideaJobs.ts"
 
 const debateJobsQueryKey = ["debate-jobs"] as const
 
@@ -52,14 +52,14 @@ function DebateStart() {
     queryFn: ({ signal }) => getDebateJobs(signal),
   })
   const creation = useMutation({
-    mutationFn: (input: Parameters<typeof createDebateJob>[0]) =>
-      createDebateJob(input),
+    mutationFn: (input: Parameters<typeof createIdeaJob>[0]) =>
+      createIdeaJob(input),
     onSuccess: ({ slug }) => {
       void queryClient.invalidateQueries({
-        queryKey: debateJobsQueryKey,
+        queryKey: ["idea-jobs"],
         exact: true,
       })
-      void navigate(`/debates/${slug}`)
+      void navigate(`/ideas/${slug}`)
     },
   })
 
@@ -78,7 +78,7 @@ function DebateStart() {
         }
         isStarting={creation.isPending}
         initialPrompt={searchParams.get("prompt") ?? ""}
-        onSubmit={(input) => creation.mutate({ ...input, isPublic: false })}
+        onSubmit={(input) => creation.mutate(input)}
       />
 
       <JobHistory

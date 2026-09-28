@@ -108,6 +108,7 @@ const services: DeepSearchServices = {
       maxRounds: 3,
       maxSearches: 3,
       researchRequest: "Research request created from the Storybook page.",
+      mode: "research",
       slug,
       status: "completed",
       stopRequested: false,

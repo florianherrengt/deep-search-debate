@@ -147,7 +147,7 @@ test("connects ChatGPT, uses Codex without credits, and falls back after disconn
   ).toBeVisible()
   await expect(page.getByText("Not connected", { exact: true })).toBeVisible()
 
-  await page.getByRole("button", { name: "Connect OpenAI" }).click()
+  await page.getByRole("button", { name: "Connect OpenAI", exact: true }).click()
   await expect(
     page.getByRole("heading", { name: "Finish connecting with OpenAI" }),
   ).toBeVisible()
@@ -159,6 +159,8 @@ test("connects ChatGPT, uses Codex without credits, and falls back after disconn
   await expect(
     page.getByRole("heading", { name: "OpenAI is connected" }),
   ).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByRole("combobox", { name: "Small model" })).toBeVisible()
+  await expect(page.getByText("OpenAI models become available after you connect your account above.")).toHaveCount(0)
   await page.getByRole("combobox", { name: "Small model" }).click()
   await page
     .getByRole("option", { name: "GPT-5.6 Sol — OpenAI" })
@@ -323,11 +325,13 @@ test.describe("OpenAI debate", () => {
     test.setTimeout(120_000)
     page.setDefaultTimeout(10_000)
     await page.goto("/settings")
-    await page.getByRole("button", { name: "Connect OpenAI" }).click()
+    await page.getByRole("button", { name: "Connect OpenAI", exact: true }).click()
     await expect(page.getByText("E2E-CODE", { exact: true })).toBeVisible()
     await expect(
       page.getByRole("heading", { name: "OpenAI is connected" }),
     ).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByRole("combobox", { name: "Small model" })).toBeVisible()
+    await expect(page.getByText("OpenAI models become available after you connect your account above.")).toHaveCount(0)
     await page.getByRole("combobox", { name: "Small model" }).click()
     await page.getByRole("option", { name: "GPT-5.6 Luna — OpenAI" }).click()
     await page.getByRole("combobox", { name: "Big model" }).click()
@@ -362,10 +366,12 @@ test.describe("OpenAI debate", () => {
     const prompt = "Design a practical product that helps small apartment buildings reduce energy use without installing new hardware, changing utility providers, or adding substantial work for residents or building managers."
     const createdResponse = page.waitForResponse((response) =>
       response.request().method() === "POST" &&
-      new URL(response.url()).pathname === "/api/debate-jobs"
+      /^\/api\/idea-jobs\/[^/]+\/debate$/.test(new URL(response.url()).pathname)
     )
     await page.getByLabel("What should the ideas solve?").fill(prompt)
-    await page.getByRole("button", { name: "Start a debate" }).click()
+    await page.getByRole("button", { name: "Discover ideas" }).click()
+    await expect(page.getByRole("button", { name: "Start debate", exact: true })).toBeVisible({ timeout: 30_000 })
+    await page.getByRole("button", { name: "Start debate", exact: true }).click()
     const created = await createdResponse
     expect(created.status()).toBe(202)
     const { debateJobId, slug } = await created.json() as {
@@ -427,11 +433,14 @@ test.describe("OpenAI debate", () => {
     expect(await website.text()).toContain("Deterministic E2E idea website.")
     const generations = getDebateGenerations(debateJobId)
     const expectedStageCounts = {
-      "generate-idea-research-prompts": 1,
-      "generate-websearch-queries": 9,
-      "correct-research-answer": 9,
-      "analyze-research-answer": 9,
-      "summarize-idea-research": 1,
+      "generate-idea-research-prompts": 0,
+      "generate-discovery-queries": 2,
+      "update-discovery-inventory": 2,
+      "review-discovery-round": 1,
+      "generate-websearch-queries": 8,
+      "correct-research-answer": 8,
+      "analyze-research-answer": 8,
+      "summarize-idea-research": 0,
       "generate-ideas": 1,
       "select-ideas": 1,
       "refine-idea": 8,
@@ -447,7 +456,9 @@ test.describe("OpenAI debate", () => {
     }
     const smallPrompts = new Set([
       "generate-prompt-title", "select-websearch-results", "summarize-web-page",
-      "summarize-search-query", "summarize-idea-research",
+      "select-linked-pages", "summarize-search-query", "summarize-idea-research",
+      "select-discovery-results", "select-discovery-links",
+      "summarize-discovery-page", "summarize-discovery-query",
     ])
     for (const generation of generations) {
       expect(generation).toMatchObject({

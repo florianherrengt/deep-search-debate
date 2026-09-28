@@ -12,6 +12,7 @@ import {
 } from "../../db/schema/index.ts"
 import { generateTextStream } from "../../llms/generateText.ts"
 import { PromptName } from "../../llms/prompts.ts"
+import { loadDebateContext } from "../debates/context.ts"
 import {
   awaitGenerationText,
   type LlmGenerationOwner,
@@ -187,11 +188,12 @@ export async function generateWinningIdeaSite(input: {
       ideaJobId: ideaJobs.ideaJobId,
       prompt: ideaJobs.prompt,
       researchSummaryGenerationId: ideaJobs.researchSummaryGenerationId,
+      workflow: ideaJobs.workflow,
     })
     .from(ideaJobs)
     .where(eq(ideaJobs.debateJobId, input.debateJobId))
     .get()
-  if (!job?.researchSummaryGenerationId) {
+  if (!job || (job.workflow === "research" && !job.researchSummaryGenerationId)) {
     throw new Error("Debate idea job has no research summary generation")
   }
   const idea = db
@@ -214,12 +216,14 @@ export async function generateWinningIdeaSite(input: {
   ) {
     throw new Error("Winning idea has no refined title and description")
   }
-  const summary = db
+  const summary = job.workflow === "discovery" ? {
+    text: loadDebateContext(job.ideaJobId).researchBriefing,
+  } : db
     .select({ text: llmGenerations.text })
     .from(llmGenerations)
     .where(
       and(
-        eq(llmGenerations.llmGenerationId, job.researchSummaryGenerationId),
+        eq(llmGenerations.llmGenerationId, job.researchSummaryGenerationId!),
         eq(llmGenerations.status, "completed"),
       ),
     )

@@ -22,6 +22,7 @@ import {
 import { getDebateJobSnapshot } from "./snapshot.ts"
 import type { AppEnv } from "../../types/auth.ts"
 import { debateJobReadScope } from "../readAccess.ts"
+import { ideaJobEventParamsSchema } from "../ideas/schemas.ts"
 import {
   resultFeedbackInputSchema,
   updateResultFeedback,
@@ -123,6 +124,20 @@ export function debateJobReads(
 
 /** Registers authenticated debate creation, history, and owner mutations. */
 export function debateJobs(app: Hono<AppEnv>, manager: DebateJobManager): void {
+  app.post(
+    "/idea-jobs/:ideaJobId/debate",
+    zValidator("param", ideaJobEventParamsSchema),
+    async (c) => {
+      const { debateJobId, slug, completion } = await manager.startFromIdeas(
+        c.get("userId"), c.req.valid("param").ideaJobId,
+      )
+      void completion.catch((error: unknown) => {
+        console.error(`Debate job ${debateJobId} background task failed`, error)
+      })
+      c.header("Location", `/api/debate-jobs/${slug}`)
+      return c.json({ debateJobId, slug }, 202)
+    },
+  )
   app.patch(
     "/debate-jobs/:debateJobId/feedback",
     zValidator("param", debateJobEventParamsSchema),

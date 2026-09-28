@@ -13,6 +13,7 @@ import {
   deepSearchRounds,
   deepSearchResults,
   deepSearchWebPages,
+  ideaJobs,
   llmGenerations,
 } from "../../db/schema/index.ts"
 import type { TextStreamPersistenceTransaction } from "../../llms/streams.ts"
@@ -131,6 +132,9 @@ export function loadDeepSearchExecutionSnapshot(
     .where(eq(deepSearchJobs.deepSearchJobId, jobId))
     .get()
   if (!job) return undefined
+  const discovery = job.ideaJobPosition === 0 && job.ideaJobId !== null &&
+    db.select({ workflow: ideaJobs.workflow }).from(ideaJobs)
+      .where(eq(ideaJobs.ideaJobId, job.ideaJobId)).get()?.workflow === "discovery"
 
   const rounds = db
     .select()
@@ -243,6 +247,7 @@ export function loadDeepSearchExecutionSnapshot(
     jobId: job.deepSearchJobId,
     userId: job.userId,
     ideaJobId: job.ideaJobId,
+    mode: discovery ? "discovery" : "research",
     researchRequest: job.researchRequest,
     maxSearches: job.maxSearches,
     maxResultsPerSearch: job.maxResultsPerSearch,

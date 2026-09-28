@@ -1,7 +1,9 @@
 # Idea jobs
 
-Idea jobs are durable pipelines that turn a user prompt into research-backed,
-selected, refined, individually researched, and finally evaluated ideas. Each
+New idea jobs discover the option space, generate ideas, and wait for the owner
+to start a debate. Selection, refinement, individual research, and evaluation
+begin only after that action. These are durable pipelines: the option inventory
+and generated idea IDs survive closing the page or restarting the API. Each
 run has an internal UUID, an LLM-generated
 immutable title, a readable slug, and four durable stages: `planning`,
 `research`, `summary`, and `ideas`. Comparative selection and final per-idea
@@ -23,26 +25,29 @@ stages and child searches, and retries only incomplete work.
 
 ## Pipeline
 
-1. One successful planning generation creates exactly `deepSearchCount` distinct,
-   non-empty `{ title, prompt }` research plans.
-2. One durable deep-search job is created immediately for each prompt. All
-   child rows and links become visible together, while actual execution passes
-   through the process-wide deep-search queue. A scoped position preserves
-   prompt order for replay and briefing construction.
-3. The parent waits for every launched child to settle. Durable child
-   completion returns its committed final-answer text. Every idea-owned search
-   persists strict summary quality: extraction failures remain acceptable
-   snippet fallbacks, while a failed model-generated page summary fails the
-   child and remains retryable from its persisted extracted content. If a child
-   fails, the parent fails and no summary or idea generation starts.
-4. One successful summary generation receives the original user prompt and only each
-   child's final-answer text. Page records, source metadata, and intermediate
-   output are not copied into this call. The briefing uses the current Small
-   model and reasoning-effort assignment.
-5. One successful idea generation receives the original user prompt, the final
-   research briefing, and `numberOfIdeas`. After the complete array passes
-   validation, every `{ title, description }` is persisted and published in
-   generation order with a stable ID and no evaluation link yet.
+1. New jobs persist `workflow = discovery` and exactly one initial child search,
+   at position zero. The child receives the original user request directly;
+   there is no initial research-prompt generation or independent search fan-out.
+2. The shared deep-search coordinator retrieves sources in bounded rounds, using
+   discovery-specific query planning, source selection, page/query summaries,
+   cumulative option inventory, and coverage review. It seeks diverse concrete
+   products and approaches without ranking them or researching a winner.
+3. Each round persists validated options with names, categories, short
+   descriptions, and source URLs. The inventory is not capped by `numberOfIdeas`.
+   Coverage gaps can trigger another round. The final inventory reuses the last
+   round generation; discovery skips answer correction and answer analysis.
+   Existing strict page-summary quality, charging, cancellation, and recovery
+   rules still apply.
+4. The complete inventory supplies the research briefing directly. Bounded
+   formatting preserves every option name, category, and source URL while
+   shortening descriptions when needed; it fails if the identities alone exceed
+   the context budget. No additional summary model can discard the option list.
+5. Existing idea generation receives the original request, inventory briefing,
+   and `numberOfIdeas`. Validated ideas are saved with stable IDs and unresolved
+   selection. A standalone discovery job then becomes `ready`, emits `ready`
+   followed by `done`, and releases its active root slot. It remains private and
+   idle until Start debate. The button creates one debate and attaches the same
+   idea job; it does not regenerate discovery or ideas.
 6. One successful structured selection generation receives the original user prompt,
    the final research briefing passed into idea generation, and every generated
    idea. Selection uses the current Big model and reasoning-effort assignment.
@@ -73,7 +78,14 @@ stages and child searches, and retries only incomplete work.
     to the selected ideas. Raw rejected candidates are not evaluated, so every
     displayed assessment describes the improved idea the user is reading.
 
-The idea pipeline itself generates no websites. Standalone idea runs end after
+Existing jobs retain `workflow = research` and their original automatic
+planning → child searches → summary → generation → selection flow, including
+old search limits and completed checkpoints. Their prompts remain unchanged.
+New prompt-based API debate creation already explicitly requests a debate, so
+its discovery idea child is parented at creation and proceeds without a pause.
+Both browser entry forms instead create standalone discovery jobs and pause.
+
+The idea pipeline itself generates no websites. Legacy standalone idea runs end after
 evaluation; when a debate owns the idea job, that debate generates one website
 for its tournament winner (see the debate contract).
 
@@ -125,31 +137,22 @@ Starts a run and returns `202 Accepted`:
 {
   "prompt": "Generate practical products that help London renters reduce energy use",
   "numberOfIdeas": 8,
-  "deepSearchCount": 2,
-  "maxSearches": 3,
-  "maxResultsPerSearch": 3,
-  "maxRounds": 3
+  "deepSearchCount": 1,
+  "maxSearches": 2,
+  "maxResultsPerSearch": 2,
+  "maxRounds": 2
 }
 ```
 
-Only `prompt` is required. `numberOfIdeas` is an integer from 6 through 12 and
-defaults to 8. The remaining numeric fields are positive integers with the
-defaults shown above. The configured defaults cap `deepSearchCount` at 2,
-`maxSearches` and `maxResultsPerSearch` at 5 each, `maxRounds` at 3, selected
-search URLs per child-search round at 15, and `prompt` at 10,000 characters.
-Each round has an additional linked-page allowance three times its
-search-selected page allowance, shared across at most two link hops by default.
-The first hop can consume two thirds, reserving one third for the second;
-unused capacity carries forward. The same
-deep-search limits apply to both initial briefing searches and refined-idea
-searches; the manager validates generated child requests again before starting
-provider work. The root request also accounts for all initial searches plus up
-to 12 selected-idea searches against a 1,200-page aggregate worst-case selected
-page budget by default. The default eight ideas and two initial searches can
-use at most 1,080 selected pages including linked pages. Invalid limit
-combinations fail before title generation or job creation. Each child uses the
-same durable requirements checklist, retained source passages, mandatory final
-answer correction, and corrected-answer analysis as standalone deep search.
+Only `prompt` is required. New jobs use the same admission controls as debates:
+6–8 generated ideas by default, exactly one initial discovery search, up to
+3 queries and 3 selected results per query, and up to 2 research rounds per
+child. The defaults are shown above. The request must fit the existing
+400-page worst-case aggregate debate budget, including the initial search,
+all candidate searches, and linked-page traversal. `deepSearchCount` values
+other than 1 are rejected. The inventory itself has no candidate-count cap.
+Standalone deep-search admission remains unchanged. Existing saved idea jobs
+retain their original controls when resumed.
 
 Creation returns `429` when the user already has the configured active root-job
 limit (two by default). A running idea or debate pipeline consumes one root
@@ -185,7 +188,9 @@ visibility, and `isIndexable`, which is true only when that debate is both
 public and completed. Standalone and private owner-readable jobs report both
 fields as false. These projections are detail-only and do not change the
 history response. Detail also includes the derived `stopRequested` flag,
-`canStop`, and `canResume`. `canStop` is true only for the authenticated owner
+`canStop`, `canResume`, and `canStartDebate`. The last is true only for the
+owner of an unparented `ready` discovery job. Responses include immutable
+`workflow` and the nullable `debateJobId`. `canStop` is true only for the authenticated owner
 of a standalone root whose status is `running` and which has no persisted stop
 request. It is false for debate-owned jobs, public viewers, terminal jobs, and
 roots already stopping. `canResume` is true only for the owner of a failed or interrupted
@@ -244,10 +249,26 @@ manager entry. Both cases return `202 Accepted`:
 The reopen clears the root's error, completion timestamp, and direct Stop
 timestamp, then recursively reconciles its child searches and pipeline
 checkpoints. Unknown and foreign UUIDs return `404`. Debate-owned idea jobs and
-completed roots return `409`; a debate-owned child can be resumed only through
+`ready` and completed roots return `409`; a debate-owned child can be resumed only through
 its debate root. The owner UI shows `Resume workflow` only when `canResume` is
 true, then refreshes the snapshot and reconnects the event feed under the same
 URL and job ID.
+
+### `POST /api/idea-jobs/:ideaJobId/debate`
+
+Starts a private debate from the authenticated owner's ready discovery job.
+The original idea rows, discovery child, and generations are preserved. Root
+capacity is checked again, then the debate is created and the idea job is
+attached and set to `running` atomically. The existing pipeline continues at
+selection before the tournament. The response is `202 Accepted` with
+`{ "debateJobId": "<uuid>", "slug": "<same-slug>" }`.
+
+Repeated requests for an already attached job return its existing debate;
+they do not create work or retry a failed debate. Unknown and foreign IDs
+return 404; jobs that are not ready return 409; exhausted active capacity
+returns 429. Ready jobs are excluded from normal Resume and startup recovery.
+A crash after idea generation but before ready is recorded recovers to ready
+without starting selection.
 
 ### `PATCH /api/idea-jobs/:ideaJobId/feedback`
 
@@ -304,7 +325,11 @@ Returns the replay-and-follow NDJSON feed. Live jobs use the retained in-memory
 event log; database-only jobs synthesize events from durable rows. Unknown UUIDs
 return 404.
 
-The event sequence is:
+The event sequence is below. Discovery omits the legacy planning and briefing
+streams (steps 1 and 3). After step 5, an unparented discovery job emits `ready`
+then `done` and closes its feed. Reopening replays that same boundary. Start
+debate opens a new execution feed with the persisted prefix and subsequent
+selection events; the prior `ready`/`done` suffix is not replayed into it.
 
 1. `research-prompt-stream` with the planning LLM stream ID.
 2. `deep-search-started` once per child, with its job ID, title, slug, and
@@ -436,8 +461,9 @@ generation still has unfinished durable cleanup.
   ordinary failure. Interrupted generations preserve partial output, run their
   stage cleanup, and do not debit RethinkLoop credits.
 
-On API startup, every non-completed standalone idea job is scheduled as an
-effective root. Debate-owned idea jobs are reached only through their debate
+On API startup, every non-completed standalone idea job except a `ready` job
+is scheduled as an effective root. Ready jobs remain paused until Start debate.
+Debate-owned idea jobs are reached only through their debate
 coordinator. Reopening clears root terminal fields, then the idea runner reuses
 completed generation and child-search checkpoints and retries incomplete work
 from the children back to the parent. Completed child searches return their

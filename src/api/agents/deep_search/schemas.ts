@@ -1,6 +1,8 @@
 import z from "zod"
 import { secureJsonParse } from "../../helpers/secureJsonParse.ts"
 
+export type DeepSearchMode = "research" | "discovery"
+
 type DeepSearchResult = {
   title: string
   shortText: string

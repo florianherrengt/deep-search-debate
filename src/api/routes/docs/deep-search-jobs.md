@@ -7,6 +7,31 @@ Live event deltas remain in memory, while structural progress is written to
 normalized typed tables at stage boundaries. There is no JSON snapshot or
 database event log.
 
+Initial children of `workflow = discovery` idea jobs use the same retrieval,
+billing, queue, and round records with a different research objective. Their
+detail response reports `mode = discovery`, derived from the parent workflow
+and position zero; all other searches report `research`. Discovery plans broad
+queries, selects sources for coverage, preserves named alternatives in page
+and query summaries, and writes a cumulative structured option inventory into
+the round output generation. Each option has a name, category, description,
+and observed source URLs. Later inventories must retain earlier names and
+sources. Empty, malformed, or unsupported-source inventories fail closed.
+
+Inventory updates carry earlier options directly and prioritize the current
+round's query catalogues within the context budget. All source metadata and
+framing are reserved first; remaining space adds direct page evidence. This
+keeps long page copies from displacing the catalogue's option names. Discovery
+notes use brief entries and neutral categories, with source opinions attributed
+in descriptions rather than adopted as rankings.
+
+The review checks missing parts of the space, and searchable coverage gaps
+continue through the existing round limit. Existing review-failure stop policy
+still applies. Discovery promotes its completed final round inventory directly;
+it does not produce a candidate solution, corrected answer, or answer analysis.
+The existing round/final output stream links carry the inventory JSON, which
+the browser renders as a categorized, unranked option list. Research-mode
+searches retain their answer workflow and existing saved outputs.
+
 For a conceptual walkthrough of query generation, result selection, page
 extraction, layered summarization, candidate review, and final correction, see
 [How deep search works](deep-search-pipeline.md).

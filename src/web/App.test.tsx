@@ -280,6 +280,7 @@ describe("App", () => {
           createdAt: "2026-01-01T00:00:00.000Z",
           creditsUsed: null,
           deepSearchJobId: "loaded-job-id",
+          mode: "research",
           error: null,
           feedback: null,
           isIndexable: false,

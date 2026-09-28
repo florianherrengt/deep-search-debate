@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({
   generatePromptTitle: vi.fn(),
   generateArrayStream: vi.fn(),
+  generateObjectStream: vi.fn(),
 }))
 
 // Keep the provider boundary deterministic while exercising real managers and
@@ -12,12 +13,15 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../llms/generateText.ts", () => ({
   generatePromptTitle: mocks.generatePromptTitle,
   generateArrayStream: mocks.generateArrayStream,
+  generateObjectStream: mocks.generateObjectStream,
 }))
 
 import { db } from "../../db/index.ts"
 import {
   debateJobs as debateJobsTable,
   ideaJobs,
+  ideas,
+  deepSearchJobs,
   llmGenerations,
   user as userTable,
 } from "../../db/schema/index.ts"
@@ -66,6 +70,7 @@ function createApp(manager?: DebateJobManager): Hono<AppEnv> {
   })
   const debateManager: DebateJobManager = manager ?? {
     start: vi.fn(),
+    startFromIdeas: vi.fn(),
     resumeExisting: vi.fn(),
     stop: vi.fn(),
     getLiveJob: vi.fn(),
@@ -96,13 +101,48 @@ describe("debate job routes", () => {
     mocks.generateArrayStream.mockRejectedValue(
       new Error("Provider boundary failure"),
     )
+    mocks.generateObjectStream.mockRejectedValue(new Error("Provider boundary failure"))
     db.delete(debateJobsTable).run()
+  })
+
+  it("starts one owner-only debate from ready ideas and keeps every idea identity across duplicate requests", async () => {
+    const ideaJobId = crypto.randomUUID()
+    const generationId = crypto.randomUUID()
+    const originalIdeas = Array.from({ length: 8 }, (_, position) => ({ ideaId: crypto.randomUUID(), ideaJobId, position, title: `Option ${position + 1}`, description: `A distinct approach ${position + 1}.` }))
+    db.insert(ideaJobs).values({ ideaJobId, userId: "test-user-id", workflow: "discovery", title: "Ready options", slug: "ready-options", prompt: "Discover energy products", numberOfIdeas: 8, deepSearchCount: 1, maxSearches: 1, maxResultsPerSearch: 1, maxRounds: 1 }).run()
+    db.insert(llmGenerations).values({ llmGenerationId: generationId, ideaJobId, userId: "test-user-id", status: "completed", text: JSON.stringify({ elements: originalIdeas.map(({ title, description }) => ({ title, description })) }), reasoning: "", completedAt: new Date() }).run()
+    db.insert(ideas).values(originalIdeas).run()
+    db.update(ideaJobs).set({ stage: "ideas", status: "ready", ideaGenerationId: generationId }).where(eq(ideaJobs.ideaJobId, ideaJobId)).run()
+    const before = db.select().from(ideas).where(eq(ideas.ideaJobId, ideaJobId)).all()
+    const resumeExisting = vi.fn(() => ({ ideaJobId, title: "Ready options", slug: "ready-options", completion: new Promise<void>(() => undefined) }))
+    const manager = createDebateJobManager({ start: vi.fn(), resumeExisting, stop: vi.fn(), getLiveJob: vi.fn() })
+    const app = createApp(manager)
+    const notReadyId = crypto.randomUUID()
+    db.insert(ideaJobs).values({ ideaJobId: notReadyId, userId: "test-user-id", prompt: "Unfinished discovery", workflow: "discovery", numberOfIdeas: 8, deepSearchCount: 1, maxSearches: 1, maxResultsPerSearch: 1, maxRounds: 1 }).run()
+    expect((await app.request(`/idea-jobs/${notReadyId}/debate`, { method: "POST" })).status).toBe(409)
+    expect((await app.request(`/idea-jobs/${crypto.randomUUID()}/debate`, { method: "POST" })).status).toBe(404)
+    await expect(manager.startFromIdeas("another-user", ideaJobId)).rejects.toMatchObject({ status: 404 })
+    const responses = await Promise.all([0, 1].map(async () => await app.request(`/idea-jobs/${ideaJobId}/debate`, { method: "POST" })))
+    expect(responses.map(({ status }) => status)).toEqual([202, 202])
+    const first = await responses[0].json() as { debateJobId: string; slug: string }
+    expect(await responses[1].json()).toEqual(first)
+    expect(first.slug).toBe("ready-options")
+    expect(responses[0].headers.get("Location")).toBe("/api/debate-jobs/ready-options")
+    expect(db.select().from(debateJobsTable).all()).toHaveLength(1)
+    expect(db.select().from(ideaJobs).where(eq(ideaJobs.ideaJobId, ideaJobId)).get()).toMatchObject({ debateJobId: first.debateJobId, status: "running", ideaGenerationId: generationId, selectionGenerationId: null })
+    expect(db.select().from(ideas).where(eq(ideas.ideaJobId, ideaJobId)).all()).toEqual(before)
+    expect(db.select().from(deepSearchJobs).all()).toHaveLength(0)
+    await vi.waitFor(() => expect(resumeExisting).toHaveBeenCalledOnce())
+    expect(resumeExisting).toHaveBeenCalledWith(ideaJobId, expect.objectContaining({ workflowSignal: expect.any(AbortSignal) as AbortSignal }))
+    expect(mocks.generatePromptTitle).not.toHaveBeenCalled()
+    expect(mocks.generateArrayStream).not.toHaveBeenCalled()
   })
 
   it("rejects an oversized research prompt", async () => {
     const start = vi.fn()
     const manager: DebateJobManager = {
       start,
+      startFromIdeas: vi.fn(),
       resumeExisting: vi.fn(),
       stop: vi.fn(),
       getLiveJob: vi.fn(),
@@ -245,6 +285,7 @@ describe("debate job routes", () => {
     const stop = vi.fn().mockReturnValue(result)
     const app = createApp({
       start: vi.fn(),
+    startFromIdeas: vi.fn(),
       resumeExisting: vi.fn(),
       stop,
       getLiveJob: vi.fn(),
@@ -282,6 +323,7 @@ describe("debate job routes", () => {
     }))
     const app = createApp({
       start: vi.fn(),
+    startFromIdeas: vi.fn(),
       resumeExisting,
       stop: vi.fn(),
       getLiveJob: vi.fn(),
@@ -312,6 +354,7 @@ describe("debate job routes", () => {
     const resumeExisting = vi.fn()
     const app = createApp({
       start: vi.fn(),
+    startFromIdeas: vi.fn(),
       resumeExisting,
       stop: vi.fn(),
       getLiveJob: vi.fn(),

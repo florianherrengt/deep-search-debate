@@ -5,6 +5,7 @@ import z from "zod"
 import { db } from "./db/index.ts"
 import { ideaJobs, ideas, llmGenerations } from "./db/schema/index.ts"
 import { generateIdeaSite, ideaSitePath } from "./routes/ideas/ideaSites.ts"
+import { loadDebateContext } from "./routes/debates/context.ts"
 
 const usage =
   "Usage: node --experimental-strip-types cli.ts <command> <ideaId>\nCommands: --generate-idea-website"
@@ -26,16 +27,19 @@ async function generateIdeaWebsite(ideaId: string): Promise<void> {
     .from(ideaJobs)
     .where(eq(ideaJobs.ideaJobId, idea.ideaJobId))
     .get()
-  if (!job?.researchSummaryGenerationId) {
+  if (!job || (job.workflow === "research" && !job.researchSummaryGenerationId)) {
     throw new Error(
       `Idea job ${idea.ideaJobId} has no research summary generation`,
     )
   }
-  const summary = db
+  const summary = job.workflow === "discovery" ? {
+    status: "completed",
+    text: loadDebateContext(job.ideaJobId).researchBriefing,
+  } : db
     .select()
     .from(llmGenerations)
     .where(
-      eq(llmGenerations.llmGenerationId, job.researchSummaryGenerationId),
+      eq(llmGenerations.llmGenerationId, job.researchSummaryGenerationId!),
     )
     .get()
   if (!summary || summary.status !== "completed" || summary.text === null) {

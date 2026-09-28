@@ -89,8 +89,14 @@ A failure to commit terminal persistence rejects the promise. Text, array, and
 object generation adapters all expose this same handle, so workflow code can
 await durable completion without subscribing to the public event stream.
 
-Text generations may register transactional lifecycle hooks. Registration
-hooks link a newly inserted generation to its owning stage before provider
+Text generations may register transactional lifecycle hooks. Discovery
+hooks own structured inventories: each round retains its
+validated cumulative option list, and discovery completion promotes that same
+generation through the final-output link. It skips correction and analysis;
+clients render the inventory as options rather than showing its JSON envelope.
+The correction and analysis sequence below applies to research-mode searches.
+
+Registration hooks link a newly inserted generation to its owning stage before provider
 construction or consumption starts. Completion and failure hooks run in the
 same transaction as the generation's terminal update, so a deep-search query or
 page cannot claim a different outcome from its LLM generation. Deep-search

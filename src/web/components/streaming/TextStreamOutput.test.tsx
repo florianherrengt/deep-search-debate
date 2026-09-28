@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { TextStreamOutput } from "./TextStreamOutput.tsx"
 
@@ -24,6 +24,39 @@ describe("TextStreamOutput", () => {
     expect(screen.queryByText(/"version"/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Show reasoning" }))
     expect(screen.getByText("Identify the missing condition.")).toBeVisible()
+  })
+
+  it("renders every discovered option in an unranked category list with its complete sources", () => {
+    const options = [
+      { name: "Daily road trainer", category: "Road shoes", description: "An option for daily runs on roads.", sources: ["https://example.com/road", "https://example.com/catalogue"] },
+      { name: "Cushioned road trainer", category: "Road shoes", description: "Another road running approach.", sources: ["https://example.com/cushioned"] },
+      { name: "Trail runner", category: "Trail shoes", description: "An option for running on trails.", sources: ["https://example.com/trail"] },
+    ]
+    render(<TextStreamOutput format="discovery-inventory" stream={{ status: "completed", reasoning: "", text: JSON.stringify({ options }) }} textTestId="inventory" waitingText="Discovering options…" />)
+    expect(screen.getByText("3 options discovered")).toBeVisible()
+    expect(screen.getAllByRole("listitem")).toHaveLength(3)
+    expect(within(screen.getByRole("list", { name: "Road shoes" })).getAllByRole("listitem")).toHaveLength(2)
+    expect(screen.getByRole("list", { name: "Trail shoes" }).tagName).toBe("UL")
+    for (const option of options) {
+      expect(screen.getByText(option.name)).toBeVisible()
+      expect(screen.getByText(option.description)).toBeVisible()
+    }
+    expect(screen.getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(options.flatMap(({ sources }) => sources))
+    for (const link of screen.getAllByRole("link")) {
+      expect(link).toHaveAttribute("target", "_blank")
+      expect(link).toHaveAttribute("rel", "noopener noreferrer")
+    }
+    expect(screen.getByTestId("inventory")).not.toHaveTextContent('"options"')
+  })
+
+  it("hides incomplete discovery JSON until the final option inventory can be rendered", () => {
+    const partial = '{"options":[{"name":"Daily trainer","category":"Road shoes"'
+    const rendered = render(<TextStreamOutput format="discovery-inventory" stream={{ status: "streaming", reasoning: "", text: partial }} textTestId="inventory" waitingText="Discovering options…" />)
+    expect(screen.getByTestId("inventory")).toHaveTextContent("Discovering options…")
+    expect(screen.queryByText(/Daily trainer|"options"|"category"/)).not.toBeInTheDocument()
+    rendered.rerender(<TextStreamOutput format="discovery-inventory" stream={{ status: "completed", reasoning: "", text: JSON.stringify({ options: [{ name: "Daily trainer", category: "Road shoes", description: "A daily running option.", sources: ["https://example.com/trainer"] }] }) }} textTestId="inventory" waitingText="Discovering options…" />)
+    expect(screen.getByText("Daily trainer")).toBeVisible()
+    expect(screen.queryByText("Discovering options…")).not.toBeInTheDocument()
   })
 
   it("announces only stream state and disables custom motion when requested", () => {

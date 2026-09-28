@@ -23,6 +23,7 @@ import { RequirementCoverage } from "./ResearchAnalysis.tsx"
 import { MarkdownText } from "../../../components/MarkdownText.tsx"
 
 export type DeepSearchRoundDetailProps = {
+  mode?: "research" | "discovery"
   jobSlug: string
   jobTitle: string
   maxRounds: number
@@ -48,10 +49,12 @@ function roundPath(jobSlug: string, roundNumber: number): string {
 }
 
 function getRoundSummary({
+  discovery,
   answerStreamId,
   review,
   status,
 }: {
+  discovery: boolean
   answerStreamId?: string
   review: DeepSearchRunState["roundReviews"][number] | undefined
   status: ReturnType<typeof getDeepSearchRoundStatus>
@@ -64,10 +67,10 @@ function getRoundSummary({
   }
   if (status === "complete") {
     return answerStreamId
-      ? "The candidate answer and supporting evidence are ready."
+      ? discovery ? "The option inventory and its sources are ready." : "The candidate answer and supporting evidence are ready."
       : "The available evidence from this round is ready."
   }
-  if (answerStreamId) return "Writing the candidate answer…"
+  if (answerStreamId) return discovery ? "Building the option inventory…" : "Writing the candidate answer…"
   return "Gathering sources and analysing evidence…"
 }
 
@@ -130,6 +133,7 @@ function RoundNavigation({
 
 /** Presents one durable research round without nesting it in a round accordion. */
 export function DeepSearchRoundDetail({
+  mode = "research",
   jobSlug,
   jobTitle,
   maxRounds,
@@ -138,6 +142,7 @@ export function DeepSearchRoundDetail({
   run,
   stopRequested = false,
 }: DeepSearchRoundDetailProps) {
+  const discovery = mode === "discovery"
   const presentationRun: DeepSearchRunState =
     stopRequested && run.status === "running"
       ? { ...run, status: "stopping" }
@@ -265,7 +270,7 @@ export function DeepSearchRoundDetail({
           color="text.secondary"
           sx={{ maxWidth: "85ch", overflowWrap: "anywhere" }}
         >
-          {getRoundSummary({ answerStreamId, review, status })}
+          {getRoundSummary({ answerStreamId, review, status, discovery })}
         </Typography>
       </Stack>
 
@@ -326,11 +331,11 @@ export function DeepSearchRoundDetail({
 
         {answerStreamId && (
           <GenerationOutput
-            format="markdown"
+            format={discovery ? "discovery-inventory" : "markdown"}
             headingComponent="h3"
             streamId={answerStreamId}
-            title="Candidate answer"
-            waitingText="Writing the current answer…"
+            title={discovery ? "Option inventory" : "Candidate answer"}
+            waitingText={discovery ? "Building the option inventory…" : "Writing the current answer…"}
             testId={`round-answer-${roundIndex}`}
           />
         )}

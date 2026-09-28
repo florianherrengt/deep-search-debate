@@ -100,6 +100,7 @@ export function deepSearchJobReads(
           ownerFeedbackText: deepSearchJobsTable.feedbackText,
           directCancelRequestedAt: deepSearchJobsTable.cancelRequestedAt,
           ideaCancelRequestedAt: ideaJobsTable.cancelRequestedAt,
+          ideaWorkflow: ideaJobsTable.workflow,
           debateCancelRequestedAt: debateJobsTable.cancelRequestedAt,
           debateStatus: debateJobsTable.status,
           isPublic: debateJobsTable.isPublic,
@@ -129,6 +130,7 @@ export function deepSearchJobReads(
         ownerFeedbackText,
         directCancelRequestedAt,
         ideaCancelRequestedAt,
+        ideaWorkflow,
         debateCancelRequestedAt,
         debateStatus,
         isPublic: inheritedIsPublic,
@@ -147,6 +149,8 @@ export function deepSearchJobReads(
       return c.json({
         deepSearchJob: {
           ...publicDeepSearchJob,
+          mode: ideaWorkflow === "discovery" && publicDeepSearchJob.ideaJobPosition === 0
+            ? "discovery" : "research",
           feedback: isOwner
             ? resultFeedbackProjection(
                 ownerFeedbackRating,

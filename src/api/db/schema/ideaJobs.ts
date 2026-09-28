@@ -14,7 +14,7 @@ import { getDebateJobOwnerColumns } from "./debateJobs.ts"
 import {
   getLlmGenerationIdeaOwnerColumns,
 } from "./llmGenerations.ts"
-import { ideaJobStages, jobStatuses } from "./statuses.ts"
+import { ideaJobStages, ideaJobStatuses, ideaWorkflows } from "./statuses.ts"
 import { user } from "./auth.ts"
 
 /** A standalone or debate-owned durable idea-generation pipeline. */
@@ -26,6 +26,8 @@ export const ideaJobs = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     debateJobId: text("debate_job_id").unique(),
+    /** Existing jobs retain their automatic research pipeline on Resume. */
+    workflow: text("workflow", { enum: ideaWorkflows }).notNull().default("research"),
     title: text("title").notNull().default("Untitled"),
     slug: text("slug").notNull().default("untitled"),
     prompt: text("prompt").notNull(),
@@ -45,7 +47,7 @@ export const ideaJobs = sqliteTable(
     ).unique(),
     ideaGenerationId: text("idea_generation_id").unique(),
     selectionGenerationId: text("selection_generation_id").unique(),
-    status: text("status", { enum: jobStatuses })
+    status: text("status", { enum: ideaJobStatuses })
       .notNull()
       .default("running"),
     feedbackRating: integer("feedback_rating", { mode: "boolean" }),
@@ -120,7 +122,11 @@ export const ideaJobs = sqliteTable(
     // interrupted job may retain any successfully persisted pipeline prefix.
     check(
       "idea_jobs_status_check",
-      sql`${table.status} in ('running', 'completed', 'failed', 'interrupted')`,
+      sql`${table.status} in ('running', 'completed', 'failed', 'interrupted', 'ready')`,
+    ),
+    check(
+      "idea_jobs_workflow_check",
+      sql`${table.workflow} in ('research', 'discovery') and (${table.workflow} != 'discovery' or ${table.deepSearchCount} = 1)`,
     ),
     check(
       "idea_jobs_feedback_rating_check",
@@ -143,7 +149,9 @@ export const ideaJobs = sqliteTable(
       sql`(
         (${table.status} = 'running' and ${table.completedAt} is null and ${table.error} is null)
         or
-        (${table.status} = 'completed' and ${table.stage} = 'ideas' and ${table.completedAt} is not null and ${table.error} is null and ${table.cancelRequestedAt} is null and ${table.researchPromptGenerationId} is not null and ${table.researchSummaryGenerationId} is not null and ${table.ideaGenerationId} is not null and ${table.selectionGenerationId} is not null)
+        (${table.status} = 'completed' and ${table.stage} = 'ideas' and ${table.completedAt} is not null and ${table.error} is null and ${table.cancelRequestedAt} is null and (${table.workflow} = 'discovery' or (${table.researchPromptGenerationId} is not null and ${table.researchSummaryGenerationId} is not null)) and ${table.ideaGenerationId} is not null and ${table.selectionGenerationId} is not null)
+        or
+        (${table.status} = 'ready' and ${table.workflow} = 'discovery' and ${table.stage} = 'ideas' and ${table.debateJobId} is null and ${table.completedAt} is null and ${table.error} is null and ${table.cancelRequestedAt} is null and ${table.ideaGenerationId} is not null and ${table.selectionGenerationId} is null)
         or
         (${table.status} = 'failed' and ${table.completedAt} is not null and ${table.error} is not null and ${table.cancelRequestedAt} is null)
         or

@@ -40,6 +40,7 @@ const ideaJobManager: IdeaJobManager = {
 }
 const debateJobManager: DebateJobManager = {
   start: vi.fn(),
+    startFromIdeas: vi.fn(),
   resumeExisting: vi.fn(),
   stop: vi.fn(),
   getLiveJob: vi.fn(),

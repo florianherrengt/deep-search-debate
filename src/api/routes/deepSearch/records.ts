@@ -1,3 +1,5 @@
+import type { DeepSearchMode } from "../../agents/deep_search/schemas.ts"
+
 /** Stable in-process records passed between deep-search pipeline stages. */
 export type SearchRound = {
   roundId: string
@@ -40,6 +42,7 @@ export type PersistedGeneration = {
 
 export type DeepSearchExecutionSnapshot = {
   jobId: string
+  mode: DeepSearchMode
   userId: string
   ideaJobId: string | null
   researchRequest: string

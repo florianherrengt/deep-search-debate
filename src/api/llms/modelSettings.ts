@@ -70,9 +70,16 @@ export function modelRoleForPrompt(promptName: PromptName): LlmModelRole {
     case "summarize-web-page":
     case "summarize-search-query":
     case "summarize-idea-research":
+    case "select-discovery-results":
+    case "select-discovery-links":
+    case "summarize-discovery-page":
+    case "summarize-discovery-query":
       return "small"
     case "default":
     case "generate-websearch-queries":
+    case "generate-discovery-queries":
+    case "update-discovery-inventory":
+    case "review-discovery-round":
     case "answer-research-request":
     case "correct-research-answer":
     case "analyze-research-answer":

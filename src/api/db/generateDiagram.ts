@@ -35,5 +35,9 @@ const dbml = `${generated.replace(
 // checks selector-generation ownership in the selection transaction.
 // original_passages is nullable and limited to 16,000 characters. Its additive
 // migration preserves existing pages, links, and temporary extraction checks.
+// idea_jobs.workflow is immutable research (legacy) or discovery. Discovery has
+// one initial child and may enter ready with generated ideas but no selection.
+// A ready standalone discovery can acquire a debate parent exactly once when
+// entering running; existing parent links remain immutable.
 `
 writeFileSync(new URL("./schema.dbml", import.meta.url), dbml)

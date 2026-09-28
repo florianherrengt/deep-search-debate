@@ -5,8 +5,7 @@ import { createInterface } from "node:readline"
 import { fileURLToPath } from "node:url"
 import { zstdDecompressSync } from "node:zlib"
 import Database from "better-sqlite3"
-import { drizzle } from "drizzle-orm/better-sqlite3"
-import { migrate } from "drizzle-orm/better-sqlite3/migrator"
+import { migrateDatabase } from "../db/migrate.ts"
 
 const restartControlEnabled = process.env.RETHINKLOOP_RESTART_CONTROL === "1"
 const sharedDatabasePath = restartControlEnabled
@@ -33,7 +32,7 @@ process.env.IDEA_SITES_DIR = ideaSitesDir
 if (!sharedDatabasePath) {
   process.env.DATABASE_URL = databasePath
   const sqlite = new Database(databasePath)
-  migrate(drizzle(sqlite), {
+  migrateDatabase(sqlite, {
     migrationsFolder: fileURLToPath(new URL("../drizzle", import.meta.url)),
   })
   sqlite.close()
@@ -377,20 +376,23 @@ function assertDebateContext(user) {
   )
   if (
     typeof context.userRequest !== "string" ||
-    !context.userRequest.includes(debatePrompt)
+    !(context.userRequest.includes(debatePrompt) || context.userRequest.includes("London renters"))
   ) {
     throw new Error("Debate request did not preserve the original user prompt")
   }
-  if (context.researchBriefing !== researchBriefing) {
-    throw new Error("Debate request did not include the research briefing")
-  }
   const answers = context.deepSearchResults?.map((result) => result.answer)
-  if (
-    !Array.isArray(answers) ||
-    answers.length !== deepSearchAnswers.length ||
-    deepSearchAnswers.some((answer) => !answers.includes(answer))
-  ) {
-    throw new Error("Debate request did not include both deep-search answers")
+  if (context.researchBriefing === researchBriefing) {
+    if (!Array.isArray(answers) || answers.length !== deepSearchAnswers.length || deepSearchAnswers.some((answer) => !answers.includes(answer))) {
+      throw new Error("Debate request did not include its legacy deep-search answers")
+    }
+  } else {
+    if (!Array.isArray(answers) || answers.length !== 1) throw new Error("Debate request lost its single discovery inventory")
+    const inventory = answers[0].startsWith("<discovered_option>")
+      ? suppliedDiscoveryOptions(`<inventory>${answers[0]}</inventory>`, "inventory")
+      : JSON.parse(answers[0]).options
+    if (!Array.isArray(inventory) || inventory.length < 2 || inventory.some(({ name, sources }, index) => name !== discoveryOptions[index]?.name || !sources?.length || !context.researchBriefing.includes(name))) {
+      throw new Error("Debate request lost discovered alternatives or their sources")
+    }
   }
   for (const result of context.deepSearchResults) {
     assertExactKeys(
@@ -624,9 +626,30 @@ function messageText(body, role) {
     .join("\n")
 }
 
+const discoveryStages = [
+  ["You plan broad web searches to discover an option space.", "generate-discovery-queries"],
+  ["You select web search results for broad option-space discovery.", "select-discovery-results"],
+  ["You select discovered page links for broad option-space discovery.", "select-discovery-links"],
+  ["You summarize a web page for broad option-space discovery.", "summarize-discovery-page"],
+  ["You summarize web search results for broad option-space discovery.", "summarize-discovery-query"],
+  ["You maintain a cumulative inventory of discovered options.", "update-discovery-inventory"],
+  ["You review breadth coverage in an option-space discovery run.", "review-discovery-round"],
+]
+const discoveryOptions = [
+  { name: "Removable heating controls", category: "Heating controls", description: "Removable controls let residents adjust their heating." },
+  { name: "Draught-proofing kits", category: "Insulation", description: "Removable seals reduce draughts around doors and windows." },
+  { name: "Shared energy-use monitoring", category: "Monitoring", description: "Shared monitoring helps residents understand building energy use." },
+]
+function suppliedDiscoveryOptions(user, tag) {
+  return [...taggedText(user, tag).matchAll(/<discovered_option>\n([^\n]+)\n([\s\S]*?)\n<\/discovered_option>/g)]
+    .map((match) => ({ ...JSON.parse(match[1]), description: match[2] }))
+}
+
 function deepSeekRequestKey(body) {
   const system = messageText(body, "system")
   const user = messageText(body, "user")
+  const discoveryStage = discoveryStages.find(([opening]) => system.includes(opening))?.[1]
+  if (discoveryStage) return `llm:${discoveryStage}`
   const stage = system.includes("You create short, descriptive titles")
     ? "generate-prompt-title"
     : system.includes("You plan research that will help another model")
@@ -728,6 +751,42 @@ function modelOutput(system, user) {
       reasoning: "",
       text: JSON.stringify({ title }),
     }
+  }
+
+  if (system.includes("You plan broad web searches to discover an option space.")) {
+    const previousQueries = parseTaggedJson(user, "previous_queries")
+    const followUp = previousQueries.length > 0
+    if (followUp && !taggedText(user, "previous_review_reason").includes("monitoring approaches")) {
+      throw new Error("Discovery follow-up lost its missing category coverage target")
+    }
+    const count = Number(/Generate exactly (\d+) (?:new )?search queries/.exec(user)?.[1])
+    return {
+      reasoning: "Find concrete alternatives across distinct categories.",
+      text: JSON.stringify({ version: 1, requirements: [], queries: Array.from({ length: count }, (_, index) => `London renter energy ${followUp ? "monitoring approaches" : "controls insulation options"} ${index + 1}`) }),
+      ...(user.includes(ideaStopMarker) ? { delayMs: 20, secondTextDelayMs: 2_000 } : {}),
+    }
+  }
+  if (system.includes("You select web search results for broad option-space discovery.")) {
+    return { reasoning: "Read the supplied source for concrete alternatives.", text: JSON.stringify({ elements: [firstSearchResultId(user)] }) }
+  }
+  if (system.includes("You select discovered page links for broad option-space discovery.")) {
+    return { reasoning: "Open the first supplied option catalogue.", text: JSON.stringify({ selectedIds: parseTaggedJson(user, "discovered_links").slice(0, 1).map(({ id }) => id) }) }
+  }
+  if (system.includes("You summarize a web page for broad option-space discovery.") || system.includes("You summarize web search results for broad option-space discovery.")) {
+    return { reasoning: "Keep names and broad descriptions without ranking.", text: discoveryOptions.map(({ name, category, description }) => `${name} (${category}): ${description}`).join("\n") }
+  }
+  if (system.includes("You maintain a cumulative inventory of discovered options.")) {
+    const previous = suppliedDiscoveryOptions(user, "previous_inventory")
+    const sources = [...user.matchAll(/<source_evidence>\n([^\n]+)\nContent:\n([\s\S]*?)\n<\/source_evidence>/g)].map((match) => ({ ...JSON.parse(match[1]), content: match[2] })).filter(({ evidenceType }) => evidenceType === "page-summary")
+    const source = sources.at(-1)
+    const nextOptions = previous.length === 0 ? discoveryOptions.slice(0, 2) : discoveryOptions.slice(previous.length)
+    if (!source || nextOptions.some(({ name }) => !source.content.includes(name))) throw new Error("Discovery inventory received no retrieved page evidence for its concrete options")
+    return { reasoning: "Retain all earlier options and broaden the inventory.", text: JSON.stringify({ options: [...previous, ...nextOptions.map((option) => ({ ...option, sources: [source.url] }))] }) }
+  }
+  if (system.includes("You review breadth coverage in an option-space discovery run.")) {
+    const options = suppliedDiscoveryOptions(user, "discovery_inventory")
+    if (options.length < 2) throw new Error("Discovery review lost its concrete option inventory")
+    return { reasoning: "Review category coverage rather than choose a preferred option.", text: JSON.stringify({ version: 1, requirements: [], reason: "The inventory covers the categories found in the available sources.", gaps: options.length < 3 ? [{ title: "Monitoring approaches", description: "The inventory has controls and insulation but no monitoring approaches.", evidenceToFind: "Find concrete shared energy-use monitoring approaches and their general descriptions." }] : [] }) }
   }
 
   if (user.includes("Linked-source research")) {
@@ -955,7 +1014,7 @@ function modelOutput(system, user) {
   if (system.includes("Generate exactly the requested number of distinct")) {
     if (
       !user.includes("Generate exactly 8 ideas.") ||
-      !user.includes("Removable controls and draught-proofing")
+      !(user.includes("Removable controls and draught-proofing") || discoveryOptions.slice(0, 2).every(({ name }) => user.includes(name)))
     ) {
       throw new Error("Idea generation request did not include count and briefing")
     }
@@ -1075,7 +1134,7 @@ function deepSeekResponse(body) {
       )
     }
   }
-  const context = /debate|opening argument|rebuttal/i.test(system)
+  const context = deepSeekRequestKey(body).startsWith("llm:debate-")
     ? assertDebateContext(user)
     : undefined
   if (
@@ -1291,7 +1350,8 @@ function codexEvents(body) {
   }).split(":")[1]
   const smallRole = [
     "generate-prompt-title", "select-websearch-results", "summarize-web-page",
-    "summarize-search-query", "summarize-idea-research",
+    "summarize-search-query", "summarize-idea-research", "select-linked-pages",
+    "select-discovery-results", "select-discovery-links", "summarize-discovery-page", "summarize-discovery-query",
   ].includes(stage)
   const expectedModel = connectionScenario
     ? titleRequest ? "gpt-5.6-sol" : "gpt-5.6-luna"
@@ -1519,7 +1579,7 @@ function pageResponse(url) {
   const repeatedEvidence = Array.from(
     { length: 8 },
     () =>
-      `Evidence about ${topic}: renters benefit from measurable, removable, low-cost energy interventions.`,
+      `Evidence about ${topic}: renters benefit from measurable, removable, low-cost energy interventions. Removable heating controls adjust heating; draught-proofing kits seal doors and windows; shared energy-use monitoring shows building energy use.`,
   ).join(" ")
   return new Response(
     `<html><head><title>Mock research source</title></head><body><main><h1>Mock evidence</h1><p>${repeatedEvidence}</p></main></body></html>`,

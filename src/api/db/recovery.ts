@@ -31,7 +31,7 @@ export function loadPersistedResearchRoots(): PersistedResearchRoots {
     .select({ id: ideaJobs.ideaJobId })
     .from(ideaJobs)
     .where(
-      and(isNull(ideaJobs.debateJobId), ne(ideaJobs.status, "completed")),
+      and(isNull(ideaJobs.debateJobId), ne(ideaJobs.status, "completed"), ne(ideaJobs.status, "ready")),
     )
     .orderBy(asc(ideaJobs.createdAt), asc(ideaJobs.ideaJobId))
     .all()

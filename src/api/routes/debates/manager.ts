@@ -1,10 +1,12 @@
 import { randomBytes, randomUUID } from "node:crypto"
-import { eq } from "drizzle-orm"
+import { and, eq, isNull } from "drizzle-orm"
+import { HTTPException } from "hono/http-exception"
 
 import { db } from "../../db/index.ts"
 import { debateJobs, ideaJobs } from "../../db/schema/index.ts"
 import { createReplayableEventLog } from "../../helpers/replayableEventLog.ts"
 import type { IdeaJobManager } from "../ideas/manager.ts"
+import { reserveRootResearchCapacity } from "../researchCapacity.ts"
 import {
   createWorkflowController,
   WorkflowInterruptedError,
@@ -35,6 +37,7 @@ export type DebateJobManager = {
     userId: string,
     input: CreateDebateJobRequest,
   ): Promise<StartedDebateJob>
+  startFromIdeas(userId: string, ideaJobId: string): Promise<StartedDebateJob>
   resumeExisting(
     debateJobId: string,
     options?: { userId?: string },
@@ -139,6 +142,50 @@ export function createDebateJobManager(
   }
 
   return {
+    async startFromIdeas(userId, ideaJobId) {
+      const pending = db.select().from(ideaJobs)
+        .where(and(eq(ideaJobs.ideaJobId, ideaJobId), eq(ideaJobs.userId, userId))).get()
+      if (!pending) throw new HTTPException(404, { message: "Idea job not found" })
+      // Settle the old execution before its ready state is changed to running.
+      if (pending.status === "ready" && ideaJobManager.getLiveJob(ideaJobId)) {
+        await ideaJobManager.resumeExisting(ideaJobId).completion
+      }
+      let releaseCapacity: (() => void) | undefined
+      let started: { debateJobId: string; title: string; slug: string; created: boolean }
+      try {
+        started = db.transaction((transaction) => {
+          // The write lock makes concurrent Start requests observe one parent.
+          const ideaJob = transaction.select().from(ideaJobs)
+            .where(and(eq(ideaJobs.ideaJobId, ideaJobId), eq(ideaJobs.userId, userId))).get()
+          if (!ideaJob) throw new HTTPException(404, { message: "Idea job not found" })
+          if (ideaJob.debateJobId !== null) {
+            return { debateJobId: ideaJob.debateJobId, title: ideaJob.title, slug: ideaJob.slug, created: false }
+          }
+          if (ideaJob.workflow !== "discovery" || ideaJob.status !== "ready") {
+            throw new HTTPException(409, { message: "Ideas must be ready before starting a debate" })
+          }
+          if (!createDebateJobInputSchema.safeParse(ideaJob).success) {
+            throw new HTTPException(409, { message: "Saved ideas exceed the debate research limits" })
+          }
+          releaseCapacity = reserveRootResearchCapacity(userId)
+          const debateJobId = randomUUID()
+          transaction.insert(debateJobs).values({ debateJobId, userId, randomSeed: getRandomSeed() }).run()
+          const linked = transaction.update(ideaJobs)
+            .set({ debateJobId, status: "running" })
+            .where(and(eq(ideaJobs.ideaJobId, ideaJobId), eq(ideaJobs.userId, userId),
+              eq(ideaJobs.workflow, "discovery"), eq(ideaJobs.status, "ready"),
+              isNull(ideaJobs.debateJobId), isNull(ideaJobs.cancelRequestedAt))).run()
+          if (linked.changes !== 1) throw new HTTPException(409, { message: "Ideas are no longer ready to start a debate" })
+          return { debateJobId, title: ideaJob.title, slug: ideaJob.slug, created: true }
+        }, { behavior: "immediate" })
+      } finally {
+        releaseCapacity?.()
+      }
+      const { debateJobId, title, slug, created } = started
+      return created
+        ? schedulePersistedJob({ debateJobId, userId, title, slug })
+        : { debateJobId, title, slug, completion: Promise.resolve() }
+    },
     async start(userId, input) {
       const {
         deepSearchCount,

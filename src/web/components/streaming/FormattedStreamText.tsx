@@ -2,9 +2,21 @@ import List from "@mui/material/List"
 import ListItem from "@mui/material/ListItem"
 import ListItemText from "@mui/material/ListItemText"
 import Typography from "@mui/material/Typography"
+import Stack from "@mui/material/Stack"
+import z from "zod"
+import { ExternalLink } from "../ExternalLink.tsx"
 import { MarkdownText } from "../MarkdownText.tsx"
 
-export type StreamTextFormat = "text" | "markdown" | "structured-list" | "research-plan"
+export type StreamTextFormat = "text" | "markdown" | "structured-list" | "research-plan" | "discovery-inventory"
+
+const discoveryInventorySchema = z.object({
+  options: z.array(z.object({
+    name: z.string().trim().min(1),
+    category: z.string().trim().min(1),
+    description: z.string().trim().min(1),
+    sources: z.array(z.url({ protocol: /^https?$/ })).min(1),
+  })).min(1),
+})
 
 type StructuredListItem = {
   primary: string
@@ -117,6 +129,42 @@ export function FormattedStreamText({
   testId: string
   fallbackText?: string
 }) {
+  if (format === "discovery-inventory") {
+    let inventory: z.infer<typeof discoveryInventorySchema> | undefined
+    try {
+      const parsed = discoveryInventorySchema.safeParse(JSON.parse(text) as unknown)
+      if (parsed.success) inventory = parsed.data
+    } catch {
+      // Incomplete structured output is never displayed as a provider envelope.
+    }
+    if (!inventory) {
+      return <PlainText text={fallbackText ?? "No option list was saved."} testId={testId} />
+    }
+    return (
+      <Stack spacing={2} data-testid={testId}>
+        <Typography color="text.secondary" variant="body2">
+          {inventory.options.length} options discovered
+        </Typography>
+        {[...Map.groupBy(inventory.options, (option) => option.category)].map(([category, options]) => (
+          <Stack spacing={0.5} key={category}>
+            <Typography component="p" variant="subtitle2">{category}</Typography>
+            <List aria-label={category} component="ul" disablePadding sx={{ listStyle: "disc", pl: 3 }}>
+              {options.map((option) => (
+                <ListItem key={option.name} disableGutters sx={{ display: "list-item", overflowWrap: "anywhere" }}>
+                  <ListItemText primary={option.name} secondary={option.description} />
+                  <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
+                    {option.sources.map((source, index) => (
+                      <ExternalLink key={source} href={source}>Source {index + 1}</ExternalLink>
+                    ))}
+                  </Stack>
+                </ListItem>
+              ))}
+            </List>
+          </Stack>
+        ))}
+      </Stack>
+    )
+  }
   if (format === "markdown") {
     return (
       <MarkdownText

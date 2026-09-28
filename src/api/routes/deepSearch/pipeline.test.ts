@@ -206,6 +206,7 @@ function emptySnapshot(): DeepSearchExecutionSnapshot {
     jobId: "deep-search-job-id",
     userId: "test-user-id",
     ideaJobId: null,
+    mode: "research",
     researchRequest: "Research this",
     maxSearches: 3,
     maxResultsPerSearch: 3,

@@ -49,6 +49,13 @@ describe("LLM model settings", () => {
     )
     expect(roles).toEqual({
       "generate-prompt-title": "small",
+      "select-discovery-results": "small",
+      "select-discovery-links": "small",
+      "summarize-discovery-page": "small",
+      "summarize-discovery-query": "small",
+      "generate-discovery-queries": "big",
+      "update-discovery-inventory": "big",
+      "review-discovery-round": "big",
       "select-websearch-results": "small",
       "select-linked-pages": "small",
       "summarize-web-page": "small",

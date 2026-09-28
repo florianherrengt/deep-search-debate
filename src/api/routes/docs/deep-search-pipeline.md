@@ -1,5 +1,11 @@
 # How deep search works
 
+This walkthrough describes research-mode searches. Initial space discovery
+reuses the retrieval and round machinery with a cumulative option inventory
+and coverage review, then promotes that inventory without answer correction
+or analysis. See [Deep-search jobs](deep-search-jobs.md) for that branch and
+[Idea jobs](idea-jobs.md) for its generation and Start debate boundary.
+
 Deep search turns one research request into a final answer through a sequence of
 search and LLM stages. It combines page and query summaries with bounded
 verbatim source passages, follows relevant source links, and writes one candidate

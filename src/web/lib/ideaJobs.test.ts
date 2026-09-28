@@ -7,6 +7,8 @@ describe("idea jobs client", () => {
   it("validates and transforms durable job timestamps", async () => {
     const job = {
       ideaJobId: "idea-id",
+      workflow: "research",
+      debateJobId: null,
       title: "Generate Ideas",
       slug: "generate-ideas",
       prompt: "Generate ideas",
@@ -36,6 +38,8 @@ describe("idea jobs client", () => {
   it("parses inherited public visibility on a detail response", async () => {
     const job = {
       ideaJobId: "idea-id",
+      workflow: "research",
+      debateJobId: null,
       title: "Generate Ideas",
       slug: "generate-ideas",
       prompt: "Generate ideas",
@@ -45,6 +49,7 @@ describe("idea jobs client", () => {
       status: "completed",
       stopRequested: false,
       canResume: false,
+      canStartDebate: false,
       canStop: false,
       creditsUsed: 0,
       error: null,
@@ -73,6 +78,8 @@ describe("idea jobs client", () => {
         Response.json({
           ideaJob: {
             ideaJobId: "idea-id",
+      workflow: "research",
+      debateJobId: null,
             title: "Generate Ideas",
             slug: "generate-ideas",
             prompt: "Generate ideas",
@@ -82,6 +89,7 @@ describe("idea jobs client", () => {
             status: "completed",
             stopRequested: false,
             canResume: false,
+      canStartDebate: false,
             canStop: false,
             error: null,
             creditsUsed: 0.5,
@@ -106,6 +114,8 @@ describe("idea jobs client", () => {
           ideaJobs: [
             {
               ideaJobId: "idea-id",
+      workflow: "research",
+      debateJobId: null,
               title: "Generate Ideas",
               slug: "generate-ideas",
               prompt: "Generate ideas",

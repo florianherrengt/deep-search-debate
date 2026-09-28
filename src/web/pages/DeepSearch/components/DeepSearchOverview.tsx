@@ -28,6 +28,7 @@ import { ResearchAnalysis } from "./ResearchAnalysis.tsx"
 import { MarkdownText } from "../../../components/MarkdownText.tsx"
 
 export type DeepSearchOverviewProps = {
+  mode?: "research" | "discovery"
   feedbackControl?: ReactNode
   jobSlug: string
   researchRequest: string
@@ -38,7 +39,14 @@ export type DeepSearchOverviewProps = {
   title: string
 }
 
-function getHeaderDescription(run: DeepSearchRunState): string {
+function getHeaderDescription(run: DeepSearchRunState, discovery: boolean): string {
+  if (discovery) {
+    return run.status === "completed"
+      ? "Discovered options and their sources, ready to inform idea generation."
+      : run.status === "running" || run.status === "idle"
+        ? "Exploring options, viewpoints, and missing parts of the space."
+        : "Discovery ended before completion. Available sources and options have been kept."
+  }
   if (run.status === "stopping") {
     return "Stopping research after in-progress work settles."
   }
@@ -64,8 +72,10 @@ function getHeaderDescription(run: DeepSearchRunState): string {
   return "Preparing this research job…"
 }
 
-function getProgressMessage(run: DeepSearchRunState): string | undefined {
+function getProgressMessage(run: DeepSearchRunState, discovery: boolean): string | undefined {
   if (run.status !== "running") return undefined
+  if (discovery) return run.roundReviews.at(-1)?.status === "running"
+    ? "Checking coverage of the option space…" : "Discovering options and gathering sources…"
   if (run.finalAnswerStreamId) return "Checking final answer…"
   if (run.queryGenerations.length === 0) return "Starting deep search…"
   const latestReview = run.roundReviews.at(-1)
@@ -88,6 +98,7 @@ function getRoundDescription(
   answerStreamId: string | undefined,
   review: DeepSearchRoundReviewState | undefined,
   status: DeepSearchRoundStatus,
+  discovery: boolean,
 ): string {
   if (status === "stopped") {
     return "Research stopped before this round could finish."
@@ -96,8 +107,8 @@ function getRoundDescription(
   if (review?.status === "running") {
     return "Reviewing whether more research is needed…"
   }
-  if (status === "complete") return "The candidate answer is ready."
-  if (answerStreamId) return "Writing the candidate answer…"
+  if (status === "complete") return discovery ? "The option inventory is ready." : "The candidate answer is ready."
+  if (answerStreamId) return discovery ? "Building the option inventory…" : "Writing the candidate answer…"
   return "Gathering sources and analysing evidence…"
 }
 
@@ -106,6 +117,7 @@ function formatSearchCount(count: number): string {
 }
 
 export function DeepSearchOverview({
+  mode = "research",
   feedbackControl,
   jobSlug,
   researchRequest,
@@ -115,13 +127,14 @@ export function DeepSearchOverview({
   stopRequested = false,
   title,
 }: DeepSearchOverviewProps) {
+  const discovery = mode === "discovery"
   const presentationRun: DeepSearchRunState =
     stopRequested && run.status === "running"
       ? { ...run, status: "stopping" }
       : run
-  const progressMessage = getProgressMessage(presentationRun)
+  const progressMessage = getProgressMessage(presentationRun, discovery)
   const roundNumbers = getDeepSearchRoundNumbers(presentationRun)
-  const answerTitle = presentationRun.status === "completed" ? "Final answer" :
+  const answerTitle = discovery ? "Discovered options" : presentationRun.status === "completed" ? "Final answer" :
     presentationRun.status === "running" ? "Answer under review" : "Partial answer"
 
   return (
@@ -131,7 +144,7 @@ export function DeepSearchOverview({
           description={
             presentationRun.status === "interrupted" && !stopRequested
               ? "Research was interrupted before completion. Available work has been kept."
-              : getHeaderDescription(presentationRun)
+              : getHeaderDescription(presentationRun, discovery)
           }
           title={title}
         />
@@ -167,11 +180,11 @@ export function DeepSearchOverview({
         <GenerationOutput
           announcementLabel={answerTitle}
           active={presentationRun.status === "running"}
-          format="markdown"
+          format={discovery ? "discovery-inventory" : "markdown"}
           headingComponent="h2"
           streamId={run.finalAnswerStreamId}
           title={answerTitle}
-          waitingText={presentationRun.status === "running" ? "Checking final answer…" : "No answer text was saved."}
+          waitingText={discovery ? "Loading the option inventory…" : presentationRun.status === "running" ? "Checking final answer…" : "No answer text was saved."}
           testId="final-answer"
         />
       )}
@@ -266,7 +279,7 @@ export function DeepSearchOverview({
                             sx={{ overflowWrap: "anywhere" }}
                             variant="body2"
                           >
-                            {getRoundDescription(answerStreamId, review, status)}
+                            {getRoundDescription(answerStreamId, review, status, discovery)}
                           </Typography>
                         </Stack>
                         <ChevronRightRounded aria-hidden="true" color="action" />

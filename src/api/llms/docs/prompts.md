@@ -87,7 +87,7 @@ summary to locate supporting original text. Final context narrowing uses the
 same vocabulary before shortening the displayed summary; generated text never
 becomes an original passage.
 
-Every newly finalized search calls `correct-research-answer` after exploration
+Every newly finalized research-mode search calls `correct-research-answer` after exploration
 ends, then analyzes the corrected text with `analyze-research-answer`. The
 correction preserves supported findings, checks decisive claims against original
 passages where available, and qualifies unresolved requirements and evidence. It
@@ -96,3 +96,14 @@ answer; the round candidate remains immutable. Both generations use existing
 durable job links and reuse completed output on Resume. See
 [the pipeline contract](../../routes/docs/deep-search-pipeline.md) for the legacy
 completed-analysis checkpoint exception.
+
+Initial space discovery has dedicated query planning, result/link selection,
+page/query summary, inventory, and coverage-review prompts. The same Small/Big
+roles apply to corresponding stages. `update-discovery-inventory` returns a
+non-empty `options` array of `{ name, category, description, sources }`, without
+an idea-count cap. Names are distinct; each later round retains the previous
+names and order and every prior source URL. New source URLs must be among the
+provided evidence. The coverage review reuses the gap-review schema and
+application-derived continuation. Discovery skips final correction and analysis.
+Its bounded inventory briefing preserves every option identity and source URL
+for idea generation instead of generating another summarizing LLM call.

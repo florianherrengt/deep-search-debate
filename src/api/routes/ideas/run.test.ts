@@ -337,6 +337,7 @@ function setupGenerations(options?: {
 function persistCompletedSearch(
   id: string,
   input: StartSearchInput,
+  answer?: string,
 ): {
   deepSearchJobId: string
   title: string
@@ -372,7 +373,7 @@ function persistCompletedSearch(
       userId: "test-user-id",
       deepSearchJobId: id,
       status: "completed",
-      text: `Research answer for ${title}`,
+      text: answer ?? `Research answer for ${title}`,
       reasoning: "Test reasoning",
       completedAt: new Date(),
     })
@@ -389,7 +390,7 @@ function persistCompletedSearch(
     deepSearchJobId: id,
     title,
     slug,
-    completion: Promise.resolve(`Research answer for ${title}`),
+    completion: Promise.resolve(answer ?? `Research answer for ${title}`),
   }
 }
 
@@ -401,15 +402,16 @@ async function collectEvents(
   return result
 }
 
-function createInput() {
+function createInput(workflow: "research" | "discovery" = "research") {
   const job = createReplayableEventLog<IdeaJobEvent>()
   db.insert(ideaJobs)
     .values({
       userId: "test-user-id",
       ideaJobId,
+      workflow,
       prompt: "Generate useful concepts",
       numberOfIdeas: 8,
-      deepSearchCount: 2,
+      deepSearchCount: workflow === "discovery" ? 1 : 2,
       maxSearches: 3,
       maxResultsPerSearch: 3,
       maxRounds: 3,
@@ -427,7 +429,7 @@ function createInput() {
       userId: "test-user-id",
       prompt: "Generate useful concepts",
       numberOfIdeas: 8,
-      deepSearchCount: 2,
+      deepSearchCount: workflow === "discovery" ? 1 : 2,
       maxSearches: 3,
       maxResultsPerSearch: 3,
       maxRounds: 3,
@@ -612,6 +614,39 @@ describe("runIdeaJob", () => {
       },
       { type: "done" },
     ])
+  })
+
+  it("discovers one option space and durably pauses raw stable ideas before any selection or candidate research", async () => {
+    const { input, events } = createInput("discovery")
+    const inventory = { options: [
+      { name: "Existing product", category: "Products", description: "An available product.", sources: ["https://example.com/product"] },
+      { name: "Process change", category: "Approaches", description: "A different way to meet the goal.", sources: ["https://example.com/process"] },
+    ] }
+    mocks.startDeepSearch.mockImplementation((_userId: string, searchInput: StartSearchInput) => persistCompletedSearch("discovery-child", searchInput, JSON.stringify(inventory)))
+    insertGeneration("ideas-id", arrayGenerationText(generatedIdeas), PromptName.GenerateIdeas)
+    mocks.generateArrayStream.mockImplementationOnce((generationInput: ArrayGenerationMockInput) => {
+      registerGeneration(generationInput, "ideas-id")
+      db.transaction((transaction) => generationInput.onCompleted?.({ id: "ideas-id", output: generatedIdeas }, transaction))
+      return Promise.resolve({ id: "ideas-id", output: Promise.resolve(generatedIdeas), completion: completedGeneration(arrayGenerationText(generatedIdeas)) })
+    })
+    await runIdeaJob(input)
+    const recorded = await events
+    expect(recorded.slice(-2)).toEqual([{ type: "ready" }, { type: "done" }])
+    expect(recorded.filter(({ type }) => type === "idea")).toHaveLength(8)
+    expect(db.select().from(ideaJobs).get()).toMatchObject({ workflow: "discovery", status: "ready", completedAt: null, researchPromptGenerationId: null, researchSummaryGenerationId: null, ideaGenerationId: "ideas-id", selectionGenerationId: null })
+    const persisted = db.select().from(ideas).all()
+    expect(persisted).toHaveLength(8)
+    expect(persisted.map(({ title, description }) => ({ title, description }))).toEqual(generatedIdeas)
+    expect(persisted.every(({ selected, refinementGenerationId, evaluationGenerationId }) => selected === null && refinementGenerationId === null && evaluationGenerationId === null)).toBe(true)
+    expect(db.select().from(deepSearchJobs).all()).toHaveLength(1)
+    expect(mocks.startDeepSearch).toHaveBeenCalledOnce()
+    expect(mocks.generateArrayStream).toHaveBeenCalledOnce()
+    const generationInput = mocks.generateArrayStream.mock.calls[0]?.[0] as { promptName: PromptName; prompt: string }
+    expect(generationInput.promptName).toBe(PromptName.GenerateIdeas)
+    expect(generationInput.prompt).toContain("Existing product")
+    expect(generationInput.prompt).toContain("Process change")
+    expect(mocks.generateTextStream).not.toHaveBeenCalled()
+    expect(mocks.generateObjectStream).not.toHaveBeenCalled()
   })
 
   it("selects, improves, researches, and then evaluates the admitted ideas", async () => {

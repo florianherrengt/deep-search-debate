@@ -9,6 +9,18 @@ import {
 } from "./ideaJobState.ts"
 
 describe("ideaJobReducer", () => {
+  it("retains the ready pause and stable raw ideas when its stream ends or is replayed", () => {
+    const events: IdeaJobEvent[] = [
+      { type: "idea", ideaId: "stable-id", title: "Available option", description: "The broad approach." },
+      { type: "ready" }, { type: "done" }, { type: "ready" }, { type: "done" },
+    ]
+    const state = events.reduce(ideaJobReducer, { ...initialIdeaJobState, status: "running" })
+    expect(state.status).toBe("ready")
+    expect(state.ideas).toEqual([{ ideaId: "stable-id", title: "Available option", description: "The broad approach.", selection: "pending" }])
+    expect(state.refinedIdeas).toEqual({})
+    expect(state.ideaEvaluations).toEqual({})
+  })
+
   it("keys refinement and follow-up research by stable idea ID", () => {
     const actions: IdeaJobEvent[] = [
       {

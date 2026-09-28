@@ -1,9 +1,10 @@
 import { Chip } from "@mui/material"
 
-type JobStatus = "running" | "completed" | "failed" | "interrupted"
+type JobStatus = "running" | "ready" | "completed" | "failed" | "interrupted"
 
 const statusPresentation = {
   running: { label: "Running", color: "primary" },
+  ready: { label: "Ready for debate", color: "primary" },
   completed: { label: "Complete", color: "success" },
   failed: { label: "Failed", color: "error" },
   interrupted: { label: "Interrupted", color: "warning" },

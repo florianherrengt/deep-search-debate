@@ -304,6 +304,7 @@ export function reconstructIdeaJobEvents(
       ? [{ type: "idea-research-completed" as const }]
       : []),
     ...normalizedIdeas.evaluationEvents,
+    ...(job.status === "ready" ? [{ type: "ready" as const }] : []),
     ...(stopRequested ? [{ type: "stop-requested" as const }] : []),
     ...(job.status === "running"
       ? []

@@ -1,10 +1,9 @@
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import Database from "better-sqlite3"
-import { drizzle } from "drizzle-orm/better-sqlite3"
-import { migrate } from "drizzle-orm/better-sqlite3/migrator"
+import { migrateDatabase } from "../migrate.ts"
 import { describe, expect, it } from "vitest"
 
 const migrationsFolder = fileURLToPath(
@@ -194,14 +193,115 @@ function expectLlmModelSettingsConstraints(
 }
 
 describe("database migrations", () => {
+  it("preserves saved idea ownership while adding the ready boundary and one-time debate attachment", () => {
+    const previousFolder = mkdtempSync(join(tmpdir(), "rethinkloop-discovery-upgrade-"))
+    const databasePath = join(previousFolder, "upgrade.db")
+    const sqlite = new Database(databasePath)
+    let observer: Database.Database | undefined
+    try {
+      mkdirSync(join(previousFolder, "meta"))
+      const journal = JSON.parse(readFileSync(join(migrationsFolder, "meta/_journal.json"), "utf8")) as {
+        entries: { idx: number; tag: string }[]
+      }
+      journal.entries = journal.entries.filter(({ idx }) => idx < 3)
+      for (const { tag } of journal.entries) {
+        copyFileSync(join(migrationsFolder, `${tag}.sql`), join(previousFolder, `${tag}.sql`))
+      }
+      writeFileSync(join(previousFolder, "meta/_journal.json"), JSON.stringify(journal))
+      migrateDatabase(sqlite, { migrationsFolder: previousFolder })
+      sqlite.exec(`
+        INSERT INTO user (id, name, email, email_verified) VALUES
+          ('upgrade-owner', 'Owner', 'owner@example.com', 1),
+          ('foreign-owner', 'Foreign', 'foreign@example.com', 1);
+        INSERT INTO debate_jobs (debate_job_id, user_id, random_seed) VALUES ('old-debate', 'upgrade-owner', 1);
+        INSERT INTO idea_jobs (idea_job_id, user_id, debate_job_id, title, slug, prompt, number_of_ideas, deep_search_count, max_searches, max_results_per_search, max_rounds)
+          VALUES ('old-idea-job', 'upgrade-owner', 'old-debate', 'Saved title', 'saved-title', 'Saved request', 6, 2, 1, 1, 1);
+        INSERT INTO ideas (idea_id, idea_job_id, position, title, description)
+          VALUES ('old-idea', 'old-idea-job', 0, 'Saved idea', 'Saved description');
+        INSERT INTO deep_search_jobs (deep_search_job_id, user_id, idea_job_id, idea_job_position, research_request, max_searches, max_results_per_search, strict_quality)
+          VALUES ('old-search', 'upgrade-owner', 'old-idea-job', 0, 'Saved research request', 1, 1, 1);
+        INSERT INTO llm_generations (llm_generation_id, user_id, deep_search_job_id, status, text, reasoning, completed_at)
+          VALUES ('old-evidence', 'upgrade-owner', 'old-search', 'completed', 'Saved evidence', '', 1000);
+        UPDATE deep_search_jobs SET status='completed', final_answer_generation_id='old-evidence', completed_at=1000 WHERE deep_search_job_id='old-search';
+      `)
+      const beforeIdeaJob = sqlite.prepare("SELECT * FROM idea_jobs").get()
+      const descendants = ["debate_jobs", "ideas", "deep_search_jobs", "llm_generations"]
+      const before = descendants.map((table) => sqlite.prepare(`SELECT * FROM ${table}`).all())
+      const triggers = sqlite.prepare("SELECT name FROM sqlite_schema WHERE type='trigger'").pluck().all()
+      observer = new Database(databasePath)
+      const existingRead = observer.prepare("SELECT * FROM idea_jobs WHERE idea_job_id='old-idea-job'")
+      expect(existingRead.get()).toEqual(beforeIdeaJob)
+
+      // A failure after the CHECK edits must roll back both schema and data,
+      // and restore the driver's protections before the same connection retries.
+      const migrationName = "0003_space-discovery.sql"
+      writeFileSync(join(previousFolder, migrationName), readFileSync(join(migrationsFolder, migrationName), "utf8")
+        .replace("SELECT NOT EXISTS (SELECT 1 FROM pragma_foreign_key_check)", "SELECT 0"))
+      copyFileSync(join(migrationsFolder, "meta/_journal.json"), join(previousFolder, "meta/_journal.json"))
+      expect(() => migrateDatabase(sqlite, { migrationsFolder: previousFolder })).toThrow(/discovery_migration_guard/)
+      expect(existingRead.get()).toEqual(beforeIdeaJob)
+      expect(sqlite.prepare("SELECT count(*) FROM __drizzle_migrations").pluck().get()).toBe(3)
+      expect(sqlite.pragma("writable_schema", { simple: true })).toBe(0)
+      sqlite.pragma("writable_schema=ON")
+      expect(() => sqlite.exec("UPDATE sqlite_schema SET sql=sql WHERE name='idea_jobs'")).toThrow(/may not be modified/)
+      sqlite.pragma("writable_schema=RESET")
+
+      migrateDatabase(sqlite)
+
+      expect(existingRead.get()).toEqual({ ...(beforeIdeaJob as object), workflow: "research" })
+      for (const [index, table] of descendants.entries()) {
+        expect(sqlite.prepare(`SELECT * FROM ${table}`).all()).toEqual(before[index])
+      }
+      expect(sqlite.prepare("SELECT name FROM sqlite_schema WHERE type='trigger'").pluck().all()).toEqual(expect.arrayContaining(triggers))
+      expect(() => sqlite.exec("UPDATE idea_jobs SET workflow='discovery' WHERE idea_job_id='old-idea-job'")).toThrow(/workflow is immutable/)
+      expect(() => sqlite.exec("UPDATE idea_jobs SET status='ready' WHERE idea_job_id='old-idea-job'")).toThrow(/terminal_fields_check/)
+      expect(() => sqlite.exec("UPDATE idea_jobs SET status='completed', stage='ideas', completed_at=1000 WHERE idea_job_id='old-idea-job'")).toThrow(/terminal_fields_check/)
+      expect(() => sqlite.exec("UPDATE idea_jobs SET status='unknown' WHERE idea_job_id='old-idea-job'")).toThrow(/check/i)
+
+      sqlite.exec(`
+        INSERT INTO idea_jobs (idea_job_id, user_id, workflow, slug, prompt, stage, number_of_ideas, deep_search_count, max_searches, max_results_per_search, max_rounds)
+          VALUES ('new-ideas', 'upgrade-owner', 'discovery', 'new-ideas', 'Discover options', 'ideas', 6, 1, 1, 1, 1);
+        INSERT INTO llm_generations (llm_generation_id, user_id, idea_job_id, status, text, reasoning, completed_at)
+          VALUES ('new-generated', 'upgrade-owner', 'new-ideas', 'completed', 'Generated ideas', '', 1000),
+                 ('new-selection', 'upgrade-owner', 'new-ideas', 'completed', 'Selected ideas', '', 1000);
+        UPDATE idea_jobs SET idea_generation_id='new-generated', status='ready' WHERE idea_job_id='new-ideas';
+        INSERT INTO debate_jobs (debate_job_id, user_id, random_seed) VALUES
+          ('new-debate', 'upgrade-owner', 2), ('other-debate', 'upgrade-owner', 3), ('foreign-debate', 'foreign-owner', 4);
+      `)
+      expect(observer.prepare("SELECT status, workflow FROM idea_jobs WHERE idea_job_id='new-ideas'").get()).toEqual({ status: "ready", workflow: "discovery" })
+      expect(() => sqlite.exec("UPDATE idea_jobs SET deep_search_count=2 WHERE idea_job_id='new-ideas'")).toThrow(/workflow_check/)
+      expect(() => sqlite.exec("UPDATE idea_jobs SET status='completed', completed_at=1000 WHERE idea_job_id='new-ideas'")).toThrow(/terminal_fields_check/)
+      expect(() => sqlite.exec("UPDATE idea_jobs SET debate_job_id='foreign-debate', status='running' WHERE idea_job_id='new-ideas'")).toThrow(/FOREIGN KEY/)
+      sqlite.exec("UPDATE idea_jobs SET debate_job_id='new-debate', status='running' WHERE idea_job_id='new-ideas'")
+      expect(() => sqlite.exec("UPDATE idea_jobs SET debate_job_id='other-debate' WHERE idea_job_id='new-ideas'")).toThrow(/parent columns are immutable/)
+      expect(() => sqlite.exec("UPDATE idea_jobs SET debate_job_id=NULL WHERE idea_job_id='new-ideas'")).toThrow(/parent columns are immutable/)
+      sqlite.exec("UPDATE idea_jobs SET selection_generation_id='new-selection', status='completed', completed_at=1000 WHERE idea_job_id='new-ideas'")
+      expect(sqlite.prepare("SELECT research_prompt_generation_id, research_summary_generation_id FROM idea_jobs WHERE idea_job_id='new-ideas'").get()).toEqual({ research_prompt_generation_id: null, research_summary_generation_id: null })
+      expect(sqlite.pragma("writable_schema", { simple: true })).toBe(0)
+      sqlite.pragma("writable_schema=ON")
+      expect(() => sqlite.exec("UPDATE sqlite_schema SET sql=sql WHERE name='idea_jobs'")).toThrow(/may not be modified/)
+      sqlite.pragma("writable_schema=RESET")
+      expect(sqlite.pragma("foreign_key_check")).toEqual([])
+      expect(sqlite.pragma("integrity_check", { simple: true })).toBe("ok")
+      sqlite.exec("DELETE FROM debate_jobs WHERE debate_job_id='old-debate'")
+      expect(sqlite.prepare("SELECT * FROM ideas WHERE idea_id='old-idea'").all()).toEqual([])
+      expect(sqlite.prepare("SELECT * FROM deep_search_jobs WHERE deep_search_job_id='old-search'").all()).toEqual([])
+      expect(sqlite.prepare("SELECT * FROM llm_generations WHERE llm_generation_id='old-evidence'").all()).toEqual([])
+    } finally {
+      observer?.close()
+      sqlite.close()
+      rmSync(previousFolder, { recursive: true, force: true })
+    }
+  })
+
   it("creates the complete current schema from the fresh baseline", () => {
     expect(
       readdirSync(migrationsFolder).filter((name) => name.endsWith(".sql")),
-    ).toEqual(["0000_fresh-baseline.sql", "0001_linked-page-discovery.sql", "0002_original-source-passages.sql"])
+    ).toEqual(["0000_fresh-baseline.sql", "0001_linked-page-discovery.sql", "0002_original-source-passages.sql", "0003_space-discovery.sql"])
 
     const sqlite = new Database(":memory:")
     sqlite.pragma("foreign_keys = ON")
-    migrate(drizzle(sqlite), { migrationsFolder })
+    migrateDatabase(sqlite, { migrationsFolder })
 
     expectOpenAiConnectionIdentityConstraints(sqlite, "fresh")
     expectLlmModelSettingsConstraints(sqlite, "fresh")
@@ -224,7 +324,7 @@ describe("database migrations", () => {
         .prepare("SELECT count(*) FROM __drizzle_migrations")
         .pluck()
         .get(),
-    ).toBe(3)
+    ).toBe(4)
     expect(
       sqlite
         .prepare("PRAGMA table_info('openai_codex_connections')")
@@ -423,8 +523,7 @@ describe("database migrations", () => {
         { idx: 0, version: "6", when: 1788526464242, tag: "0000_fresh-baseline", breakpoints: true },
         { idx: 1, version: "6", when: 1788806288034, tag: "0001_linked-page-discovery", breakpoints: true },
       ] }))
-      const database = drizzle(sqlite)
-      migrate(database, { migrationsFolder: previousFolder })
+      migrateDatabase(sqlite, { migrationsFolder: previousFolder })
       sqlite.exec(`
         INSERT INTO user (id, name, email, email_verified) VALUES ('upgrade-owner', 'Owner', 'upgrade-owner@example.com', 1);
         INSERT INTO deep_search_jobs (deep_search_job_id, user_id, research_request, max_searches, max_results_per_search, strict_quality)
@@ -455,7 +554,7 @@ describe("database migrations", () => {
       const oldLinks = sqlite.prepare("SELECT * FROM deep_search_page_links").all()
       const oldGenerations = sqlite.prepare("SELECT * FROM llm_generations ORDER BY llm_generation_id").all()
       const oldTriggers = sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").pluck().all()
-      migrate(database, { migrationsFolder })
+      migrateDatabase(sqlite, { migrationsFolder })
       expect(sqlite.prepare("SELECT * FROM deep_search_jobs WHERE deep_search_job_id = 'old-job'").get()).toEqual(oldJob)
       expect(sqlite.prepare("SELECT status, credits_used, extracted_content, original_passages, summary_generation_id, link_selection_generation_id FROM deep_search_web_pages WHERE deep_search_web_page_id = 'old-page'").get()).toEqual({ status: "completed", credits_used: 1, extracted_content: null, original_passages: null, summary_generation_id: "old-summary", link_selection_generation_id: "old-link-selection" })
       expect(sqlite.prepare("SELECT * FROM deep_search_results").all()).toEqual(oldResults)

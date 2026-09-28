@@ -6,8 +6,7 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import Database from "better-sqlite3"
 import { and, count, eq, isNull } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/better-sqlite3"
-import { migrate } from "drizzle-orm/better-sqlite3/migrator"
+import { migrateDatabase } from "../db/migrate.ts"
 import { HTTPException } from "hono/http-exception"
 import { beforeEach, describe, expect, it } from "vitest"
 
@@ -255,7 +254,7 @@ describe("root research admission", () => {
     try {
       sqlite.pragma("foreign_keys = ON")
       expect(sqlite.pragma("journal_mode = WAL", { simple: true })).toBe("wal")
-      migrate(drizzle(sqlite), {
+      migrateDatabase(sqlite, {
         migrationsFolder: fileURLToPath(
           new URL("../drizzle", import.meta.url),
         ),

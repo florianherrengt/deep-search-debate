@@ -40,9 +40,10 @@ does not gain `stopRequested` or a Stop event suffix after the fact.
 
 After all three dependent managers are constructed, `server.ts` reconciles
 persisted research before opening the HTTP listener. It schedules only effective
-roots: every non-completed debate, every non-completed standalone idea job, and
-every non-completed standalone deep search. Descendant idea jobs and searches
-are resumed only through their parent coordinator, so one durable workflow is
+roots: every non-completed debate, every standalone idea job that is neither
+completed nor ready, and every non-completed standalone deep search. Ready
+discovery jobs remain idle until their owner selects Start debate. Descendant
+idea jobs and searches are resumed only through their parent coordinator, so one durable workflow is
 never scheduled twice. A synchronous reset or scheduling error fails startup;
 an error after scheduling is persisted by the owning manager. Each coordinator
 loads its normalized checkpoint graph, reuses valid completed stages, and
@@ -177,12 +178,13 @@ linked exploration and its admission allowance. Accumulated query, result, idea,
 debate context is rebuilt in memory under a 100,000-character ceiling while
 retaining a bounded entry for every item. Internally synthesized refined-idea
 requests allocate that same external request budget across the original prompt
-and generated fields before a child can start. Idea jobs generate at most 12
-candidates and may request at most 2 initial child searches by default. Debate
-jobs generate at most 8 candidates, start one initial briefing search, allow two
-research rounds per child, and select at most 400 pages across the complete
-debate-owned research tree. At most two root research workflows per user may be active, two
-deep-search pipelines execute per process, and four selected page
+and generated fields before a child can start. New idea and debate jobs share
+the debate admission limits: at most 8 candidates, one initial discovery
+search, two research rounds per child, and at most 400 selected pages across
+the complete research tree by default. Saved legacy research idea jobs retain
+their original controls, including up to 12 candidates and 2 initial child
+searches under the default legacy limits. At most two root research workflows
+per user may be active, two deep-search pipelines execute per process, and four selected page
 extraction-plus-summary tasks execute per process. Four LLM generations execute
 per process across all workflows by default. Root capacity is reserved
 before asynchronous title generation, and an admitted root takes priority over

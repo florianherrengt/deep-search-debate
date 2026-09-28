@@ -16,6 +16,7 @@ import {
   deepSearchWebPages,
   deepSearchWebPageStatuses,
   ideaJobStages,
+  ideaJobStatuses,
   ideaJobs,
   ideas,
   jobStatuses,
@@ -143,7 +144,7 @@ describe("aggregate integrity constraints", () => {
       readonly [string, string, readonly string[]]
     > = [
       ["deep_search_jobs", "deep_search_jobs_status_check", jobStatuses],
-      ["idea_jobs", "idea_jobs_status_check", jobStatuses],
+      ["idea_jobs", "idea_jobs_status_check", ideaJobStatuses],
       ["debate_jobs", "debate_jobs_status_check", jobStatuses],
       ["idea_jobs", "idea_jobs_stage_check", ideaJobStages],
       [

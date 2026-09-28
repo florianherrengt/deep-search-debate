@@ -12,6 +12,7 @@ import { WorkflowInterruptedError } from "../../workflowRuntime.ts"
 import { interruptDeepSearchJob } from "../deepSearch/jobLifecycle.ts"
 import { assertEffectiveResearchRootRunning } from "../researchCancellation.ts"
 import type { Idea, IdeaJobStage } from "./schemas.ts"
+import { parseDiscoveryInventory } from "../../agents/deep_search/discovery.ts"
 
 export type PersistedIdeaGeneration = {
   generationId: string
@@ -44,12 +45,15 @@ export type IdeaExecutionSnapshot = {
   ideaJobId: string
   userId: string
   prompt: string
+  title: string
+  workflow: typeof ideaJobs.$inferSelect.workflow
+  debateJobId: string | null
   numberOfIdeas: number
   deepSearchCount: number
   maxSearches: number
   maxResultsPerSearch: number
   maxRounds: number
-  status: "running" | "completed" | "failed" | "interrupted"
+  status: typeof ideaJobs.$inferSelect.status
   researchPromptGeneration: PersistedIdeaGeneration | null
   researchSummaryGeneration: PersistedIdeaGeneration | null
   ideaGeneration: PersistedIdeaGeneration | null
@@ -137,6 +141,9 @@ export function loadIdeaExecutionSnapshot(
     ideaJobId: job.ideaJobId,
     userId: job.userId,
     prompt: job.prompt,
+    title: job.title,
+    workflow: job.workflow,
+    debateJobId: job.debateJobId,
     numberOfIdeas: job.numberOfIdeas,
     deepSearchCount: job.deepSearchCount,
     maxSearches: job.maxSearches,
@@ -385,12 +392,40 @@ export function reopenIdeaJob(ideaJobId: string): void {
   })
 }
 
+/** The generated collection is durable and no selected-candidate work has begun. */
+export function markIdeaJobReady(ideaJobId: string): void {
+  db.transaction((transaction) => {
+    assertIdeaActive(transaction, ideaJobId)
+    const snapshot = loadIdeaExecutionSnapshot(ideaJobId)
+    if (!snapshot || snapshot.workflow !== "discovery" || snapshot.debateJobId !== null
+      || snapshot.status !== "running" || snapshot.ideaGeneration?.status !== "completed"
+      || snapshot.selectionGeneration !== null || snapshot.ideas.length !== snapshot.numberOfIdeas
+      || snapshot.ideas.some((idea) => idea.selected !== null
+        || idea.refinementGeneration !== null || idea.evaluationGeneration !== null)) {
+      throw new Error("Discovery ideas are not ready for debate")
+    }
+    const child = snapshot.children.find(({ position }) => position === 0)
+    if (snapshot.children.length !== 1 || child?.status !== "completed" || !child.finalAnswer) {
+      throw new Error("Space discovery must complete before ideas are ready")
+    }
+    parseDiscoveryInventory(child.finalAnswer)
+    const activeGeneration = transaction.select({ id: llmGenerations.llmGenerationId })
+      .from(llmGenerations).where(and(eq(llmGenerations.ideaJobId, ideaJobId), eq(llmGenerations.status, "running"))).get()
+    if (activeGeneration) throw new Error("Idea generations must settle before ideas are ready")
+    const result = transaction.update(ideaJobs).set({ status: "ready" })
+      .where(and(eq(ideaJobs.ideaJobId, ideaJobId), eq(ideaJobs.status, "running"),
+        eq(ideaJobs.stage, "ideas"), isNull(ideaJobs.debateJobId), isNull(ideaJobs.cancelRequestedAt))).run()
+    if (result.changes !== 1) throw new Error("Running discovery idea job was not found")
+  })
+}
+
 export function completeIdeaJob(ideaJobId: string): void {
   db.transaction((transaction) => {
     assertIdeaActive(transaction, ideaJobId)
     const job = transaction
       .select({
         stage: ideaJobs.stage,
+        workflow: ideaJobs.workflow,
         numberOfIdeas: ideaJobs.numberOfIdeas,
         deepSearchCount: ideaJobs.deepSearchCount,
         researchPromptGenerationId: ideaJobs.researchPromptGenerationId,
@@ -403,13 +438,21 @@ export function completeIdeaJob(ideaJobId: string): void {
       .get()
     if (!job) throw new Error("Idea job was not found")
     const pipelineGenerationIds = [
-      job.researchPromptGenerationId,
-      job.researchSummaryGenerationId,
+      ...(job.workflow === "research"
+        ? [job.researchPromptGenerationId, job.researchSummaryGenerationId]
+        : []),
       job.ideaGenerationId,
       job.selectionGenerationId,
     ]
     if (job.stage !== "ideas" || pipelineGenerationIds.some((id) => !id)) {
       throw new Error("Every idea pipeline stage must start before completion")
+    }
+    if (job.workflow === "discovery") {
+      const discovery = loadIdeaExecutionSnapshot(ideaJobId)?.children.find(({ position }) => position === 0)
+      if (discovery?.status !== "completed" || !discovery.finalAnswer) {
+        throw new Error("Space discovery must complete before its parent")
+      }
+      parseDiscoveryInventory(discovery.finalAnswer)
     }
     const persistedIdeas = transaction
       .select({

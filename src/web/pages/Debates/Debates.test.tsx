@@ -6,6 +6,7 @@ import type { DebateTournamentSnapshot } from "../../lib/debateJobs.ts"
 
 const mocks = vi.hoisted(() => ({
   createDebateJob: vi.fn(),
+  createIdeaJob: vi.fn(),
   getDebateJob: vi.fn(),
   getDebateJobs: vi.fn(),
   requestResearchResume: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock("../../lib/textStreams.ts", () => ({
 
 vi.mock("../../lib/ideaJobs.ts", () => ({
   subscribeToIdeaJob: mocks.subscribeToIdeaJob,
+  createIdeaJob: mocks.createIdeaJob,
 }))
 
 vi.mock("../../lib/researchCancellation.ts", () => ({
@@ -133,6 +135,7 @@ function renderDebates(initialEntry = "/debates") {
             element={<Debates />}
           />
           <Route path="/ideas" element={<div>Idea generator</div>} />
+          <Route path="/ideas/:slug" element={<div>Discovered ideas ready for review</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -153,6 +156,7 @@ describe("Debates", () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.createIdeaJob.mockResolvedValue({ ideaJobId: "idea-job-id", slug: "better-cafe-ideas" })
     mocks.createDebateJob.mockResolvedValue({
       debateJobId: "debate-id",
       slug: "better-cafe-ideas",
@@ -230,20 +234,24 @@ describe("Debates", () => {
   it("describes the tournament without fixed match or round counts", () => {
     renderDebates()
 
-    expect(document.body).toHaveTextContent("research competing ideas")
-    expect(document.body).toHaveTextContent("test them head-to-head")
+    expect(document.body).toHaveTextContent("Explore")
+    expect(document.body).toHaveTextContent("debate")
     expect(document.body).not.toHaveTextContent(
       /\b33\b|five rounds|four ideas|semifinals?/i,
     )
   })
 
-  it("starts a private tournament and opens its live match transcript", async () => {
+  it("discovers ideas for review before starting a debate", async () => {
     renderDebates()
+    fireEvent.change(screen.getByLabelText("What should the ideas solve?"), { target: { value: "  Design a better café  " } })
+    fireEvent.click(screen.getByRole("button", { name: "Discover ideas" }))
+    expect(await screen.findByText("Discovered ideas ready for review")).toBeVisible()
+    expect(mocks.createIdeaJob).toHaveBeenCalledWith({ prompt: "Design a better café", numberOfIdeas: 8 })
+    expect(mocks.createDebateJob).not.toHaveBeenCalled()
+  })
 
-    fireEvent.change(screen.getByLabelText("What should the ideas solve?"), {
-      target: { value: "  Design a better café  " },
-    })
-    fireEvent.click(screen.getByRole("button", { name: "Start a debate" }))
+  it("opens an existing tournament's live match transcript", async () => {
+    renderDebates("/debates/better-cafe-ideas")
 
     const liveMatchLink = await screen.findByRole("link", {
       name: "Open First idea versus Second idea",
@@ -279,11 +287,6 @@ describe("Debates", () => {
       "href",
       "/ideas/better-cafe-ideas/second#improved-idea",
     )
-    expect(mocks.createDebateJob).toHaveBeenCalledWith({
-      prompt: "Design a better café",
-      isPublic: false,
-      numberOfIdeas: 8,
-    })
     expect(mocks.getDebateJob).toHaveBeenCalledWith(
       "better-cafe-ideas",
       expect.any(AbortSignal),

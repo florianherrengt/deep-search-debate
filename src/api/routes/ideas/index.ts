@@ -232,6 +232,8 @@ export function ideaJobReads(app: Hono<AppEnv>, manager: IdeaJobManager) {
             ideaJob.debateJobId === null &&
             (ideaJob.status === "failed" ||
               ideaJob.status === "interrupted"),
+          canStartDebate: isOwner && ideaJob.workflow === "discovery"
+            && ideaJob.debateJobId === null && ideaJob.status === "ready",
           isIndexable: isPublic && debateStatus === "completed",
           isPublic,
         },
@@ -375,6 +377,9 @@ export function ideaJobs(app: Hono<AppEnv>, manager: IdeaJobManager) {
       }
       if (persisted.status === "completed") {
         return c.json({ error: "Completed idea jobs cannot be resumed" }, 409)
+      }
+      if (persisted.status === "ready") {
+        return c.json({ error: "Ready ideas require Start debate" }, 409)
       }
       const { completion } = manager.resumeExisting(ideaJobId, {
         userId: c.get("userId"),
