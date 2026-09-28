@@ -1,12 +1,12 @@
 ---
 id: 31
 title: Make initial idea research discover the option space
-status: in-progress
+status: done
 priority: medium
 created: 2026-09-12T21:26:43.816524+01:00
-updated: 2026-09-28T21:48:09.09877+02:00
-claimed_by: legatary-misterm
-claimed_at: 2026-09-28T21:48:09.098915+02:00
+updated: 2026-09-28T21:50:54.307782+02:00
+started: 2026-09-28T21:50:54.309847+02:00
+completed: 2026-09-28T21:50:54.309847+02:00
 class: standard
 ---
 
@@ -51,3 +51,6 @@ Evidence: /tmp/ticket31-gatekeep-final.log; /tmp/ticket31-browser-final-context-
 
 [[2026-09-28]] Mon 21:48
 User approved commit, integration into main and push after the preserved full live run. Release gate passed: lint, typecheck, knip, 843 API and 383 web tests. Four checklist reviews found no new behavior issues; correcting stale README and runtime descriptions before integration. Live findings remain documented: two recovered model failures, malformed or duplicate inventory names, non-running catalogue entries, and contradicted claims carried into the winner summary/site.
+
+[[2026-09-28]] Mon 21:50
+Integrated feature commit 440a22d into main after explicit user approval. The release gate passed lint, typecheck, knip, 843 API tests and 383 web tests; four checklist reviews are resolved, including updated README/runtime descriptions. Preserved full live run: idea job a4867879-3c4c-44c0-bf12-eb037435a57b, debate 4cbaf0a5-5e25-4da5-ab9d-ecad3e331908, 126 discovery entries, 8 ideas, 6 researched candidates, 18 matches, 90 messages, completed winner website. The two failed model attempts were resumed successfully; saved IDs, database integrity and reloads were verified. Quality issues listed in the previous note remain. Worktree, normal local database, generated site and preview at http://localhost:5181/deep-search/best-shoes-for-running are retained.
