@@ -1,10 +1,12 @@
 ---
 id: 31
 title: Make initial idea research discover the option space
-status: review
+status: in-progress
 priority: medium
 created: 2026-09-12T21:26:43.816524+01:00
-updated: 2026-09-13T02:11:43.153052+01:00
+updated: 2026-09-28T21:48:09.09877+02:00
+claimed_by: legatary-misterm
+claimed_at: 2026-09-28T21:48:09.098915+02:00
 class: standard
 ---
 
@@ -46,3 +48,6 @@ Real-model quality proof: configured DeepSeek performed two rounds, four searche
 The earlier 128-option pilot was stopped after quality problems and is superseded by this result. Current-round catalogue context now takes priority over duplicate source prose. The final real run initially used a pre-fix loaded formatter and failed on missing source-heading budget; current code reproduced and fixed the exact 520-character shortfall, and resuming the same saved run completed successfully without repeating its searches. The existing saturation regression, full gate and final browser batch all use the corrected code. Live probe used task-only link depth 0; linked retrieval is covered by real-pipeline tests and the earlier live crawl.
 
 Evidence: /tmp/ticket31-gatekeep-final.log; /tmp/ticket31-browser-final-context-proof.log; /tmp/ticket31-web-build-final.log; /tmp/ticket31-storybook-build-final.log; /tmp/ticket31-discovery-context-final-tests.log; /tmp/ticket31-context-reproduction-0lDICZ/report.json; /tmp/rethinkloop-ticket31-live-discovery-W5UfB7/report.json and inventory.json; /tmp/ticket31-live-final-recovery.log. Desktop/narrow browser inspection and actual Start debate verified. A separate ready preview with test data remains open at http://localhost:5181/ideas/london-renter-energy-products-2.
+
+[[2026-09-28]] Mon 21:48
+User approved commit, integration into main and push after the preserved full live run. Release gate passed: lint, typecheck, knip, 843 API and 383 web tests. Four checklist reviews found no new behavior issues; correcting stale README and runtime descriptions before integration. Live findings remain documented: two recovered model failures, malformed or duplicate inventory names, non-running catalogue entries, and contradicted claims carried into the winner summary/site.
