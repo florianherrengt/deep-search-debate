@@ -5,9 +5,12 @@ import {
   type Api,
   type Model,
   type MutableModels,
+  type ThinkingLevelMap,
 } from "@earendil-works/pi-ai"
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex"
+import z from "zod"
 
+import packageMetadata from "../package.json" with { type: "json" }
 import { config } from "../config.ts"
 import {
   llmReasoningEffortSchema,
@@ -18,6 +21,7 @@ import {
   type PiLlmRequest,
 } from "../llms/piGeneration.ts"
 import type { StartedLlmStream } from "../llms/streamTypes.ts"
+import { createBoundedFetch } from "../web_search/boundedFetch.ts"
 import { classifyCodexError, OpenAiCodexError } from "./codexErrors.ts"
 import { hasOpenAiCodexConnection } from "./credentialsRepository.ts"
 import {
@@ -55,6 +59,37 @@ export type CodexGenerationReservation = {
 type Release = () => void
 
 const generationTails = new Map<string, Promise<void>>()
+const MAX_CODEX_MODEL_LIST_BYTES = 2 * 1_024 * 1_024
+const boundedFetch = createBoundedFetch(MAX_CODEX_MODEL_LIST_BYTES)
+
+const codexModelListSchema = z.object({
+  models: z.array(z.object({
+    slug: z.string().min(1).max(256),
+    display_name: z.string().min(1).max(256),
+    description: z.string().max(4_000).nullish(),
+    visibility: z.string(),
+    supported_in_api: z.boolean(),
+    input_modalities: z.array(z.string()).max(20).default(["text", "image"]),
+    context_window: z.number().int().positive().nullish(),
+    supported_reasoning_levels: z.array(z.object({
+      effort: z.string(),
+    }).loose()).max(20),
+  }).loose()).max(1_000),
+}).loose()
+
+const accountClaimSchema = z.object({
+  "https://api.openai.com/auth": z.object({
+    chatgpt_account_id: z.string().min(1).max(1_000),
+  }),
+})
+
+const piThinkingLevels = [
+  "off", "minimal", "low", "medium", "high", "xhigh", "max",
+] as const
+type LiveCodexModel = {
+  model: Model<"openai-codex-responses">
+  description?: string
+}
 
 function abortReason(signal: AbortSignal): unknown {
   return signal.reason ?? new DOMException("The operation was aborted", "AbortError")
@@ -117,6 +152,121 @@ function createCodexModels(userId: string): MutableModels {
   return models
 }
 
+function accountIdFromToken(token: string): string {
+  try {
+    const parts = token.split(".")
+    if (parts.length !== 3 || !parts[1]) {
+      throw new Error("Invalid access token")
+    }
+    const claims: unknown = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"))
+    return accountClaimSchema.parse(claims)["https://api.openai.com/auth"]
+      .chatgpt_account_id
+  } catch {
+    throw new OpenAiCodexError("protocol-incompatible")
+  }
+}
+
+function liveModel(
+  entry: z.output<typeof codexModelListSchema>["models"][number],
+  baseUrl: string,
+  contextWindow: number,
+): LiveCodexModel {
+  const advertised = new Set(entry.supported_reasoning_levels.map(({ effort }) =>
+    effort === "none" ? "off" : effort
+  ))
+  const thinkingLevelMap: ThinkingLevelMap = Object.fromEntries(
+    piThinkingLevels.map((level) => [
+      level,
+      advertised.has(level) ? (level === "off" ? "none" : level) : null,
+    ]),
+  )
+  const model: Model<"openai-codex-responses"> = {
+    id: entry.slug,
+    name: entry.display_name,
+    api: "openai-codex-responses",
+    provider: PI_CODEX_PROVIDER_ID,
+    baseUrl,
+    reasoning: entry.supported_reasoning_levels.length > 0,
+    thinkingLevelMap,
+    input: entry.input_modalities.includes("image")
+      ? ["text", "image"]
+      : ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow,
+    // Pi requires this field; its Codex stream does not use it. The context
+    // window is an upper bound, not a claim about the model's output limit.
+    maxTokens: contextWindow,
+    compat: { supportsOpenAIGrammarTools: true },
+  }
+  return {
+    model,
+    ...(entry.description && { description: entry.description }),
+  }
+}
+
+async function loadLiveCodexModels(
+  models: MutableModels,
+  userId: string,
+  workflowSignal?: AbortSignal,
+): Promise<LiveCodexModel[]> {
+  const timeoutSignal = AbortSignal.timeout(config.llmExecution.firstChunkTimeoutMs)
+  const signal = workflowSignal
+    ? AbortSignal.any([workflowSignal, timeoutSignal])
+    : timeoutSignal
+  const auth = await models.getAuth(PI_CODEX_PROVIDER_ID, { signal })
+  const token = auth?.auth.apiKey
+  if (!token) throw new OpenAiCodexError("authentication-required")
+  const accountId = accountIdFromToken(token)
+  const provider = models.getProvider(PI_CODEX_PROVIDER_ID)
+  const baseUrl = provider?.baseUrl
+  if (!provider || !baseUrl) throw new OpenAiCodexError("protocol-incompatible")
+  const url = new URL(`${baseUrl.replace(/\/$/, "")}/codex/models`)
+  url.searchParams.set("client_version", packageMetadata.version)
+  const response = await boundedFetch(url, {
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${token}`,
+      "chatgpt-account-id": accountId,
+      originator: "pi",
+    },
+    signal,
+  })
+  if (!response.ok) {
+    switch (response.status) {
+      case 401: throw new OpenAiCodexError("authentication-required")
+      case 403: throw new OpenAiCodexError("workspace-disabled")
+      case 429: throw new OpenAiCodexError("rate-limited")
+      case 400: throw new OpenAiCodexError("protocol-incompatible")
+      default: throw new OpenAiCodexError("temporarily-unavailable")
+    }
+  }
+  const catalog = codexModelListSchema.parse(await response.json())
+  signal.throwIfAborted()
+  if (!hasOpenAiCodexConnection(userId)) return []
+  const currentToken = (await models.getAuth(PI_CODEX_PROVIDER_ID, { signal }))
+    ?.auth.apiKey
+  if (!currentToken || accountIdFromToken(currentToken) !== accountId) {
+    throw new OpenAiCodexError("temporarily-unavailable")
+  }
+  const live = catalog.models.flatMap((entry) => {
+    if (
+      entry.visibility !== "list" ||
+      !entry.input_modalities.includes("text") ||
+      !entry.context_window
+    ) return []
+    const mapped = liveModel(entry, baseUrl, entry.context_window)
+    return supportedReasoningEfforts(mapped.model).length > 0 ? [mapped] : []
+  })
+
+  // Keep Pi's OAuth and streaming implementation, replacing only its bundled
+  // static model list in this request-scoped registry.
+  models.setProvider({
+    ...provider,
+    getModels: () => live.map(({ model }) => model),
+  })
+  return live
+}
+
 function supportedReasoningEfforts(
   model: Model<Api>,
 ): LlmReasoningEffort[] {
@@ -128,10 +278,11 @@ function supportedReasoningEfforts(
   })
 }
 
-function listedModel(model: Model<Api>): AvailableCodexModel {
+function listedModel({ model, description }: LiveCodexModel): AvailableCodexModel {
   return {
     id: model.id,
     displayName: model.name,
+    ...(description && { description }),
     isDefault: false,
     supportedReasoningEfforts: supportedReasoningEfforts(model).map(
       (reasoningEffort) => ({ reasoningEffort }),
@@ -139,7 +290,7 @@ function listedModel(model: Model<Api>): AvailableCodexModel {
   }
 }
 
-/** Lists Pi's direct Codex catalog for a connected account. */
+/** Lists the connected account's live Codex catalog. */
 export function listAvailableCodexModels(
   userId: string,
 ): Promise<AvailableCodexModel[] | undefined> {
@@ -148,14 +299,9 @@ export function listAvailableCodexModels(
     try {
       if (!hasOpenAiCodexConnection(userId)) return undefined
       const models = createCodexModels(userId)
-      const auth = await models.getAuth(PI_CODEX_PROVIDER_ID, {
-        signal: AbortSignal.timeout(config.llmExecution.firstChunkTimeoutMs),
-      })
-      if (!auth) throw new OpenAiCodexError("authentication-required")
-      return models
-        .getModels(PI_CODEX_PROVIDER_ID)
-        .map(listedModel)
-        .filter((model) => model.supportedReasoningEfforts.length > 0)
+      const live = await loadLiveCodexModels(models, userId)
+      if (!hasOpenAiCodexConnection(userId)) return undefined
+      return live.map(listedModel)
     } catch (error) {
       throw classifyCodexError(error)
     } finally {
@@ -186,6 +332,7 @@ export async function reserveCodexGeneration(
         userId,
         selection,
         releaseReservation,
+        signal,
       )
     },
     release() {
@@ -196,18 +343,25 @@ export async function reserveCodexGeneration(
   }
 }
 
-function acquireReservedCodexGeneration(
+async function acquireReservedCodexGeneration(
   userId: string,
   selection: CodexModelSelection,
   releaseReservation: Release,
+  signal?: AbortSignal,
 ): Promise<CodexGenerationContext | undefined> {
   if (!hasOpenAiCodexConnection(userId)) {
     releaseReservation()
-    return Promise.resolve(undefined)
+    return undefined
   }
 
   try {
     const models = createCodexModels(userId)
+    await loadLiveCodexModels(models, userId, signal)
+    signal?.throwIfAborted()
+    if (!hasOpenAiCodexConnection(userId)) {
+      releaseReservation()
+      return undefined
+    }
     const selectedModel = models.getModel(
       PI_CODEX_PROVIDER_ID,
       selection.modelId,
@@ -225,12 +379,12 @@ function acquireReservedCodexGeneration(
     ) {
       if (selection.allowUnavailableRecommendationFallback) {
         releaseReservation()
-        return Promise.resolve(undefined)
+        return undefined
       }
       throw new OpenAiCodexError("protocol-incompatible")
     }
 
-    return Promise.resolve({
+    return {
       modelId: selectedModel.id,
       start: (request) =>
         startPiLlmStream(
@@ -246,16 +400,10 @@ function acquireReservedCodexGeneration(
         releaseReservation()
         return Promise.resolve()
       },
-    })
+    }
   } catch (error) {
     releaseReservation()
-    if (
-      selection.allowUnavailableRecommendationFallback &&
-      error instanceof OpenAiCodexError &&
-      error.code === "protocol-incompatible"
-    ) {
-      return Promise.resolve(undefined)
-    }
-    return Promise.reject(classifyCodexError(error))
+    if (signal?.aborted) throw abortReason(signal)
+    throw classifyCodexError(error)
   }
 }

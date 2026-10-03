@@ -1354,7 +1354,7 @@ function codexEvents(body) {
     "select-discovery-results", "select-discovery-links", "summarize-discovery-page", "summarize-discovery-query",
   ].includes(stage)
   const expectedModel = connectionScenario
-    ? titleRequest ? "gpt-5.6-sol" : "gpt-5.6-luna"
+    ? titleRequest ? "gpt-5.6-sol" : "gpt-6-sol"
     : smallRole ? "gpt-5.6-luna" : "gpt-5.6-sol"
   const expectedEffort = (connectionScenario ? titleRequest : smallRole)
     ? "medium" : "xhigh"
@@ -1634,21 +1634,76 @@ globalThis.fetch = async (input, init) => {
   }
   if (url.hostname === "chatgpt.com") {
     if (
-      request.method !== "POST" ||
-      url.pathname !== "/backend-api/codex/responses"
-    ) {
-      throw new Error(
-        `Unexpected Codex request: ${request.method} ${url.pathname}`,
-      )
-    }
-    if (
       request.headers.get("authorization") !==
         `Bearer ${e2eCodexAccessToken()}` ||
       request.headers.get("chatgpt-account-id") !== "e2e-account"
     ) {
       throw new Error("Codex request omitted its subscription credentials")
     }
-    return codexResponse(await requestJson(request))
+    if (
+      request.method === "GET" &&
+      url.pathname === "/backend-api/codex/models" &&
+      url.search === "?client_version=1.0.0"
+    ) {
+      return Response.json({
+        models: [
+          {
+            slug: "gpt-5.6-luna",
+            display_name: "GPT-5.6 Luna",
+            visibility: "list",
+            supported_in_api: true,
+            input_modalities: ["text", "image"],
+            context_window: 272_000,
+            default_reasoning_level: "medium",
+            supported_reasoning_levels: [
+              { effort: "low", description: "Fast responses" },
+              { effort: "medium", description: "Balanced reasoning" },
+              { effort: "high", description: "Deeper reasoning" },
+              { effort: "xhigh", description: "Extended reasoning" },
+            ],
+          },
+          {
+            slug: "gpt-5.6-sol",
+            display_name: "GPT-5.6 Sol",
+            visibility: "list",
+            supported_in_api: true,
+            input_modalities: ["text", "image"],
+            context_window: 272_000,
+            default_reasoning_level: "medium",
+            supported_reasoning_levels: [
+              { effort: "low", description: "Fast responses" },
+              { effort: "medium", description: "Balanced reasoning" },
+              { effort: "high", description: "Deeper reasoning" },
+              { effort: "xhigh", description: "Extended reasoning" },
+            ],
+          },
+          {
+            slug: "gpt-6-sol",
+            display_name: "GPT-6 Sol",
+            visibility: "list",
+            supported_in_api: true,
+            input_modalities: ["text", "image"],
+            context_window: 272_000,
+            default_reasoning_level: "medium",
+            supported_reasoning_levels: [
+              { effort: "low", description: "Fast responses" },
+              { effort: "medium", description: "Balanced reasoning" },
+              { effort: "high", description: "Deeper reasoning" },
+              { effort: "xhigh", description: "Extended reasoning" },
+              { effort: "max", description: "Maximum reasoning" },
+            ],
+          },
+        ],
+      })
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/backend-api/codex/responses" &&
+      url.search === ""
+    ) {
+      return codexResponse(await requestJson(request))
+    }
+    throw new Error(`Unexpected Codex request: ${request.method} ${url.pathname}${url.search}`)
   }
   if (url.hostname === "api.deepseek.com") {
     if (request.method === "GET" && url.pathname === "/models") {

@@ -117,8 +117,8 @@ report an incompatible connection instead of an expired session.
 
 Users assign one exact model and reasoning effort to each Small and Big model
 role in Settings. The API discovers the two priced DeepSeek text models through
-Pi's bundled catalogs and discovers connected OpenAI models and their supported
-efforts from Pi's direct Codex catalog. A complete explicit choice is stored in
+Pi's bundled catalogs and fetches connected OpenAI models and their supported
+efforts from that account's live Codex catalog. A complete explicit choice is stored in
 `llm_model_settings`; no row
 means provider-aware recommendations: OpenAI Luna at medium effort and Sol at
 xhigh when those exact choices are advertised, otherwise DeepSeek V4 Flash at

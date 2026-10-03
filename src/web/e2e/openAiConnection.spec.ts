@@ -167,7 +167,7 @@ test("connects ChatGPT, uses Codex without credits, and falls back after disconn
     .click()
   await page.getByRole("combobox", { name: "Big model" }).click()
   await page
-    .getByRole("option", { name: "GPT-5.6 Luna — OpenAI" })
+    .getByRole("option", { name: "GPT-6 Sol — OpenAI" })
     .click()
   await page.getByRole("button", { name: "Save model choices" }).click()
   await expect(page.getByText("Model choices saved.")).toBeVisible()
@@ -180,7 +180,7 @@ test("connects ChatGPT, uses Codex without credits, and falls back after disconn
   ).toContainText("GPT-5.6 Sol — OpenAI")
   await expect(
     page.getByRole("combobox", { name: "Big model" }),
-  ).toContainText("GPT-5.6 Luna — OpenAI")
+  ).toContainText("GPT-6 Sol — OpenAI")
 
   const creditsBeforeCodex = await getCredits(request)
   const codex = await runStandaloneStream(
@@ -252,7 +252,7 @@ test("connects ChatGPT, uses Codex without credits, and falls back after disconn
     },
     {
       creditsUsed: 0,
-      modelId: "gpt-5.6-luna",
+      modelId: "gpt-6-sol",
       promptName: "generate-websearch-queries",
       status: "completed",
       text: '{"version":1,"requirements":[],"queries":["E2E Codex structured query 1","E2E Codex structured query 2","E2E Codex structured query 3"]}',

@@ -27,7 +27,7 @@ admission. This lets the next stage of an active or resumed workflow observe a
 successful Settings update. DeepSeek choices use positive-credit admission and
 normal LLM settlement even when OpenAI is connected. OpenAI choices take the
 per-user reservation, recheck the connection before decrypting credentials,
-verify the exact model and effort against Pi's direct Codex catalog, and
+verify the exact model and effort against the connected account's live Codex catalog, and
 record zero product credits for that LLM generation. Search and extraction
 settle independently. An expired, rate-limited, broken, or unavailable explicit
 OpenAI choice fails without falling back to DeepSeek; only a missing implicit
