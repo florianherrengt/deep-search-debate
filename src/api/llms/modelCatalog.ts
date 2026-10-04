@@ -19,6 +19,7 @@ import {
 
 const DEEPSEEK_MODELS_URL = "https://api.deepseek.com/models"
 const MAX_MODEL_LIST_BYTES = 256 * 1_024
+const MODEL_DISCOVERY_TIMEOUT_MS = 15_000
 
 const deepSeekModelListSchema = z.object({
   data: z.array(
@@ -72,7 +73,7 @@ async function listDeepSeekModels(): Promise<LlmModelOption[]> {
   const boundedFetch = createBoundedFetch(MAX_MODEL_LIST_BYTES)
   const response = await boundedFetch(DEEPSEEK_MODELS_URL, {
     headers: { authorization: `Bearer ${config.llm.apiKey}` },
-    signal: AbortSignal.timeout(config.llmExecution.firstChunkTimeoutMs),
+    signal: AbortSignal.timeout(MODEL_DISCOVERY_TIMEOUT_MS),
   })
   if (!response.ok) throw new Error("DeepSeek model discovery failed")
   const result = deepSeekModelListSchema.parse(await response.json())
@@ -122,7 +123,19 @@ async function discoverOpenAi(userId: string): Promise<{
     return { models: [], availability: { status: "disconnected" } }
   }
   try {
-    const listed = await listAvailableCodexModels(userId)
+    const deadline = AbortSignal.timeout(MODEL_DISCOVERY_TIMEOUT_MS)
+    const timedOut = Promise.withResolvers<never>()
+    const onAbort = () => timedOut.reject(deadline.reason)
+    deadline.addEventListener("abort", onAbort, { once: true })
+    let listed: Awaited<ReturnType<typeof listAvailableCodexModels>>
+    try {
+      listed = await Promise.race([
+        listAvailableCodexModels(userId, deadline),
+        timedOut.promise,
+      ])
+    } finally {
+      deadline.removeEventListener("abort", onAbort)
+    }
     if (!listed) return { models: [], availability: { status: "disconnected" } }
     const models = listed.map((model): LlmModelOption => ({
       provider: "openai",

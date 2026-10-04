@@ -149,6 +149,91 @@ describe("LLM model catalog", () => {
     })
   })
 
+  it("keeps Settings responsive when OpenAI model discovery stalls", async () => {
+    mocks.hasOpenAiCodexConnection.mockReturnValue(true)
+    const controller = new AbortController()
+    const requestedTimeouts: number[] = []
+    let receivedSignal: AbortSignal | undefined
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+      requestedTimeouts.push(ms)
+      return controller.signal
+    })
+    mocks.listAvailableCodexModels.mockImplementation(
+      (_userId: string, signal?: AbortSignal) => {
+        receivedSignal = signal
+        return new Promise<never>((_resolve, reject) => {
+          if (!signal) return
+          signal.addEventListener("abort", () => reject(new Error("Model discovery aborted")), {
+            once: true,
+          })
+        })
+      },
+    )
+
+    try {
+      const snapshotPromise = getLlmModelSettingsSnapshot(userId)
+      expect(receivedSignal).toBeInstanceOf(AbortSignal)
+      controller.abort(new DOMException("Discovery timed out", "TimeoutError"))
+      const snapshot = await snapshotPromise
+
+      expect(snapshot.models.map((model) => model.modelId)).toEqual([
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+      ])
+      expect(snapshot.availability.openai).toEqual({
+        status: "unavailable",
+        message: "Could not load OpenAI models.",
+      })
+      expect(requestedTimeouts.some((ms) => ms > 0 && ms < 125_000)).toBe(true)
+    } finally {
+      timeoutSpy.mockRestore()
+    }
+  }, 1_500)
+
+  it("bounds Settings discovery even when the OpenAI request ignores abort", async () => {
+    mocks.hasOpenAiCodexConnection.mockReturnValue(true)
+    const controller = new AbortController()
+    let receivedSignal: AbortSignal | undefined
+    let rejectCatalog: ((error: Error) => void) | undefined
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout").mockReturnValue(controller.signal)
+    mocks.listAvailableCodexModels.mockImplementation(
+      (_userId: string, signal?: AbortSignal) => {
+        receivedSignal = signal
+        return new Promise<never>((_resolve, reject) => {
+          rejectCatalog = reject
+        })
+      },
+    )
+    const snapshotPromise = getLlmModelSettingsSnapshot(userId)
+
+    try {
+      expect(receivedSignal).toBeInstanceOf(AbortSignal)
+      controller.abort(new DOMException("Discovery timed out", "TimeoutError"))
+      expect(receivedSignal?.aborted).toBe(true)
+
+      const result = await Promise.race([
+        snapshotPromise.then((snapshot) => ({ status: "resolved" as const, snapshot })),
+        new Promise<{ status: "pending" }>((resolve) => {
+          setImmediate(() => resolve({ status: "pending" }))
+        }),
+      ])
+      expect(result.status).toBe("resolved")
+      const snapshot = result.status === "resolved" ? result.snapshot : undefined
+      expect(snapshot?.models.map((model) => model.modelId)).toEqual([
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+      ])
+      expect(snapshot?.availability.openai).toEqual({
+        status: "unavailable",
+        message: "Could not load OpenAI models.",
+      })
+    } finally {
+      rejectCatalog?.(new Error("Release stalled model discovery"))
+      await snapshotPromise.catch(() => undefined)
+      timeoutSpy.mockRestore()
+    }
+  }, 1_500)
+
   it("validates both exact assignments before atomically replacing settings", async () => {
     insertConnection()
     mocks.hasOpenAiCodexConnection.mockReturnValue(true)

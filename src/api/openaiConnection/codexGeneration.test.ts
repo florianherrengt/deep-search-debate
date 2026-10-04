@@ -383,6 +383,36 @@ describe("Codex generation acquisition", () => {
 })
 
 describe("Codex generation reservation", () => {
+  it("lists live models during a held generation without admitting another generation", async () => {
+    const sameUser = "catalog-during-generation"
+    const selection = {
+      modelId: "gpt-6-sol",
+      reasoningEffort: "high" as const,
+      allowUnavailableRecommendationFallback: false,
+    }
+    const first = await reserveCodexGeneration(sameUser, selection)
+    const listing = listAvailableCodexModels(sameUser)
+    const secondPromise = reserveCodexGeneration(sameUser, selection)
+    let secondSettled = false
+    void secondPromise.then(() => {
+      secondSettled = true
+    })
+
+    try {
+      // Let the mocked async authentication complete without releasing the
+      // generation. Catalog discovery must start independently of its queue.
+      for (let turn = 0; turn < 5; turn++) await Promise.resolve()
+      expect(mocks.fetch).toHaveBeenCalledOnce()
+      await expect(listing).resolves.toMatchObject([{ id: "gpt-6-sol" }])
+      await Promise.resolve()
+      expect(secondSettled).toBe(false)
+    } finally {
+      first?.release()
+      const second = await secondPromise
+      second?.release()
+    }
+  })
+
   it("consumes a reservation at most once", async () => {
     const reservation = await reserveCodexGeneration(userId, {
       modelId: "gpt-6-sol",

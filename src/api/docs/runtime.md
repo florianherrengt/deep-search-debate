@@ -124,6 +124,9 @@ means provider-aware recommendations: OpenAI Luna at medium effort and Sol at
 xhigh when those exact choices are advertised, otherwise DeepSeek V4 Flash at
 medium and V4 Pro at xhigh. Disconnect deletes the credential and resets only
 explicit OpenAI-backed roles to the DeepSeek recommendations in one transaction.
+Settings catalog requests run independently of active Codex generations and
+time out after 15 seconds. Saving still validates both selections against a
+fresh catalog before replacing the stored choices.
 
 Each generation synchronously snapshots its role assignment before taking a
 provider reservation, so a successful Settings update governs the next call,
@@ -211,8 +214,9 @@ LLM streams have no application-level total generation deadline. The first-conte
 and inter-content inactivity deadlines both default to 600 seconds, configured
 with `LLM_FIRST_CHUNK_TIMEOUT_MS` and `LLM_CHUNK_TIMEOUT_MS`. Nonempty text or
 reasoning activity resets the inactivity deadline; empty events do not. Manual
-cancellation and independent connection or provider errors still apply. Model
-discovery and connection checks also use the first-content timeout setting.
+cancellation and independent connection or provider errors still apply.
+Generation-time model validation and connection checks use the first-content
+timeout setting; Settings discovery uses its separate 15-second deadline.
 No stage or deployment-wide output-token cap is sent to
 Pi. Its raw streaming API leaves the output budget to the selected provider;
 the provider's own model limits still apply. Provider-request failures use two Pi

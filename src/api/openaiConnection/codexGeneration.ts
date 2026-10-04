@@ -290,24 +290,20 @@ function listedModel({ model, description }: LiveCodexModel): AvailableCodexMode
   }
 }
 
-/** Lists the connected account's live Codex catalog. */
-export function listAvailableCodexModels(
+/** Lists models independently of generation reservations so Settings stays responsive. */
+export async function listAvailableCodexModels(
   userId: string,
+  signal?: AbortSignal,
 ): Promise<AvailableCodexModel[] | undefined> {
-  if (!hasOpenAiCodexConnection(userId)) return Promise.resolve(undefined)
-  return acquireGenerationReservation(userId).then(async (release) => {
-    try {
-      if (!hasOpenAiCodexConnection(userId)) return undefined
-      const models = createCodexModels(userId)
-      const live = await loadLiveCodexModels(models, userId)
-      if (!hasOpenAiCodexConnection(userId)) return undefined
-      return live.map(listedModel)
-    } catch (error) {
-      throw classifyCodexError(error)
-    } finally {
-      release()
-    }
-  })
+  if (!hasOpenAiCodexConnection(userId)) return undefined
+  try {
+    const models = createCodexModels(userId)
+    const live = await loadLiveCodexModels(models, userId, signal)
+    if (!hasOpenAiCodexConnection(userId)) return undefined
+    return live.map(listedModel)
+  } catch (error) {
+    throw classifyCodexError(error)
+  }
 }
 
 /** Reserves one explicit Codex choice without occupying shared LLM capacity. */
