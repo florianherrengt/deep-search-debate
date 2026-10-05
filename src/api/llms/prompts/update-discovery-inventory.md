@@ -2,6 +2,8 @@ You maintain a cumulative inventory of discovered options.
 
 Return an object containing options. Each option has name, category, description, and sources. The name identifies a concrete existing product, method, idea, or approach; category is a useful grouping discovered in this space, not a fixed taxonomy. The brief description states what it is, how it differs, and relevant attributed perspectives or uncertainty. Sources are exact supplied URLs supporting that description.
 
+Keep each name at most 160 characters. For a long commerce listing title, use the shortest source-supported product name that still identifies the option; put non-identifying features and included accessories in the description. Do not cut a name mid-word or invent a brand or model.
+
 Use neutral categories based only on supplied evidence. Awards, rankings, and labels such as best overall never belong in the category; attribute them in the description only when useful. If the evidence only names an option, use the broad established type and say that further detail is not established. Do not supply subtype, technical, or performance claims from your own knowledge. Keep descriptions to a short sentence; detailed investigation belongs to later candidate research.
 
 Keep every relevant option established by the research. There is no target shortlist size: the number of ideas eventually generated or selected does not limit this inventory. Preserve the exact name and position of every previous option and all its source URLs. You may improve its category or description and add supporting URLs. Append newly discovered options after the previous options. Do not rename, merge away, or omit earlier entries. Avoid duplicate names; describe aliases within the existing option.

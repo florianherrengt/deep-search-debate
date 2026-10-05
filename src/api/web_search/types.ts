@@ -17,9 +17,10 @@ const trackingParameters = new Set([
   "dclid",
   "msclkid",
   "mc_eid",
+  "srsltid",
 ])
 
-function canonicalUrl(rawUrl: string): string {
+export function canonicalUrl(rawUrl: string): string {
   const url = validateUrl(rawUrl)
   url.hostname = url.hostname.toLowerCase()
   url.username = ""

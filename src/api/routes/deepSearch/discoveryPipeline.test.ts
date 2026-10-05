@@ -12,8 +12,12 @@ import { parseDiscoveryInventory } from "../../agents/deep_search/discovery.ts"
 import type { DeepSearchEvent } from "../../agents/deep_search/schemas.ts"
 import { db } from "../../db/index.ts"
 import { deepSearchJobs, ideaJobs, llmGenerations, user } from "../../db/schema/index.ts"
+import { createReplayableEventLog } from "../../helpers/replayableEventLog.ts"
+import { reopenDeepSearchJob } from "./jobLifecycle.ts"
 import { runDeepSearchPipeline } from "./pipeline.ts"
 import { reconstructDeepSearchJobEvents } from "./replay.ts"
+import { runDeepSearchJob } from "./run.ts"
+import type { DeepSearchJobEvent } from "./schemas.ts"
 import { loadDeepSearchExecutionSnapshot } from "./store.ts"
 
 afterEach(() => {
@@ -141,4 +145,106 @@ it("persists two rounds of broader discovery and promotes the cumulative invento
   const replay = reconstructDeepSearchJobEvents(jobId)!
   expect(replay).toContainEqual({ type: "final-answer-stream", streamId: snapshot.finalAnswerGeneration!.generationId })
   expect(replay.some(({ type }) => type === "research-analysis")).toBe(false)
+}, 30_000)
+
+it.each([
+  { failure: "malformed inventory JSON", invalidInventory: "{not-json", expectedError: "JSON" },
+  { failure: "empty inventory", invalidInventory: { options: [] }, expectedError: "Too small" },
+  { failure: "unsupported source", invalidInventory: { options: [{
+    name: "Daily trainer", category: "Road shoes", description: "A cushioned everyday shoe.",
+    sources: ["https://example.com/unseen"],
+  }] }, expectedError: "Option sources must come from the supplied research" },
+])("fails closed on $failure and resumes the same discovery job from completed checkpoints", async ({ invalidInventory, expectedError }) => {
+  vi.clearAllMocks()
+  const userId = "test-user-id"
+  const ideaJobId = crypto.randomUUID()
+  const jobId = crypto.randomUUID()
+  const researchRequest = "Map the running-shoe options."
+  const sourceUrl = "https://example.com/road"
+  const validInventory = { options: [{
+    name: "Daily trainer", category: "Road shoes", description: "A cushioned everyday shoe.", sources: [sourceUrl],
+  }] }
+  const stages: string[] = []
+  let inventoryAttempts = 0
+
+  db.insert(ideaJobs).values({
+    ideaJobId, userId, workflow: "discovery", slug: `discovery-${ideaJobId}`,
+    prompt: researchRequest, stage: "research", numberOfIdeas: 8,
+    deepSearchCount: 1, maxSearches: 1, maxResultsPerSearch: 1, maxRounds: 1,
+  }).run()
+  db.insert(deepSearchJobs).values({
+    deepSearchJobId: jobId, userId, ideaJobId, ideaJobPosition: 0,
+    slug: `discovery-${jobId}`, researchRequest,
+    maxSearches: 1, maxResultsPerSearch: 1, maxRounds: 1, strictQuality: true,
+  }).run()
+  external.webSearch.mockResolvedValue({
+    results: [{ title: "Road shoe categories", shortText: "Daily trainers suit everyday running.", link: sourceUrl }],
+    creditsUsed: 1,
+  })
+  external.webExtract.mockResolvedValue({
+    url: sourceUrl, content: "Daily trainers are cushioned everyday road shoes.", links: [],
+    retrievalMethod: "scrapingant-http", scrapingAntCredits: 1,
+  })
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    const request = new Request(input, init)
+    expect(request.url).toBe("https://api.deepseek.com/chat/completions")
+    const payload = JSON.parse(await request.text()) as { messages: Array<{ role: string; content: string }> }
+    const system = payload.messages.find(({ role }) => role === "system")!.content
+    const prompt = payload.messages.find(({ role }) => role === "user")!.content
+    const stage = system.split("\n")[0]
+    stages.push(stage)
+    let output: unknown
+    if (stage === "You plan broad web searches to discover an option space.") {
+      output = { version: 1, requirements: [], queries: ["road running shoe categories"] }
+    } else if (stage === "You select web search results for broad option-space discovery.") {
+      const result = JSON.parse(/<search_result>(.*?)<\/search_result>/.exec(prompt)![1]) as { id: string }
+      output = { elements: [result.id] }
+    } else if (stage === "You summarize a web page for broad option-space discovery.") {
+      output = `Daily trainer: a cushioned everyday shoe. [Source](${sourceUrl})`
+    } else if (stage === "You summarize web search results for broad option-space discovery.") {
+      output = `Daily trainer is an everyday road-shoe option. [Source](${sourceUrl})`
+    } else if (stage === "You maintain a cumulative inventory of discovered options.") {
+      output = inventoryAttempts++ === 0 ? invalidInventory : validInventory
+    } else {
+      throw new Error(`Unexpected model stage: ${stage}`)
+    }
+    const text = typeof output === "string" ? output : JSON.stringify(output)
+    return new Response([
+      `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: text }, finish_reason: null }] })}\n\n`,
+      `data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 1000, completion_tokens: 100, total_tokens: 1100 } })}\n\n`,
+      "data: [DONE]\n\n",
+    ].join(""), { headers: { "content-type": "text/event-stream" } })
+  }))
+
+  const firstLog = createReplayableEventLog<DeepSearchJobEvent>()
+  await expect(runDeepSearchJob(jobId, userId, firstLog, researchRequest, 1, 1, 1)).rejects.toThrow(expectedError)
+  const failed = loadDeepSearchExecutionSnapshot(jobId)!
+  expect(failed).toMatchObject({ mode: "discovery", status: "failed", finalAnswerGeneration: null })
+  expect(failed.rounds).toHaveLength(1)
+  expect(failed.rounds[0].queries[0]).toMatchObject({ status: "completed" })
+  expect(failed.pages).toMatchObject([{ url: sourceUrl, status: "completed" }])
+  expect(failed.rounds[0].answerGeneration).toMatchObject({ status: "failed" })
+  expect(failed.error).toContain(expectedError)
+  const completedQuery = structuredClone(failed.rounds[0].queries[0])
+  const completedPage = structuredClone(failed.pages[0])
+  const failedInventoryGenerationId = failed.rounds[0].answerGeneration!.generationId
+  const stagesBeforeResume = [...stages]
+
+  expect(reopenDeepSearchJob({ jobId })).toEqual({ previousStatus: "failed" })
+  const resumedLog = createReplayableEventLog<DeepSearchJobEvent>()
+  const answer = await runDeepSearchJob(jobId, userId, resumedLog, researchRequest, 1, 1, 1)
+  const completed = loadDeepSearchExecutionSnapshot(jobId)!
+  expect(parseDiscoveryInventory(answer)).toEqual(validInventory)
+  expect(completed).toMatchObject({ mode: "discovery", status: "completed", error: null })
+  expect(completed.rounds[0].queries[0]).toEqual(completedQuery)
+  expect(completed.pages[0]).toEqual(completedPage)
+  expect(completed.rounds[0].answerGeneration).toMatchObject({ status: "completed", text: JSON.stringify(validInventory) })
+  expect(completed.rounds[0].answerGeneration!.generationId).not.toBe(failedInventoryGenerationId)
+  expect(completed.finalAnswerGeneration?.generationId).toBe(completed.rounds[0].answerGeneration!.generationId)
+  expect(external.webSearch).toHaveBeenCalledOnce()
+  expect(external.webExtract).toHaveBeenCalledOnce()
+  expect(stagesBeforeResume.filter((stage) => stage === "You maintain a cumulative inventory of discovered options.")).toHaveLength(1)
+  expect(stages.slice(stagesBeforeResume.length)).toEqual(["You maintain a cumulative inventory of discovered options."])
+  expect(db.select().from(llmGenerations).where(eq(llmGenerations.llmGenerationId, failedInventoryGenerationId)).get()).toMatchObject({ status: "failed" })
+  expect(reconstructDeepSearchJobEvents(jobId)).toContainEqual({ type: "final-answer-stream", streamId: completed.finalAnswerGeneration!.generationId })
 }, 30_000)

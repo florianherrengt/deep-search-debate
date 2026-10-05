@@ -53,6 +53,34 @@ describe("discovery inventories", () => {
     ]) expect(call.schema.safeParse({ options }).success).toBe(false)
   })
 
+  it("accepts only canonical-equivalent supplied citations", async () => {
+    const cited = { ...first, sources: ["https://example.com/trainer?variant=firm"] }
+    mocks.generateObjectStream.mockResolvedValue({
+      id: "inventory-stream", output: Promise.resolve({ options: [cited] }),
+      completion: Promise.resolve({ status: "completed", text: JSON.stringify({ options: [cited] }), reasoning: "" }),
+    })
+    await updateDiscoveryInventory({
+      userId: "test-user-id", deepSearchJobId: "discovery-job", researchRequest: "Find mattress toppers.",
+      searchSummaries: [],
+      sourceEvidence: [{
+        url: "https://example.com/trainer?variant=firm&srsltid=tracked",
+        title: "Topper catalogue", content: "A portable mattress topper", evidenceType: "search-snippet",
+      }],
+    })
+    const { schema } = mocks.generateObjectStream.mock.calls[0][0] as { schema: ZodType }
+    expect(schema.safeParse({ options: [cited] }).success).toBe(true)
+    expect(schema.safeParse({ options: [{ ...cited, sources: ["https://example.com/trainer?variant=soft"] }] }).success).toBe(false)
+    expect(schema.safeParse({ options: [{ ...cited, sources: ["https://example.com/another?variant=firm"] }] }).success).toBe(false)
+
+    await updateDiscoveryInventory({
+      userId: "test-user-id", deepSearchJobId: "discovery-job", researchRequest: "Find mattress toppers.",
+      previousInventory: { options: [{ ...cited, sources: ["https://example.com/trainer?variant=firm&srsltid=tracked"] }] },
+      searchSummaries: [], sourceEvidence: [],
+    })
+    const nextCall = mocks.generateObjectStream.mock.calls[1][0] as { schema: ZodType }
+    expect(nextCall.schema.safeParse({ options: [cited] }).success).toBe(true)
+  })
+
   it("preserves complete current catalogues and prior identities when large duplicate source bodies compete for discovery context", async () => {
     const previousInventory = { options: Array.from({ length: 40 }, (_, index) => ({
       name: `Previous option ${index}`,

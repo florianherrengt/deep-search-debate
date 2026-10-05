@@ -4,6 +4,7 @@ import { formatBoundedTextEntries } from "../../helpers/boundedText.ts"
 import { secureJsonParse } from "../../helpers/secureJsonParse.ts"
 import { generateObjectStream } from "../../llms/generateText.ts"
 import { PromptName } from "../../llms/prompts.ts"
+import { canonicalUrl } from "../../web_search/types.ts"
 import {
   awaitGenerationOutput,
   awaitGenerationText,
@@ -76,19 +77,26 @@ export async function updateDiscoveryInventory(
   const sourceUrls = new Set([
     ...input.sourceEvidence.filter(({ evidenceType }) => evidenceType !== "unavailable").map(({ url }) => url),
     ...previousOptions.flatMap(({ sources }) => sources),
-  ])
+  ].map(canonicalUrl))
+  const isSuppliedSource = (url: string) => {
+    try {
+      return sourceUrls.has(canonicalUrl(url))
+    } catch {
+      return false
+    }
+  }
   const schema = discoveryInventorySchema.superRefine(({ options }, context) => {
     for (const [index, previous] of previousOptions.entries()) {
       const next = options[index]
       if (next?.name !== previous.name) {
         context.addIssue({ code: "custom", path: ["options", index], message: "Retain every previous option's exact name and position" })
       }
-      if (next && previous.sources.some((url) => !next.sources.includes(url))) {
+      if (next && previous.sources.some((url) => !next.sources.some((source) => canonicalUrl(source) === canonicalUrl(url)))) {
         context.addIssue({ code: "custom", path: ["options", index, "sources"], message: "Retain every previous option source" })
       }
     }
     for (const [index, option] of options.entries()) {
-      if (option.sources.some((url) => !sourceUrls.has(url))) {
+      if (option.sources.some((url) => !isSuppliedSource(url))) {
         context.addIssue({ code: "custom", path: ["options", index, "sources"], message: "Option sources must come from the supplied research" })
       }
     }

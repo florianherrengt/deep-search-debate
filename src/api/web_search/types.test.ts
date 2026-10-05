@@ -43,4 +43,12 @@ describe("web-search result normalization", () => {
       },
     ])
   })
+
+  it("removes Google search-result tracking from persisted URLs", () => {
+    expect(normalizeWebSearchResults([{
+      title: "Topper",
+      shortText: "A portable mattress topper",
+      link: "https://example.com/topper?variant=firm&srsltid=tracked",
+    }])[0]?.link).toBe("https://example.com/topper?variant=firm")
+  })
 })

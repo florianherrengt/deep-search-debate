@@ -33,6 +33,7 @@ import {
 import { createDeepSearchJobManager } from "../deepSearch/manager.ts"
 import { createIdeaJobManager } from "../ideas/manager.ts"
 import { DEBATE_TOURNAMENT_FORMAT } from "./tournament.ts"
+import type { DebateJobEvent } from "./schemas.ts"
 import type { AppEnv } from "../../types/auth.ts"
 
 function completeDebateFixture(
@@ -92,6 +93,14 @@ function createRealApp(): Hono<AppEnv> {
   debateJobReads(app, manager)
   debateJobs(app, manager)
   return app
+}
+
+async function readEvents(response: Response): Promise<DebateJobEvent[]> {
+  return (await response.text())
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as DebateJobEvent)
 }
 
 describe("debate job routes", () => {
@@ -243,6 +252,85 @@ describe("debate job routes", () => {
         isPublic: true,
       },
     })
+  })
+
+  it("replays an in-progress debate from SQLite without a live job", async () => {
+    const debateJobId = crypto.randomUUID()
+    db.insert(debateJobsTable)
+      .values({ debateJobId, userId: "test-user-id", randomSeed: 42 })
+      .run()
+
+    const response = await createRealApp().request(
+      `/api/debate-jobs/${debateJobId}/events`,
+    )
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("Content-Type")).toContain("application/x-ndjson")
+    await expect(readEvents(response)).resolves.toEqual([{ type: "updated" }])
+  })
+
+  it("replays a completed debate from SQLite without a live job", async () => {
+    const debateJobId = crypto.randomUUID()
+    db.insert(debateJobsTable)
+      .values({ debateJobId, userId: "test-user-id", randomSeed: 42 })
+      .run()
+    completeDebateFixture(debateJobId)
+
+    const response = await createRealApp().request(
+      `/api/debate-jobs/${debateJobId}/events`,
+    )
+
+    expect(response.status).toBe(200)
+    await expect(readEvents(response)).resolves.toEqual([
+      { type: "updated" },
+      { type: "done" },
+    ])
+  })
+
+  it("replays the exact failure but suppresses ordinary errors for a stopped debate", async () => {
+    const failedDebateJobId = crypto.randomUUID()
+    const stoppedDebateJobId = crypto.randomUUID()
+    db.insert(debateJobsTable)
+      .values([
+        {
+          debateJobId: failedDebateJobId,
+          userId: "test-user-id",
+          randomSeed: 42,
+          status: "failed",
+          error: "Judge output was invalid",
+          completedAt: new Date(),
+        },
+        {
+          debateJobId: stoppedDebateJobId,
+          userId: "test-user-id",
+          randomSeed: 43,
+          status: "interrupted",
+          error: "Workflow stopped by user",
+          cancelRequestedAt: new Date(),
+          completedAt: new Date(),
+        },
+      ])
+      .run()
+
+    const app = createRealApp()
+    const failed = await app.request(
+      `/api/debate-jobs/${failedDebateJobId}/events`,
+    )
+    const stopped = await app.request(
+      `/api/debate-jobs/${stoppedDebateJobId}/events`,
+    )
+
+    expect(failed.status).toBe(200)
+    await expect(readEvents(failed)).resolves.toEqual([
+      { type: "updated" },
+      { type: "error", message: "Judge output was invalid" },
+      { type: "done" },
+    ])
+    expect(stopped.status).toBe(200)
+    await expect(readEvents(stopped)).resolves.toEqual([
+      { type: "updated" },
+      { type: "done" },
+    ])
   })
 
   it.each([

@@ -550,13 +550,28 @@ test.describe("Debate tournament", () => {
     expect(unexpectedBrowserRequests).toEqual([])
   })
 
-  test("stops an active tournament without starting another round", async ({
+  test("stops and resumes a tournament without repeating completed matches", async ({
     page,
     request,
   }) => {
-    test.setTimeout(90_000)
+    test.setTimeout(150_000)
 
     const prompt = `${debatePrompt} [E2E_STOP_DEBATE]`
+    const unexpectedBrowserRequests: string[] = []
+    let createRequestCount = 0
+    page.on("request", (browserRequest) => {
+      const url = new URL(browserRequest.url())
+      if (url.protocol !== "http:" && url.protocol !== "https:") return
+      if (url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
+        unexpectedBrowserRequests.push(url.href)
+      }
+      if (
+        browserRequest.method() === "POST" &&
+        /^\/api\/idea-jobs\/[^/]+\/debate$/.test(url.pathname)
+      ) {
+        createRequestCount += 1
+      }
+    })
     await page.goto("/debates")
     const createdResponse = page.waitForResponse(
       (response) =>
@@ -577,11 +592,16 @@ test.describe("Debate tournament", () => {
       slug: string
     }
     expect(created.status()).toBe(202)
+    const debateUrl = `/debates/${slug}`
+    await expect(page).toHaveURL(new RegExp(`${debateUrl}$`))
+    await expect(page.getByText("4/23 matches")).toBeVisible({
+      timeout: 60_000,
+    })
     const liveMatch = page
       .getByRole("link", { name: /^Open .+ versus .+$/ })
       .filter({ has: page.getByText("Live", { exact: true }) })
       .first()
-    await expect(liveMatch).toBeVisible({ timeout: 60_000 })
+    await expect(liveMatch).toBeVisible()
 
     const cancelResponse = page.waitForResponse(
       (response) =>
@@ -614,14 +634,18 @@ test.describe("Debate tournament", () => {
       stage: "swiss",
       status: "interrupted",
       stopRequested: true,
+      canResume: true,
       canStop: false,
       error: "Workflow stopped by user",
     })
-    expect(debateJob.rounds).toHaveLength(1)
+    expect(debateJob.rounds).toHaveLength(2)
     expect(debateJob.rounds[0]?.matches).toHaveLength(4)
-    expect(
-      debateJob.rounds[0]?.matches.some((match) => match.messages.length > 0),
-    ).toBe(true)
+    const completedFirstRound = debateJob.rounds[0]
+    expect(completedFirstRound?.matches.every((match) => match.status === "completed")).toBe(true)
+    expect(completedFirstRound?.matches.every((match) => match.messages.length === 5)).toBe(true)
+    const completedMatchIds = completedFirstRound?.matches.map((match) => match.debateMatchId)
+    expect(new Set(completedMatchIds).size).toBe(4)
+    expect(debateJob.rounds[1]?.matches.some((match) => match.messages.length > 0)).toBe(true)
 
     const ideaDetail = await request.get(`/api/idea-jobs/${slug}`)
     expect(ideaDetail.status()).toBe(200)
@@ -650,6 +674,59 @@ test.describe("Debate tournament", () => {
     await expect(
       page.getByRole("region", { name: "Debate progress" }),
     ).toHaveCount(0)
+    await expect(page.getByRole("button", { name: "Resume workflow" })).toBeVisible()
+
+    const resumeResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname ===
+          `/api/debate-jobs/${debateJobId}/resume`,
+    )
+    await page.getByRole("button", { name: "Resume workflow" }).click()
+    const resumed = await resumeResponse
+    expect(resumed.status()).toBe(202)
+    expect(await resumed.json()).toEqual({ status: "running" })
+    await expect(page).toHaveURL(new RegExp(`${debateUrl}$`))
+    await expect(page.getByText("Debate in progress")).toBeVisible()
+    await expect(page.getByText("Debate complete")).toBeVisible({
+      timeout: 90_000,
+    })
+
+    const completedDetail = await request.get(`/api/debate-jobs/${slug}`)
+    expect(completedDetail.status()).toBe(200)
+    const { debateJob: completedDebate } = (await completedDetail.json()) as {
+      debateJob: DebateTournamentSnapshot
+    }
+    expect(completedDebate).toMatchObject({
+      debateJobId,
+      ideaJobId: debateJob.ideaJobId,
+      stage: "final",
+      status: "completed",
+      stopRequested: false,
+      canResume: false,
+      expectedMatchCount: 23,
+      error: null,
+    })
+    expect(completedDebate.rounds[0]).toEqual(completedFirstRound)
+    const allMatches = completedDebate.rounds.flatMap((round) => round.matches)
+    expect(allMatches).toHaveLength(23)
+    expect(new Set(allMatches.map((match) => match.debateMatchId)).size).toBe(23)
+    expect(allMatches.every((match) => match.status === "completed")).toBe(true)
+    expect(createRequestCount).toBe(1)
+
+    await page.reload()
+    await expect(page).toHaveURL(new RegExp(`${debateUrl}$`))
+    await expect(page.getByText("Debate complete")).toBeVisible()
+    await expect(page.getByText("Winning idea", { exact: true })).toBeVisible()
+    await expect(page.getByRole("button", { name: "Resume workflow" })).toHaveCount(0)
+    const reloadedDetail = await request.get(`/api/debate-jobs/${slug}`)
+    expect(reloadedDetail.status()).toBe(200)
+    const { debateJob: reloadedDebate } = (await reloadedDetail.json()) as {
+      debateJob: DebateTournamentSnapshot
+    }
+    expect(reloadedDebate.rounds[0]).toEqual(completedFirstRound)
+    expect(reloadedDebate.debateJobId).toBe(debateJobId)
+    expect(unexpectedBrowserRequests).toEqual([])
   })
 
   test("fails after one opening exhausts provider retries without starting another round", async ({
