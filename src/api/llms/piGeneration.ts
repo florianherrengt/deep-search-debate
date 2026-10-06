@@ -13,6 +13,10 @@ import {
 
 import { config } from "../config.ts"
 import {
+  createLlmProviderDiagnostics,
+  observeLlmProviderRequests,
+} from "./providerDiagnostics.ts"
+import {
   classifyCodexError,
   OpenAiCodexError,
 } from "../openaiConnection/codexErrors.ts"
@@ -363,6 +367,16 @@ export function startPiLlmStream(
     }),
   }
   const options = createPiOptions(runtime, request, signal)
+  const diagnostics = createLlmProviderDiagnostics({
+    maxRetries: config.llmExecution.maxRetries,
+    firstChunkTimeoutMs: config.llmExecution.firstChunkTimeoutMs,
+    chunkTimeoutMs: config.llmExecution.chunkTimeoutMs,
+    reasoningEffort: runtime.reasoningEffort,
+  })
+  const observedOptions = {
+    ...options,
+    fetch: observeLlmProviderRequests(diagnostics),
+  }
   const terminal = Promise.withResolvers<{
     finishReason: LlmFinishReason
     rawFinishReason: string | undefined
@@ -381,7 +395,7 @@ export function startPiLlmStream(
   }
   void terminal.promise.catch(() => undefined)
 
-  const piStream = runtime.models.stream(runtime.model, context, options)
+  const piStream = runtime.models.stream(runtime.model, context, observedOptions)
   const normalized = normalizePiStream(
     piStream,
     runtime,
@@ -422,5 +436,6 @@ export function startPiLlmStream(
     finishReason: finishReasonPromise,
     rawFinishReason: rawFinishReasonPromise,
     usage: usagePromise,
+    diagnostics,
   }
 }

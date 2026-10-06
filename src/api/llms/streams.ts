@@ -27,6 +27,10 @@ import type {
   LlmStreamPart,
   LlmUsage,
 } from "./streamTypes.ts"
+import {
+  describeLlmFailure,
+  type LlmProviderDiagnostics,
+} from "./providerDiagnostics.ts"
 
 export type TextStreamEvent =
   | { type: "reasoning"; text: string }
@@ -188,6 +192,7 @@ type TextGenerationTerminalMetadata = {
   finishReason?: PromiseLike<LlmFinishReason>
   rawFinishReason?: PromiseLike<string | undefined>
   usage?: PromiseLike<LlmUsage>
+  diagnostics?: LlmProviderDiagnostics
 }
 
 type TextGenerationMetadata = TextGenerationRegistrationMetadata &
@@ -311,14 +316,17 @@ async function consume(
   stream: TextStream,
   owner: LlmGenerationOwner,
   options: RegisterTextStreamOptions,
+  startedAt: Date,
 ): Promise<GenerationOutcome> {
   let text = ""
   let reasoning = ""
   let errorMessage: string | undefined
   let errorCode: OpenAiCodexErrorCode | undefined
   let failureKind: GenerationFailureKind | undefined
+  let failure: ReturnType<typeof describeLlmFailure> | undefined
   const terminalMetadataPromise = resolveTerminalMetadata(options.metadata)
   const captureStreamError = (error: unknown): void => {
+    failure ??= describeLlmFailure(error)
     if (!errorMessage) {
       if (error instanceof OpenAiCodexError) errorCode = error.code
       errorMessage =
@@ -483,11 +491,18 @@ async function consume(
         owner,
         metadata: options.metadata,
         terminalMetadata,
+        startedAt,
+        failureKind: failureKind!,
+        errorCode,
+        failure,
+        textReceived: text.length > 0,
+        reasoningReceived: reasoning.length > 0,
       })
     }
   } catch (error) {
     const message = getErrorMessage(error, "Text generation failed")
     const failedAt = new Date()
+    let persistenceFailure: ReturnType<typeof describeLlmFailure> | undefined
     try {
       // The generation/result transaction rolled back. Record a separate
       // failure so recovery never mistakes this detached stream for live work.
@@ -511,16 +526,20 @@ async function consume(
         )
         .run()
     } catch (fallbackError) {
-      console.error(
-        `Failed to persist text generation ${id} terminal failure`,
-        fallbackError,
-      )
+      persistenceFailure = describeLlmFailure(fallbackError)
     }
     logFailedGeneration({
       id,
       owner,
       metadata: options.metadata,
       terminalMetadata,
+      startedAt,
+      failureKind: "terminal-persistence",
+      errorCode,
+      failure: describeLlmFailure(error),
+      persistenceFailure,
+      textReceived: text.length > 0,
+      reasoningReceived: reasoning.length > 0,
     })
     stream.publish({
       type: "error",
@@ -594,16 +613,38 @@ function logFailedGeneration(input: {
   owner: LlmGenerationOwner
   metadata: TextGenerationMetadata | undefined
   terminalMetadata: TerminalGenerationMetadata
+  startedAt: Date
+  failureKind: GenerationFailureKind | "terminal-persistence"
+  errorCode?: OpenAiCodexErrorCode
+  failure?: ReturnType<typeof describeLlmFailure>
+  persistenceFailure?: ReturnType<typeof describeLlmFailure>
+  textReceived: boolean
+  reasoningReceived: boolean
 }): void {
-  if (!input.metadata) return
+  if (!input.metadata && !input.persistenceFailure) return
   try {
-    console.error("LLM generation failed", {
-      generationId: input.id,
-      ...("standalone" in input.owner ? {} : input.owner),
-      stage: input.metadata.promptName,
-      modelId: input.metadata.modelId,
-      finishReason: input.terminalMetadata.finishReason ?? null,
-    })
+    // Serialize once so nested attempt details survive console formatting and
+    // each failure remains one searchable record in production container logs.
+    console.error(
+      JSON.stringify({
+        event: "llm_generation_failed",
+        timestamp: new Date().toISOString(),
+        generationId: input.id,
+        ...("standalone" in input.owner ? {} : input.owner),
+        stage: input.metadata?.promptName,
+        modelId: input.metadata?.modelId,
+        provider: input.metadata?.provider ?? null,
+        durationMs: Math.max(0, Date.now() - input.startedAt.getTime()),
+        failureKind: input.failureKind,
+        errorCode: input.errorCode ?? null,
+        finishReason: input.terminalMetadata.finishReason ?? null,
+        textReceived: input.textReceived,
+        reasoningReceived: input.reasoningReceived,
+        ...(input.failure && { failure: input.failure }),
+        ...(input.persistenceFailure && { persistenceFailure: input.persistenceFailure }),
+        ...(input.metadata?.diagnostics && { diagnostics: input.metadata.diagnostics }),
+      }),
+    )
   } catch {
     // Observability must never change generation persistence or stream outcome.
     return
@@ -642,6 +683,7 @@ export function registerTextStream(
           finishReason: options.metadata.finishReason,
           rawFinishReason: options.metadata.rawFinishReason,
           usage: options.metadata.usage,
+          diagnostics: options.metadata.diagnostics,
         }
       : undefined,
   )
@@ -702,6 +744,7 @@ export function prepareTextGeneration(
       stream,
       owner,
       combinedOptions,
+      startedAt,
     )
     void completion.then(
       () => {

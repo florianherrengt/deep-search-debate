@@ -68,10 +68,29 @@ publication, persistence, or replay; known Codex errors retain their fixed safe
 actionable messages and codes. Successful and interrupted generations produce
 no console log.
 
-A failed metadata-bearing generation emits one privacy-safe error record with
-its generation ID, owning job ID when present, prompt/stage, model ID, and finish
-reason. It deliberately excludes token counts, duration, prompt, output,
-reasoning, provider response body, page content, credentials, and error text.
+A failed metadata-bearing generation emits one JSON console record with
+`event = llm_generation_failed`. It includes the generation and owning job IDs,
+prompt/stage, model, provider, timestamp, elapsed milliseconds, failure kind,
+safe application error code, finish reason, and whether text or reasoning was
+received. Local validation and terminal-persistence failures include a safe
+error category and recognized error or validation codes. If the fallback write
+also fails, its safe diagnosis appears in the same record.
+
+Pi streams attach a bounded, server-only `diagnostics` object. It records the
+configured retry and inactivity limits, reasoning effort, HTTP attempt count,
+per-attempt status, request ID, timing, provider retry hint, and recognized network
+failures. A bounded observer passes the original response bytes through while
+extracting only validated error codes, types, parameter names, and incomplete
+reasons from HTTP error JSON and SSE failure events. This preserves errors sent
+inside an HTTP 200 stream before Pi reduces them to an error message. Premature
+EOF, malformed events, and truncated diagnostic capture are identified
+separately. The observer does not retry, repair, or change a response.
+
+Logs exclude token counts, prompts, outputs, reasoning content, request URLs and
+headers, raw response bodies, page content, credentials, and free-form error
+messages. Diagnostics are never published through NDJSON or written into the
+generation's public error. Successful and interrupted calls remain silent;
+diagnostic collection and logging failures cannot change the workflow outcome.
 The authorized local database row retains the same safe public error message,
 plus non-sensitive generation metadata. Known Codex failures also carry their
 stable safe code through the in-memory durable completion outcome so
