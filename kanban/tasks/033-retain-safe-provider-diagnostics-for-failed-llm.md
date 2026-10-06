@@ -1,10 +1,12 @@
 ---
 id: 33
 title: Retain safe provider diagnostics for failed LLM generations
-status: review
+status: done
 priority: high
 created: 2026-10-06T16:59:09.128153+01:00
-updated: 2026-10-06T17:36:46.495299+01:00
+updated: 2026-10-06T17:51:17.825373+01:00
+started: 2026-10-06T17:51:11.662904+01:00
+completed: 2026-10-06T17:51:11.662904+01:00
 tags:
     - bug
     - observability
@@ -24,3 +26,6 @@ Investigated production UX career workflow: four Codex selector calls failed wit
 
 [[2026-10-06]] Tue 17:36
 Release follow-up: committed task code on codex/ticket-33-provider-diagnostics as 08315d45bb349eeeeef319709af01f57d326642a; published that exact image to Docker Hub and Coolify deployment h12u4krgyrxd75544eubw6de finished. Public health check and container are healthy. Production startup resumed debate 35f072c8-c912-4b80-806f-150143907561 automatically; as of 2026-10-06 16:36 UTC the idea root and four child searches were running, with eight new generations complete and no new structured failure logs. Task branch has not been merged to local main or pushed to Git remote; keep review status pending integration.
+
+[[2026-10-06]] Tue 17:51
+Integration: diagnostics code 08315d45bb349eeeeef319709af01f57d326642a is merged into local main at 23fcab7. Prior deployment from the task branch is healthy; publishing and deploying the integrated main revision is in progress. Git remote was not pushed.
