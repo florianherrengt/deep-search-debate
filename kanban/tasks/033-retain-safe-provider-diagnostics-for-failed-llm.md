@@ -4,7 +4,7 @@ title: Retain safe provider diagnostics for failed LLM generations
 status: review
 priority: high
 created: 2026-10-06T16:59:09.128153+01:00
-updated: 2026-10-06T17:22:58.72048+01:00
+updated: 2026-10-06T17:36:46.495299+01:00
 tags:
     - bug
     - observability
@@ -21,3 +21,6 @@ Investigated production UX career workflow: four Codex selector calls failed wit
 - Verified: Node 26.5.1 npm run gatekeep passed (lint, typecheck, knip, 92 API files / 881 tests, 53 web files / 389 tests); dedicated root and API checklist reviews found no remaining blockers. Corrected strip-only startup compatibility and cancellation propagation issues found during validation.
 - Privacy and behavior: no raw prompt/output/provider messages/credentials in logs; no retry, public error, schema, or workflow state changes. Real Pi protocol boundary exercised with synthetic responses, without live provider calls.
 - Deployment: not committed, merged, pushed, or deployed. Historical discarded error details cannot be reconstructed; diagnostics will apply to new calls after deployment.
+
+[[2026-10-06]] Tue 17:36
+Release follow-up: committed task code on codex/ticket-33-provider-diagnostics as 08315d45bb349eeeeef319709af01f57d326642a; published that exact image to Docker Hub and Coolify deployment h12u4krgyrxd75544eubw6de finished. Public health check and container are healthy. Production startup resumed debate 35f072c8-c912-4b80-806f-150143907561 automatically; as of 2026-10-06 16:36 UTC the idea root and four child searches were running, with eight new generations complete and no new structured failure logs. Task branch has not been merged to local main or pushed to Git remote; keep review status pending integration.
