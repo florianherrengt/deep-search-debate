@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { eq } from "drizzle-orm"
+import z from "zod"
 import { debitCredits, getCreditAccount } from "../credits.ts"
 import { db } from "../db/index.ts"
 import {
@@ -475,12 +476,14 @@ describe("text streams", () => {
         metadata: {
           modelId: "configured-model",
           promptName: "default",
+          provider: "server",
           finishReason: Promise.reject(new Error("Finish reason unavailable")),
           usage: Promise.reject(new Error("Usage unavailable")),
         },
       },
     )
 
+    source.push({ type: "reasoning-delta", id: "reasoning", text: "Thought" })
     source.push({ type: "text-delta", id: "text", text: "Partial result" })
     source.close()
     await expect(completion).resolves.toMatchObject({
@@ -504,12 +507,25 @@ describe("text streams", () => {
       error: "Text generation did not report a finish reason",
       finishReason: null,
     })
-    expect(error).toHaveBeenCalledExactlyOnceWith("LLM generation failed", {
+    expect(error).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/^\{.*\}$/))
+    const record = JSON.parse(String(error.mock.calls[0]?.[0])) as Record<string, unknown>
+    expect(record).toMatchObject({
+      event: "llm_generation_failed",
       generationId: id,
       stage: "default",
       modelId: "configured-model",
+      provider: "server",
+      failureKind: "finish-reason",
+      errorCode: null,
       finishReason: null,
+      textReceived: true,
+      reasoningReceived: true,
     })
+    expect(record.timestamp).toEqual(expect.any(String))
+    expect(Date.parse(String(record.timestamp))).not.toBeNaN()
+    expect(record.durationMs).toEqual(expect.any(Number))
+    expect(record.durationMs).toBeGreaterThanOrEqual(0)
+    expect(record).not.toHaveProperty("rawFinishReason")
   })
 
   it("fails partial text when the provider does not report a normal stop", async () => {
@@ -817,6 +833,21 @@ describe("text streams", () => {
   it("persists and replays only a safe server-provider error", async () => {
     const rawError = "raw DeepSeek response with request details"
     const onFailed = vi.fn()
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const diagnostics = {
+      attemptCount: 1,
+      maxRetries: 3,
+      firstChunkTimeoutMs: 600_000,
+      chunkTimeoutMs: 600_000,
+      attempts: [{ attempt: 1, status: 200, durationMs: 12, requestId: "req_safe_123" }],
+      failures: [{
+        attempt: 1,
+        source: "sse" as const,
+        eventType: "response.failed" as const,
+        code: "upstream_overloaded",
+        type: "server_error",
+      }],
+    }
     const source = new AsyncQueue<SourceStreamPart>()
     const { id, completion } = registerTextStream(
       "test-user-id",
@@ -827,6 +858,7 @@ describe("text streams", () => {
           modelId: "configured-model",
           promptName: "default",
           provider: "server",
+          diagnostics,
         },
         onFailed,
       },
@@ -839,13 +871,12 @@ describe("text streams", () => {
       error: "Text generation failed",
       failureKind: "stream",
     })
-    expect(
-      db
-        .select({ error: llmGenerations.error })
-        .from(llmGenerations)
-        .where(eq(llmGenerations.llmGenerationId, id))
-        .get(),
-    ).toEqual({ error: "Text generation failed" })
+    const persisted = db
+      .select({ error: llmGenerations.error })
+      .from(llmGenerations)
+      .where(eq(llmGenerations.llmGenerationId, id))
+      .get()
+    expect(persisted).toEqual({ error: "Text generation failed" })
     expect(onFailed).toHaveBeenCalledWith(
       expect.objectContaining({ error: "Text generation failed" }),
       expect.anything(),
@@ -856,6 +887,97 @@ describe("text streams", () => {
       { type: "done" },
     ])
     expect(JSON.stringify(replay)).not.toContain(rawError)
+    expect(errorLog).toHaveBeenCalledOnce()
+    const record = JSON.parse(String(errorLog.mock.calls[0]?.[0])) as {
+      diagnostics?: unknown
+      failureKind?: string
+      textReceived?: boolean
+    }
+    expect(record).toMatchObject({
+      failureKind: "stream",
+      textReceived: false,
+      failure: { category: "error", name: "Error" },
+      diagnostics,
+    })
+    expect(JSON.stringify(record)).not.toContain(rawError)
+    expect(JSON.stringify(persisted)).not.toContain("diagnostics")
+    expect(JSON.stringify(replay)).not.toContain("diagnostics")
+    expect(JSON.stringify(persisted)).not.toContain("req_safe_123")
+    expect(JSON.stringify(replay)).not.toContain("req_safe_123")
+  })
+
+  it("keeps a durable provider failure when writing its log throws", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {
+      throw new Error("logger unavailable")
+    })
+    const source = new AsyncQueue<SourceStreamPart>()
+    const { id, completion } = registerTextStream(
+      "test-user-id",
+      { standalone: true },
+      source,
+      {
+        metadata: {
+          modelId: "configured-model",
+          promptName: "default",
+          provider: "server",
+        },
+      },
+    )
+    source.push({ type: "error", error: new Error("provider failed") })
+    source.close()
+
+    await expect(completion).resolves.toMatchObject({
+      status: "failed",
+      error: "Text generation failed",
+      failureKind: "stream",
+    })
+    expect(
+      db.select({ status: llmGenerations.status, error: llmGenerations.error })
+        .from(llmGenerations)
+        .where(eq(llmGenerations.llmGenerationId, id))
+        .get(),
+    ).toEqual({ status: "failed", error: "Text generation failed" })
+  })
+
+  it("logs safe Zod context when terminal failure persistence hooks throw", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const parsed = z.object({ answer: z.string() }).safeParse({ answer: 42 })
+    if (parsed.success) throw new Error("Expected the invalid output to fail validation")
+    const source = new AsyncQueue<SourceStreamPart>()
+    const generation = registerTextStream(
+      "test-user-id",
+      { standalone: true },
+      source,
+      {
+        metadata: {
+          modelId: "configured-model",
+          promptName: "default",
+          provider: "server",
+        },
+        onFailed: () => {
+          throw parsed.error
+        },
+      },
+    )
+    source.push({ type: "error", error: new Error("provider failed") })
+    source.close()
+
+    await expect(generation.completion).rejects.toBe(parsed.error)
+    expect(errorLog).toHaveBeenCalledOnce()
+    const record = JSON.parse(String(errorLog.mock.calls[0]?.[0])) as {
+      failureKind?: string
+      failure?: { category?: string; name?: string; issueCount?: number; issueCodes?: string[] }
+    }
+    expect(record).toMatchObject({
+      failureKind: "terminal-persistence",
+      failure: {
+        category: "validation",
+        name: "ZodError",
+        issueCount: 1,
+        issueCodes: ["invalid_type"],
+      },
+    })
+    expect(JSON.stringify(record)).not.toContain(parsed.error.message)
   })
 
   it("redacts a thrown server-provider error before durable failure", async () => {
@@ -1156,6 +1278,7 @@ describe("text streams", () => {
 
   it("persists a manager-owned abort as interrupted without debiting credits", async () => {
     const before = getCreditAccount("test-user-id").credits
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const controller = new AbortController()
     const onInterrupted = vi.fn()
     const source = new AsyncQueue<SourceStreamPart>()
@@ -1201,6 +1324,7 @@ describe("text streams", () => {
       new WorkflowInterruptedError("user-stop"),
     )
     expect(onInterrupted).toHaveBeenCalledOnce()
+    expect(errorLog).not.toHaveBeenCalled()
     expect(
       db
         .select({

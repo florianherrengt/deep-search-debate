@@ -197,6 +197,36 @@ printf '{"docker_registry_image_tag":"%s"}\n' "${TAG}" |
 Application and deployment logs can contain secrets or user data. Inspect them
 locally and do not paste them into tickets or chat without review.
 
+### Diagnosing LLM failures
+
+Failed generations emit one JSON record with `event = llm_generation_failed`.
+Find these records with:
+
+```sh
+./coolify/logs.sh 1000 | rg '"event":"llm_generation_failed"'
+```
+
+Use `generationId` and the owning job ID to match a record to the saved workflow.
+`failureKind` distinguishes stream, finish-reason, empty-output, and terminal
+persistence failures. The safe `failure` details distinguish local validation
+or database errors from provider failures. `diagnostics.attempts` contains HTTP
+statuses, request IDs, timings, provider retry hints, and network error codes;
+`diagnostics.failures` contains safe upstream error codes and SSE event types.
+An HTTP 200 followed by `response.failed` means the provider accepted the
+request and then reported a failure inside the stream. `attemptCount` includes
+the first request; `maxRetries` is the permitted retries after it. Inspect
+`attempts` to see the actual request history; an accepted stream's failure does
+not imply that Pi retried it. Attempt timings exclude backoff;
+`retryAfterMs` records the provider's hint, not the actual wait. A `truncated`
+flag means capture hit its diagnostic limit, not that the provider response
+itself was truncated.
+
+These diagnostics stay in server logs. The public generation error remains
+safe and concise, and logs omit credentials, request content, model output,
+and free-form provider error messages. Older failures cannot gain diagnostics
+retroactively; reproduce or resume the owning workflow after deployment to
+capture a new attempt.
+
 ## State-changing commands
 
 These commands act immediately. They do not prompt for confirmation.

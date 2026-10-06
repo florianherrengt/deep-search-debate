@@ -98,7 +98,7 @@ describe("structured generation", () => {
       },
     }))
     mocks.loadPrompt.mockResolvedValue("Research analysis prompt")
-    mockPreparedGeneration(completedGenerationHandle(text))
+    const prepared = mockPreparedGeneration(completedGenerationHandle(text))
 
     const result = await generateObjectStream({
       userId: "connected-user-id",
@@ -131,6 +131,12 @@ describe("structured generation", () => {
     expect(z.toJSONSchema(schema, { target: "draft-7" })).toEqual(originalSchema)
     await expect(started.finishReason).resolves.toBe("stop")
     await expect(result.output).resolves.toEqual(output)
+    expect(prepared.start).toHaveBeenCalledWith(started.stream, expect.objectContaining({
+      finishReason: started.finishReason,
+      rawFinishReason: started.rawFinishReason,
+      usage: started.usage,
+      diagnostics: started.diagnostics,
+    }))
   })
 
   it("sends a JSON Schema to Pi and parses the persisted array result", async () => {

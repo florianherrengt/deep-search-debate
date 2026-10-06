@@ -7,12 +7,17 @@ import type {
   Models,
   Usage,
 } from "@earendil-works/pi-ai"
-import { createModels } from "@earendil-works/pi-ai"
+import { createModels, InMemoryCredentialStore } from "@earendil-works/pi-ai"
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek"
+import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import z from "zod"
 import { OpenAiCodexError } from "../openaiConnection/codexErrors.ts"
 import { workflowAbortReason } from "../workflowRuntime.ts"
+import {
+  createLlmProviderDiagnostics,
+  observeLlmProviderRequests,
+} from "./providerDiagnostics.ts"
 import {
   startPiLlmStream,
   type PiLlmRequest,
@@ -195,6 +200,51 @@ async function collect(
   return result
 }
 
+async function codexRuntime() {
+  const credentials = new InMemoryCredentialStore()
+  const tokenPayload = Buffer.from(JSON.stringify({
+    "https://api.openai.com/auth": { chatgpt_account_id: "synthetic-account" },
+  })).toString("base64url")
+  await credentials.modify("openai-codex", () => Promise.resolve({
+    type: "oauth",
+    access: `synthetic.${tokenPayload}.signature`,
+    refresh: "synthetic-refresh-token",
+    expires: Date.now() + 3_600_000,
+    accountId: "synthetic-account",
+  }))
+  const models = createModels({ credentials })
+  models.setProvider(openaiCodexProvider())
+  const model = models.getModel("openai-codex", "gpt-5.6-sol")
+  if (!model) throw new Error("Expected the configured Codex model")
+  return { models, model, provider: "codex" as const, reasoningEffort: "medium" as const }
+}
+
+function responseEvents(...events: Record<string, unknown>[]) {
+  const body = events.map((value) => `data: ${JSON.stringify(value)}\n\n`).join("")
+  return new Response(body, {
+    headers: { "content-type": "text/event-stream", "x-request-id": "req_sse_123" },
+  })
+}
+
+const structuredCodexEvents = () => {
+  const item = {
+    id: "fc_test",
+    type: "function_call",
+    call_id: "call_test",
+    name: "submit_structured_output",
+    arguments: '{"answer":"answer"}',
+    status: "completed",
+  }
+  return [
+    { type: "response.created", response: { id: "resp_test", status: "in_progress" } },
+    { type: "response.output_item.added", output_index: 0, item: { ...item, arguments: "", status: "in_progress" } },
+    { type: "response.function_call_arguments.delta", output_index: 0, delta: '{"answer":"answer"}' },
+    { type: "response.function_call_arguments.done", output_index: 0, arguments: '{"answer":"answer"}' },
+    { type: "response.output_item.done", output_index: 0, item },
+    { type: "response.completed", response: { id: "resp_test", status: "completed", output: [item] } },
+  ]
+}
+
 function terminalPromises(started: StartedLlmStream) {
   return Promise.allSettled([
     started.finishReason,
@@ -209,6 +259,414 @@ afterEach(() => {
 })
 
 describe("startPiLlmStream", () => {
+  it("retains safe SSE diagnostics when a successful HTTP response fails mid-stream", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(responseEvents({
+      type: "response.failed",
+      response: {
+        error: {
+          code: "upstream_overloaded",
+          type: "server_error",
+          param: "model",
+          message: "private provider detail and synthetic-access-token",
+        },
+      },
+    })))
+    vi.stubGlobal("fetch", fetch)
+    const started = startPiLlmStream(await codexRuntime(), request({
+      prompt: "private prompt content",
+    }))
+
+    const parts = await collect(started.stream)
+    expect(parts).toMatchObject([{
+      type: "error",
+      error: {
+        name: "OpenAiCodexError",
+        code: "temporarily-unavailable",
+        message: "OpenAI Codex is temporarily unavailable. Try again later.",
+      },
+    }])
+    const diagnostics = started.diagnostics
+    expect(diagnostics).toMatchObject({
+      attempts: [{
+        attempt: 1,
+        status: 200,
+        requestId: "req_sse_123",
+      }],
+      failures: [{
+        attempt: 1,
+        source: "sse",
+        eventType: "response.failed",
+        code: "upstream_overloaded",
+        type: "server_error",
+        param: "model",
+      }],
+    })
+    expect(diagnostics?.attemptCount).toBe(1)
+    expect(diagnostics?.maxRetries).toBe(3)
+    expect(diagnostics?.firstChunkTimeoutMs).toBeGreaterThan(0)
+    expect(diagnostics?.chunkTimeoutMs).toBeGreaterThan(0)
+    expect(typeof diagnostics?.attempts[0]?.durationMs).toBe("number")
+    expect(diagnostics?.attempts[0]?.durationMs).toBeGreaterThanOrEqual(0)
+    const serialized = JSON.stringify(diagnostics)
+    expect(serialized).not.toContain("synthetic-access-token")
+    expect(serialized).not.toContain("private prompt content")
+    expect(serialized).not.toContain("private provider detail")
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
+  it("retains the safe code from a top-level Codex error event", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(responseEvents({
+      type: "error",
+      code: "server_error",
+      message: "private top-level error detail",
+    })))
+    vi.stubGlobal("fetch", fetch)
+    const started = startPiLlmStream(await codexRuntime(), request())
+
+    await expect(collect(started.stream)).resolves.toMatchObject([{
+      type: "error",
+      error: { code: "temporarily-unavailable" },
+    }])
+    expect(started.diagnostics?.failures).toMatchObject([{
+      attempt: 1,
+      source: "sse",
+      eventType: "error",
+      code: "server_error",
+    }])
+    expect(JSON.stringify(started.diagnostics)).not.toContain("private top-level error detail")
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
+  it("records request IDs and each HTTP retry while allowing the eventual response through", async () => {
+    vi.useFakeTimers()
+    let attempt = 0
+    const fetch = vi.fn<typeof globalThis.fetch>(() => {
+      attempt += 1
+      if (attempt < 3) {
+        return Promise.resolve(new Response(JSON.stringify({
+          error: {
+            code: "server_overloaded",
+            type: "server_error",
+            message: "synthetic retry detail",
+          },
+        }), {
+          status: 503,
+          headers: {
+            "content-type": "application/json",
+            "x-request-id": `req_http_${attempt}`,
+            "retry-after-ms": "0",
+          },
+        }))
+      }
+      const item = {
+        id: "fc_test",
+        type: "function_call",
+        call_id: "call_test",
+        name: "submit_structured_output",
+        arguments: '{"answer":"answer"}',
+        status: "completed",
+      }
+      return Promise.resolve(responseEvents(
+        { type: "response.created", response: { id: "resp_test", status: "in_progress" } },
+        { type: "response.output_item.added", output_index: 0, item: { ...item, arguments: "", status: "in_progress" } },
+        { type: "response.function_call_arguments.delta", output_index: 0, delta: '{"answer":"answer"}' },
+        { type: "response.function_call_arguments.done", output_index: 0, arguments: '{"answer":"answer"}' },
+        { type: "response.output_item.done", output_index: 0, item },
+        { type: "response.completed", response: { id: "resp_test", status: "completed", output: [item] } },
+      ))
+    })
+    vi.stubGlobal("fetch", fetch)
+    const started = startPiLlmStream(await codexRuntime(), request({
+      jsonSchema: {
+        type: "object",
+        properties: { answer: { type: "string" } },
+        required: ["answer"],
+        additionalProperties: false,
+      },
+    }))
+    const collected = collect(started.stream)
+    void collected.catch(() => undefined)
+    await vi.runAllTimersAsync()
+    expect(fetch).toHaveBeenCalledTimes(3)
+    await expect(collected).resolves.toContainEqual({
+      type: "text-delta",
+      text: '{"answer":"answer"}',
+    })
+
+    const diagnostics = started.diagnostics
+    expect(diagnostics?.attempts).toHaveLength(3)
+    expect(diagnostics?.attempts).toMatchObject([
+      { attempt: 1, status: 503, requestId: "req_http_1", retryAfterMs: 0 },
+      { attempt: 2, status: 503, requestId: "req_http_2", retryAfterMs: 0 },
+      { attempt: 3, status: 200, requestId: "req_sse_123" },
+    ])
+    for (const attempt of diagnostics?.attempts ?? []) {
+      expect(typeof attempt.durationMs).toBe("number")
+      expect(attempt.durationMs).toBeGreaterThanOrEqual(0)
+    }
+    expect(diagnostics?.attemptCount).toBe(3)
+    expect(diagnostics?.maxRetries).toBe(3)
+    expect(diagnostics?.failures).toMatchObject([
+      { attempt: 1, source: "http", code: "server_overloaded", type: "server_error" },
+      { attempt: 2, source: "http", code: "server_overloaded", type: "server_error" },
+    ])
+    expect(fetch).toHaveBeenCalledTimes(3)
+  })
+
+  it("classifies retried ECONNRESET failures without retaining raw transport text", async () => {
+    vi.useFakeTimers()
+    const fetch = vi.fn<typeof globalThis.fetch>(() => Promise.reject(
+      Object.assign(new Error("socket hang up with synthetic-access-token"), {
+        code: "ECONNRESET",
+      }),
+    ))
+    vi.stubGlobal("fetch", fetch)
+    const started = startPiLlmStream(await codexRuntime(), request())
+    const collected = collect(started.stream)
+    void collected.catch(() => undefined)
+    await vi.runAllTimersAsync()
+    await expect(collected).resolves.toMatchObject([{
+      type: "error",
+      error: { code: "temporarily-unavailable" },
+    }])
+
+    const diagnostics = started.diagnostics
+    expect(diagnostics?.attempts).toHaveLength(4)
+    expect(diagnostics?.attempts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ transportFailure: "connection-reset", transportCode: "ECONNRESET" }),
+    ]))
+    expect(JSON.stringify(diagnostics)).not.toContain("socket hang up")
+    expect(JSON.stringify(diagnostics)).not.toContain("synthetic-access-token")
+    expect(fetch).toHaveBeenCalledTimes(4)
+  })
+
+  it.each([
+    [
+      "an upstream stream that closes before a terminal event",
+      "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_open\",\"status\":\"in_progress\"}}\n\n",
+      { streamEnd: "eof-before-terminal" },
+    ],
+    [
+      "malformed SSE JSON",
+      "data: {\"type\":\"response.created\",\n\n",
+      { parseFailure: "invalid-sse-json" },
+    ],
+  ] as const)("records bounded diagnostics for %s", async (_description, body, expected) => {
+    const fetch = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(new Response(body, {
+      headers: { "content-type": "text/event-stream", "x-request-id": "req_bad_sse" },
+    })))
+    vi.stubGlobal("fetch", fetch)
+    const started = startPiLlmStream(await codexRuntime(), request())
+    await collect(started.stream)
+
+    expect(started.diagnostics).toMatchObject({
+      attempts: [{ attempt: 1, status: 200, requestId: "req_bad_sse" }],
+      ...expected,
+    })
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
+  it("records malformed non-JSON SSE data without masking the provider parser error", async () => {
+    const body = "data: garbage\n\n"
+    const fetch = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(new Response(body, {
+      headers: { "content-type": "text/event-stream", "x-request-id": "req_garbage_sse" },
+    })))
+    vi.stubGlobal("fetch", fetch)
+    const started = startPiLlmStream(await codexRuntime(), request())
+
+    await expect(collect(started.stream)).resolves.toMatchObject([{
+      type: "error",
+      error: { code: "temporarily-unavailable" },
+    }])
+    expect(started.diagnostics).toMatchObject({
+      attempts: [{ status: 200, requestId: "req_garbage_sse" }],
+      parseFailure: "invalid-sse-json",
+    })
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
+  it("passes malformed SSE bytes unchanged while recording the parse failure", async () => {
+    const originalBytes = new TextEncoder().encode("data: garbage\n\n")
+    const diagnostics = createLlmProviderDiagnostics({
+      maxRetries: 3,
+      firstChunkTimeoutMs: 10,
+      chunkTimeoutMs: 10,
+      reasoningEffort: "medium",
+    })
+    const fetch = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(originalBytes.slice(0, 8))
+          controller.enqueue(originalBytes.slice(8))
+          controller.close()
+        },
+      }),
+      { headers: { "content-type": "text/event-stream" } },
+    )))
+    const observedFetch = observeLlmProviderRequests(diagnostics, fetch)
+    const response = await observedFetch("https://codex.test/responses")
+
+    await expect(response.arrayBuffer()).resolves.toEqual(originalBytes.buffer.slice(
+      originalBytes.byteOffset,
+      originalBytes.byteOffset + originalBytes.byteLength,
+    ))
+    expect(diagnostics.parseFailure).toBe("invalid-sse-json")
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
+  it("waits for an upstream cancellation requested before reading and does not label it EOF", async () => {
+    const upstreamCancellation = Promise.withResolvers<void>()
+    const cancel = vi.fn(() => upstreamCancellation.promise)
+    const diagnostics = createLlmProviderDiagnostics({
+      maxRetries: 3,
+      firstChunkTimeoutMs: 10,
+      chunkTimeoutMs: 10,
+      reasoningEffort: "medium",
+    })
+    const fetch = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(new Response(
+      new ReadableStream<Uint8Array>({ cancel }),
+      { headers: { "content-type": "text/event-stream" } },
+    )))
+    const response = await observeLlmProviderRequests(diagnostics, fetch)(
+      "https://codex.test/responses",
+    )
+    let settled = false
+    const cancellation = response.body?.cancel("user stopped")
+    void cancellation?.then(() => {
+      settled = true
+    })
+    await Promise.resolve()
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(settled).toBe(false)
+    expect(diagnostics.streamEnd).toBeUndefined()
+
+    upstreamCancellation.resolve()
+    await cancellation
+    expect(settled).toBe(true)
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(diagnostics.streamEnd).toBeUndefined()
+  })
+
+  it("preserves an upstream cancellation rejection without recording a provider failure", async () => {
+    const cancellationError = new Error("upstream cancellation failed")
+    const cancel = vi.fn(() => Promise.reject(cancellationError))
+    const diagnostics = createLlmProviderDiagnostics({
+      maxRetries: 3,
+      firstChunkTimeoutMs: 10,
+      chunkTimeoutMs: 10,
+      reasoningEffort: "medium",
+    })
+    const fetch = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(new Response(
+      new ReadableStream<Uint8Array>({ cancel }),
+      { headers: { "content-type": "text/event-stream" } },
+    )))
+    const response = await observeLlmProviderRequests(diagnostics, fetch)(
+      "https://codex.test/responses",
+    )
+
+    await expect(response.body?.cancel("user stopped")).rejects.toBe(cancellationError)
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(diagnostics.attempts[0]?.transportFailure).toBeUndefined()
+    expect(diagnostics.streamEnd).toBeUndefined()
+  })
+
+  it.each([
+    ["a timed out fetch", "AbortError", "TimeoutError", "timeout"],
+    ["a user abort", "AbortError", "AbortError", undefined],
+  ] as const)("classifies %s without confusing it with a transport reset", async (_description, errorName, reasonName, category) => {
+    const error = new DOMException("request stopped", errorName)
+    const signal = AbortSignal.abort(new DOMException("signal stopped", reasonName))
+    const diagnostics = createLlmProviderDiagnostics({
+      maxRetries: 3,
+      firstChunkTimeoutMs: 10,
+      chunkTimeoutMs: 10,
+      reasoningEffort: "medium",
+    })
+    const fetch = vi.fn<typeof globalThis.fetch>(() => Promise.reject(error))
+    const observedFetch = observeLlmProviderRequests(diagnostics, fetch)
+
+    await expect(observedFetch("https://codex.test/responses", { signal })).rejects.toBe(error)
+    expect(diagnostics.attempts).toHaveLength(1)
+    expect(diagnostics.attempts[0]?.transportFailure).toBe(category)
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
+  it("preserves split and oversized SSE frames for the provider parser", async () => {
+    const events = structuredCodexEvents()
+    const unknownFrame = `data: ${JSON.stringify({
+      type: "response.unknown",
+      padding: "x".repeat(128 * 1024),
+    })}\n\n`
+    const body = `${unknownFrame}${events.map((value) => `data: ${JSON.stringify(value)}\n\n`).join("")}`
+    const bytes = new TextEncoder().encode(body)
+    const chunks = [bytes.slice(0, 11), bytes.slice(11, 29), bytes.slice(29, 65), bytes.slice(65)]
+    const fetch = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(new Response(
+      new ReadableStream({
+        start(controller) {
+          for (const chunk of chunks) controller.enqueue(chunk)
+          controller.close()
+        },
+      }),
+      { headers: { "content-type": "text/event-stream", "x-request-id": "req_split_sse" } },
+    )))
+    vi.stubGlobal("fetch", fetch)
+    const started = startPiLlmStream(await codexRuntime(), request({
+      jsonSchema: {
+        type: "object",
+        properties: { answer: { type: "string" } },
+        required: ["answer"],
+        additionalProperties: false,
+      },
+    }))
+
+    await expect(collect(started.stream)).resolves.toContainEqual({
+      type: "text-delta",
+      text: '{"answer":"answer"}',
+    })
+    expect(started.diagnostics?.truncated).toBe(true)
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    ["LF", "\n\n"],
+    ["CRLF", "\r\n\r\n"],
+  ] as const)("captures an error after an oversized %s frame when its delimiter spans chunks", async (_newline, delimiter) => {
+    const oversizedFrame = `:${"x".repeat(128 * 1024)}${delimiter}`
+    const errorFrame = `data: ${JSON.stringify({
+      type: "error",
+      code: "server_error",
+      message: "private error after oversized frame",
+    })}\n\n`
+    const body = `${oversizedFrame}${errorFrame}`
+    const encoder = new TextEncoder()
+    const bytes = encoder.encode(body)
+    const splitAt = encoder.encode(`:${"x".repeat(128 * 1024)}${delimiter.slice(0, -1)}`).byteLength
+    const fetch = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(bytes.slice(0, splitAt))
+          controller.enqueue(bytes.slice(splitAt))
+          controller.close()
+        },
+      }),
+      { headers: { "content-type": "text/event-stream", "x-request-id": "req_oversized_error" } },
+    )))
+    vi.stubGlobal("fetch", fetch)
+    const started = startPiLlmStream(await codexRuntime(), request())
+
+    await expect(collect(started.stream)).resolves.toMatchObject([{
+      type: "error",
+      error: { code: "temporarily-unavailable" },
+    }])
+    expect(started.diagnostics).toMatchObject({
+      attempts: [{ status: 200, requestId: "req_oversized_error" }],
+      failures: [{ source: "sse", eventType: "error", code: "server_error" }],
+      truncated: true,
+    })
+    expect(JSON.stringify(started.diagnostics)).not.toContain("private error after oversized frame")
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
   it("receives reasoning and a title through real Pi after six quiet minutes and a nine-minute content gap without output or total caps", async () => {
     vi.useFakeTimers()
     const models = createModels()

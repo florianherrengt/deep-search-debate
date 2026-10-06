@@ -1,3 +1,5 @@
+import type { LlmProviderDiagnostics } from "./providerDiagnostics.ts"
+
 export type LlmFinishReason =
   | "stop"
   | "length"
@@ -31,4 +33,6 @@ export type StartedLlmStream = {
   finishReason: PromiseLike<LlmFinishReason>
   rawFinishReason: PromiseLike<string | undefined>
   usage: PromiseLike<LlmUsage>
+  /** Server-only, bounded diagnostics; never published with generation output. */
+  diagnostics?: LlmProviderDiagnostics
 }

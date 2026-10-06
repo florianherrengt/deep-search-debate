@@ -207,6 +207,7 @@ export async function generateTextStream(
         finishReason: result.finishReason,
         rawFinishReason: result.rawFinishReason,
         usage: result.usage,
+        diagnostics: result.diagnostics,
       })
     },
     params.workflowSignal,
@@ -290,6 +291,7 @@ export async function generateArrayStream<Element>(
         finishReason: result.finishReason,
         rawFinishReason: result.rawFinishReason,
         usage: result.usage,
+        diagnostics: result.diagnostics,
       })
       return {
         ...generation,
@@ -359,6 +361,7 @@ export async function generateObjectStream<Result>(
         finishReason: result.finishReason,
         rawFinishReason: result.rawFinishReason,
         usage: result.usage,
+        diagnostics: result.diagnostics,
       })
       return {
         ...generation,
