@@ -96,6 +96,7 @@ const providerEventSchema = z.looseObject({
   param: providerParamSchema,
   error: providerErrorSchema.optional().catch(undefined),
   response: z.looseObject({
+    status: providerTokenSchema,
     error: providerErrorSchema.optional().catch(undefined),
     incomplete_details: z.looseObject({ reason: providerTokenSchema }).optional().catch(undefined),
   }).optional().catch(undefined),
@@ -111,6 +112,7 @@ export type LlmProviderDiagnostics = {
     attempt: number
     status?: number
     durationMs?: number
+    bodyObserver?: "sse" | "http-error" | "none"
     requestId?: string
     retryAfterMs?: number
     transportFailure?: "timeout" | "connection-reset" | "dns" | "network"
@@ -119,7 +121,8 @@ export type LlmProviderDiagnostics = {
   failures: Array<{
     attempt: number
     source: "http" | "sse"
-    eventType?: "error" | "response.failed" | "response.incomplete"
+    eventType?: "error" | "response.failed" | "response.incomplete" | "response.completed" | "response.done"
+    responseStatus?: "failed" | "cancelled" | "incomplete"
     code?: string
     type?: string
     param?: string
@@ -250,7 +253,12 @@ export function observeLlmProviderRequests(
       }
 
       const contentType = response.headers.get("content-type")?.toLowerCase() ?? ""
-      const inspectSse = contentType.includes("text/event-stream")
+      const requestHeaders = init?.headers ?? (input instanceof Request ? input.headers : undefined)
+      const acceptsSse = requestHeaders
+        ? new Headers(requestHeaders).get("accept")?.toLowerCase().includes("text/event-stream")
+        : false
+      const inspectSse = contentType.includes("text/event-stream") || (response.ok && Boolean(acceptsSse))
+      currentAttempt.bodyObserver = inspectSse ? "sse" : response.ok ? "none" : "http-error"
       if (response.ok && !inspectSse) return response
       const observer = new BoundedBodyObserver({
         attempt: attemptNumber,
@@ -524,19 +532,24 @@ class BoundedBodyObserver {
     const response = root.response
     const responseError = response?.error
     const topError = root.error
+    const terminalResponse = eventType === "response.completed" || eventType === "response.done" ||
+      eventType === "response.failed" || eventType === "response.incomplete"
+    const responseStatus = response?.status === "failed" || response?.status === "cancelled" ||
+        response?.status === "incomplete"
+      ? response.status
+      : undefined
     const isError = eventType === "error" || eventType === "response.failed" ||
-      Boolean(topError) || (!sse && Boolean(responseError))
-    const isIncomplete = eventType === "response.incomplete"
+      Boolean(topError) || (!sse && Boolean(responseError)) ||
+      (terminalResponse && (responseStatus === "failed" || responseStatus === "cancelled"))
+    const isIncomplete = eventType === "response.incomplete" ||
+      (terminalResponse && responseStatus === "incomplete")
     const source = sse ? "sse" : "http"
 
     if (isError || isIncomplete) {
-      const failureType = isIncomplete
-        ? "response.incomplete"
-        : eventType === "response.failed"
-          ? "response.failed"
-          : eventType === "error" || Boolean(topError)
-            ? "error"
-            : undefined
+      const failureType = eventType === "response.completed" || eventType === "response.done" ||
+          eventType === "response.failed" || eventType === "response.incomplete" || eventType === "error"
+        ? eventType
+        : topError ? "error" : undefined
       const error = responseError ?? topError
       const incompleteDetails = response?.incomplete_details
       const code = error?.code ?? (eventType === "error" ? root.code : undefined)
@@ -545,6 +558,7 @@ class BoundedBodyObserver {
         attempt: this.options.attempt,
         source,
         ...(failureType && { eventType: failureType }),
+        ...(responseStatus && { responseStatus }),
         ...(code && { code }),
         ...(error?.type && { type: error.type }),
         ...(param && { param }),

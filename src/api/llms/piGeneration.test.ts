@@ -314,6 +314,41 @@ describe("startPiLlmStream", () => {
     expect(fetch).toHaveBeenCalledOnce()
   })
 
+  it("records a failed terminal response even without an SSE content type", async () => {
+    const providerMessage = "private provider detail and synthetic-access-token"
+    const body = `data: ${JSON.stringify({
+      type: "response.done",
+      response: {
+        id: "resp_failed",
+        status: "failed",
+        error: { code: "upstream_overloaded", type: "server_error", message: providerMessage },
+      },
+    })}\n\n`
+    const fetch = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(new Response(body, {
+      headers: { "content-type": "application/octet-stream" },
+    })))
+    vi.stubGlobal("fetch", fetch)
+    const started = startPiLlmStream(await codexRuntime(), request())
+
+    await expect(collect(started.stream)).resolves.toMatchObject([{
+      type: "error",
+      error: { code: "temporarily-unavailable" },
+    }])
+    expect(started.diagnostics).toMatchObject({
+      attempts: [{ attempt: 1, status: 200, bodyObserver: "sse" }],
+      failures: [{
+        attempt: 1,
+        source: "sse",
+        eventType: "response.done",
+        responseStatus: "failed",
+        code: "upstream_overloaded",
+        type: "server_error",
+      }],
+    })
+    expect(JSON.stringify(started.diagnostics)).not.toContain(providerMessage)
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
   it("retains the safe code from a top-level Codex error event", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(responseEvents({
       type: "error",

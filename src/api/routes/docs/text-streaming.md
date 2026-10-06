@@ -79,9 +79,11 @@ also fails, its safe diagnosis appears in the same record.
 Pi streams attach a bounded, server-only `diagnostics` object. It records the
 configured retry and inactivity limits, reasoning effort, HTTP attempt count,
 per-attempt status, request ID, timing, provider retry hint, and recognized network
-failures. A bounded observer passes the original response bytes through while
+failures, plus whether each response body was inspected. A bounded observer
+passes the original response bytes through while
 extracting only validated error codes, types, parameter names, and incomplete
-reasons from HTTP error JSON and SSE failure events. This preserves errors sent
+reasons from HTTP error JSON and SSE failure or failed terminal events, including
+streams whose response omits the SSE content type. This preserves errors sent
 inside an HTTP 200 stream before Pi reduces them to an error message. Premature
 EOF, malformed events, and truncated diagnostic capture are identified
 separately. The observer does not retry, repair, or change a response.

@@ -211,7 +211,10 @@ Use `generationId` and the owning job ID to match a record to the saved workflow
 persistence failures. The safe `failure` details distinguish local validation
 or database errors from provider failures. `diagnostics.attempts` contains HTTP
 statuses, request IDs, timings, provider retry hints, and network error codes;
+`bodyObserver` shows whether the response body was inspected as SSE, HTTP error
+JSON, or neither.
 `diagnostics.failures` contains safe upstream error codes and SSE event types.
+It also records a failed terminal response status when the provider sends one.
 An HTTP 200 followed by `response.failed` means the provider accepted the
 request and then reported a failure inside the stream. `attemptCount` includes
 the first request; `maxRetries` is the permitted retries after it. Inspect
