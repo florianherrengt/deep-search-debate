@@ -124,8 +124,6 @@ runtime_environment_value() {
 
 required_runtime_keys=(
   SERPER_API_KEY
-  LLM_PROVIDER
-  LLM_MODEL_NAME
   OPENAI_CODEX_CREDENTIAL_KEY
   SCRAPINGANT_API_KEY
   BETTER_AUTH_SECRET
@@ -154,19 +152,15 @@ if ! printf '%s' "${openai_codex_credential_key}" | node -e '
   echo "OPENAI_CODEX_CREDENTIAL_KEY must be canonical base64 encoding exactly 32 bytes." >&2
 fi
 
-llm_provider="$(runtime_environment_value "LLM_PROVIDER")"
-case "${llm_provider}" in
-  deepseek)
-    check_required_runtime_key "DEEPSEEK_API_KEY"
-    ;;
-  zen)
-    check_required_runtime_key "OPENCODE_ZEN_API_KEY"
-    ;;
-  *)
-    configuration_ok=false
-    echo "LLM_PROVIDER must be either deepseek or zen." >&2
-    ;;
-esac
+if jq -e 'any(.[]; .key == "DEEPSEEK_API_KEY" and .is_preview == false)' >/dev/null <<<"${environment_json}"; then
+  configuration_ok=false
+  echo "DEEPSEEK_API_KEY must not be configured in production; users save their own key in Settings." >&2
+fi
+
+if [[ "$(runtime_environment_value "LLM_PROVIDER")" == "zen" ]]; then
+  configuration_ok=false
+  echo "LLM_PROVIDER=zen is available only in development." >&2
+fi
 
 check_optional_environment() {
   local key="$1"

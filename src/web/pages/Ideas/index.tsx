@@ -31,6 +31,7 @@ import { IdeaJobView } from "./components/IdeaJobView.tsx"
 import { IdeaDetailView } from "./components/IdeaDetailView.tsx"
 import { getIdeaPresentation } from "./ideaJobState.ts"
 import { useIdeaJob } from "./useIdeaJob.ts"
+import { isModelSelectionRequired } from "../../lib/api.ts"
 
 const ideaJobsQueryKey = ["idea-jobs"] as const
 
@@ -49,6 +50,9 @@ function IdeaHistory() {
         exact: true,
       })
       void navigate(`/ideas/${slug}`)
+    },
+    onError: (error) => {
+      if (isModelSelectionRequired(error)) void navigate(error.redirectTo ?? "/settings#models")
     },
   })
 
@@ -280,6 +284,9 @@ function IdeaRun({ ideaId, slug }: { ideaId?: string; slug: string }) {
       void queryClient.invalidateQueries({ queryKey: ["debate-jobs"] })
       void navigate(`/debates/${encodeURIComponent(debateSlug)}`)
     },
+    onError: (error) => {
+      if (isModelSelectionRequired(error)) void navigate(error.redirectTo ?? "/settings#models")
+    },
   })
   const reconcileTerminalJob = useCallback(() => {
     void queryClient.invalidateQueries({
@@ -328,6 +335,9 @@ function IdeaRun({ ideaId, slug }: { ideaId?: string; slug: string }) {
         queryKey: ideaJobsQueryKey,
         exact: true,
       })
+    },
+    onError: (error) => {
+      if (isModelSelectionRequired(error)) void navigate(error.redirectTo ?? "/settings#models")
     },
   })
   const feedback = useMutation({

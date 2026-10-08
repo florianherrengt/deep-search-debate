@@ -40,18 +40,6 @@ const response = {
       reasoningEffort: "xhigh" as const,
     },
   },
-  recommendations: {
-    small: {
-      provider: "deepseek" as const,
-      modelId: "deepseek-v4-flash",
-      reasoningEffort: "medium" as const,
-    },
-    big: {
-      provider: "openai" as const,
-      modelId: "gpt-5.6-sol",
-      reasoningEffort: "xhigh" as const,
-    },
-  },
 }
 
 describe("LLM model settings API", () => {
@@ -71,6 +59,13 @@ describe("LLM model settings API", () => {
         },
       }).success,
     ).toBe(false)
+  })
+
+  it("accepts an unset assignment snapshot without recommendations", () => {
+    expect(llmModelSettingsSchema.parse({ ...response, assignments: null })).toEqual({
+      ...response,
+      assignments: null,
+    })
   })
 
   it("loads and replaces both assignments through the authenticated endpoint", async () => {

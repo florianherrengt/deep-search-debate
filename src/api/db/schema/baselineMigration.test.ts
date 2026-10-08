@@ -192,6 +192,50 @@ function expectLlmModelSettingsConstraints(
   ).toBe(0)
 }
 
+function expectDeepSeekApiKeyConstraints(
+  sqlite: Database.Database,
+  prefix: string,
+): void {
+  sqlite.prepare(
+    "INSERT INTO user (id, name, email, email_verified) VALUES (?, ?, ?, ?)",
+  ).run(`${prefix}-deepseek`, "DeepSeek key", `${prefix}-deepseek@example.com`, 1)
+
+  const insertKey = sqlite.prepare(`
+    INSERT INTO deepseek_api_keys (
+      user_id,
+      api_key_ciphertext,
+      api_key_nonce,
+      api_key_authentication_tag
+    ) VALUES (?, ?, ?, ?)
+  `)
+  const validPayload = [
+    Buffer.from("ciphertext"),
+    Buffer.alloc(12),
+    Buffer.alloc(16),
+  ] as const
+
+  insertKey.run(`${prefix}-deepseek`, ...validPayload)
+  expect(() =>
+    insertKey.run(`${prefix}-missing`, ...validPayload),
+  ).toThrow(/FOREIGN KEY/)
+  expect(() =>
+    insertKey.run(
+      `${prefix}-deepseek`,
+      Buffer.alloc(0),
+      Buffer.alloc(12),
+      Buffer.alloc(16),
+    ),
+  ).toThrow(/deepseek_api_keys_ciphertext_check/)
+
+  sqlite.prepare("DELETE FROM user WHERE id = ?").run(`${prefix}-deepseek`)
+  expect(
+    sqlite
+      .prepare("SELECT count(*) FROM deepseek_api_keys WHERE user_id = ?")
+      .pluck()
+      .get(`${prefix}-deepseek`),
+  ).toBe(0)
+}
+
 describe("database migrations", () => {
   it("preserves saved idea ownership while adding the ready boundary and one-time debate attachment", () => {
     const previousFolder = mkdtempSync(join(tmpdir(), "rethinkloop-discovery-upgrade-"))
@@ -237,6 +281,10 @@ describe("database migrations", () => {
       const migrationName = "0003_space-discovery.sql"
       writeFileSync(join(previousFolder, migrationName), readFileSync(join(migrationsFolder, migrationName), "utf8")
         .replace("SELECT NOT EXISTS (SELECT 1 FROM pragma_foreign_key_check)", "SELECT 0"))
+      copyFileSync(
+        join(migrationsFolder, "0004_deepseek_api_keys.sql"),
+        join(previousFolder, "0004_deepseek_api_keys.sql"),
+      )
       copyFileSync(join(migrationsFolder, "meta/_journal.json"), join(previousFolder, "meta/_journal.json"))
       expect(() => migrateDatabase(sqlite, { migrationsFolder: previousFolder })).toThrow(/discovery_migration_guard/)
       expect(existingRead.get()).toEqual(beforeIdeaJob)
@@ -297,13 +345,20 @@ describe("database migrations", () => {
   it("creates the complete current schema from the fresh baseline", () => {
     expect(
       readdirSync(migrationsFolder).filter((name) => name.endsWith(".sql")),
-    ).toEqual(["0000_fresh-baseline.sql", "0001_linked-page-discovery.sql", "0002_original-source-passages.sql", "0003_space-discovery.sql"])
+    ).toEqual([
+      "0000_fresh-baseline.sql",
+      "0001_linked-page-discovery.sql",
+      "0002_original-source-passages.sql",
+      "0003_space-discovery.sql",
+      "0004_deepseek_api_keys.sql",
+    ])
 
     const sqlite = new Database(":memory:")
     sqlite.pragma("foreign_keys = ON")
     migrateDatabase(sqlite, { migrationsFolder })
 
     expectOpenAiConnectionIdentityConstraints(sqlite, "fresh")
+    expectDeepSeekApiKeyConstraints(sqlite, "fresh")
     expectLlmModelSettingsConstraints(sqlite, "fresh")
 
     const tableNames = new Set(
@@ -324,7 +379,7 @@ describe("database migrations", () => {
         .prepare("SELECT count(*) FROM __drizzle_migrations")
         .pluck()
         .get(),
-    ).toBe(4)
+    ).toBe(5)
     expect(
       sqlite
         .prepare("PRAGMA table_info('openai_codex_connections')")

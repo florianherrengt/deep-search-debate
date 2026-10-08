@@ -65,11 +65,7 @@ Before the first deployment:
 | --- | --- |
 | `SERPER_API_KEY` | Serper production credential |
 | `SERPER_MAX_QUERIES_PER_SECOND` | Optional Serper rate limit from 1 to 50; defaults to 50 |
-| `LLM_PROVIDER` | `deepseek` or `zen` |
-| `LLM_MODEL_NAME` | Model ID accepted by the selected provider |
-| `DEEPSEEK_API_KEY` | Required when `LLM_PROVIDER=deepseek` |
-| `OPENCODE_ZEN_API_KEY` | Required when `LLM_PROVIDER=zen` |
-| `OPENAI_CODEX_CREDENTIAL_KEY` | Canonical base64 encoding of exactly 32 random bytes used to encrypt user Codex credentials |
+| `OPENAI_CODEX_CREDENTIAL_KEY` | Canonical base64 encoding of exactly 32 random bytes used to encrypt user OpenAI Codex credentials and DeepSeek API keys |
 | `SCRAPINGANT_API_KEY` | ScrapingAnt credential |
 | `BETTER_AUTH_SECRET` | Better Auth signing secret, at least 32 characters |
 | `GITHUB_CLIENT_ID` | Production GitHub OAuth app client ID |
@@ -79,17 +75,21 @@ Before the first deployment:
 
 Set `is_runtime=true`, `is_buildtime=false`, and `is_preview=false`. The
 configuration script sets the container and health-check settings. It validates
-the common variables and the selected LLM provider's credential without
-printing secret values. Missing or blank required values fail application
-startup. Leave `EXAMPLE_DEBATE_IDS` unset or blank until examples are selected;
+the production secrets without printing their values. Missing or blank required
+values fail application startup. Do not configure a shared DeepSeek API key;
+users save their own key in Settings, encrypted with `OPENAI_CODEX_CREDENTIAL_KEY`.
+OpenAI Codex remains available through each user's existing OpenAI connection.
+For local Zen testing, set `LLM_PROVIDER=zen` with `LLM_MODEL_NAME` and
+`OPENCODE_ZEN_API_KEY`; these settings are not needed in production. Leave
+`EXAMPLE_DEBATE_IDS` unset or blank until examples are selected;
 changing it requires an application restart so the typed runtime config reloads.
 Provision `OPENAI_CODEX_CREDENTIAL_KEY` before deploying code that can create
-Codex connections. Generate it with `openssl rand -base64 32`, store it as a
-runtime-only production secret, and retain it for the lifetime of the encrypted
-rows. Losing or changing the key makes every saved Codex connection unreadable;
-affected users must reconnect. Pi performs Codex device authentication and
-generation directly over HTTPS; the production image does not install or spawn
-the Codex CLI.
+encrypted provider credentials. Generate it with `openssl rand -base64 32`,
+store it as a runtime-only production secret, and retain it for the lifetime of
+the encrypted rows. Losing or changing the key makes every saved OpenAI Codex
+connection and DeepSeek key unreadable; users must reconnect or re-enter their
+key. Pi performs Codex device authentication and generation directly over
+HTTPS; the production image does not install or spawn the Codex CLI.
 
 Configure the production GitHub OAuth callback as:
 

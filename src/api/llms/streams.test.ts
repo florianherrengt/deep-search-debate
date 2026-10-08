@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { eq } from "drizzle-orm"
 import z from "zod"
-import { debitCredits, getCreditAccount } from "../credits.ts"
+import { getCreditAccount } from "../credits.ts"
 import { db } from "../db/index.ts"
 import {
   debateJobs,
@@ -203,7 +203,7 @@ describe("text streams", () => {
     })
   })
 
-  it("returns an earlier terminal settlement without charging or completing twice", async () => {
+  it("returns an earlier terminal settlement without completing twice", async () => {
     const creditsBefore = getCreditAccount("test-user-id").credits
     const onCompleted = vi.fn()
     const source = new AsyncQueue<SourceStreamPart>()
@@ -215,7 +215,6 @@ describe("text streams", () => {
         metadata: {
           modelId: "configured-model",
           promptName: "default",
-          calculateCredits: () => 13,
           finishReason: Promise.resolve("stop"),
           usage: Promise.resolve({
             inputTokens: 10,
@@ -249,12 +248,11 @@ describe("text streams", () => {
           inputTokens: 20,
           outputTokens: 7,
           reasoningTokens: 2,
-          creditsUsed: 13,
+          creditsUsed: 0,
           completedAt: persistedCompletedAt,
         })
         .where(eq(llmGenerations.llmGenerationId, generation.id))
         .run()
-      debitCredits(transaction, "test-user-id", 13)
       onCompleted()
     })
     source.close()
@@ -289,10 +287,10 @@ describe("text streams", () => {
       inputTokens: 20,
       outputTokens: 7,
       reasoningTokens: 2,
-      creditsUsed: 13,
+      creditsUsed: 0,
       completedAt: persistedCompletedAt,
     })
-    expect(getCreditAccount("test-user-id").credits).toBe(creditsBefore - 13)
+    expect(getCreditAccount("test-user-id").credits).toBe(creditsBefore)
     expect(onCompleted).toHaveBeenCalledOnce()
   })
 
@@ -1147,7 +1145,6 @@ describe("text streams", () => {
         metadata: {
           modelId: "configured-model",
           promptName: "default",
-          calculateCredits: () => 13,
           finishReason: Promise.resolve("stop"),
           usage: Promise.resolve({
             inputTokens: 10,
@@ -1292,7 +1289,6 @@ describe("text streams", () => {
         metadata: {
           modelId: "configured-model",
           promptName: "default",
-          calculateCredits: () => 50,
           finishReason: Promise.resolve("stop"),
           usage: Promise.resolve({
             inputTokens: 10,

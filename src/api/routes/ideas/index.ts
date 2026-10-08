@@ -31,6 +31,7 @@ import {
   updateResultFeedback,
 } from "../resultFeedback.ts"
 import { getIdeaCreditsUsed } from "../runCredits.ts"
+import { modelSelectionRequiredError, needsModelSelection } from "../modelSelectionGuard.ts"
 
 export type { IdeaJobEvent } from "./schemas.ts"
 
@@ -381,6 +382,9 @@ export function ideaJobs(app: Hono<AppEnv>, manager: IdeaJobManager) {
       if (persisted.status === "ready") {
         return c.json({ error: "Ready ideas require Start debate" }, 409)
       }
+      if (needsModelSelection(c.get("userId"))) {
+        return c.json(modelSelectionRequiredError, 409)
+      }
       const { completion } = manager.resumeExisting(ideaJobId, {
         userId: c.get("userId"),
       })
@@ -394,6 +398,9 @@ export function ideaJobs(app: Hono<AppEnv>, manager: IdeaJobManager) {
     zValidator("json", createIdeaJobInputSchema),
     async (c) => {
       const input = c.req.valid("json")
+      if (needsModelSelection(c.get("userId"))) {
+        return c.json(modelSelectionRequiredError, 409)
+      }
       const { ideaJobId, slug, completion } = await manager.start(
         c.get("userId"),
         input,

@@ -74,11 +74,10 @@ provider timeout policy remain authoritative.
 ## Configuration validation at import time
 
 `src/api/config.ts` reads and validates environment configuration before any
-server or provider is constructed. `LLM_PROVIDER` and `LLM_MODEL_NAME` are
-required. `LLM_PROVIDER=deepseek` requires `DEEPSEEK_API_KEY` and the priced
-`deepseek-v4-flash` or `deepseek-v4-pro` model. Development alone may use
-`LLM_PROVIDER=zen`, which requires `OPENCODE_ZEN_API_KEY`; the unselected key
-may be absent or blank.
+server or provider is constructed. DeepSeek uses each user's saved API key;
+there is no shared server key. Development alone may configure
+`LLM_PROVIDER=zen` with `LLM_MODEL_NAME` and `OPENCODE_ZEN_API_KEY` for local
+provider tests; these variables are otherwise optional.
 `SCRAPINGANT_API_KEY`, `BETTER_AUTH_SECRET`,
 `GITHUB_CLIENT_ID`, and `GITHUB_CLIENT_SECRET` are always required. Production
 also requires `SERPER_API_KEY` and `AUTH_ADMIN_EMAIL`. A missing, blank, or
@@ -94,8 +93,9 @@ cannot be deployed over plaintext transport.
 lowercase, limited to 254 characters, and validated as an email address.
 
 `OPENAI_CODEX_CREDENTIAL_KEY` is always required as canonical base64 encoding
-of exactly 32 bytes. It encrypts saved user Codex credentials with AES-256-GCM;
-losing or changing it requires affected users to reconnect.
+of exactly 32 bytes. It encrypts saved user Codex credentials and DeepSeek API
+keys with AES-256-GCM in distinct authentication domains; losing or changing it
+requires affected users to reconnect or replace their key.
 
 Signed-in users manage the connection from `/settings`. The API starts the
 ChatGPT device-code flow through Pi's direct OAuth provider and exposes only its
@@ -115,32 +115,25 @@ the encrypted row; a successful refresh saves the rotated credentials in Pi's
 format through the existing lock and compare-and-swap. Invalid saved formats
 report an incompatible connection instead of an expired session.
 
-Users assign one exact model and reasoning effort to each Small and Big model
-role in Settings. The API discovers the two priced DeepSeek text models through
-Pi's bundled catalogs and fetches connected OpenAI models and their supported
-efforts from that account's live Codex catalog. A complete explicit choice is stored in
-`llm_model_settings`; no row
-means provider-aware recommendations: OpenAI Luna at medium effort and Sol at
-xhigh when those exact choices are advertised, otherwise DeepSeek V4 Flash at
-medium and V4 Pro at xhigh. Disconnect deletes the credential and resets only
-explicit OpenAI-backed roles to the DeepSeek recommendations in one transaction.
-Settings catalog requests run independently of active Codex generations and
-time out after 15 seconds. Saving still validates both selections against a
-fresh catalog before replacing the stored choices.
+Users assign one exact model and reasoning effort to each Small and Big role in
+Settings. The API fetches every model from the user's DeepSeek `/models`
+response in provider order and fetches connected OpenAI models from that
+account's live Codex catalog. The dropdown groups OpenAI before DeepSeek.
+`llm_model_settings` stores the complete choice; a missing row blocks new
+streams and research starts or resumes with a model-selection redirect to
+`/settings#models`. Disconnecting either provider preserves the saved choices;
+that provider remains unavailable until the user reconnects. Settings catalog
+requests run independently of active Codex generations and time out after 15
+seconds. Saving validates both selections against a fresh catalog.
 
 Each generation synchronously snapshots its role assignment before taking a
 provider reservation, so a successful Settings update governs the next call,
-including the next stage of an already-running or resumed workflow. An explicit
-provider is authoritative: DeepSeek never detours through a connected account,
-and an explicit OpenAI choice fails if its connection, model, or effort is no
-longer available. Only an unavailable implicit OpenAI recommendation may resolve
-to its DeepSeek counterpart. A connected OpenAI call first takes an abortable
-per-user reservation without decrypting credentials or starting a request; waiting
-for it consumes no shared generation permit. After shared admission it rechecks
-the connection, hydrates credentials, verifies the exact catalog choice, and
-starts Pi's direct Codex HTTPS stream. OpenAI calls bypass product-credit admission and persist zero LLM
-credits; DeepSeek calls use normal charging. Development's configured Zen model
-remains the server fallback when no persistent selection can be made.
+including the next stage of an already-running workflow. DeepSeek uses the
+user's encrypted key; OpenAI uses that user's existing Codex connection and
+verifies the exact selected model and effort against its live catalog. A
+missing connection or unavailable selection fails without changing providers.
+LLM calls consume no product credits. Search and page extraction continue to
+consume credits. The optional development Zen provider is used by local tests.
 
 `NODE_ENV` also selects non-secret defaults. Development and test use
 `BETTER_AUTH_URL=http://localhost:5173` and `DATABASE_URL=data.db`; production
@@ -300,12 +293,10 @@ key are real runtime dependencies, not mocked outside tests:
   Search-provider responses are bounded by `WEB_SEARCH_MAX_RESPONSE_BYTES`
   (default 2 MB), then capped to 30 validated, canonical, unique public HTTPS
   results per query before persistence or prompting.
-- **LLM:** `deepseek` uses Pi's direct DeepSeek provider and
-  `DEEPSEEK_API_KEY`. Development-only `zen` uses Pi's OpenAI-compatible
-  `/chat/completions` transport and `OPENCODE_ZEN_API_KEY`. Configure the model
-  ID with `LLM_MODEL_NAME`; arbitrary Zen model IDs are sent without an
-  `opencode/` prefix. Both server providers request JSON mode for structured
-  output and the application validates the returned JSON with Zod.
+- **LLM:** `deepseek` uses Pi's direct DeepSeek provider and each user's saved
+  API key. OpenAI uses the user's Codex connection. Development-only `zen`
+  retains Pi's OpenAI-compatible `/chat/completions` transport for local provider
+  tests. Structured output is validated with Zod.
 - **ScrapingAnt:** the only page-retrieval provider. Every selected URL first uses
   its cheap non-browser request. Empty, trivial, challenged, or obvious error
   content escalates once to headless-browser rendering through a US datacenter
@@ -338,25 +329,20 @@ key are real runtime dependencies, not mocked outside tests:
 
 ## Credit accounting
 
-Users start with 500 credits. One product credit represents $0.001. Every paid
-provider call checks that the initiating user's signed balance is positive
-before it starts; there is no reservation, so concurrent calls may all pass and
-overspend. After a successful call, the resource row and user debit commit
-together and the balance may become negative. Failed provider calls are
-deliberately not charged. Development-only Zen calls charge one product credit
-per successful generation for use of RethinkLoop and still require a positive
-balance before starting. Completed usage remains charged; stopped in-progress
-attempts do not debit RethinkLoop credits. This application guarantee does not
+Users start with 500 credits. One product credit represents $0.001. Search and
+page-extraction provider calls check that the initiating user's signed balance
+is positive before starting; there is no reservation, so concurrent calls may
+pass and overspend. After a successful call, the resource row and user debit
+commit together and the balance may become negative. Failed provider calls
+are not charged. LLM calls use the user's own provider connection or key and
+never debit product credits, including development Zen calls. This does not
 promise that an upstream provider will waive its own charge. Successful
 ScrapingAnt extractions accumulate every reported `ant-credits-cost` across both
 retrieval modes. Its $19 / 100,000 provider-credit plan is converted with
 `ceil(providerCredits * 19 / 100)`.
 
-DeepSeek Flash V4 generation cost uses Pi's cache-hit, cache-miss, and
-output token counts with the model-specific pricing function. The resulting
-micro-USD cost is rounded up to product credits. A model change requires a new
-pricing function; operational token prices are deliberately not environment
-configuration.
+Generation token counts remain available as diagnostic metadata when the
+provider reports them; they do not affect product credits.
 
 ## Network binding
 

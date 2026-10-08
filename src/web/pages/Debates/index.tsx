@@ -40,6 +40,7 @@ import { getMatch, getWinner } from "./debateSelectors.ts"
 import { debateJobQueryKey, useDebateJob } from "./useDebateJob.ts"
 import { useIdeaJob } from "../Ideas/useIdeaJob.ts"
 import { createIdeaJob } from "../../lib/ideaJobs.ts"
+import { isModelSelectionRequired } from "../../lib/api.ts"
 
 const debateJobsQueryKey = ["debate-jobs"] as const
 
@@ -60,6 +61,9 @@ function DebateStart() {
         exact: true,
       })
       void navigate(`/ideas/${slug}`)
+    },
+    onError: (error) => {
+      if (isModelSelectionRequired(error)) void navigate(error.redirectTo ?? "/settings#models")
     },
   })
 
@@ -121,6 +125,7 @@ function DebateDetail({
   matchId?: string
   slug: string
 }) {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [ideaReconnectKey, setIdeaReconnectKey] = useState(0)
   const job = useDebateJob(slug)
@@ -200,6 +205,9 @@ function DebateDetail({
         queryKey: debateJobsQueryKey,
         exact: true,
       })
+    },
+    onError: (error) => {
+      if (isModelSelectionRequired(error)) void navigate(error.redirectTo ?? "/settings#models")
     },
   })
   const feedback = useMutation({

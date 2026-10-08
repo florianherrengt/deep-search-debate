@@ -69,6 +69,26 @@ export const test = base.extend<AuthenticatedFixtures>({
         throw new Error(`Debug sign-in failed: ${response.status()}`)
       }
       await ensureDebugUserCredits(request)
+      const origin = process.env.PLAYWRIGHT_WEB_ORIGIN ?? "http://localhost:5174"
+      const key = await request.put("/api/deepseek-connection", {
+        data: { apiKey: "e2e-deepseek-key" },
+        headers: { Origin: origin },
+      })
+      if (!key.ok()) {
+        throw new Error(`DeepSeek key setup failed: ${key.status()}`)
+      }
+      const models = await request.put("/api/llm-model-settings", {
+        data: {
+          assignments: {
+            small: { provider: "deepseek", modelId: "deepseek-v4-flash", reasoningEffort: "medium" },
+            big: { provider: "deepseek", modelId: "deepseek-v4-pro", reasoningEffort: "high" },
+          },
+        },
+        headers: { Origin: origin },
+      })
+      if (!models.ok()) {
+        throw new Error(`Model selection setup failed: ${models.status()}`)
+      }
       await provide()
     },
     { auto: true },

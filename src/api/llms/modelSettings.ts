@@ -8,7 +8,6 @@ import {
   llmReasoningEfforts,
   openAiCodexConnections,
 } from "../db/schema/index.ts"
-import { hasOpenAiCodexConnection } from "../openaiConnection/credentialsRepository.ts"
 import type { PromptName } from "./prompts.ts"
 
 const llmModelProviderSchema = z.enum(llmModelProviders)
@@ -35,32 +34,6 @@ export const replaceLlmModelSettingsInputSchema = z.object({
 }).strict()
 
 export type LlmModelRole = keyof LlmModelAssignments
-
-export const deepSeekRecommendedAssignments = {
-  small: {
-    provider: "deepseek",
-    modelId: "deepseek-v4-flash",
-    reasoningEffort: "medium",
-  },
-  big: {
-    provider: "deepseek",
-    modelId: "deepseek-v4-pro",
-    reasoningEffort: "xhigh",
-  },
-} as const satisfies LlmModelAssignments
-
-export const openAiRecommendedAssignments = {
-  small: {
-    provider: "openai",
-    modelId: "gpt-5.6-luna",
-    reasoningEffort: "medium",
-  },
-  big: {
-    provider: "openai",
-    modelId: "gpt-5.6-sol",
-    reasoningEffort: "xhigh",
-  },
-} as const satisfies LlmModelAssignments
 
 export function modelRoleForPrompt(promptName: PromptName): LlmModelRole {
   switch (promptName) {
@@ -178,7 +151,15 @@ export function replaceLlmModelAssignments(
 export type LlmModelAssignmentSnapshot = {
   role: LlmModelRole
   assignment: LlmModelAssignment
-  explicit: boolean
+}
+
+export class ModelSelectionRequiredError extends Error {
+  readonly code = "model-selection-required"
+
+  constructor() {
+    super("Choose Small and Big models before starting.")
+    this.name = "ModelSelectionRequiredError"
+  }
 }
 
 /** Reads the role choice once, before provider reservation or queue admission. */
@@ -188,47 +169,16 @@ export function snapshotLlmModelAssignment(
 ): LlmModelAssignmentSnapshot {
   const role = modelRoleForPrompt(promptName)
   const stored = getStoredLlmModelAssignments(userId)
-  if (stored) return { role, assignment: stored[role], explicit: true }
-
-  const recommended = hasOpenAiCodexConnection(userId)
-    ? openAiRecommendedAssignments
-    : deepSeekRecommendedAssignments
-  return { role, assignment: recommended[role], explicit: false }
+  if (stored) return { role, assignment: stored[role] }
+  throw new ModelSelectionRequiredError()
 }
 
-/** Deletes the credential and rewrites only OpenAI-backed explicit choices. */
+/** Deletes the OpenAI credential without changing the user's model choices. */
 export function disconnectOpenAiAndResetModelAssignments(userId: string): void {
   db.transaction((transaction) => {
-    const row = transaction
-      .select()
-      .from(llmModelSettings)
-      .where(eq(llmModelSettings.userId, userId))
-      .get()
-
     transaction
       .delete(openAiCodexConnections)
       .where(eq(openAiCodexConnections.userId, userId))
-      .run()
-
-    if (!row) return
-    const current = assignmentsFromRow(row)
-    const small = current.small.provider === "openai"
-      ? deepSeekRecommendedAssignments.small
-      : current.small
-    const big = current.big.provider === "openai"
-      ? deepSeekRecommendedAssignments.big
-      : current.big
-    transaction
-      .update(llmModelSettings)
-      .set({
-        smallProvider: small.provider,
-        smallModelId: small.modelId,
-        smallReasoningEffort: small.reasoningEffort,
-        bigProvider: big.provider,
-        bigModelId: big.modelId,
-        bigReasoningEffort: big.reasoningEffort,
-      })
-      .where(eq(llmModelSettings.userId, userId))
       .run()
   })
 }

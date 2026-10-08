@@ -1,15 +1,13 @@
 import z from "zod"
 
-import { config } from "../config.ts"
 import { createBoundedFetch } from "../web_search/boundedFetch.ts"
+import { getDeepSeekApiKey, hasDeepSeekApiKey } from "../deepseekConnection/keysRepository.ts"
 import { OpenAiCodexError } from "../openaiConnection/codexErrors.ts"
 import { listAvailableCodexModels } from "../openaiConnection/codexGeneration.ts"
 import { hasOpenAiCodexConnection } from "../openaiConnection/credentialsRepository.ts"
 import {
-  deepSeekRecommendedAssignments,
   getStoredLlmModelAssignments,
   llmModelAssignmentSchema,
-  openAiRecommendedAssignments,
   replaceLlmModelAssignments,
   type LlmModelAssignment,
   type LlmModelAssignments,
@@ -21,20 +19,31 @@ const DEEPSEEK_MODELS_URL = "https://api.deepseek.com/models"
 const MAX_MODEL_LIST_BYTES = 256 * 1_024
 const MODEL_DISCOVERY_TIMEOUT_MS = 15_000
 
+const reasoningEffortSchema = z.enum([
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+])
 const deepSeekModelListSchema = z.object({
-  data: z.array(
-    z.looseObject({
-      id: z.string().min(1).max(256),
-    }),
-  ).max(500),
+  data: z.array(z.looseObject({
+    id: z.string().min(1).max(256),
+    name: z.string().optional(),
+    display_name: z.string().optional(),
+    description: z.string().optional(),
+    reasoning_efforts: z.array(z.string()).optional(),
+    supported_reasoning_efforts: z.array(z.union([
+      z.string(),
+      z.looseObject({ reasoningEffort: z.string() }),
+      z.looseObject({ reasoning_effort: z.string() }),
+    ])).optional(),
+  })),
 }).loose()
 
-const deepSeekModelDetails = {
-  "deepseek-v4-flash": "DeepSeek V4 Flash",
-  "deepseek-v4-pro": "DeepSeek V4 Pro",
-} as const
-
-const deepSeekReasoningEfforts = [
+const defaultDeepSeekReasoningEfforts = [
   "none",
   "low",
   "medium",
@@ -60,48 +69,63 @@ type LlmProviderAvailability = {
 export type LlmModelSettingsSnapshot = {
   models: LlmModelOption[]
   availability: Record<LlmModelProvider, LlmProviderAvailability>
-  assignments: LlmModelAssignments
-  recommendations: LlmModelAssignments
+  assignments: LlmModelAssignments | null
 }
 
 type Catalog = Pick<LlmModelSettingsSnapshot, "models" | "availability">
 
-async function listDeepSeekModels(): Promise<LlmModelOption[]> {
-  if (config.llm.provider !== "deepseek") {
-    throw new Error("DeepSeek is not configured")
-  }
+function modelReasoningEfforts(model: z.output<typeof deepSeekModelListSchema>["data"][number]): LlmReasoningEffort[] {
+  const advertised = model.reasoning_efforts ?? model.supported_reasoning_efforts?.map(
+    (effort) => typeof effort === "string"
+      ? effort
+      : "reasoningEffort" in effort
+        ? effort.reasoningEffort
+        : effort.reasoning_effort,
+  )
+  if (!advertised) return [...defaultDeepSeekReasoningEfforts]
+  const efforts = [...new Set(advertised.flatMap((effort) => {
+    const parsed = reasoningEffortSchema.safeParse(effort)
+    return parsed.success ? [parsed.data] : []
+  }))]
+  return efforts.length > 0 ? efforts : [...defaultDeepSeekReasoningEfforts]
+}
+
+async function listDeepSeekModels(userId: string): Promise<LlmModelOption[]> {
+  const apiKey = getDeepSeekApiKey(userId)
+  if (!apiKey) throw new Error("DeepSeek is disconnected")
   const boundedFetch = createBoundedFetch(MAX_MODEL_LIST_BYTES)
   const response = await boundedFetch(DEEPSEEK_MODELS_URL, {
-    headers: { authorization: `Bearer ${config.llm.apiKey}` },
+    headers: { authorization: `Bearer ${apiKey}` },
     signal: AbortSignal.timeout(MODEL_DISCOVERY_TIMEOUT_MS),
   })
   if (!response.ok) throw new Error("DeepSeek model discovery failed")
   const result = deepSeekModelListSchema.parse(await response.json())
-  const advertised = new Set(result.data.map((model) => model.id))
-  return Object.entries(deepSeekModelDetails)
-    .filter(([modelId]) => advertised.has(modelId))
-    .map(([modelId, label]) => ({
-      provider: "deepseek" as const,
-      providerLabel: "DeepSeek" as const,
-      modelId,
-      label,
-      reasoningEfforts: [...deepSeekReasoningEfforts],
-    }))
+  return result.data.map((model) => ({
+    provider: "deepseek" as const,
+    providerLabel: "DeepSeek" as const,
+    modelId: model.id,
+    label: model.display_name ?? model.name ?? model.id,
+    ...(model.description ? { description: model.description } : {}),
+    reasoningEfforts: modelReasoningEfforts(model),
+  }))
 }
 
-async function discoverDeepSeek(): Promise<{
+async function discoverDeepSeek(userId: string): Promise<{
   models: LlmModelOption[]
   availability: LlmProviderAvailability
 }> {
+  if (!hasDeepSeekApiKey(userId)) {
+    return { models: [], availability: { status: "disconnected" } }
+  }
   try {
-    const models = await listDeepSeekModels()
+    const models = await listDeepSeekModels(userId)
     return {
       models,
       availability: models.length > 0
         ? { status: "available" }
         : {
             status: "unavailable",
-            message: "No supported DeepSeek models are currently available.",
+            message: "No DeepSeek models are currently available.",
           },
     }
   } catch {
@@ -174,15 +198,15 @@ async function discoverOpenAi(userId: string): Promise<{
 }
 
 async function loadCatalog(userId: string): Promise<Catalog> {
-  const [deepseek, openai] = await Promise.all([
-    discoverDeepSeek(),
+  const [openai, deepseek] = await Promise.all([
     discoverOpenAi(userId),
+    discoverDeepSeek(userId),
   ])
   return {
-    models: [...deepseek.models, ...openai.models],
+    models: [...openai.models, ...deepseek.models],
     availability: {
-      deepseek: deepseek.availability,
       openai: openai.availability,
+      deepseek: deepseek.availability,
     },
   }
 }
@@ -199,26 +223,13 @@ function supportsAssignment(
   )
 }
 
-function recommendationsFor(models: LlmModelOption[]): LlmModelAssignments {
-  return {
-    small: supportsAssignment(models, openAiRecommendedAssignments.small)
-      ? openAiRecommendedAssignments.small
-      : deepSeekRecommendedAssignments.small,
-    big: supportsAssignment(models, openAiRecommendedAssignments.big)
-      ? openAiRecommendedAssignments.big
-      : deepSeekRecommendedAssignments.big,
-  }
-}
-
 function snapshotFromCatalog(
   userId: string,
   catalog: Catalog,
 ): LlmModelSettingsSnapshot {
-  const recommendations = recommendationsFor(catalog.models)
   return {
     ...catalog,
-    assignments: getStoredLlmModelAssignments(userId) ?? recommendations,
-    recommendations,
+    assignments: getStoredLlmModelAssignments(userId) ?? null,
   }
 }
 

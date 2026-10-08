@@ -13,7 +13,7 @@ import z from "zod"
 
 import { config } from "../config.ts"
 import { db } from "../db/index.ts"
-import { llmModelSettings } from "../db/schema/index.ts"
+import { llmModelSettings, user } from "../db/schema/index.ts"
 import { generateTextStream } from "./generateText.ts"
 import { replaceLlmModelAssignments } from "./modelSettings.ts"
 
@@ -21,6 +21,10 @@ describe("generateTextStream", () => {
   beforeEach(() => {
     resetGenerateTextMocks()
     db.delete(llmModelSettings).run()
+    replaceLlmModelAssignments("test-user-id", {
+      small: { provider: "deepseek", modelId: "deepseek-v4-pro", reasoningEffort: "none" },
+      big: { provider: "deepseek", modelId: "deepseek-v4-pro", reasoningEffort: "none" },
+    })
   })
   afterEach(() => {
     db.delete(llmModelSettings).run()
@@ -71,11 +75,10 @@ describe("generateTextStream", () => {
           modelId: z.literal("deepseek-v4-pro"),
           promptName: z.literal("default"),
           provider: z.literal("server"),
-          calculateCredits: z.function(),
         }),
       })
       .parse(mocks.prepareTextGeneration.mock.calls[0]?.[2] as unknown)
-    expect(registration.metadata.calculateCredits).toBeTypeOf("function")
+    expect(registration.metadata).not.toHaveProperty("calculateCredits")
     expect(mocks.start).toHaveBeenCalledWith({
       prompt: "Hello",
       system: "System prompt",
@@ -87,9 +90,6 @@ describe("generateTextStream", () => {
       rawFinishReason: started.rawFinishReason,
       usage: started.usage,
     })
-    expect(mocks.requirePositiveCreditBalance).toHaveBeenCalledWith(
-      "test-user-id",
-    )
     expect(result).toBe(generation)
     await expect(result.completion).resolves.toMatchObject({
       status: "completed",
@@ -108,14 +108,13 @@ describe("generateTextStream", () => {
     mocks.loadPrompt.mockResolvedValue("System prompt")
 
     await generateTextStream({
-      userId: "connected-user-id",
+      userId: "test-user-id",
       owner: { standalone: true },
       prompt: "Hello",
       promptName: "default",
       reasoning: "enabled",
     })
 
-    expect(mocks.requirePositiveCreditBalance).not.toHaveBeenCalled()
     expect(start).toHaveBeenCalledWith({
       prompt: "Hello",
       system: "System prompt",
@@ -152,7 +151,7 @@ describe("generateTextStream", () => {
     mocks.loadPrompt.mockResolvedValue("System prompt")
 
     const result = await generateTextStream({
-      userId: "connected-user-id",
+      userId: "test-user-id",
       owner: { standalone: true },
       prompt: "Hello",
       promptName: "default",
@@ -214,7 +213,6 @@ describe("generateTextStream", () => {
           modelId: "deepseek-v4-pro",
           reasoningEffort: "none",
         },
-        explicit: true,
       },
       undefined,
     )
@@ -228,7 +226,6 @@ describe("generateTextStream", () => {
           modelId: "deepseek-v4-flash",
           reasoningEffort: "high",
         },
-        explicit: true,
       },
       undefined,
     )
@@ -336,6 +333,22 @@ describe("generateTextStream", () => {
   })
 
   it("does not spend shared generation permits on same-user Codex waiters", async () => {
+    for (const id of ["connected-user", "server-user"]) {
+      db.insert(user)
+        .values({
+          id,
+          name: id,
+          email: `${id}@example.com`,
+          emailVerified: true,
+          credits: 1_000_000,
+        })
+        .onConflictDoNothing()
+        .run()
+      replaceLlmModelAssignments(id, {
+        small: { provider: "deepseek", modelId: "deepseek-v4-pro", reasoningEffort: "none" },
+        big: { provider: "deepseek", modelId: "deepseek-v4-pro", reasoningEffort: "none" },
+      })
+    }
     mocks.loadPrompt.mockResolvedValue("System prompt")
     const firstCompletion = Promise.withResolvers<
       Awaited<ReturnType<typeof completedGenerationHandle>["completion"]>

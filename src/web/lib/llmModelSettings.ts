@@ -46,11 +46,7 @@ export const llmModelSettingsSchema = z.object({
   assignments: z.object({
     small: modelAssignmentSchema,
     big: modelAssignmentSchema,
-  }),
-  recommendations: z.object({
-    small: modelAssignmentSchema,
-    big: modelAssignmentSchema,
-  }),
+  }).nullable(),
 })
 
 export type LlmModelSettings = z.infer<typeof llmModelSettingsSchema>

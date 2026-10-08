@@ -156,8 +156,9 @@ export function OpenAiConnectionSection() {
         </DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Your saved OpenAI connection will be removed. Any Small or Big
-            choice using OpenAI will switch to the recommended DeepSeek model.
+            Your saved OpenAI connection will be removed. Small or Big choices
+            using OpenAI will stay selected but cannot run until you reconnect
+            OpenAI or choose another model.
           </DialogContentText>
         </DialogContent>
         <DialogActions>

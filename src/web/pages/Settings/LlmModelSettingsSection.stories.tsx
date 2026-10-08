@@ -8,7 +8,7 @@ import {
   type LlmModelSettingsServices,
 } from "./LlmModelSettingsSection.tsx"
 
-const recommendedSettings = {
+const configuredSettings = {
   models: [
     {
       provider: "deepseek",
@@ -59,18 +59,6 @@ const recommendedSettings = {
       reasoningEffort: "xhigh",
     },
   },
-  recommendations: {
-    small: {
-      provider: "openai",
-      modelId: "gpt-5.6-luna",
-      reasoningEffort: "medium",
-    },
-    big: {
-      provider: "openai",
-      modelId: "gpt-5.6-sol",
-      reasoningEffort: "xhigh",
-    },
-  },
 } satisfies LlmModelSettings
 
 function servicesFor(
@@ -93,19 +81,19 @@ const meta = {
       </Container>
     ),
   ],
-  args: { services: servicesFor(recommendedSettings) },
+  args: { services: servicesFor(configuredSettings) },
 } satisfies Meta<typeof LlmModelSettingsSection>
 
 export default meta
 type Story = StoryObj<typeof meta>
 
-export const Recommended: Story = {}
+export const Configured: Story = {}
 
 export const Loading: Story = {
   args: {
     services: {
       getSettings: () => new Promise(() => undefined),
-      updateSettings: servicesFor(recommendedSettings).updateSettings,
+      updateSettings: servicesFor(configuredSettings).updateSettings,
     },
   },
 }
@@ -113,7 +101,7 @@ export const Loading: Story = {
 export const ProvidersUnavailable: Story = {
   args: {
     services: servicesFor({
-      ...recommendedSettings,
+      ...configuredSettings,
       models: [],
       availability: {
         deepseek: {
@@ -136,7 +124,7 @@ export const FailedToLoad: Story = {
         Promise.reject(
           new ApiError("GET", "/api/llm-model-settings", 400),
         ),
-      updateSettings: servicesFor(recommendedSettings).updateSettings,
+      updateSettings: servicesFor(configuredSettings).updateSettings,
     },
   },
 }

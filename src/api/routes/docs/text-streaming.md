@@ -24,14 +24,14 @@ stored twice.
 Each invocation snapshots the current user's exact Small or Big provider,
 model, and reasoning-effort assignment before provider reservation and shared
 admission. This lets the next stage of an active or resumed workflow observe a
-successful Settings update. DeepSeek choices use positive-credit admission and
-normal LLM settlement even when OpenAI is connected. OpenAI choices take the
+successful Settings update. All LLM choices use zero product credits. OpenAI choices take the
 per-user reservation, recheck the connection before decrypting credentials,
 verify the exact model and effort against the connected account's live Codex catalog, and
 record zero product credits for that LLM generation. Search and extraction
 settle independently. An expired, rate-limited, broken, or unavailable explicit
-OpenAI choice fails without falling back to DeepSeek; only a missing implicit
-OpenAI recommendation may use its DeepSeek counterpart.
+OpenAI choice fails without changing providers. A missing Small or Big model
+selection blocks all new or resumed root work and redirects the browser to
+`/settings#models`.
 
 Codex structured output uses a required strict tool. Its generated JSON Schema
 omits the unsupported `uri` format; the original Zod schema still validates
@@ -62,7 +62,7 @@ failed. Finish-reason metadata is required and fails closed when unavailable;
 usage metadata remains best-effort. Provider request envelopes are not written
 to application logs. The durable
 generation row retains only an authorized failure message and all generation
-metadata. At the stream-consumption boundary, server-funded provider errors are
+metadata. At the stream-consumption boundary, DeepSeek provider errors are
 replaced with the fixed `Text generation failed` message before live
 publication, persistence, or replay; known Codex errors retain their fixed safe
 actionable messages and codes. Successful and interrupted generations produce
@@ -133,8 +133,8 @@ A hook or terminal-write failure rejects
 
 Terminal settlement compare-and-swaps the durable generation from `running`.
 If another callback or restart reconciler has already settled that attempt, the
-losing callback returns the persisted terminal outcome and does not debit
-credits or invoke its owning-stage completion hook again. Workflow checkpoint
+losing callback returns the persisted terminal outcome and does not invoke
+its owning-stage completion hook again. Workflow checkpoint
 retry registration likewise replaces only the exact linked failed,
 interrupted, or stale-running attempt. Interrupting a stale-running attempt and
 repointing the owning link to the replacement commit atomically.

@@ -1,10 +1,12 @@
 import { eq } from "drizzle-orm"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import z from "zod"
 
 import { db } from "../db/index.ts"
-import { llmGenerations, user } from "../db/schema/index.ts"
+import { llmGenerations, llmModelSettings, user } from "../db/schema/index.ts"
+import { deleteDeepSeekApiKey, setDeepSeekApiKey } from "../deepseekConnection/keysRepository.ts"
 import { generateArrayStream, generateObjectStream } from "./generateText.ts"
+import { replaceLlmModelAssignments } from "./modelSettings.ts"
 import type { TextStreamPersistenceTransaction } from "./streams.ts"
 import type { LlmUsage } from "./streamTypes.ts"
 
@@ -78,9 +80,26 @@ function persistedGeneration(id: string) {
 }
 
 describe("structured generation persistence integration", () => {
+  beforeEach(() => {
+    setDeepSeekApiKey(userId, "test-deepseek-api-key")
+    replaceLlmModelAssignments(userId, {
+      small: {
+        provider: "deepseek",
+        modelId: "deepseek-v4-pro",
+        reasoningEffort: "none",
+      },
+      big: {
+        provider: "deepseek",
+        modelId: "deepseek-v4-pro",
+        reasoningEffort: "none",
+      },
+    })
+  })
+
   afterEach(() => {
     db.delete(llmGenerations).where(eq(llmGenerations.userId, userId)).run()
-    db.update(user).set({ credits: 1_000_000 }).where(eq(user.id, userId)).run()
+    db.delete(llmModelSettings).where(eq(llmModelSettings.userId, userId)).run()
+    deleteDeepSeekApiKey(userId)
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
@@ -122,12 +141,12 @@ describe("structured generation persistence integration", () => {
       text: JSON.stringify(output),
       reasoning: "",
       promptName: "completed:persisted answer",
-      creditsUsed: 435,
+      creditsUsed: 0,
       error: null,
     })
     expect(
       db.select({ credits: user.credits }).from(user).where(eq(user.id, userId)).get()!.credits,
-    ).toBe(creditsBefore - 435)
+    ).toBe(creditsBefore)
   })
 
   it("requeries a schema-invalid result as failed without billing or running its hook", async () => {
@@ -197,7 +216,7 @@ describe("structured generation persistence integration", () => {
     expect(persistedGeneration(generation.id)).toMatchObject({
       status: "completed",
       promptName: "array:first|second",
-      creditsUsed: 435,
+      creditsUsed: 0,
     })
   })
 

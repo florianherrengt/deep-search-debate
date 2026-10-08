@@ -29,8 +29,8 @@ export function OpenAiConnectionStatus({
         <Stack spacing={2} sx={{ alignItems: "flex-start" }}>
           <Typography color="text.secondary">
             Connect your ChatGPT account to make OpenAI models available in
-            your Small and Big model choices. DeepSeek models remain available
-            without a connection.
+            your Small and Big model choices. Add a DeepSeek API key below to
+            make DeepSeek models available.
           </Typography>
           <Button
             disabled={starting}
@@ -91,8 +91,8 @@ export function OpenAiConnectionStatus({
           <Alert severity="success">
             <AlertTitle component="h3">OpenAI is connected</AlertTitle>
             OpenAI models are now available below. Only work assigned to an
-            OpenAI model will use your subscription and avoid product credit
-            charges for that model call.
+            OpenAI model will use your subscription. Model calls do not use
+            product credits.
           </Alert>
           <Button color="error" onClick={onDisconnect} variant="outlined">
             Disconnect OpenAI

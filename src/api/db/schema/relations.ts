@@ -7,6 +7,7 @@ import {
   debateRounds,
 } from "./debateJobs.ts"
 import { deepSearchJobs } from "./deepSearchJobs.ts"
+import { deepSeekApiKeys } from "./deepSeekApiKeys.ts"
 import {
   deepSearchQueries,
   deepSearchRounds,
@@ -34,6 +35,7 @@ export const userRelations = relations(user, ({ many, one }) => ({
   sessions: many(session),
   accounts: many(account),
   openAiCodexConnection: one(openAiCodexConnections),
+  deepSeekApiKey: one(deepSeekApiKeys),
   llmModelSettings: one(llmModelSettings),
   deepSearchJobs: many(deepSearchJobs),
   ideaJobs: many(ideaJobs),
@@ -57,6 +59,16 @@ export const openAiCodexConnectionsRelations = relations(
   ({ one }) => ({
     user: one(user, {
       fields: [openAiCodexConnections.userId],
+      references: [user.id],
+    }),
+  }),
+)
+
+export const deepSeekApiKeysRelations = relations(
+  deepSeekApiKeys,
+  ({ one }) => ({
+    user: one(user, {
+      fields: [deepSeekApiKeys.userId],
       references: [user.id],
     }),
   }),

@@ -18,7 +18,7 @@ import { streamReads, streams } from "./streams.ts"
 import type { AppEnv } from "../types/auth.ts"
 import { db } from "../db/index.ts"
 import { config } from "../config.ts"
-import { llmGenerations } from "../db/schema/index.ts"
+import { llmGenerations, llmModelSettings } from "../db/schema/index.ts"
 
 function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
@@ -36,9 +36,34 @@ describe("stream routes", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     db.delete(llmGenerations).run()
+    db.insert(llmModelSettings).values({
+      userId: "test-user-id",
+      smallProvider: "deepseek",
+      smallModelId: "deepseek-v4-flash",
+      smallReasoningEffort: "medium",
+      bigProvider: "deepseek",
+      bigModelId: "deepseek-v4-pro",
+      bigReasoningEffort: "high",
+    }).onConflictDoNothing().run()
   })
 
   const streamId = "11111111-1111-4111-8111-111111111111"
+
+  it("redirects to model selection before creating a stream", async () => {
+    db.delete(llmModelSettings).run()
+    const response = await createApp().request("/streams", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: "Hello" }),
+    })
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toMatchObject({
+      code: "model-selection-required",
+      redirectTo: "/settings#models",
+    })
+    expect(mocks.generateTextStream).not.toHaveBeenCalled()
+  })
 
   it("creates a stream and returns its ID", async () => {
     mocks.generateTextStream.mockResolvedValue({

@@ -28,6 +28,7 @@ import {
   deepSearchWebPages,
   ideaJobs,
   llmGenerations,
+  llmModelSettings,
 } from "../../db/schema/index.ts"
 import {
   deepSearchJobReads,
@@ -585,6 +586,54 @@ describe("deep search job routes", () => {
     db.delete(llmGenerations).run()
     db.delete(ideaJobs).run()
     db.delete(debateJobs).run()
+    db.insert(llmModelSettings).values({
+      userId: "test-user-id",
+      smallProvider: "deepseek",
+      smallModelId: "deepseek-v4-flash",
+      smallReasoningEffort: "medium",
+      bigProvider: "deepseek",
+      bigModelId: "deepseek-v4-pro",
+      bigReasoningEffort: "high",
+    }).onConflictDoNothing().run()
+  })
+
+  it("requires saved model choices before starting a search", async () => {
+    db.delete(llmModelSettings).run()
+    const response = await createJob(createApp())
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toMatchObject({
+      code: "model-selection-required",
+      redirectTo: "/settings#models",
+    })
+    expect(db.select().from(deepSearchJobsTable).all()).toEqual([])
+  })
+
+  it("requires saved model choices before resuming a search", async () => {
+    const deepSearchJobId = crypto.randomUUID()
+    db.insert(deepSearchJobsTable).values({
+      deepSearchJobId,
+      userId: "test-user-id",
+      title: "Paused search",
+      slug: "paused-search",
+      researchRequest: "Research this",
+      maxSearches: 1,
+      maxResultsPerSearch: 1,
+      strictQuality: false,
+      status: "failed",
+      error: "Previous failure",
+      completedAt: new Date(),
+    }).run()
+    db.delete(llmModelSettings).run()
+
+    const response = await createApp().request(`/deep-search-jobs/${deepSearchJobId}/resume`, {
+      method: "POST",
+    })
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toMatchObject({
+      code: "model-selection-required",
+      redirectTo: "/settings#models",
+    })
+    expect(db.select().from(deepSearchJobsTable).where(eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId)).get()?.status).toBe("failed")
   })
 
   it("stops only an owned root and replays the cancellation terminal suffix", async () => {

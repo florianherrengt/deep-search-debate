@@ -42,7 +42,6 @@ export const mocks = {
   prepareTextGeneration: vi.fn(),
   release: vi.fn(() => Promise.resolve()),
   reservationRelease: vi.fn(),
-  requirePositiveCreditBalance: vi.fn(),
   resolveLlmCall: vi.fn(
     (
       _userId: string,
@@ -73,10 +72,6 @@ vi.mock("./prompts.ts", () => ({
     GenerateWebSearchQueries: "generate-websearch-queries",
   },
   loadPrompt: mocks.loadPrompt,
-}))
-
-vi.mock("../credits.ts", () => ({
-  requirePositiveCreditBalance: mocks.requirePositiveCreditBalance,
 }))
 
 async function awaitCompletedText(generation: {

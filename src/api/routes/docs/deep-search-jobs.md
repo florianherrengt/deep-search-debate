@@ -155,9 +155,8 @@ owner authority available when a snapshot fetched while running is later paired
 with replay-derived completion. Anonymous and authenticated public non-owners
 receive `feedback: null`. Written feedback is never returned.
 Completed owners also receive the derived nonnegative integer `creditsUsed`,
-which sums settled LLM, search-query, and page-extraction charges owned by this
-run. It is `null` unless the viewer owns a completed run. Standalone title
-generation is excluded because it is not owned by the run.
+which sums search-query and page-extraction charges owned by this run. It is
+`null` unless the viewer owns a completed run. LLM generations use zero credits.
 On the completed owner detail page, the browser displays this total beside the
 feedback thumbs.
 

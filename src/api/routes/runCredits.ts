@@ -7,7 +7,6 @@ import {
   deepSearchRounds,
   deepSearchWebPages,
   ideaJobs,
-  llmGenerations,
 } from "../db/schema/index.ts"
 
 function readCreditsUsed(query: SQL): number {
@@ -24,12 +23,6 @@ export function getDeepSearchCreditsUsed(deepSearchJobId: string): number {
   return readCreditsUsed(sql`
     select coalesce(sum(credits_used), 0) as creditsUsed
     from (
-      select ${llmGenerations.creditsUsed} as credits_used
-      from ${llmGenerations}
-      where ${llmGenerations.deepSearchJobId} = ${deepSearchJobId}
-
-      union all
-
       select ${deepSearchQueries.creditsUsed} as credits_used
       from ${deepSearchQueries}
       inner join ${deepSearchRounds}
@@ -45,25 +38,11 @@ export function getDeepSearchCreditsUsed(deepSearchJobId: string): number {
   `)
 }
 
-/** Sums an idea run's direct LLM costs and every owned deep-search leaf. */
+/** Sums search and extraction costs for an idea run's owned searches. */
 export function getIdeaCreditsUsed(ideaJobId: string): number {
   return readCreditsUsed(sql`
     select coalesce(sum(credits_used), 0) as creditsUsed
     from (
-      select ${llmGenerations.creditsUsed} as credits_used
-      from ${llmGenerations}
-      where ${llmGenerations.ideaJobId} = ${ideaJobId}
-
-      union all
-
-      select ${llmGenerations.creditsUsed} as credits_used
-      from ${llmGenerations}
-      inner join ${deepSearchJobs}
-        on ${deepSearchJobs.deepSearchJobId} = ${llmGenerations.deepSearchJobId}
-      where ${deepSearchJobs.ideaJobId} = ${ideaJobId}
-
-      union all
-
       select ${deepSearchQueries.creditsUsed} as credits_used
       from ${deepSearchQueries}
       inner join ${deepSearchRounds}
@@ -83,35 +62,11 @@ export function getIdeaCreditsUsed(ideaJobId: string): number {
   `)
 }
 
-/** Sums tournament LLM costs plus the debate-owned idea and search subtree. */
+/** Sums search and extraction costs across the debate's research subtree. */
 export function getDebateCreditsUsed(debateJobId: string): number {
   return readCreditsUsed(sql`
     select coalesce(sum(credits_used), 0) as creditsUsed
     from (
-      select ${llmGenerations.creditsUsed} as credits_used
-      from ${llmGenerations}
-      where ${llmGenerations.debateJobId} = ${debateJobId}
-
-      union all
-
-      select ${llmGenerations.creditsUsed} as credits_used
-      from ${llmGenerations}
-      inner join ${ideaJobs}
-        on ${ideaJobs.ideaJobId} = ${llmGenerations.ideaJobId}
-      where ${ideaJobs.debateJobId} = ${debateJobId}
-
-      union all
-
-      select ${llmGenerations.creditsUsed} as credits_used
-      from ${llmGenerations}
-      inner join ${deepSearchJobs}
-        on ${deepSearchJobs.deepSearchJobId} = ${llmGenerations.deepSearchJobId}
-      inner join ${ideaJobs}
-        on ${ideaJobs.ideaJobId} = ${deepSearchJobs.ideaJobId}
-      where ${ideaJobs.debateJobId} = ${debateJobId}
-
-      union all
-
       select ${deepSearchQueries.creditsUsed} as credits_used
       from ${deepSearchQueries}
       inner join ${deepSearchRounds}

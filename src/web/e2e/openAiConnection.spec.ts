@@ -135,7 +135,7 @@ async function runStandaloneStream(
   }
 }
 
-test("connects ChatGPT, uses Codex without credits, and falls back after disconnect", async ({
+test("connects ChatGPT, uses Codex without credits, and uses a saved DeepSeek key", async ({
   page,
   request,
 }) => {
@@ -146,6 +146,7 @@ test("connects ChatGPT, uses Codex without credits, and falls back after disconn
     page.getByRole("heading", { name: "OpenAI subscription" }),
   ).toBeVisible()
   await expect(page.getByText("Not connected", { exact: true })).toBeVisible()
+  await expect(page.getByText("Key saved", { exact: true })).toBeVisible()
 
   await page.getByRole("button", { name: "Connect OpenAI", exact: true }).click()
   await expect(
@@ -163,12 +164,14 @@ test("connects ChatGPT, uses Codex without credits, and falls back after disconn
   await expect(page.getByText("OpenAI models become available after you connect your account above.")).toHaveCount(0)
   await page.getByRole("combobox", { name: "Small model" }).click()
   await page
-    .getByRole("option", { name: "GPT-5.6 Sol — OpenAI" })
+    .getByRole("option", { name: "GPT-5.6 Sol" })
     .click()
   await page.getByRole("combobox", { name: "Big model" }).click()
   await page
-    .getByRole("option", { name: "GPT-6 Sol — OpenAI" })
+    .getByRole("option", { name: "GPT-6 Sol" })
     .click()
+  await page.getByRole("combobox", { name: "Big reasoning" }).click()
+  await page.getByRole("option", { name: "Extra high", exact: true }).click()
   await page.getByRole("button", { name: "Save model choices" }).click()
   await expect(page.getByText("Model choices saved.")).toBeVisible()
   await page.reload()
@@ -177,10 +180,10 @@ test("connects ChatGPT, uses Codex without credits, and falls back after disconn
   ).toBeVisible()
   await expect(
     page.getByRole("combobox", { name: "Small model" }),
-  ).toContainText("GPT-5.6 Sol — OpenAI")
+  ).toContainText("GPT-5.6 Sol")
   await expect(
     page.getByRole("combobox", { name: "Big model" }),
-  ).toContainText("GPT-6 Sol — OpenAI")
+  ).toContainText("GPT-6 Sol")
 
   const creditsBeforeCodex = await getCredits(request)
   const codex = await runStandaloneStream(
@@ -267,24 +270,33 @@ test("connects ChatGPT, uses Codex without credits, and falls back after disconn
   await expect(page.getByText("Not connected", { exact: true })).toBeVisible()
   await expect(
     page.getByRole("combobox", { name: "Small model" }),
-  ).toContainText("DeepSeek V4 Flash")
+  ).toContainText("gpt-5.6-sol — OpenAI (Unavailable)")
   await expect(
     page.getByRole("combobox", { name: "Big model" }),
-  ).toContainText("DeepSeek V4 Pro")
+  ).toContainText("gpt-6-sol — OpenAI (Unavailable)")
 
-  const creditsBeforeFallback = await getCredits(request)
-  const fallback = await runStandaloneStream(
+  await page.getByRole("combobox", { name: "Small model" }).click()
+  await page.getByRole("option", { name: "deepseek-v4-flash" }).click()
+  await page.getByRole("combobox", { name: "Big model" }).click()
+  await page.getByRole("option", { name: "deepseek-v4-pro" }).click()
+  await page.getByRole("button", { name: "Save model choices" }).click()
+  await expect(page.getByText("Model choices saved.")).toBeVisible()
+
+  const creditsBeforeDeepSeek = await getCredits(request)
+  const deepSeek = await runStandaloneStream(
     request,
-    "[E2E_STANDALONE_DEEPSEEK] Answer through the server fallback.",
+    "[E2E_STANDALONE_DEEPSEEK] Answer through the user's saved DeepSeek key.",
   )
-  expect(fallback.text).toBe("E2E DeepSeek fallback response.")
-  expect(await getCredits(request)).toBeLessThan(creditsBeforeFallback)
+  expect(deepSeek.text).toBe("E2E DeepSeek fallback response.")
+  expect(await getCredits(request)).toBe(creditsBeforeDeepSeek)
 
+  const creditsBeforeRetry = await getCredits(request)
   const retried = await runStandaloneStream(
     request,
     `[E2E_RETRY_DEEPSEEK] ${crypto.randomUUID()}`,
   )
   expect(retried.text).toBe("E2E DeepSeek retry response.")
+  expect(await getCredits(request)).toBe(creditsBeforeRetry)
 })
 
 test.describe("OpenAI debate", () => {
@@ -333,25 +345,26 @@ test.describe("OpenAI debate", () => {
     await expect(page.getByRole("combobox", { name: "Small model" })).toBeVisible()
     await expect(page.getByText("OpenAI models become available after you connect your account above.")).toHaveCount(0)
     await page.getByRole("combobox", { name: "Small model" }).click()
-    await page.getByRole("option", { name: "GPT-5.6 Luna — OpenAI" }).click()
+    await page.getByRole("option", { name: "GPT-5.6 Luna" }).click()
     await page.getByRole("combobox", { name: "Big model" }).click()
-    await page.getByRole("option", { name: "GPT-5.6 Sol — OpenAI" }).click()
-    // Persist an explicit choice even when the displayed recommendations match.
+    await page.getByRole("option", { name: "GPT-5.6 Sol" }).click()
+    await page.getByRole("combobox", { name: "Big reasoning" }).click()
+    await page.getByRole("option", { name: "Extra high", exact: true }).click()
     await page.getByRole("combobox", { name: "Small reasoning" }).click()
     await page.getByRole("option", { name: "High", exact: true }).click()
     await page.getByRole("button", { name: "Save model choices" }).click()
     await expect(page.getByText("Model choices saved.")).toBeVisible()
     await page.getByRole("combobox", { name: "Small reasoning" }).click()
-    await page.getByRole("option", { name: "Medium (Recommended)", exact: true }).click()
+    await page.getByRole("option", { name: "Medium", exact: true }).click()
     await page.getByRole("button", { name: "Save model choices" }).click()
     await expect(page.getByText("Model choices saved.")).toBeVisible()
     await page.reload()
     await expect(page.getByRole("combobox", { name: "Small model" }))
-      .toContainText("GPT-5.6 Luna — OpenAI")
+      .toContainText("GPT-5.6 Luna")
     await expect(page.getByRole("combobox", { name: "Small reasoning" }))
       .toContainText("Medium")
     await expect(page.getByRole("combobox", { name: "Big model" }))
-      .toContainText("GPT-5.6 Sol — OpenAI")
+      .toContainText("GPT-5.6 Sol")
     await expect(page.getByRole("combobox", { name: "Big reasoning" }))
       .toContainText("Extra high")
 

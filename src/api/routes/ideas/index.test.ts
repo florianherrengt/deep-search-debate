@@ -22,6 +22,7 @@ import {
   ideaJobs as ideaJobsTable,
   ideas as ideasTable,
   user as userTable,
+  llmModelSettings,
 } from "../../db/schema/index.ts"
 import { writeIdeaSite, ideaSiteScreenshotPath } from "./ideaSites.ts"
 import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
@@ -72,6 +73,60 @@ describe("idea job routes", () => {
     db.delete(debateJobs).run()
     db.delete(ideaJobsTable).run()
     db.delete(deepSearchJobs).run()
+    db.insert(llmModelSettings).values({
+      userId: "test-user-id",
+      smallProvider: "deepseek",
+      smallModelId: "deepseek-v4-flash",
+      smallReasoningEffort: "medium",
+      bigProvider: "deepseek",
+      bigModelId: "deepseek-v4-pro",
+      bigReasoningEffort: "high",
+    }).onConflictDoNothing().run()
+  })
+
+  it("requires saved model choices before starting ideas", async () => {
+    db.delete(llmModelSettings).run()
+    const response = await createApp().request("/idea-jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: "Generate ideas" }),
+    })
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toMatchObject({
+      code: "model-selection-required",
+      redirectTo: "/settings#models",
+    })
+    expect(db.select().from(ideaJobsTable).all()).toEqual([])
+  })
+
+  it("requires saved model choices before resuming ideas", async () => {
+    const ideaJobId = crypto.randomUUID()
+    db.insert(ideaJobsTable).values({
+      ideaJobId,
+      userId: "test-user-id",
+      title: "Paused ideas",
+      slug: "paused-ideas",
+      prompt: "Generate ideas",
+      numberOfIdeas: 6,
+      deepSearchCount: 1,
+      maxSearches: 1,
+      maxResultsPerSearch: 1,
+      maxRounds: 1,
+      status: "failed",
+      error: "Previous failure",
+      completedAt: new Date(),
+    }).run()
+    db.delete(llmModelSettings).run()
+
+    const response = await createApp().request(`/idea-jobs/${ideaJobId}/resume`, {
+      method: "POST",
+    })
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toMatchObject({
+      code: "model-selection-required",
+      redirectTo: "/settings#models",
+    })
+    expect(db.select().from(ideaJobsTable).where(eq(ideaJobsTable.ideaJobId, ideaJobId)).get()?.status).toBe("failed")
   })
 
   it("guards internal idea-job starts before creating a job", async () => {

@@ -24,6 +24,7 @@ import {
   deepSearchJobs,
   llmGenerations,
   user as userTable,
+  llmModelSettings,
 } from "../../db/schema/index.ts"
 import { debateJobReads, debateJobs } from "./index.ts"
 import {
@@ -112,6 +113,68 @@ describe("debate job routes", () => {
     )
     mocks.generateObjectStream.mockRejectedValue(new Error("Provider boundary failure"))
     db.delete(debateJobsTable).run()
+    db.insert(llmModelSettings).values({
+      userId: "test-user-id",
+      smallProvider: "deepseek",
+      smallModelId: "deepseek-v4-flash",
+      smallReasoningEffort: "medium",
+      bigProvider: "deepseek",
+      bigModelId: "deepseek-v4-pro",
+      bigReasoningEffort: "high",
+    }).onConflictDoNothing().run()
+  })
+
+  it("requires saved model choices before starting a debate", async () => {
+    db.delete(llmModelSettings).run()
+    const response = await createApp().request("/debate-jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: "Debate this" }),
+    })
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toMatchObject({
+      code: "model-selection-required",
+      redirectTo: "/settings#models",
+    })
+    expect(db.select().from(debateJobsTable).all()).toEqual([])
+  })
+
+  it("requires saved model choices before starting a debate from ideas or resuming one", async () => {
+    const debateJobId = crypto.randomUUID()
+    db.insert(debateJobsTable).values({
+      debateJobId,
+      userId: "test-user-id",
+      randomSeed: 1,
+      status: "failed",
+      error: "Previous failure",
+      completedAt: new Date(),
+    }).run()
+    const resumeExisting = vi.fn()
+    const startFromIdeas = vi.fn()
+    const manager: DebateJobManager = {
+      start: vi.fn(),
+      startFromIdeas,
+      resumeExisting,
+      stop: vi.fn(),
+      getLiveJob: vi.fn(),
+    }
+    db.delete(llmModelSettings).run()
+    const app = createApp(manager)
+
+    for (const path of [
+      `/debate-jobs/${debateJobId}/resume`,
+      `/idea-jobs/${crypto.randomUUID()}/debate`,
+    ]) {
+      const response = await app.request(path, { method: "POST" })
+      expect(response.status).toBe(409)
+      await expect(response.json()).resolves.toMatchObject({
+        code: "model-selection-required",
+        redirectTo: "/settings#models",
+      })
+    }
+    expect(resumeExisting).not.toHaveBeenCalled()
+    expect(startFromIdeas).not.toHaveBeenCalled()
+    expect(db.select().from(debateJobsTable).where(eq(debateJobsTable.debateJobId, debateJobId)).get()?.status).toBe("failed")
   })
 
   it("starts one owner-only debate from ready ideas and keeps every idea identity across duplicate requests", async () => {

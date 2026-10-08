@@ -3,6 +3,7 @@ import Typography from "@mui/material/Typography"
 
 import { useSeo } from "../../lib/seo.ts"
 import { LlmModelSettingsSection } from "./LlmModelSettingsSection.tsx"
+import { DeepSeekConnectionSection } from "./DeepSeekConnectionSection.tsx"
 import { OpenAiConnectionSection } from "./OpenAiConnectionSection.tsx"
 
 export function Settings() {
@@ -26,6 +27,7 @@ export function Settings() {
       </Stack>
 
       <OpenAiConnectionSection />
+      <DeepSeekConnectionSection />
       <LlmModelSettingsSection />
     </Stack>
   )

@@ -9,33 +9,42 @@ const openAiCodexErrorCodeSchema = z.enum([
   "temporarily-unavailable",
   "timeout",
   "tool-blocked",
+  "model-selection-required",
 ])
 
-export type OpenAiCodexErrorCode = z.infer<
+export type ApiErrorCode = z.infer<
   typeof openAiCodexErrorCodeSchema
 >
 
-const failedResponseSchema = z.object({ code: openAiCodexErrorCodeSchema })
+const failedResponseSchema = z.object({
+  code: openAiCodexErrorCodeSchema,
+  redirectTo: z.literal("/settings#models").optional(),
+})
 const maxFailedResponseBytes = 4_096
 
 export class ApiError extends Error {
   override readonly name = "ApiError"
-  readonly code?: OpenAiCodexErrorCode
+  readonly code?: ApiErrorCode
 
   constructor(
     readonly method: string,
     readonly url: string,
     readonly status: number,
-    code?: OpenAiCodexErrorCode,
+    code?: ApiErrorCode,
+    readonly redirectTo?: string,
   ) {
     super(`${method} ${url} failed: ${status}`)
     if (code !== undefined) this.code = code
   }
 }
 
-async function readFailedResponseCode(
+export function isModelSelectionRequired(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.code === "model-selection-required"
+}
+
+async function readFailedResponseDetails(
   response: Response,
-): Promise<OpenAiCodexErrorCode | undefined> {
+): Promise<z.infer<typeof failedResponseSchema> | undefined> {
   const reader = response.body?.getReader()
   if (!reader) return undefined
 
@@ -64,7 +73,7 @@ async function readFailedResponseCode(
 
     const payload: unknown = JSON.parse(new TextDecoder().decode(bytes))
     const result = failedResponseSchema.safeParse(payload)
-    return result.success ? result.data.code : undefined
+    return result.success ? result.data : undefined
   } catch {
     return undefined
   } finally {
@@ -77,11 +86,13 @@ async function createApiError(
   url: string,
   response: Response,
 ): Promise<ApiError> {
+  const details = await readFailedResponseDetails(response)
   return new ApiError(
     method,
     url,
     response.status,
-    await readFailedResponseCode(response),
+    details?.code,
+    details?.redirectTo,
   )
 }
 

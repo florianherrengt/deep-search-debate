@@ -8,6 +8,7 @@ import { PromptName } from "../llms/prompts.ts"
 import { subscribeToTextStream } from "../llms/streams.ts"
 import type { AppEnv } from "../types/auth.ts"
 import { llmGenerationReadScope } from "./readAccess.ts"
+import { modelSelectionRequiredError, needsModelSelection } from "./modelSelectionGuard.ts"
 import { reserveStandaloneGenerationCapacity } from "./researchCapacity.ts"
 
 const createTextStreamInputSchema = z.object({
@@ -46,6 +47,9 @@ export function streams(app: Hono<AppEnv>) {
     zValidator("json", createTextStreamInputSchema),
     async (c) => {
       const input = c.req.valid("json")
+      if (needsModelSelection(c.get("userId"))) {
+        return c.json(modelSelectionRequiredError, 409)
+      }
       const releaseCapacity = reserveStandaloneGenerationCapacity(
         c.get("userId"),
       )

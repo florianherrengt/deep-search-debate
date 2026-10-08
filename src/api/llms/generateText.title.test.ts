@@ -7,10 +7,25 @@ import {
 } from "./generateText.testSupport.ts"
 import { beforeEach, describe, expect, it } from "vitest"
 
+import { replaceLlmModelAssignments } from "./modelSettings.ts"
 import { generatePromptTitle } from "./generateText.ts"
 
 describe("generatePromptTitle", () => {
-  beforeEach(resetGenerateTextMocks)
+  beforeEach(() => {
+    resetGenerateTextMocks()
+    replaceLlmModelAssignments("test-user-id", {
+      small: {
+        provider: "deepseek",
+        modelId: "deepseek-v4-flash",
+        reasoningEffort: "medium",
+      },
+      big: {
+        provider: "deepseek",
+        modelId: "deepseek-v4-pro",
+        reasoningEffort: "xhigh",
+      },
+    })
+  })
 
   it("uses the Small model assignment and produces a title without a 50-token generation cap", async () => {
     const started = startedLlmStream()
@@ -35,7 +50,6 @@ describe("generatePromptTitle", () => {
           modelId: "deepseek-v4-flash",
           reasoningEffort: "medium",
         },
-        explicit: false,
       },
       undefined,
     )

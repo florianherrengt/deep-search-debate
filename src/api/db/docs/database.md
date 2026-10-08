@@ -66,14 +66,15 @@ completed outcomes. No gap table, new column, or migration is needed.
   User-facing reads apply reusable SQL scopes to the query retrieving the root
   resource: an owner match grants private access, while a public debate grants
   inherited access through its idea job, child searches, and generations.
-- Billable resource tables use one nullable `credits_used` column:
-  `llm_generations` for model usage, `deep_search_queries` for search-provider
-  usage, and `deep_search_web_pages` for all ScrapingAnt attempts for that URL.
-  Settlement writes this value and decrements `user.credits` in one transaction.
-  LLM settlement first compare-and-swaps the generation from `running` to its
-  terminal state; a stale callback that loses that transition reads the durable
-  outcome and cannot debit credits or run the owning-stage completion hook
-  again.
+- Billable search and extraction resources use one nullable `credits_used`
+  column: `deep_search_queries` for search-provider usage and
+  `deep_search_web_pages` for all ScrapingAnt attempts for that URL. Settlement
+  writes this value and decrements `user.credits` in one transaction.
+  `llm_generations.credits_used` is zero on success and null on failure or
+  interruption; LLM usage never debits product credits. LLM settlement still
+  compare-and-swaps the generation from `running` to its terminal state; a
+  stale callback that loses that transition reads the durable outcome and
+  cannot run the owning-stage completion hook again.
   Negative account balances are valid; `credits_used` is never a reservation
   and is constrained to be null or non-negative.
   Inaccessible rows are never loaded before authorization. Nested idea searches,
@@ -130,15 +131,16 @@ completed outcomes. No gap table, new column, or migration is needed.
   recreate a row after explicit disconnect. Disconnect deletes by user without
   first decrypting the credential, and deleting the user cascades to the
   connection.
+- `deepseek_api_keys` stores at most one encrypted DeepSeek API key per user.
+  It uses the same server-held AES-256-GCM key as Codex credentials with a
+  distinct authenticated domain and cascades when the user is deleted.
 - `llm_model_settings` stores one complete optional Small/Big role assignment
   per user. Each role has a non-null provider, model ID, and reasoning effort;
   SQL checks constrain the provider and effort domains and reject blank model
-  IDs. Model and provider availability is intentionally validated against the
-  live provider catalog in application code. The missing row means dynamic
-  provider-aware recommendations rather than duplicated defaults. OpenAI
-  disconnect deletes the credential and rewrites only OpenAI-backed role tuples
-  to the explicit DeepSeek defaults in one transaction. User deletion cascades
-  to the settings row.
+  IDs. Model and provider availability is validated against the live provider
+  catalog in application code. A missing row blocks new and resumed work until
+  the user selects both roles. Disconnecting a provider leaves the selected
+  roles intact. User deletion cascades to the settings row.
 - Query and page lifecycle checks couple each active or terminal stage to its
   valid timestamps, errors, and generation links. SQLite triggers require a
   selected page to share both the result URL and the query's deep-search job.
@@ -211,8 +213,8 @@ completed outcomes. No gap table, new column, or migration is needed.
   per-user LLM model settings. Databases created from any superseded history are
   unsupported and must be recreated; there is no data-preserving upgrade path
   because the production database reset was explicitly approved. Databases on
-  that baseline do have the forward-preserving `0001` through `0003` upgrade path
-  described above. `baselineMigration.test.ts` verifies fresh creation and
+  that baseline do have the forward-preserving `0001` through `0004` upgrade path,
+  including the per-user DeepSeek key table. `baselineMigration.test.ts` verifies fresh creation and
   upgrades with existing selected results and linked edges through the same
   Drizzle migrator used by the application, including checks, cascades, and
   foreign-key integrity.

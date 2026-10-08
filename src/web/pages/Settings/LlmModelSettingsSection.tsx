@@ -1,14 +1,16 @@
-import { useState, type SyntheticEvent } from "react"
+import { useEffect, useState, type SyntheticEvent } from "react"
 import Alert from "@mui/material/Alert"
 import Box from "@mui/material/Box"
 import Button from "@mui/material/Button"
 import CircularProgress from "@mui/material/CircularProgress"
+import ListSubheader from "@mui/material/ListSubheader"
 import MenuItem from "@mui/material/MenuItem"
 import Paper from "@mui/material/Paper"
 import Stack from "@mui/material/Stack"
 import TextField from "@mui/material/TextField"
 import Typography from "@mui/material/Typography"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useLocation } from "react-router-dom"
 
 import { RequestError } from "../../components/RequestError.tsx"
 import {
@@ -22,13 +24,12 @@ import {
 
 type ModelOption = LlmModelSettings["models"][number]
 type ModelRole = "small" | "big"
+type Assignments = { small: ModelAssignment; big: ModelAssignment } | null
+type DraftAssignments = Partial<NonNullable<Assignments>>
 
 export type LlmModelSettingsServices = {
   getSettings: (signal?: AbortSignal) => Promise<LlmModelSettings>
-  updateSettings: (assignments: {
-    small: ModelAssignment
-    big: ModelAssignment
-  }) => Promise<LlmModelSettings>
+  updateSettings: (assignments: { small: ModelAssignment; big: ModelAssignment }) => Promise<LlmModelSettings>
 }
 
 const defaultServices: LlmModelSettingsServices = {
@@ -36,18 +37,9 @@ const defaultServices: LlmModelSettingsServices = {
   updateSettings: updateLlmModelSettings,
 }
 
-const roleDetails: Record<
-  ModelRole,
-  { title: string; description: string }
-> = {
-  small: {
-    title: "Small",
-    description: "Used for summaries, filtering, and titles.",
-  },
-  big: {
-    title: "Big",
-    description: "Used for planning, synthesis, ideas, and debates.",
-  },
+const roleDetails: Record<ModelRole, { title: string; description: string }> = {
+  small: { title: "Small", description: "Used for summaries, filtering, and titles." },
+  big: { title: "Big", description: "Used for planning, synthesis, ideas, and debates." },
 }
 
 const reasoningLabels: Record<ReasoningEffort, string> = {
@@ -66,157 +58,104 @@ function modelValue(model: Pick<ModelAssignment, "provider" | "modelId">) {
 }
 
 function sameAssignment(left: ModelAssignment, right: ModelAssignment) {
-  return (
-    left.provider === right.provider &&
-    left.modelId === right.modelId &&
-    left.reasoningEffort === right.reasoningEffort
-  )
+  return left.provider === right.provider && left.modelId === right.modelId && left.reasoningEffort === right.reasoningEffort
 }
 
-function findModel(
-  models: ModelOption[],
-  assignment: Pick<ModelAssignment, "provider" | "modelId">,
-) {
-  return models.find(
-    (model) =>
-      model.provider === assignment.provider &&
-      model.modelId === assignment.modelId,
-  )
+function findModel(models: ModelOption[], assignment: Pick<ModelAssignment, "provider" | "modelId">) {
+  return models.find((model) => model.provider === assignment.provider && model.modelId === assignment.modelId)
 }
 
-function assignmentKey(settings: LlmModelSettings) {
-  return `${modelValue(settings.assignments.small)}:${settings.assignments.small.reasoningEffort}:${modelValue(settings.assignments.big)}:${settings.assignments.big.reasoningEffort}`
+function assignmentKey(assignments: Assignments) {
+  if (!assignments) return "unset"
+  return `${modelValue(assignments.small)}:${assignments.small.reasoningEffort}:${modelValue(assignments.big)}:${assignments.big.reasoningEffort}`
 }
 
 function ModelAssignmentFields({
   assignment,
   models,
   onChange,
-  recommendation,
   role,
 }: {
-  assignment: ModelAssignment
+  assignment?: ModelAssignment
   models: ModelOption[]
   onChange: (assignment: ModelAssignment) => void
-  recommendation: ModelAssignment
   role: ModelRole
 }) {
-  const selectedModel = findModel(models, assignment)
-  const selectedModelValue = modelValue(assignment)
-  const selectedEfforts = selectedModel?.reasoningEfforts ?? [
-    assignment.reasoningEffort,
-  ]
-  const effortIsAvailable = selectedEfforts.includes(
-    assignment.reasoningEffort,
-  )
-  const currentChoiceIsAvailable = selectedModel !== undefined
+  const selectedModel = assignment ? findModel(models, assignment) : undefined
+  const selectedEfforts = selectedModel?.reasoningEfforts ?? (assignment ? [assignment.reasoningEffort] : [])
+  const effortIsAvailable = assignment !== undefined && selectedEfforts.includes(assignment.reasoningEffort)
 
   function selectModel(value: string) {
     const model = models.find((candidate) => modelValue(candidate) === value)
     if (!model) return
-
-    const recommendationMatches =
-      model.provider === recommendation.provider &&
-      model.modelId === recommendation.modelId
-    const nextEffort = model.reasoningEfforts.includes(
-      assignment.reasoningEffort,
-    )
-      ? assignment.reasoningEffort
-      : recommendationMatches &&
-          model.reasoningEfforts.includes(recommendation.reasoningEffort)
-        ? recommendation.reasoningEffort
-        : model.reasoningEfforts[0]
-
     onChange({
       provider: model.provider,
       modelId: model.modelId,
-      reasoningEffort: nextEffort,
+      reasoningEffort: assignment && model.reasoningEfforts.includes(assignment.reasoningEffort)
+        ? assignment.reasoningEffort
+        : model.reasoningEfforts[0],
     })
   }
 
   return (
     <Stack spacing={1.5}>
       <Box>
-        <Typography component="h3" variant="subtitle1">
-          {roleDetails[role].title}
-        </Typography>
-        <Typography color="text.secondary" variant="body2">
-          {roleDetails[role].description}
-        </Typography>
+        <Typography component="h3" variant="subtitle1">{roleDetails[role].title}</Typography>
+        <Typography color="text.secondary" variant="body2">{roleDetails[role].description}</Typography>
       </Box>
-
-      {!currentChoiceIsAvailable || !effortIsAvailable ? (
+      {assignment && (!selectedModel || !effortIsAvailable) ? (
         <Alert severity="warning">
-          Your current {roleDetails[role].title.toLowerCase()} model choice is
-          unavailable. Choose an available model and reasoning level before
-          saving.
+          Your current {roleDetails[role].title.toLowerCase()} model choice is unavailable. Choose an available model and reasoning level before saving.
         </Alert>
       ) : null}
-
       <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
         <TextField
-          error={!currentChoiceIsAvailable}
+          error={Boolean(assignment && !selectedModel)}
           fullWidth
-          helperText={
-            selectedModel?.description ??
-            (currentChoiceIsAvailable
-              ? selectedModel?.providerLabel
-              : "This saved model is not currently available.")
-          }
+          helperText={selectedModel?.description ?? (assignment ? "This saved model is not currently available." : "Choose a model.")}
           label={`${roleDetails[role].title} model`}
           onChange={(event) => selectModel(event.target.value)}
           select
-          value={selectedModelValue}
+          value={assignment ? modelValue(assignment) : ""}
         >
-          {!currentChoiceIsAvailable ? (
-            <MenuItem disabled value={selectedModelValue}>
-              {assignment.modelId} —{" "}
-              {assignment.provider === "openai" ? "OpenAI" : "DeepSeek"}
-              {" (Unavailable)"}
+          <MenuItem value=""><em>Select a model</em></MenuItem>
+          {assignment && !selectedModel ? (
+            <MenuItem disabled value={modelValue(assignment)}>
+              {assignment.modelId} — {assignment.provider === "openai" ? "OpenAI" : "DeepSeek"} (Unavailable)
             </MenuItem>
           ) : null}
-          {models.map((model) => {
-            const isRecommended =
-              model.provider === recommendation.provider &&
-              model.modelId === recommendation.modelId
-            return (
-              <MenuItem key={modelValue(model)} value={modelValue(model)}>
-                {model.label} — {model.providerLabel}
-                {isRecommended ? " (Recommended)" : ""}
-              </MenuItem>
-            )
+          {(["openai", "deepseek"] as const).map((provider) => {
+            const providerModels = models.filter((model) => model.provider === provider)
+            if (providerModels.length === 0) return null
+            return [
+              <ListSubheader key={`${provider}-header`}>
+                {provider === "openai" ? "OpenAI" : "DeepSeek"}
+              </ListSubheader>,
+              ...providerModels.map((model) => (
+                <MenuItem key={modelValue(model)} value={modelValue(model)}>
+                  {model.label}
+                </MenuItem>
+              )),
+            ]
           })}
         </TextField>
-
         <TextField
-          disabled={!currentChoiceIsAvailable}
-          error={currentChoiceIsAvailable && !effortIsAvailable}
+          disabled={!selectedModel}
+          error={Boolean(assignment && selectedModel && !effortIsAvailable)}
           fullWidth
           helperText="How much reasoning the model should use."
           label={`${roleDetails[role].title} reasoning`}
-          onChange={(event) =>
-            onChange({
-              ...assignment,
-              reasoningEffort: event.target.value as ReasoningEffort,
-            })
-          }
+          onChange={(event) => assignment && onChange({ ...assignment, reasoningEffort: event.target.value as ReasoningEffort })}
           select
-          value={assignment.reasoningEffort}
+          value={assignment?.reasoningEffort ?? ""}
         >
-          {!effortIsAvailable ? (
+          {!effortIsAvailable && assignment ? (
             <MenuItem disabled value={assignment.reasoningEffort}>
               {reasoningLabels[assignment.reasoningEffort]} (Unavailable)
             </MenuItem>
           ) : null}
           {selectedEfforts.map((effort) => (
-            <MenuItem key={effort} value={effort}>
-              {reasoningLabels[effort]}
-              {effort === recommendation.reasoningEffort &&
-              assignment.provider === recommendation.provider &&
-              assignment.modelId === recommendation.modelId
-                ? " (Recommended)"
-                : ""}
-            </MenuItem>
+            <MenuItem key={effort} value={effort}>{reasoningLabels[effort]}</MenuItem>
           ))}
         </TextField>
       </Stack>
@@ -236,7 +175,7 @@ function ModelSettingsForm({
   settings: LlmModelSettings
 }) {
   const queryClient = useQueryClient()
-  const [assignments, setAssignments] = useState(settings.assignments)
+  const [assignments, setAssignments] = useState<DraftAssignments>(settings.assignments ?? {})
   const update = useMutation({
     mutationFn: services.updateSettings,
     onSuccess: (snapshot) => {
@@ -244,14 +183,13 @@ function ModelSettingsForm({
       onSaved(snapshot)
     },
   })
-
   const choicesAreAvailable = (["small", "big"] as const).every((role) => {
-    const model = findModel(settings.models, assignments[role])
-    return model?.reasoningEfforts.includes(
-      assignments[role].reasoningEffort,
-    )
+    const assignment = assignments[role]
+    if (!assignment) return false
+    const model = findModel(settings.models, assignment)
+    return model?.reasoningEfforts.includes(assignment.reasoningEffort)
   })
-  const hasChanges =
+  const hasChanges = !settings.assignments || !assignments.small || !assignments.big ||
     !sameAssignment(assignments.small, settings.assignments.small) ||
     !sameAssignment(assignments.big, settings.assignments.big)
 
@@ -263,42 +201,23 @@ function ModelSettingsForm({
 
   function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!choicesAreAvailable || !hasChanges || update.isPending) return
-    update.mutate(assignments)
+    if (!choicesAreAvailable || !hasChanges || update.isPending || !assignments.small || !assignments.big) return
+    update.mutate({ small: assignments.small, big: assignments.big })
   }
 
   return (
     <Stack component="form" onSubmit={submit} spacing={2.5}>
       {settings.models.length === 0 ? (
-        <Alert severity="warning">
-          No models are available right now. Check the provider messages above
-          and refresh the list.
-        </Alert>
+        <Alert severity="warning">No models are available right now. Check the provider messages above and refresh the list.</Alert>
       ) : null}
-
-      <ModelAssignmentFields
-        assignment={assignments.small}
-        models={settings.models}
-        onChange={(assignment) => changeAssignment("small", assignment)}
-        recommendation={settings.recommendations.small}
-        role="small"
-      />
-      <ModelAssignmentFields
-        assignment={assignments.big}
-        models={settings.models}
-        onChange={(assignment) => changeAssignment("big", assignment)}
-        recommendation={settings.recommendations.big}
-        role="big"
-      />
-
+      {!settings.assignments ? (
+        <Alert severity="info">Choose a model and reasoning level for both Small and Big before starting any work.</Alert>
+      ) : null}
+      <ModelAssignmentFields assignment={assignments.small} models={settings.models} onChange={(assignment) => changeAssignment("small", assignment)} role="small" />
+      <ModelAssignmentFields assignment={assignments.big} models={settings.models} onChange={(assignment) => changeAssignment("big", assignment)} role="big" />
       {update.error ? <RequestError error={update.error} /> : null}
-
       <Box>
-        <Button
-          disabled={!choicesAreAvailable || !hasChanges || update.isPending}
-          type="submit"
-          variant="contained"
-        >
+        <Button disabled={!choicesAreAvailable || !hasChanges || update.isPending} type="submit" variant="contained">
           {update.isPending ? "Saving…" : "Save model choices"}
         </Button>
       </Box>
@@ -311,94 +230,64 @@ export function LlmModelSettingsSection({
 }: {
   services?: LlmModelSettingsServices
 }) {
+  const location = useLocation()
   const [savedAssignmentKey, setSavedAssignmentKey] = useState<string>()
   const settings = useQuery({
     queryKey: llmModelSettingsQueryKey,
     queryFn: ({ signal }) => services.getSettings(signal),
   })
-  const shouldOfferRefresh =
-    settings.data !== undefined &&
-    (settings.data.models.length === 0 ||
-      settings.data.availability.deepseek.status === "unavailable" ||
-      settings.data.availability.openai.status === "unavailable")
+  const shouldOfferRefresh = settings.data !== undefined &&
+    (settings.data.models.length === 0 || settings.data.availability.deepseek.status === "unavailable" || settings.data.availability.openai.status === "unavailable")
+
+  useEffect(() => {
+    if (location.hash === "#models") {
+      document.getElementById("models")?.scrollIntoView({ block: "start" })
+    }
+  }, [location.hash])
 
   return (
-    <Paper sx={{ p: { xs: 2, sm: 3 } }}>
+    <Paper id="models" tabIndex={-1} sx={{ p: { xs: 2, sm: 3 }, scrollMarginTop: 2 }}>
       <Stack spacing={2.5}>
         <Box>
-          <Typography component="h2" variant="h6">
-            Models
-          </Typography>
+          <Typography component="h2" variant="h6">Models</Typography>
           <Typography color="text.secondary" variant="body2">
-            Choose the model and reasoning level RethinkLoop uses for each type
-            of work. Changes apply to the next model call.
+            Choose the model and reasoning level RethinkLoop uses for each type of work. Changes apply to the next model call.
           </Typography>
         </Box>
-
         {settings.isPending ? (
-          <Stack
-            aria-label="Loading model choices"
-            direction="row"
-            role="status"
-            spacing={1.5}
-            sx={{ alignItems: "center" }}
-          >
+          <Stack aria-label="Loading model choices" direction="row" role="status" spacing={1.5} sx={{ alignItems: "center" }}>
             <CircularProgress size={22} />
-            <Typography color="text.secondary">
-              Loading models…
-            </Typography>
+            <Typography color="text.secondary">Loading models…</Typography>
           </Stack>
         ) : null}
-        {settings.error ? (
-          <RequestError
-            error={settings.error}
-            onRetry={() => void settings.refetch()}
-          />
-        ) : null}
-        {settings.data === undefined
-          ? null
-          : (["deepseek", "openai"] as const).map((provider) => {
-              const availability = settings.data.availability[provider]
-              if (availability.status === "available") return null
-              const providerLabel =
-                provider === "deepseek" ? "DeepSeek" : "OpenAI"
-              return (
-                <Alert
-                  key={provider}
-                  severity={
-                    availability.status === "disconnected" ? "info" : "warning"
-                  }
-                >
-                  {availability.message ??
-                    (availability.status === "disconnected"
-                      ? `${providerLabel} models become available after you connect your account above.`
-                      : `${providerLabel} models could not be loaded. Refresh the list to try again.`)}
-                </Alert>
-              )
-            })}
+        {settings.error ? <RequestError error={settings.error} onRetry={() => void settings.refetch()} /> : null}
+        {settings.data === undefined ? null : (["openai", "deepseek"] as const).map((provider) => {
+          const availability = settings.data.availability[provider]
+          if (availability.status === "available") return null
+          const label = provider === "openai" ? "OpenAI" : "DeepSeek"
+          return (
+            <Alert key={provider} severity={availability.status === "disconnected" ? "info" : "warning"}>
+              {availability.message ?? (availability.status === "disconnected"
+                ? `${label} models become available after you connect your account above.`
+                : `${label} models could not be loaded. Refresh the list to try again.`)}
+            </Alert>
+          )
+        })}
         {shouldOfferRefresh ? (
-          <Box>
-            <Button
-              disabled={settings.isFetching}
-              onClick={() => void settings.refetch()}
-              variant="outlined"
-            >
-              {settings.isFetching ? "Refreshing…" : "Refresh models"}
-            </Button>
-          </Box>
+          <Box><Button disabled={settings.isFetching} onClick={() => void settings.refetch()} variant="outlined">
+            {settings.isFetching ? "Refreshing…" : "Refresh models"}
+          </Button></Box>
         ) : null}
         {settings.data === undefined ? null : (
           <>
             <ModelSettingsForm
-              key={assignmentKey(settings.data)}
+              key={assignmentKey(settings.data.assignments)}
               onChange={() => setSavedAssignmentKey(undefined)}
-              onSaved={(snapshot) =>
-                setSavedAssignmentKey(assignmentKey(snapshot))
-              }
+              onSaved={(snapshot) => setSavedAssignmentKey(assignmentKey(snapshot.assignments))}
               services={services}
               settings={settings.data}
             />
-            {savedAssignmentKey === assignmentKey(settings.data) ? (
+            {savedAssignmentKey !== undefined && savedAssignmentKey === assignmentKey(settings.data.assignments) ? (
               <Alert severity="success">Model choices saved.</Alert>
             ) : null}
           </>

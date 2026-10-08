@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto"
 import { and, eq, type SQL } from "drizzle-orm"
-import { debitCredits } from "../credits.ts"
 import { db } from "../db/index.ts"
 import { llmGenerations } from "../db/schema/index.ts"
 import { getErrorMessage } from "../helpers/getErrorMessage.ts"
@@ -185,7 +184,6 @@ type TextGenerationRegistrationMetadata = {
   modelId: string
   promptName: string
   provider?: "server" | "codex"
-  calculateCredits?: (usage: LlmUsage) => number
 }
 
 type TextGenerationTerminalMetadata = {
@@ -389,9 +387,7 @@ async function consume(
   let persistedOutcome: GenerationOutcome | undefined
 
   try {
-    // Deliberate business policy: failed or interrupted generations never charge
-    // the user, even when the provider reports billable usage; RethinkLoop
-    // absorbs it.
+    // LLM generations never consume product credits; usage remains diagnostic.
     db.transaction((transaction) => {
       const currentGeneration = transaction
         .select()
@@ -418,15 +414,7 @@ async function consume(
         : errorMessage
           ? "failed"
           : "completed"
-      const creditsUsed = errorMessage || interruptionReason
-        ? null
-        : options.metadata?.calculateCredits
-          ? options.metadata.calculateCredits(
-              terminalMetadata.usage ?? (() => {
-                throw new Error("LLM generation did not report usage")
-              })(),
-            )
-          : 0
+      const creditsUsed = errorMessage || interruptionReason ? null : 0
       const terminalWrite = transaction
         .update(llmGenerations)
         .set({
@@ -480,7 +468,6 @@ async function consume(
           transaction,
         )
       } else {
-        debitCredits(transaction, userId, creditsUsed ?? 0)
         options.onCompleted?.({ id, text, reasoning }, transaction)
       }
     })
@@ -672,7 +659,6 @@ export function registerTextStream(
           modelId: options.metadata.modelId,
           promptName: options.metadata.promptName,
           provider: options.metadata.provider,
-          calculateCredits: options.metadata.calculateCredits,
         }
       : undefined,
   })

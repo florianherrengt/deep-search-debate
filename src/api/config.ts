@@ -81,8 +81,6 @@ const secretSchemas = {
 
 const nonSecretEnvironmentShape = {
   NODE_ENV: z.enum(["development", "test", "production"]),
-  LLM_PROVIDER: z.enum(["deepseek", "zen"]),
-  LLM_MODEL_NAME: z.string().trim().min(1),
   LLM_FIRST_CHUNK_TIMEOUT_MS: z.coerce
     .number()
     .int()
@@ -296,8 +294,9 @@ const nonSecretEnvironmentShape = {
 
 const rawEnvironmentSchema = z.object({
   ...nonSecretEnvironmentShape,
+  LLM_PROVIDER: z.enum(["deepseek", "zen"]).optional(),
+  LLM_MODEL_NAME: z.string().trim().min(1).optional(),
   SERPER_API_KEY: optionalSecretSchema,
-  DEEPSEEK_API_KEY: optionalSecretSchema,
   OPENCODE_ZEN_API_KEY: optionalSecretSchema,
   SCRAPINGANT_API_KEY: secretSchemas.SCRAPINGANT_API_KEY,
   BETTER_AUTH_SECRET: secretSchemas.BETTER_AUTH_SECRET,
@@ -310,11 +309,12 @@ const rawEnvironmentSchema = z.object({
 
 const environmentSchema = z.object({
   ...nonSecretEnvironmentShape,
+  LLM_PROVIDER: z.enum(["deepseek", "zen"]).optional(),
+  LLM_MODEL_NAME: z.string().trim().min(1).optional(),
   DATABASE_URL: z.string().min(1),
   BETTER_AUTH_URL: z.url(),
   AUTH_DEBUG_USER_ENABLED: z.boolean(),
   SERPER_API_KEY: optionalSecretSchema,
-  DEEPSEEK_API_KEY: optionalSecretSchema,
   OPENCODE_ZEN_API_KEY: optionalSecretSchema,
   SCRAPINGANT_API_KEY: secretSchemas.SCRAPINGANT_API_KEY,
   BETTER_AUTH_SECRET: secretSchemas.BETTER_AUTH_SECRET,
@@ -366,37 +366,18 @@ const environmentSchema = z.object({
       path: ["DEBATE_MAX_SELECTED_PAGES_PER_JOB"],
     })
   }
-  if (
-    environment.LLM_PROVIDER === "deepseek" &&
-    environment.DEEPSEEK_API_KEY === undefined
-  ) {
-    context.addIssue({
-      code: "custom",
-      message: "DEEPSEEK_API_KEY is required when LLM_PROVIDER=deepseek",
-      path: ["DEEPSEEK_API_KEY"],
-    })
-  }
-  if (
-    environment.LLM_PROVIDER === "deepseek" &&
-    !["deepseek-v4-flash", "deepseek-v4-pro"].includes(
-      environment.LLM_MODEL_NAME,
-    )
-  ) {
-    context.addIssue({
-      code: "custom",
-      message:
-        "LLM_MODEL_NAME must be deepseek-v4-flash or deepseek-v4-pro when LLM_PROVIDER=deepseek",
-      path: ["LLM_MODEL_NAME"],
-    })
-  }
-  if (
-    environment.LLM_PROVIDER === "zen" &&
-    environment.NODE_ENV !== "development"
-  ) {
+  if (environment.LLM_PROVIDER === "zen" && environment.NODE_ENV !== "development") {
     context.addIssue({
       code: "custom",
       message: "LLM_PROVIDER=zen is available only in development",
       path: ["LLM_PROVIDER"],
+    })
+  }
+  if (environment.LLM_PROVIDER === "zen" && !environment.LLM_MODEL_NAME) {
+    context.addIssue({
+      code: "custom",
+      message: "LLM_MODEL_NAME is required when LLM_PROVIDER=zen",
+      path: ["LLM_MODEL_NAME"],
     })
   }
   if (
@@ -513,29 +494,17 @@ const environment = environmentSchema.parse({
 
 export type LlmConfig =
   | {
-      provider: "deepseek"
-      model: string
-      apiKey: string
-    }
-  | {
       provider: "zen"
       model: string
       apiKey: string
       baseUrl: string
     }
 
-function resolveLlmConfig(): LlmConfig {
-  if (environment.LLM_PROVIDER === "deepseek") {
-    if (environment.DEEPSEEK_API_KEY === undefined) {
-      throw new Error("Validated DeepSeek API key is missing")
-    }
-    return {
-      provider: "deepseek",
-      model: environment.LLM_MODEL_NAME,
-      apiKey: environment.DEEPSEEK_API_KEY,
-    }
+function resolveLlmConfig(): LlmConfig | undefined {
+  if (environment.LLM_PROVIDER !== "zen") return undefined
+  if (!environment.LLM_MODEL_NAME) {
+    throw new Error("Validated OpenCode Zen model name is missing")
   }
-
   if (environment.OPENCODE_ZEN_API_KEY === undefined) {
     throw new Error("Validated OpenCode Zen API key is missing")
   }

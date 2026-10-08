@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  decryptDeepSeekApiKey,
+  encryptDeepSeekApiKey,
   decryptOpenAiCodexCredentials,
   encryptOpenAiCodexCredentials,
   OpenAiCodexCredentialDecryptionError,
@@ -12,6 +14,8 @@ const identity = {
   connectionId: "connection-a",
 }
 const credentials = Buffer.from('{"tokens":{"access":"secret"}}', "utf8")
+const deepSeekIdentity = { userId: "user-a" }
+const deepSeekApiKey = Buffer.from("sk-private-deepseek-key")
 
 describe("OpenAI Codex credential encryption", () => {
   it("round-trips credentials with a fresh standard AES-GCM nonce", () => {
@@ -51,5 +55,30 @@ describe("OpenAI Codex credential encryption", () => {
         decryptOpenAiCodexCredentials(encrypted, key, wrongIdentity),
       ).toThrow(OpenAiCodexCredentialDecryptionError)
     }
+  })
+})
+
+describe("DeepSeek API key encryption", () => {
+  it("round-trips keys and binds ciphertext to the owning user", () => {
+    const encrypted = encryptDeepSeekApiKey(deepSeekApiKey, key, deepSeekIdentity)
+
+    expect(encrypted.nonce).toHaveLength(12)
+    expect(encrypted.authenticationTag).toHaveLength(16)
+    expect(decryptDeepSeekApiKey(encrypted, key, deepSeekIdentity)).toEqual(
+      deepSeekApiKey,
+    )
+    expect(() =>
+      decryptDeepSeekApiKey(encrypted, key, { userId: "user-b" }),
+    ).toThrow("Stored DeepSeek API key could not be decrypted")
+  })
+
+  it("uses an AAD domain that cannot decrypt as OpenAI credentials", () => {
+    const encrypted = encryptDeepSeekApiKey(deepSeekApiKey, key, {
+      userId: identity.userId,
+    })
+
+    expect(() =>
+      decryptOpenAiCodexCredentials(encrypted, key, identity),
+    ).toThrow(OpenAiCodexCredentialDecryptionError)
   })
 })

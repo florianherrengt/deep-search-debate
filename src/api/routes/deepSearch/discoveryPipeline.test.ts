@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm"
-import { afterEach, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
 const external = vi.hoisted(() => ({
   webSearch: vi.fn<typeof import("../../web_search/index.ts").webSearch>(),
@@ -10,9 +10,11 @@ vi.mock("../../web_search/webExtract.ts", () => ({ webExtract: external.webExtra
 
 import { parseDiscoveryInventory } from "../../agents/deep_search/discovery.ts"
 import type { DeepSearchEvent } from "../../agents/deep_search/schemas.ts"
+import { deleteDeepSeekApiKey, setDeepSeekApiKey } from "../../deepseekConnection/keysRepository.ts"
 import { db } from "../../db/index.ts"
-import { deepSearchJobs, ideaJobs, llmGenerations, user } from "../../db/schema/index.ts"
+import { deepSearchJobs, ideaJobs, llmGenerations, llmModelSettings, user } from "../../db/schema/index.ts"
 import { createReplayableEventLog } from "../../helpers/replayableEventLog.ts"
+import { replaceLlmModelAssignments } from "../../llms/modelSettings.ts"
 import { reopenDeepSearchJob } from "./jobLifecycle.ts"
 import { runDeepSearchPipeline } from "./pipeline.ts"
 import { reconstructDeepSearchJobEvents } from "./replay.ts"
@@ -20,9 +22,29 @@ import { runDeepSearchJob } from "./run.ts"
 import type { DeepSearchJobEvent } from "./schemas.ts"
 import { loadDeepSearchExecutionSnapshot } from "./store.ts"
 
+const modelUserId = "test-user-id"
+
+beforeEach(() => {
+  setDeepSeekApiKey(modelUserId, "test-user-deepseek-key")
+  replaceLlmModelAssignments(modelUserId, {
+    small: {
+      provider: "deepseek",
+      modelId: "deepseek-v4-flash",
+      reasoningEffort: "medium",
+    },
+    big: {
+      provider: "deepseek",
+      modelId: "deepseek-v4-pro",
+      reasoningEffort: "xhigh",
+    },
+  })
+})
+
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
+  db.delete(llmModelSettings).where(eq(llmModelSettings.userId, modelUserId)).run()
+  deleteDeepSeekApiKey(modelUserId)
 })
 
 it("persists two rounds of broader discovery and promotes the cumulative inventory without candidate research", async () => {

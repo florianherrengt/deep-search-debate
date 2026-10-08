@@ -8,6 +8,11 @@ const mocks = vi.hoisted(() => ({
   startPiLlmStream: vi.fn((_runtime: unknown, _request: unknown) => ({
     stream: {},
   })),
+  getDeepSeekApiKey: vi.fn<() => string | undefined>(() => "user-deepseek-key"),
+}))
+
+vi.mock("../deepseekConnection/keysRepository.ts", () => ({
+  getDeepSeekApiKey: mocks.getDeepSeekApiKey,
 }))
 
 vi.mock("../openaiConnection/codexGeneration.ts", () => ({
@@ -30,7 +35,6 @@ function requireRecord(value: unknown): Record<string, unknown> {
 
 const deepSeekSnapshot: LlmModelAssignmentSnapshot = {
   role: "small",
-  explicit: true,
   assignment: {
     provider: "deepseek",
     modelId: "deepseek-v4-flash",
@@ -40,7 +44,6 @@ const deepSeekSnapshot: LlmModelAssignmentSnapshot = {
 
 const openAiSnapshot: LlmModelAssignmentSnapshot = {
   role: "big",
-  explicit: true,
   assignment: {
     provider: "openai",
     modelId: "gpt-5.6-sol",
@@ -50,21 +53,6 @@ const openAiSnapshot: LlmModelAssignmentSnapshot = {
 
 describe("configured Pi LLM provider", () => {
   beforeEach(() => vi.clearAllMocks())
-
-  it("uses Pi's DeepSeek models and enables exact reasoning effort passthrough", () => {
-    const llm = createConfiguredLlm({
-      provider: "deepseek",
-      model: "deepseek-v4-flash",
-      apiKey: "deepseek-key",
-    })
-
-    expect(llm.model().id).toBe("deepseek-v4-flash")
-    expect(llm.model("deepseek-v4-pro").id).toBe("deepseek-v4-pro")
-    expect(llm.model().compat).toMatchObject({
-      thinkingFormat: "deepseek",
-      supportsReasoningEffort: true,
-    })
-  })
 
   it("preserves the configured arbitrary Zen model in Pi", () => {
     const llm = createConfiguredLlm({
@@ -115,8 +103,12 @@ describe("configured Pi LLM provider", () => {
     })
   })
 
-  it("uses Pi for an explicit DeepSeek choice while OpenAI is connected", async () => {
-    const reservation = await reserveLlmCall("connected-user", deepSeekSnapshot)
+  it("uses the user's DeepSeek key and supports a selected V4.1 ID", async () => {
+    const selected = {
+      ...deepSeekSnapshot,
+      assignment: { ...deepSeekSnapshot.assignment, modelId: "deepseek-v4.1" },
+    }
+    const reservation = await reserveLlmCall("connected-user", selected)
     const call = await reservation.resolve()
     const request = { system: "system", prompt: "prompt" }
 
@@ -125,16 +117,30 @@ describe("configured Pi LLM provider", () => {
     expect(mocks.reserveCodexGeneration).not.toHaveBeenCalled()
     expect(call).toMatchObject({
       provider: "server",
-      modelId: "deepseek-v4-flash",
+      modelId: "deepseek-v4.1",
     })
     expect(mocks.startPiLlmStream).toHaveBeenCalledOnce()
     const [runtime, sentRequest] = mocks.startPiLlmStream.mock.calls[0] ?? []
     const runtimeRecord = requireRecord(runtime)
     expect(runtimeRecord.provider).toBe("server")
-    expect(runtimeRecord.apiKey).toBeTypeOf("string")
+    expect(runtimeRecord.apiKey).toBe("user-deepseek-key")
     expect(runtimeRecord.reasoningEffort).toBe("medium")
-    expect(requireRecord(runtimeRecord.model).id).toBe("deepseek-v4-flash")
+    expect(requireRecord(runtimeRecord.model)).toMatchObject({
+      id: "deepseek-v4.1",
+      provider: "deepseek",
+      compat: { thinkingFormat: "deepseek", supportsReasoningEffort: true },
+    })
     expect(sentRequest).toEqual(request)
+  })
+
+  it("rechecks the user's DeepSeek key when a queued call resolves", async () => {
+    const reservation = await reserveLlmCall("connected-user", deepSeekSnapshot)
+    mocks.getDeepSeekApiKey.mockReturnValueOnce(undefined)
+
+    expect(() => reservation.resolve()).toThrow(expect.objectContaining({
+      code: "deepseek-key-required",
+    }))
+    expect(mocks.startPiLlmStream).not.toHaveBeenCalled()
   })
 
   it("fails an explicit OpenAI choice when the connection is absent", async () => {
@@ -157,19 +163,4 @@ describe("configured Pi LLM provider", () => {
     })
   })
 
-  it("falls back only for an unavailable implicit OpenAI recommendation", async () => {
-    const implicit = { ...openAiSnapshot, explicit: false } as const
-    mocks.reserveCodexGeneration.mockResolvedValueOnce({
-      acquire: vi.fn(() => Promise.resolve(undefined)),
-      release: vi.fn(),
-    } as never)
-
-    const reservation = await reserveLlmCall("connected-user", implicit)
-    const call = await reservation.resolve()
-
-    expect(call).toMatchObject({
-      provider: "server",
-      modelId: "deepseek-v4-pro",
-    })
-  })
 })

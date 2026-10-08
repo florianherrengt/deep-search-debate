@@ -1,7 +1,7 @@
 import z from "zod"
-import { ApiError, type OpenAiCodexErrorCode } from "./api.ts"
+import { ApiError, type ApiErrorCode } from "./api.ts"
 
-const openAiCodexErrorMessages: Record<OpenAiCodexErrorCode, string> = {
+const apiErrorMessages: Record<ApiErrorCode, string> = {
   "authentication-required":
     "Your OpenAI connection has expired. Disconnect it and connect again.",
   "rate-limited":
@@ -15,12 +15,14 @@ const openAiCodexErrorMessages: Record<OpenAiCodexErrorCode, string> = {
   timeout: "OpenAI Codex timed out. Try again.",
   "tool-blocked":
     "OpenAI Codex attempted to use a tool that RethinkLoop does not permit.",
+  "model-selection-required":
+    "Choose Small and Big models in Settings before starting work.",
 }
 
 export function getRequestErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.code !== undefined) {
-      return openAiCodexErrorMessages[error.code]
+      return apiErrorMessages[error.code]
     }
     if (error.status === 403) {
       return "You do not have permission to access this resource."

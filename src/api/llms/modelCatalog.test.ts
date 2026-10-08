@@ -3,6 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({
   hasOpenAiCodexConnection: vi.fn(),
   listAvailableCodexModels: vi.fn(),
+  getDeepSeekApiKey: vi.fn(),
+  hasDeepSeekApiKey: vi.fn(),
+}))
+
+vi.mock("../deepseekConnection/keysRepository.ts", () => ({
+  getDeepSeekApiKey: mocks.getDeepSeekApiKey,
+  hasDeepSeekApiKey: mocks.hasDeepSeekApiKey,
 }))
 
 vi.mock("../openaiConnection/codexGeneration.ts", () => ({
@@ -29,7 +36,6 @@ import {
   InvalidLlmModelAssignmentError,
   putLlmModelSettings,
 } from "./modelCatalog.ts"
-import { deepSeekRecommendedAssignments } from "./modelSettings.ts"
 
 const userId = "test-user-id"
 const originalFetch = globalThis.fetch
@@ -65,6 +71,8 @@ beforeEach(() => {
   db.delete(llmModelSettings).run()
   db.delete(openAiCodexConnections).run()
   mocks.hasOpenAiCodexConnection.mockReturnValue(false)
+  mocks.hasDeepSeekApiKey.mockReturnValue(true)
+  mocks.getDeepSeekApiKey.mockReturnValue("user-deepseek-key")
   mocks.listAvailableCodexModels.mockResolvedValue(undefined)
   mockDeepSeekModels(
     "deepseek-v4-flash",
@@ -80,28 +88,45 @@ afterEach(() => {
 })
 
 describe("LLM model catalog", () => {
-  it("returns only priced DeepSeek models and DeepSeek recommendations", async () => {
+  it("lists and saves DeepSeek V4.1 when the user's API advertises it", async () => {
+    mockDeepSeekModels("deepseek-v4.1")
+    const snapshot = await getLlmModelSettingsSnapshot(userId)
+    expect(snapshot.models.map((model) => model.modelId)).toEqual(["deepseek-v4.1"])
+
+    const assignment = {
+      provider: "deepseek" as const,
+      modelId: "deepseek-v4.1",
+      reasoningEffort: "medium" as const,
+    }
+    const saved = await putLlmModelSettings(userId, {
+      small: assignment,
+      big: assignment,
+    })
+    expect(saved.assignments).toEqual({ small: assignment, big: assignment })
+  })
+
+  it("returns all DeepSeek models in API order without default assignments", async () => {
     const snapshot = await getLlmModelSettingsSnapshot(userId)
 
     expect(snapshot.models.map((model) => model.modelId)).toEqual([
       "deepseek-v4-flash",
       "deepseek-v4-pro",
+      "unsupported-vision-model",
     ])
     expect(snapshot.availability).toEqual({
       deepseek: { status: "available" },
       openai: { status: "disconnected" },
     })
-    expect(snapshot.assignments).toEqual(deepSeekRecommendedAssignments)
-    expect(snapshot.recommendations).toEqual(deepSeekRecommendedAssignments)
+    expect(snapshot.assignments).toBeNull()
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "https://api.deepseek.com/models",
       expect.objectContaining({
-        headers: { authorization: "Bearer test-key" },
+        headers: { authorization: "Bearer user-deepseek-key" },
       }),
     )
   })
 
-  it("recommends the exact preferred OpenAI models only when each effort is advertised", async () => {
+  it("uses OpenAI names and advertised efforts", async () => {
     mocks.hasOpenAiCodexConnection.mockReturnValue(true)
     mocks.listAvailableCodexModels.mockResolvedValue([
       {
@@ -127,18 +152,6 @@ describe("LLM model catalog", () => {
 
     const snapshot = await getLlmModelSettingsSnapshot(userId)
 
-    expect(snapshot.recommendations).toEqual({
-      small: {
-        provider: "openai",
-        modelId: "gpt-5.6-luna",
-        reasoningEffort: "medium",
-      },
-      big: {
-        provider: "openai",
-        modelId: "gpt-5.6-sol",
-        reasoningEffort: "xhigh",
-      },
-    })
     expect(snapshot.models).toContainEqual({
       provider: "openai",
       providerLabel: "OpenAI",
@@ -147,6 +160,50 @@ describe("LLM model catalog", () => {
       description: "Fast model",
       reasoningEfforts: ["low", "medium"],
     })
+    expect(snapshot.models.slice(0, 2).map((model) => model.provider)).toEqual([
+      "openai",
+      "openai",
+    ])
+  })
+
+  it("uses DeepSeek names and effort metadata when provided", async () => {
+    globalThis.fetch = vi.fn(() => Promise.resolve(new Response(JSON.stringify({
+      data: [{
+        id: "deepseek-new",
+        name: "New model label",
+        reasoning_efforts: ["none", "high"],
+      }],
+    }), { status: 200 })))
+
+    const snapshot = await getLlmModelSettingsSnapshot(userId)
+
+    expect(snapshot.models).toContainEqual({
+      provider: "deepseek",
+      providerLabel: "DeepSeek",
+      modelId: "deepseek-new",
+      label: "New model label",
+      reasoningEfforts: ["none", "high"],
+    })
+  })
+
+  it("keeps models selectable when advertised reasoning efforts are empty or unknown", async () => {
+    globalThis.fetch = vi.fn(() => Promise.resolve(new Response(JSON.stringify({
+      data: [
+        { id: "deepseek-empty-efforts", reasoning_efforts: [] },
+        { id: "deepseek-unknown-efforts", reasoning_efforts: ["future-effort"] },
+      ],
+    }), { status: 200 })))
+
+    const snapshot = await getLlmModelSettingsSnapshot(userId)
+
+    expect(snapshot.models.map((model) => model.modelId)).toEqual([
+      "deepseek-empty-efforts",
+      "deepseek-unknown-efforts",
+    ])
+    expect(snapshot.models.map((model) => model.reasoningEfforts)).toEqual([
+      ["none", "low", "medium", "high", "xhigh", "max"],
+      ["none", "low", "medium", "high", "xhigh", "max"],
+    ])
   })
 
   it("keeps Settings responsive when OpenAI model discovery stalls", async () => {
@@ -179,6 +236,7 @@ describe("LLM model catalog", () => {
       expect(snapshot.models.map((model) => model.modelId)).toEqual([
         "deepseek-v4-flash",
         "deepseek-v4-pro",
+        "unsupported-vision-model",
       ])
       expect(snapshot.availability.openai).toEqual({
         status: "unavailable",
@@ -222,6 +280,7 @@ describe("LLM model catalog", () => {
       expect(snapshot?.models.map((model) => model.modelId)).toEqual([
         "deepseek-v4-flash",
         "deepseek-v4-pro",
+        "unsupported-vision-model",
       ])
       expect(snapshot?.availability.openai).toEqual({
         status: "unavailable",
@@ -295,5 +354,15 @@ describe("LLM model catalog", () => {
       },
     })
     expect(JSON.stringify(snapshot)).not.toContain("upstream-secret")
+  })
+
+  it("does not discover DeepSeek without the user's saved key", async () => {
+    mocks.hasDeepSeekApiKey.mockReturnValue(false)
+
+    const snapshot = await getLlmModelSettingsSnapshot(userId)
+
+    expect(snapshot.availability.deepseek).toEqual({ status: "disconnected" })
+    expect(snapshot.models.map((model) => model.provider)).not.toContain("deepseek")
+    expect(globalThis.fetch).not.toHaveBeenCalled()
   })
 })

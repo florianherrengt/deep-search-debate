@@ -22,6 +22,7 @@ import {
 import { getDebateJobSnapshot } from "./snapshot.ts"
 import type { AppEnv } from "../../types/auth.ts"
 import { debateJobReadScope } from "../readAccess.ts"
+import { modelSelectionRequiredError, needsModelSelection } from "../modelSelectionGuard.ts"
 import { ideaJobEventParamsSchema } from "../ideas/schemas.ts"
 import {
   resultFeedbackInputSchema,
@@ -128,6 +129,9 @@ export function debateJobs(app: Hono<AppEnv>, manager: DebateJobManager): void {
     "/idea-jobs/:ideaJobId/debate",
     zValidator("param", ideaJobEventParamsSchema),
     async (c) => {
+      if (needsModelSelection(c.get("userId"))) {
+        return c.json(modelSelectionRequiredError, 409)
+      }
       const { debateJobId, slug, completion } = await manager.startFromIdeas(
         c.get("userId"), c.req.valid("param").ideaJobId,
       )
@@ -264,6 +268,9 @@ export function debateJobs(app: Hono<AppEnv>, manager: DebateJobManager): void {
       if (persisted.status === "completed") {
         return c.json({ error: "Completed debate jobs cannot be resumed" }, 409)
       }
+      if (needsModelSelection(c.get("userId"))) {
+        return c.json(modelSelectionRequiredError, 409)
+      }
       const { completion } = manager.resumeExisting(debateJobId, {
         userId: c.get("userId"),
       })
@@ -276,6 +283,9 @@ export function debateJobs(app: Hono<AppEnv>, manager: DebateJobManager): void {
     "/debate-jobs",
     zValidator("json", createDebateJobInputSchema),
     async (c) => {
+      if (needsModelSelection(c.get("userId"))) {
+        return c.json(modelSelectionRequiredError, 409)
+      }
       const { debateJobId, slug, completion } = await manager.start(
         c.get("userId"),
         c.req.valid("json"),

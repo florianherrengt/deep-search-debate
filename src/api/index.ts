@@ -36,6 +36,7 @@ import { waitlistRoutes } from "./routes/waitlist.ts"
 import { openAiConnectionRoutes } from "./routes/openAiConnection.ts"
 import { OpenAiCodexError } from "./openaiConnection/codexErrors.ts"
 import { llmModelSettingsRoutes } from "./routes/llmModelSettings.ts"
+import { deepSeekConnectionRoutes } from "./routes/deepSeekConnection.ts"
 
 export function handleRequestError(
   error: Error,
@@ -134,6 +135,7 @@ exampleDebateReads(api)
 api.use("*", requireSession)
 creditRoutes(api)
 openAiConnectionRoutes(api)
+deepSeekConnectionRoutes(api)
 llmModelSettingsRoutes(api)
 if (config.auth.debugUser.enabled) debug(api)
 streams(api)

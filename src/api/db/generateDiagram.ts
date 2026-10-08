@@ -22,6 +22,8 @@ const dbml = `${generated.replace(
 // openai_codex_connections requires a non-empty trimmed connection ID,
 // non-empty ciphertext, a 12-byte nonce, and a 16-byte authentication tag; its
 // three encrypted values must be BLOBs.
+// deepseek_api_keys stores one encrypted key per user, with non-empty
+// ciphertext, a 12-byte nonce, and a 16-byte authentication tag; all are BLOBs.
 // llm_model_settings restricts both providers to deepseek or openai, restricts
 // both reasoning efforts to none, minimal, low, medium, high, xhigh, max, or
 // ultra, and requires both model IDs to remain non-empty after trimming.

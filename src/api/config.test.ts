@@ -416,40 +416,21 @@ describe("config", () => {
     )
   })
 
-  it("requires the DeepSeek API key environment variable", async () => {
-    vi.stubEnv("LLM_PROVIDER", "deepseek")
-    vi.stubEnv("DEEPSEEK_API_KEY", undefined)
-    vi.resetModules()
-
-    await expect(import("./config.ts")).rejects.toThrow("DEEPSEEK_API_KEY")
-  })
-
-  it("requires an explicit LLM provider", async () => {
+  it("does not require a server-wide LLM provider or model", async () => {
     vi.stubEnv("LLM_PROVIDER", undefined)
-    vi.resetModules()
-
-    await expect(import("./config.ts")).rejects.toThrow("LLM_PROVIDER")
-  })
-
-  it("rejects an unsupported LLM provider", async () => {
-    vi.stubEnv("LLM_PROVIDER", "unsupported")
-    vi.resetModules()
-
-    await expect(import("./config.ts")).rejects.toThrow("LLM_PROVIDER")
-  })
-
-  it("requires an explicit LLM model", async () => {
     vi.stubEnv("LLM_MODEL_NAME", undefined)
     vi.resetModules()
 
-    await expect(import("./config.ts")).rejects.toThrow("LLM_MODEL_NAME")
+    const { config } = await import("./config.ts")
+    expect(config.llm).toBeUndefined()
   })
 
-  it("rejects a blank LLM model", async () => {
-    vi.stubEnv("LLM_MODEL_NAME", "   ")
+  it("ignores the legacy DeepSeek server provider setting", async () => {
+    vi.stubEnv("LLM_PROVIDER", "deepseek")
     vi.resetModules()
 
-    await expect(import("./config.ts")).rejects.toThrow("LLM_MODEL_NAME")
+    const { config } = await import("./config.ts")
+    expect(config.llm).toBeUndefined()
   })
 
   it("selects OpenCode Zen without requiring a DeepSeek key", async () => {
@@ -457,7 +438,6 @@ describe("config", () => {
     vi.stubEnv("LLM_PROVIDER", "zen")
     vi.stubEnv("LLM_MODEL_NAME", "deepseek-v4-flash-free")
     vi.stubEnv("OPENCODE_ZEN_API_KEY", "environment-zen-key")
-    vi.stubEnv("DEEPSEEK_API_KEY", undefined)
     vi.resetModules()
 
     const { config } = await import("./config.ts")
@@ -474,7 +454,6 @@ describe("config", () => {
     vi.stubEnv("NODE_ENV", "development")
     vi.stubEnv("LLM_PROVIDER", "zen")
     vi.stubEnv("OPENCODE_ZEN_API_KEY", " ")
-    vi.stubEnv("DEEPSEEK_API_KEY", "unused-deepseek-key")
     vi.resetModules()
 
     await expect(import("./config.ts")).rejects.toThrow(
@@ -485,13 +464,13 @@ describe("config", () => {
   it("allows an unselected provider key to be blank", async () => {
     vi.stubEnv("NODE_ENV", "development")
     vi.stubEnv("LLM_PROVIDER", "zen")
+    vi.stubEnv("LLM_MODEL_NAME", "test-model")
     vi.stubEnv("OPENCODE_ZEN_API_KEY", "environment-zen-key")
-    vi.stubEnv("DEEPSEEK_API_KEY", "   ")
     vi.resetModules()
 
     const { config } = await import("./config.ts")
 
-    expect(config.llm.provider).toBe("zen")
+    expect(config.llm?.provider).toBe("zen")
   })
 
   it("rejects OpenCode Zen outside development", async () => {
@@ -503,32 +482,6 @@ describe("config", () => {
 
     await expect(import("./config.ts")).rejects.toThrow(
       "LLM_PROVIDER=zen is available only in development",
-    )
-  })
-
-  it("allows the priced DeepSeek Pro model", async () => {
-    vi.stubEnv("LLM_PROVIDER", "deepseek")
-    vi.stubEnv("LLM_MODEL_NAME", "deepseek-v4-pro")
-    vi.stubEnv("DEEPSEEK_API_KEY", "environment-deepseek-key")
-    vi.resetModules()
-
-    const { config } = await import("./config.ts")
-
-    expect(config.llm).toEqual({
-      provider: "deepseek",
-      model: "deepseek-v4-pro",
-      apiKey: "environment-deepseek-key",
-    })
-  })
-
-  it("rejects an unpriced DeepSeek model", async () => {
-    vi.stubEnv("LLM_PROVIDER", "deepseek")
-    vi.stubEnv("LLM_MODEL_NAME", "unsupported-deepseek-model")
-    vi.stubEnv("DEEPSEEK_API_KEY", "environment-deepseek-key")
-    vi.resetModules()
-
-    await expect(import("./config.ts")).rejects.toThrow(
-      "LLM_MODEL_NAME must be deepseek-v4-flash or deepseek-v4-pro when LLM_PROVIDER=deepseek",
     )
   })
 
@@ -548,26 +501,21 @@ describe("config", () => {
     expect(config.auth.github.clientId).toBe("environment-github-client-id")
   })
 
-  it("uses a nonblank environment secret", async () => {
-    vi.stubEnv("LLM_PROVIDER", "deepseek")
-    vi.stubEnv("DEEPSEEK_API_KEY", "environment-deepseek-key")
+  it("allows production without a server-wide DeepSeek key or model", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("BETTER_AUTH_URL", "https://app.example.com")
+    vi.stubEnv("BETTER_AUTH_SECRET", "production-secret-with-at-least-32-characters")
+    vi.stubEnv("AUTH_DEBUG_USER_ENABLED", "false")
+    vi.stubEnv("SERPER_API_KEY", "production-serper-key")
+    vi.stubEnv("AUTH_ADMIN_EMAIL", "admin@example.com")
+    vi.stubEnv("GITHUB_CLIENT_ID", "production-client-id")
+    vi.stubEnv("GITHUB_CLIENT_SECRET", "production-client-secret-that-is-not-placeholder")
+    vi.stubEnv("LLM_PROVIDER", undefined)
+    vi.stubEnv("LLM_MODEL_NAME", undefined)
     vi.resetModules()
 
     const { config } = await import("./config.ts")
-
-    expect(config.llm).toEqual({
-      provider: "deepseek",
-      model: "deepseek-v4-flash",
-      apiKey: "environment-deepseek-key",
-    })
-  })
-
-  it("rejects a blank environment secret", async () => {
-    vi.stubEnv("LLM_PROVIDER", "deepseek")
-    vi.stubEnv("DEEPSEEK_API_KEY", "   ")
-    vi.resetModules()
-
-    await expect(import("./config.ts")).rejects.toThrow("DEEPSEEK_API_KEY")
+    expect(config.llm).toBeUndefined()
   })
 
   it("uses bounded ScrapingAnt retrieval defaults", async () => {

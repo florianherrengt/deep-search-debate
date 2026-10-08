@@ -1,11 +1,9 @@
 import PQueue from "p-queue"
 import z from "zod"
 import { config } from "../config.ts"
-import { requirePositiveCreditBalance } from "../credits.ts"
 import { addAbortableQueueTask } from "../helpers/addAbortableQueueTask.ts"
 import { secureJsonParse } from "../helpers/secureJsonParse.ts"
 import { classifyCodexError } from "../openaiConnection/codexErrors.ts"
-import { calculateLlmCredits } from "./costs/index.ts"
 import { PromptName, loadPrompt } from "./prompts.ts"
 import { snapshotLlmModelAssignment } from "./modelSettings.ts"
 import {
@@ -142,10 +140,6 @@ function generationRegistrationMetadata(
     modelId: call.modelId,
     promptName,
     provider: call.provider,
-    ...(call.provider === "server" && {
-      calculateCredits: (usage: Parameters<typeof calculateLlmCredits>[2]) =>
-        calculateLlmCredits(config.llm, call.modelId, usage),
-    }),
   }
 }
 
@@ -185,9 +179,6 @@ export async function generateTextStream(
     params.promptName,
     params.reasoning,
     async (call) => {
-      if (call.provider === "server") {
-        requirePositiveCreditBalance(params.userId)
-      }
       const system = await loadPrompt(params.promptName)
       const prepared = prepareTextGeneration(params.userId, params.owner, {
         onRegistered: params.onRegistered,
@@ -250,9 +241,6 @@ export async function generateArrayStream<Element>(
     params.promptName,
     "disabled",
     async (call) => {
-      if (call.provider === "server") {
-        requirePositiveCreditBalance(params.userId)
-      }
       const system = await loadStructuredPrompt(
         params.promptName,
         outputSchema,
@@ -325,9 +313,6 @@ export async function generateObjectStream<Result>(
     params.promptName,
     params.reasoning ?? "disabled",
     async (call) => {
-      if (call.provider === "server") {
-        requirePositiveCreditBalance(params.userId)
-      }
       const system = await loadStructuredPrompt(
         params.promptName,
         params.schema,

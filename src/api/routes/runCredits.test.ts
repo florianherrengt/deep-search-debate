@@ -141,7 +141,7 @@ describe("derived run credits", () => {
     db.delete(llmGenerations).run()
   })
 
-  it("sums each independent charge leaf exactly and exposes totals only to completed owners", async () => {
+  it("sums search and page charges without including LLM usage", async () => {
     db.insert(debateJobs)
       .values({
         debateJobId,
@@ -237,10 +237,10 @@ describe("derived run credits", () => {
       { llm: [31, 37], queries: [41, 43], pages: [47, 53] },
     )
 
-    expect(getDeepSearchCreditsUsed(firstDeepSearchJobId)).toBe(112)
-    expect(getDeepSearchCreditsUsed(secondDeepSearchJobId)).toBe(252)
-    expect(getIdeaCreditsUsed(ideaJobId)).toBe(376)
-    expect(getDebateCreditsUsed(debateJobId)).toBe(381)
+    expect(getDeepSearchCreditsUsed(firstDeepSearchJobId)).toBe(88)
+    expect(getDeepSearchCreditsUsed(secondDeepSearchJobId)).toBe(184)
+    expect(getIdeaCreditsUsed(ideaJobId)).toBe(272)
+    expect(getDebateCreditsUsed(debateJobId)).toBe(272)
 
     const runningOwner = createReadApp("test-user-id")
     await expect(
@@ -295,13 +295,13 @@ describe("derived run credits", () => {
     const completedOwner = createReadApp("test-user-id")
     await expect(
       (await completedOwner.request("/deep-search-jobs/credit-test-first-child")).json(),
-    ).resolves.toMatchObject({ deepSearchJob: { creditsUsed: 112 } })
+    ).resolves.toMatchObject({ deepSearchJob: { creditsUsed: 88 } })
     await expect(
       (await completedOwner.request("/idea-jobs/credit-test")).json(),
-    ).resolves.toMatchObject({ ideaJob: { creditsUsed: 376 } })
+    ).resolves.toMatchObject({ ideaJob: { creditsUsed: 272 } })
     await expect(
       (await completedOwner.request("/debate-jobs/credit-test")).json(),
-    ).resolves.toMatchObject({ debateJob: { creditsUsed: 381 } })
+    ).resolves.toMatchObject({ debateJob: { creditsUsed: 272 } })
 
     const anonymous = createReadApp(null)
     await expect(

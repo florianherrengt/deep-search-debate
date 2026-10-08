@@ -1,4 +1,5 @@
 export * from "./deepSearchJobs.ts"
+export * from "./deepSeekApiKeys.ts"
 export * from "./deepSearchQueries.ts"
 export * from "./deepSearchResults.ts"
 export * from "./debateJobs.ts"

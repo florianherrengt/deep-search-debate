@@ -15,7 +15,7 @@ vi.mock("../../llms/generateText.ts", () => ({
 
 import { eq } from "drizzle-orm"
 import { db } from "../../db/index.ts"
-import { ideaJobs as ideaJobsTable } from "../../db/schema/index.ts"
+import { ideaJobs as ideaJobsTable, llmModelSettings } from "../../db/schema/index.ts"
 import { createDeepSearchJobManager } from "../deepSearch/manager.ts"
 import { ideaJobReads, ideaJobs } from "./index.ts"
 import { createIdeaJobManager } from "./manager.ts"
@@ -42,6 +42,15 @@ describe("idea creation integration", () => {
       new Error("Provider boundary failure"),
     )
     db.delete(ideaJobsTable).run()
+    db.insert(llmModelSettings).values({
+      userId: "test-user-id",
+      smallProvider: "deepseek",
+      smallModelId: "deepseek-v4-flash",
+      smallReasoningEffort: "medium",
+      bigProvider: "deepseek",
+      bigModelId: "deepseek-v4-pro",
+      bigReasoningEffort: "high",
+    }).onConflictDoNothing().run()
   })
 
   it("persists custom creation settings through the real idea workflow", async () => {

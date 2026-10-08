@@ -6,12 +6,16 @@ import {
   within,
 } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { MemoryRouter } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   deleteOpenAiConnection: vi.fn(),
+  deleteDeepSeekKey: vi.fn(),
+  getDeepSeekConnection: vi.fn(),
   getOpenAiConnection: vi.fn(),
   getLlmModelSettings: vi.fn(),
+  saveDeepSeekKey: vi.fn(),
   startOpenAiConnection: vi.fn(),
   updateLlmModelSettings: vi.fn(),
 }))
@@ -21,6 +25,13 @@ vi.mock("../../lib/openAiConnection.ts", async (importOriginal) => ({
   deleteOpenAiConnection: mocks.deleteOpenAiConnection,
   getOpenAiConnection: mocks.getOpenAiConnection,
   startOpenAiConnection: mocks.startOpenAiConnection,
+}))
+
+vi.mock("../../lib/deepSeekConnection.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/deepSeekConnection.ts")>()),
+  deleteDeepSeekKey: mocks.deleteDeepSeekKey,
+  getDeepSeekConnection: mocks.getDeepSeekConnection,
+  saveDeepSeekKey: mocks.saveDeepSeekKey,
 }))
 
 vi.mock("../../lib/llmModelSettings.ts", async (importOriginal) => ({
@@ -59,18 +70,6 @@ const deepSeekSettings = {
     },
   },
   assignments: {
-    small: {
-      provider: "deepseek" as const,
-      modelId: "deepseek-v4-flash",
-      reasoningEffort: "medium" as const,
-    },
-    big: {
-      provider: "deepseek" as const,
-      modelId: "deepseek-v4-pro",
-      reasoningEffort: "xhigh" as const,
-    },
-  },
-  recommendations: {
     small: {
       provider: "deepseek" as const,
       modelId: "deepseek-v4-flash",
@@ -121,18 +120,6 @@ const connectedSettings = {
       reasoningEffort: "xhigh" as const,
     },
   },
-  recommendations: {
-    small: {
-      provider: "openai" as const,
-      modelId: "gpt-5.6-luna",
-      reasoningEffort: "medium" as const,
-    },
-    big: {
-      provider: "openai" as const,
-      modelId: "gpt-5.6-sol",
-      reasoningEffort: "xhigh" as const,
-    },
-  },
 }
 
 function renderSettings() {
@@ -145,7 +132,9 @@ function renderSettings() {
   return {
     ...render(
       <QueryClientProvider client={queryClient}>
-        <Settings />
+        <MemoryRouter initialEntries={["/settings"]}>
+          <Settings />
+        </MemoryRouter>
       </QueryClientProvider>,
     ),
     queryClient,
@@ -161,6 +150,9 @@ describe("Settings", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.deleteOpenAiConnection.mockResolvedValue({ status: "disconnected" })
+    mocks.deleteDeepSeekKey.mockResolvedValue({ hasKey: false })
+    mocks.getDeepSeekConnection.mockResolvedValue({ hasKey: true })
+    mocks.saveDeepSeekKey.mockResolvedValue({ hasKey: true })
     mocks.getOpenAiConnection.mockResolvedValue({ status: "disconnected" })
     mocks.getLlmModelSettings.mockResolvedValue(deepSeekSettings)
     mocks.startOpenAiConnection.mockResolvedValue({
@@ -281,7 +273,7 @@ describe("Settings", () => {
     expect(document.documentElement.dataset.seoPage).toBe("/settings")
   })
 
-  it("shows the recommended provider-labelled Small and Big defaults", async () => {
+  it("shows saved Small and Big choices grouped OpenAI then DeepSeek", async () => {
     mocks.getOpenAiConnection.mockResolvedValue({ status: "connected" })
     mocks.getLlmModelSettings.mockResolvedValue(connectedSettings)
     renderSettings()
@@ -298,27 +290,72 @@ describe("Settings", () => {
     ).toBeVisible()
     expect(
       screen.getByRole("combobox", { name: "Small model" }),
-    ).toHaveTextContent("GPT-5.6 Luna — OpenAI (Recommended)")
+    ).toHaveTextContent("GPT-5.6 Luna")
     expect(
       screen.getByRole("combobox", { name: "Big model" }),
-    ).toHaveTextContent("GPT-5.6 Sol — OpenAI (Recommended)")
+    ).toHaveTextContent("GPT-5.6 Sol")
     expect(
       screen.getByRole("combobox", { name: "Small reasoning" }),
-    ).toHaveTextContent("Medium (Recommended)")
+    ).toHaveTextContent("Medium")
     expect(
       screen.getByRole("combobox", { name: "Big reasoning" }),
-    ).toHaveTextContent("Extra high (Recommended)")
+    ).toHaveTextContent("Extra high")
 
     fireEvent.mouseDown(screen.getByRole("combobox", { name: "Small model" }))
     expect(
       screen.getByRole("option", {
-        name: "GPT-5.6 Luna — OpenAI (Recommended)",
+        name: "GPT-5.6 Luna",
       }),
     ).toBeVisible()
     expect(
-      screen.getByRole("option", { name: "DeepSeek V4 Flash — DeepSeek" }),
+      screen.getByRole("option", { name: "DeepSeek V4 Flash" }),
     ).toBeVisible()
+    expect(
+      within(screen.getByRole("listbox")).getAllByRole("option").map((option) => option.textContent),
+    ).toEqual([
+      "Select a model",
+      "OpenAI",
+      "GPT-5.6 Luna",
+      "GPT-5.6 Sol",
+      "DeepSeek",
+      "DeepSeek V4 Flash",
+      "DeepSeek V4 Pro",
+    ])
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" })
+  })
+
+  it("requires explicit model choices for both roles before saving", async () => {
+    mocks.getLlmModelSettings.mockResolvedValue({ ...connectedSettings, assignments: null })
+    mocks.updateLlmModelSettings.mockResolvedValue(connectedSettings)
+    renderSettings()
+
+    expect(await screen.findByText(/Choose a model and reasoning level for both Small and Big/)).toBeVisible()
+    expect(screen.getByRole("button", { name: "Save model choices" })).toBeDisabled()
+    await choose("Small model", "GPT-5.6 Luna")
+    expect(screen.getByRole("button", { name: "Save model choices" })).toBeDisabled()
+    await choose("Big model", "DeepSeek V4 Pro")
+    expect(screen.getByRole("button", { name: "Save model choices" })).toBeEnabled()
+    fireEvent.click(screen.getByRole("button", { name: "Save model choices" }))
+
+    await waitFor(() => expect(mocks.updateLlmModelSettings).toHaveBeenCalledOnce())
+    expect(mocks.updateLlmModelSettings.mock.calls[0]?.[0]).toEqual({
+      small: { provider: "openai", modelId: "gpt-5.6-luna", reasoningEffort: "low" },
+      big: { provider: "deepseek", modelId: "deepseek-v4-pro", reasoningEffort: "medium" },
+    })
+  })
+
+  it("saves a DeepSeek key without displaying it and refreshes models", async () => {
+    const { queryClient } = renderSettings()
+    const apiKey = "sk-deepseek-test-secret"
+    const input = await screen.findByLabelText("Replace API key")
+    fireEvent.change(input, { target: { value: apiKey } })
+    fireEvent.click(screen.getByRole("button", { name: "Replace key" }))
+
+    await waitFor(() => expect(mocks.saveDeepSeekKey.mock.calls[0]?.[0]).toBe(apiKey))
+    await waitFor(() => expect(mocks.getLlmModelSettings.mock.calls.length).toBeGreaterThan(1))
+    expect(input).toHaveValue("")
+    expect(screen.queryByText(apiKey)).not.toBeInTheDocument()
+    expect(queryClient.getQueryData(["deepseek-connection"])).toEqual({ hasKey: true })
   })
 
   it("saves changed models and reasoning for both roles atomically", async () => {
@@ -343,9 +380,9 @@ describe("Settings", () => {
     renderSettings()
 
     await screen.findByRole("combobox", { name: "Small model" })
-    await choose("Small model", "DeepSeek V4 Pro — DeepSeek")
+    await choose("Small model", "DeepSeek V4 Pro")
     await choose("Small reasoning", "High")
-    await choose("Big model", "GPT-5.6 Luna — OpenAI")
+    await choose("Big model", "GPT-5.6 Luna")
     await choose("Big reasoning", "Low")
     fireEvent.click(screen.getByRole("button", { name: "Save model choices" }))
 
@@ -374,7 +411,7 @@ describe("Settings", () => {
     renderSettings()
 
     await screen.findByRole("combobox", { name: "Small model" })
-    await choose("Small model", "DeepSeek V4 Pro — DeepSeek")
+    await choose("Small model", "DeepSeek V4 Pro")
     await choose("Small reasoning", "High")
     fireEvent.click(screen.getByRole("button", { name: "Save model choices" }))
 
@@ -385,7 +422,7 @@ describe("Settings", () => {
     ).toBeVisible()
     expect(
       screen.getByRole("combobox", { name: "Small model" }),
-    ).toHaveTextContent("DeepSeek V4 Pro — DeepSeek")
+    ).toHaveTextContent("DeepSeek V4 Pro")
     expect(
       screen.getByRole("combobox", { name: "Small reasoning" }),
     ).toHaveTextContent("High")

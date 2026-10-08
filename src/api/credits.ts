@@ -4,8 +4,6 @@ import { config } from "./config.ts"
 import { db } from "./db/index.ts"
 import { user } from "./db/schema/index.ts"
 
-export const MICRO_USD_PER_CREDIT = 1_000
-
 type CreditTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 export class OutOfCreditsError extends Error {

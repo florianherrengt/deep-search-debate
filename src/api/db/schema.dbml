@@ -259,6 +259,13 @@ table deep_search_web_pages {
   }
 }
 
+table deepseek_api_keys {
+  user_id text [pk, not null]
+  api_key_ciphertext blob [not null]
+  api_key_nonce blob [not null]
+  api_key_authentication_tag blob [not null]
+}
+
 table idea_jobs {
   idea_job_id text [pk, not null]
   user_id text [not null]
@@ -514,6 +521,8 @@ ref deep_search_web_pages_summary_generation_id_llm_generations_llm_generation_i
 
 ref deep_search_web_pages_link_selection_generation_id_llm_generations_llm_generation_id_fk: deep_search_web_pages.link_selection_generation_id > llm_generations.llm_generation_id [delete: no action, update: no action]
 
+ref deepseek_api_keys_user_id_user_id_fk: deepseek_api_keys.user_id > user.id [delete: cascade, update: no action]
+
 ref idea_jobs_user_id_user_id_fk: idea_jobs.user_id > user.id [delete: cascade, update: no action]
 
 ref idea_jobs_debate_job_owner_fk: idea_jobs.(debate_job_id, user_id) > debate_jobs.(debate_job_id, user_id) [delete: cascade, update: no action]
@@ -553,6 +562,8 @@ ref session_user_id_user_id_fk: session.user_id > user.id [delete: cascade, upda
 // openai_codex_connections requires a non-empty trimmed connection ID,
 // non-empty ciphertext, a 12-byte nonce, and a 16-byte authentication tag; its
 // three encrypted values must be BLOBs.
+// deepseek_api_keys stores one encrypted key per user, with non-empty
+// ciphertext, a 12-byte nonce, and a 16-byte authentication tag; all are BLOBs.
 // llm_model_settings restricts both providers to deepseek or openai, restricts
 // both reasoning efforts to none, minimal, low, medium, high, xhigh, max, or
 // ultra, and requires both model IDs to remain non-empty after trimming.

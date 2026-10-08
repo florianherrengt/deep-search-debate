@@ -638,7 +638,7 @@ the old attempt is still `running`, its interruption and the link replacement
 commit in that same registration transaction. Completed attempts are parsed and
 reused. Generation terminal settlement also compare-and-swaps from `running`;
 a stale callback that loses that transition observes the persisted outcome and
-cannot debit credits or run the owning-stage completion hook twice.
+cannot run the owning-stage completion hook twice.
 
 Live deltas stay in memory. Completed text, reasoning, status, and errors are
 stored in SQLite. Structural state—rounds, reviews, generated queries, executed

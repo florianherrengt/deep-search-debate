@@ -7,11 +7,11 @@ import {
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek"
 import { opencodeProvider } from "@earendil-works/pi-ai/providers/opencode"
 
-import { config, type LlmConfig } from "../config.ts"
+import type { LlmConfig } from "../config.ts"
+import { getDeepSeekApiKey } from "../deepseekConnection/keysRepository.ts"
 import { OpenAiCodexError } from "../openaiConnection/codexErrors.ts"
 import { reserveCodexGeneration } from "../openaiConnection/codexGeneration.ts"
 import {
-  deepSeekRecommendedAssignments,
   type LlmModelAssignment,
   type LlmModelAssignmentSnapshot,
 } from "./modelSettings.ts"
@@ -30,21 +30,25 @@ type ConfiguredPiLlm = {
   apiKey: string
 }
 
-function requireModel(
-  models: MutableModels,
-  providerId: string,
-  modelId: string,
-): Model<Api> {
-  const model = models.getModel(providerId, modelId)
-  if (!model) throw new Error(`Unsupported ${providerId} model: ${modelId}`)
-  return model
-}
-
 function deepSeekModel(
   models: MutableModels,
   modelId: string,
+  reasoningEffort: LlmModelAssignment["reasoningEffort"],
 ): Model<Api> {
-  const model = requireModel(models, "deepseek", modelId)
+  const template = models.getModel("deepseek", modelId) ??
+    models.getModel("deepseek", "deepseek-v4-flash")
+  if (!template) throw new Error("DeepSeek provider model metadata is unavailable")
+  const model: Model<Api> = {
+    ...template,
+    id: modelId,
+    name: modelId,
+    thinkingLevelMap: {
+      ...template.thinkingLevelMap,
+      ...(reasoningEffort !== "none" && {
+        [reasoningEffort]: reasoningEffort,
+      }),
+    },
+  }
   return {
     ...model,
     compat: {
@@ -76,19 +80,9 @@ function createZenModel(llmConfig: Extract<LlmConfig, { provider: "zen" }>) {
   } as const satisfies Model<"openai-completions">
 }
 
-/** Creates the configured Pi provider while preserving arbitrary Zen model IDs. */
+/** Creates the development Zen provider while preserving arbitrary model IDs. */
 export function createConfiguredLlm(llmConfig: LlmConfig): ConfiguredPiLlm {
   const models = createModels()
-  if (llmConfig.provider === "deepseek") {
-    models.setProvider(deepseekProvider())
-    return {
-      models,
-      model: (modelName = llmConfig.model) =>
-        deepSeekModel(models, modelName),
-      apiKey: llmConfig.apiKey,
-    }
-  }
-
   models.setProvider(opencodeProvider())
   const model = createZenModel(llmConfig)
   return {
@@ -97,8 +91,6 @@ export function createConfiguredLlm(llmConfig: LlmConfig): ConfiguredPiLlm {
     apiKey: llmConfig.apiKey,
   }
 }
-
-const llm = createConfiguredLlm(config.llm)
 
 export type ResolvedLlmCall = {
   provider: "server" | "codex"
@@ -115,22 +107,36 @@ export type LlmCallReservation = {
   release(): void
 }
 
-function resolveServerLlmCall(
-  assignment: LlmModelAssignment = deepSeekRecommendedAssignments.big,
+class DeepSeekKeyRequiredError extends Error {
+  readonly code = "deepseek-key-required"
+
+  constructor() {
+    super("Add a DeepSeek API key before using a DeepSeek model.")
+    this.name = "DeepSeekKeyRequiredError"
+  }
+}
+
+function resolveDeepSeekLlmCall(
+  assignment: LlmModelAssignment,
+  apiKey: string,
 ): ResolvedLlmCall {
-  const model = config.llm.provider === "zen"
-    ? llm.model()
-    : llm.model(assignment.modelId)
+  const models = createModels()
+  models.setProvider(deepseekProvider())
+  const model = deepSeekModel(
+    models,
+    assignment.modelId,
+    assignment.reasoningEffort,
+  )
   return {
     provider: "server",
     modelId: model.id,
     start: (request) =>
       startPiLlmStream(
         {
-          models: llm.models,
+          models,
           model,
           provider: "server",
-          apiKey: llm.apiKey,
+          apiKey,
           reasoningEffort: assignment.reasoningEffort,
         },
         request,
@@ -151,7 +157,9 @@ export async function reserveLlmCall(
       resolve() {
         if (consumed) throw new Error("LLM call reservation was already consumed")
         consumed = true
-        return Promise.resolve(resolveServerLlmCall(snapshot.assignment))
+        const apiKey = getDeepSeekApiKey(userId)
+        if (!apiKey) throw new DeepSeekKeyRequiredError()
+        return Promise.resolve(resolveDeepSeekLlmCall(snapshot.assignment, apiKey))
       },
       release() {
         consumed = true
@@ -164,11 +172,11 @@ export async function reserveLlmCall(
     {
       modelId: snapshot.assignment.modelId,
       reasoningEffort: snapshot.assignment.reasoningEffort,
-      allowUnavailableRecommendationFallback: !snapshot.explicit,
+      allowUnavailableRecommendationFallback: false,
     },
     signal,
   )
-  if (!codexReservation && snapshot.explicit) {
+  if (!codexReservation) {
     throw new OpenAiCodexError("authentication-required")
   }
 
@@ -177,14 +185,9 @@ export async function reserveLlmCall(
     async resolve() {
       if (consumed) throw new Error("LLM call reservation was already consumed")
       consumed = true
-      const codex = await codexReservation?.acquire()
+      const codex = await codexReservation.acquire()
       if (codex) return { ...codex, provider: "codex" }
-      if (snapshot.explicit) {
-        throw new OpenAiCodexError("authentication-required")
-      }
-      return resolveServerLlmCall(
-        deepSeekRecommendedAssignments[snapshot.role],
-      )
+      throw new OpenAiCodexError("authentication-required")
     },
     release() {
       if (consumed) return

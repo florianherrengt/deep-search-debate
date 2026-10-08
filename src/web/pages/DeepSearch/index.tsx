@@ -34,6 +34,7 @@ import { getDeepSearchRoundNumbers } from "./deepSearchPresentation.ts"
 import { useDeepSearchJob } from "../../lib/useDeepSearchJob.ts"
 import { requestResearchStop } from "../../lib/researchCancellation.ts"
 import { requestResearchResume } from "../../lib/researchResumption.ts"
+import { isModelSelectionRequired } from "../../lib/api.ts"
 
 const deepSearchJobsQueryKey = ["deep-search-jobs"] as const
 
@@ -101,6 +102,9 @@ function DeepSearchHistory({ services }: { services: DeepSearchServices }) {
         queryKey: [...deepSearchJobsQueryKey, "list"],
       })
       void navigate(`/deep-search/${slug}`)
+    },
+    onError: (error) => {
+      if (isModelSelectionRequired(error)) void navigate(error.redirectTo ?? "/settings#models")
     },
   })
 
@@ -300,6 +304,7 @@ function DeepSearchDetail({
   services: DeepSearchServices
   slug: string
 }) {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [reconnectKey, setReconnectKey] = useState(0)
   const job = useQuery({
@@ -351,6 +356,9 @@ function DeepSearchDetail({
       void queryClient.invalidateQueries({
         queryKey: [...deepSearchJobsQueryKey, "list"],
       })
+    },
+    onError: (error) => {
+      if (isModelSelectionRequired(error)) void navigate(error.redirectTo ?? "/settings#models")
     },
   })
   const feedback = useMutation({

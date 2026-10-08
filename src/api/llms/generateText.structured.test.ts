@@ -12,17 +12,30 @@ import { zstdDecompressSync } from "node:zlib"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import z from "zod"
 import { researchAnalysisSchema } from "../agents/deep_search/schemas.ts"
+import { db } from "../db/index.ts"
+import { llmModelSettings } from "../db/schema/index.ts"
 
 import {
   generateArrayStream,
   generateObjectStream,
 } from "./generateText.ts"
+import { replaceLlmModelAssignments } from "./modelSettings.ts"
 import { startPiLlmStream, type PiLlmRequest } from "./piGeneration.ts"
 import type { LlmStreamPart, StartedLlmStream } from "./streamTypes.ts"
 
 describe("structured generation", () => {
-  beforeEach(resetGenerateTextMocks)
-  afterEach(() => vi.unstubAllGlobals())
+  beforeEach(() => {
+    resetGenerateTextMocks()
+    db.delete(llmModelSettings).run()
+    replaceLlmModelAssignments("test-user-id", {
+      small: { provider: "deepseek", modelId: "deepseek-v4-pro", reasoningEffort: "none" },
+      big: { provider: "deepseek", modelId: "deepseek-v4-pro", reasoningEffort: "none" },
+    })
+  })
+  afterEach(() => {
+    db.delete(llmModelSettings).run()
+    vi.unstubAllGlobals()
+  })
 
   it("sends nested research URLs without unsupported URI formats through the real Codex transport", async () => {
     const tokenPayload = Buffer.from(JSON.stringify({
@@ -101,7 +114,7 @@ describe("structured generation", () => {
     const prepared = mockPreparedGeneration(completedGenerationHandle(text))
 
     const result = await generateObjectStream({
-      userId: "connected-user-id",
+      userId: "test-user-id",
       owner: { standalone: true },
       prompt: "Analyze this research",
       promptName: "default",
@@ -194,7 +207,7 @@ describe("structured generation", () => {
     ))
 
     const result = await generateArrayStream({
-      userId: "connected-user-id",
+      userId: "test-user-id",
       owner: { standalone: true },
       prompt: "Select sources",
       promptName: "default",
@@ -217,7 +230,7 @@ describe("structured generation", () => {
     mockPreparedGeneration(completedGenerationHandle('{"winnerSlot":0}'))
 
     const result = await generateObjectStream({
-      userId: "connected-user-id",
+      userId: "test-user-id",
       owner: { standalone: true },
       prompt: "Judge this",
       promptName: "default",
@@ -232,7 +245,6 @@ describe("structured generation", () => {
     expect(request?.jsonSchema).toMatchObject({
       properties: { winnerSlot: {} },
     })
-    expect(mocks.requirePositiveCreditBalance).not.toHaveBeenCalled()
     expect(
       (
         mocks.prepareTextGeneration.mock.calls[0]?.[2] as {
@@ -261,7 +273,7 @@ describe("structured generation", () => {
     mocks.loadPrompt.mockResolvedValue("System prompt")
 
     const result = await generateObjectStream({
-      userId: "connected-user-id",
+      userId: "test-user-id",
       owner: { standalone: true },
       prompt: "Judge this",
       promptName: "default",
@@ -300,7 +312,7 @@ describe("structured generation", () => {
       mockPreparedGeneration(completedGenerationHandle(text))
 
       const result = await generateObjectStream({
-        userId: "connected-user-id",
+        userId: "test-user-id",
         owner: { standalone: true },
         prompt: "Analyze this research",
         promptName: "default",

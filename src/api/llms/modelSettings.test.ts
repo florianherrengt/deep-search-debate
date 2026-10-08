@@ -7,11 +7,11 @@ import {
 } from "../db/schema/index.ts"
 import { PromptName } from "./prompts.ts"
 import {
-  deepSeekRecommendedAssignments,
   disconnectOpenAiAndResetModelAssignments,
   getStoredLlmModelAssignments,
   modelRoleForPrompt,
   replaceLlmModelAssignments,
+  ModelSelectionRequiredError,
   snapshotLlmModelAssignment,
 } from "./modelSettings.ts"
 
@@ -79,29 +79,34 @@ describe("LLM model settings", () => {
     })
   })
 
-  it("uses DeepSeek recommendations when no row or connection exists", () => {
-    expect(
+  it("requires saved assignments before taking a prompt model snapshot", () => {
+    expect(() =>
       snapshotLlmModelAssignment(userId, PromptName.GeneratePromptTitle),
-    ).toEqual({
-      role: "small",
-      assignment: deepSeekRecommendedAssignments.small,
-      explicit: false,
-    })
-    expect(snapshotLlmModelAssignment(userId, PromptName.DebateJudge)).toEqual({
-      role: "big",
-      assignment: deepSeekRecommendedAssignments.big,
-      explicit: false,
-    })
+    ).toThrow(ModelSelectionRequiredError)
+    expect(() =>
+      snapshotLlmModelAssignment(userId, PromptName.DebateJudge),
+    ).toThrow(expect.objectContaining({
+      code: "model-selection-required",
+      name: "ModelSelectionRequiredError",
+    }))
   })
 
   it("reads a successfully replaced role on the next invocation", () => {
     const first = {
-      small: deepSeekRecommendedAssignments.small,
-      big: deepSeekRecommendedAssignments.big,
+      small: {
+        provider: "deepseek" as const,
+        modelId: "deepseek-v4-flash",
+        reasoningEffort: "medium" as const,
+      },
+      big: {
+        provider: "deepseek" as const,
+        modelId: "deepseek-v4-pro",
+        reasoningEffort: "xhigh" as const,
+      },
     }
     expect(replaceLlmModelAssignments(userId, first)).toBe(true)
     expect(snapshotLlmModelAssignment(userId, PromptName.DebateOpening))
-      .toMatchObject({ assignment: first.big, explicit: true })
+      .toMatchObject({ assignment: first.big })
 
     const next = {
       small: {
@@ -117,13 +122,17 @@ describe("LLM model settings", () => {
     }
     expect(replaceLlmModelAssignments(userId, next)).toBe(true)
     expect(snapshotLlmModelAssignment(userId, PromptName.DebateOpening))
-      .toMatchObject({ assignment: next.big, explicit: true })
+      .toMatchObject({ assignment: next.big })
   })
 
   it("requires an OpenAI connection in the same transaction as replacement", () => {
     expect(
       replaceLlmModelAssignments(userId, {
-        small: deepSeekRecommendedAssignments.small,
+        small: {
+          provider: "deepseek",
+          modelId: "deepseek-v4-flash",
+          reasoningEffort: "medium",
+        },
         big: {
           provider: "openai",
           modelId: "gpt-5.6-sol",
@@ -134,33 +143,25 @@ describe("LLM model settings", () => {
     expect(getStoredLlmModelAssignments(userId)).toBeUndefined()
   })
 
-  it("disconnects and resets only OpenAI-backed roles atomically", () => {
+  it("preserves explicit model choices when disconnecting OpenAI", () => {
     insertConnection()
-    expect(
-      replaceLlmModelAssignments(userId, {
-        small: {
-          provider: "deepseek",
-          modelId: "deepseek-v4-pro",
-          reasoningEffort: "low",
-        },
-        big: {
-          provider: "openai",
-          modelId: "gpt-5.6-sol",
-          reasoningEffort: "xhigh",
-        },
-      }),
-    ).toBe(true)
+    const assignments = {
+      small: {
+        provider: "deepseek" as const,
+        modelId: "deepseek-v4-pro",
+        reasoningEffort: "low" as const,
+      },
+      big: {
+        provider: "openai" as const,
+        modelId: "gpt-5.6-sol",
+        reasoningEffort: "xhigh" as const,
+      },
+    }
+    expect(replaceLlmModelAssignments(userId, assignments)).toBe(true)
 
     disconnectOpenAiAndResetModelAssignments(userId)
 
     expect(db.select().from(openAiCodexConnections).all()).toEqual([])
-    expect(getStoredLlmModelAssignments(userId)).toEqual({
-      small: {
-        provider: "deepseek",
-        modelId: "deepseek-v4-pro",
-        reasoningEffort: "low",
-      },
-      big: deepSeekRecommendedAssignments.big,
-    })
+    expect(getStoredLlmModelAssignments(userId)).toEqual(assignments)
   })
 })

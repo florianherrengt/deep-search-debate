@@ -37,6 +37,7 @@ import {
   updateResultFeedback,
 } from "../resultFeedback.ts"
 import { getDeepSearchCreditsUsed } from "../runCredits.ts"
+import { modelSelectionRequiredError, needsModelSelection } from "../modelSelectionGuard.ts"
 
 export type { DeepSearchJobEvent } from "./schemas.ts"
 
@@ -407,6 +408,9 @@ export function deepSearchJobs(
       if (persisted.status === "completed") {
         return c.json({ error: "Completed deep searches cannot be resumed" }, 409)
       }
+      if (needsModelSelection(c.get("userId"))) {
+        return c.json(modelSelectionRequiredError, 409)
+      }
       const { completion } = manager.resumeExisting(deepSearchJobId, {
         userId: c.get("userId"),
       })
@@ -420,6 +424,9 @@ export function deepSearchJobs(
     zValidator("json", createDeepSearchJobInputSchema),
     async (c) => {
       const input = c.req.valid("json")
+      if (needsModelSelection(c.get("userId"))) {
+        return c.json(modelSelectionRequiredError, 409)
+      }
       const { deepSearchJobId, slug, completion } = await manager.start(
         c.get("userId"),
         input,

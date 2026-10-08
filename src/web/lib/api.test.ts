@@ -25,6 +25,27 @@ describe("API client", () => {
     })
   })
 
+  it("retains the model selection redirect for guarded workflow requests", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(Response.json(
+        {
+          code: "model-selection-required",
+          redirectTo: "/settings#models",
+          error: "Choose models first.",
+        },
+        { status: 409 },
+      )),
+    )
+
+    await expect(postJson("/api/deep-search-jobs", {}, z.object({})))
+      .rejects.toMatchObject({
+        code: "model-selection-required",
+        redirectTo: "/settings#models",
+        status: 409,
+      })
+  })
+
   it.each([
     ["GET JSON", () => getJson("/api/test", z.object({}))],
     ["POST JSON", () => postJson("/api/test", {}, z.object({}))],

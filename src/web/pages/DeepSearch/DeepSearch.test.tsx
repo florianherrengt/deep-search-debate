@@ -65,6 +65,7 @@ function renderDeepSearch(initialEntry = "/deep-search") {
             path="/deep-search/:slug/rounds/:roundNumber"
             element={<DeepSearch />}
           />
+          <Route path="/settings" element={<div>Model settings</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -150,6 +151,20 @@ describe("DeepSearch", () => {
       "job-id",
       { type: "rating", rating: true },
     )
+  })
+
+  it("redirects a rejected new search to the model choices", async () => {
+    mocks.createDeepSearchJob.mockRejectedValue(
+      new ApiError("POST", "/api/deep-search-jobs", 409, "model-selection-required", "/settings#models"),
+    )
+    renderDeepSearch()
+
+    fireEvent.change(await screen.findByRole("textbox", { name: "Research request" }), {
+      target: { value: "Research this" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Start deep search" }))
+
+    expect(await screen.findByText("Model settings")).toBeVisible()
   })
 
   it("disables submission until the request contains text", () => {

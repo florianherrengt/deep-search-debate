@@ -180,9 +180,8 @@ async function startApi(input: {
         GITHUB_CLIENT_SECRET: "restart-proof-github-client-secret",
         AUTH_DEBUG_USER_ENABLED: "true",
         AUTH_DEBUG_USER_PASSWORD: "restart-proof-password",
-        DEEPSEEK_API_KEY: "restart-proof-deepseek-key",
-        LLM_PROVIDER: "deepseek",
-        LLM_MODEL_NAME: "deepseek-v4-flash",
+        OPENAI_CODEX_CREDENTIAL_KEY:
+          "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
         LLM_MAX_RETRIES: "0",
         LLM_MAX_CONCURRENT_GENERATIONS: "8",
         SEARXNG_URL: "https://e2e-search.test",
@@ -321,6 +320,31 @@ async function signInAndGrantCredits(api: ApiProcess): Promise<{
     )
     expect(grant.status).toBe(200)
   }
+  const key = await fetch(`${api.origin}/api/deepseek-connection`, {
+    method: "PUT",
+    headers: {
+      Cookie: cookie,
+      "Content-Type": "application/json",
+      Origin: api.origin,
+    },
+    body: JSON.stringify({ apiKey: "restart-proof-deepseek-key" }),
+  })
+  expect(key.status).toBe(200)
+  const settings = await fetch(`${api.origin}/api/llm-model-settings`, {
+    method: "PUT",
+    headers: {
+      Cookie: cookie,
+      "Content-Type": "application/json",
+      Origin: api.origin,
+    },
+    body: JSON.stringify({
+      assignments: {
+        small: { provider: "deepseek", modelId: "deepseek-v4-flash", reasoningEffort: "medium" },
+        big: { provider: "deepseek", modelId: "deepseek-v4-pro", reasoningEffort: "high" },
+      },
+    }),
+  })
+  expect(settings.status).toBe(200)
   return { cookie, userId: debugUser.id, credits: targetCredits }
 }
 
@@ -495,19 +519,21 @@ function expectCreditsSettledExactlyOnce(
     userId,
   )
   const [costs] = queryDatabase<{
-    generationCredits: number
     searchCredits: number
     extractionCredits: number
   }>(
     databasePath,
     `select
-      coalesce((select sum(credits_used) from llm_generations), 0) as generationCredits,
       coalesce((select sum(credits_used) from deep_search_queries), 0) as searchCredits,
       coalesce((select sum(credits_used) from deep_search_web_pages), 0) as extractionCredits`,
   )
-  const settledCredits =
-    costs.generationCredits + costs.searchCredits + costs.extractionCredits
+  const settledCredits = costs.searchCredits + costs.extractionCredits
   expect(startingCredits - account.credits).toBe(settledCredits)
+  const positiveLlmCharges = queryDatabase<{ count: number }>(
+    databasePath,
+    "select count(*) as count from llm_generations where credits_used > 0",
+  )[0].count
+  expect(positiveLlmCharges).toBe(0)
 }
 
 function canonicalDeepSearchSnapshot(
@@ -894,6 +920,10 @@ describe("file-backed process restart recovery", () => {
       session.cookie,
       `/api/deep-search-jobs/${created.deepSearchJobId}/events`,
     )
+    const crashedEventsPromise = crashedFeed.readAll().then(
+      (events) => ({ events }),
+      (error: unknown) => ({ error }),
+    )
     const [unsettledSearch] = queryDatabase<{
       status: string
       creditsUsed: number | null
@@ -927,7 +957,9 @@ describe("file-backed process restart recovery", () => {
     )
     expect(completedPlanning.status).toBe("completed")
     await second.stop()
-    const crashedEvents = await crashedFeed.readAll()
+    const crashedEventsResult = await crashedEventsPromise
+    if ("error" in crashedEventsResult) throw crashedEventsResult.error
+    const crashedEvents = crashedEventsResult.events
     expect(crashedEvents[0]).toEqual({
       type: "query-stream",
       round: 0,
@@ -949,6 +981,10 @@ describe("file-backed process restart recovery", () => {
       third,
       session.cookie,
       `/api/deep-search-jobs/${created.deepSearchJobId}/events`,
+    )
+    const beforePromotionEventsPromise = eventFeed.readAll().then(
+      (events) => ({ events }),
+      (error: unknown) => ({ error }),
     )
     third.releaseProvider(searchKey, 1)
     await third.waitForMessage(
@@ -974,7 +1010,9 @@ describe("file-backed process restart recovery", () => {
       analysisStatus: "completed",
     })
     await third.stop()
-    const beforePromotionEvents = await eventFeed.readAll()
+    const beforePromotionEventsResult = await beforePromotionEventsPromise
+    if ("error" in beforePromotionEventsResult) throw beforePromotionEventsResult.error
+    const beforePromotionEvents = beforePromotionEventsResult.events
 
     expect(beforePromotionEvents[0]).toEqual({
       type: "query-stream",
