@@ -514,3 +514,4 @@
 {"timestamp":"2026-10-06T17:51:17.826486+01:00","action":"edit","task_id":33,"detail":"Retain safe provider diagnostics for failed LLM generations"}
 {"timestamp":"2026-10-06T17:51:17.82667+01:00","action":"release","task_id":33,"detail":"unreeve-bigroot"}
 {"timestamp":"2026-10-09T18:01:24.355015+01:00","action":"create","task_id":34,"detail":"Let users select and replace generated ideas before starting a debate"}
+{"timestamp":"2026-10-09T18:17:22.478035+01:00","action":"create","task_id":35,"detail":"Ask for 2000-character idea descriptions and truncate at 3000"}
