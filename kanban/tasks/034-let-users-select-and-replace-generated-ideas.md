@@ -1,14 +1,16 @@
 ---
 id: 34
 title: Let users select and replace generated ideas before starting a debate
-status: review
+status: in-progress
 priority: high
 created: 2026-10-09T18:01:24.351613+01:00
-updated: 2026-10-09T18:53:54.039989+01:00
+updated: 2026-10-09T19:08:38.469727+01:00
 tags:
     - feature
     - ideas
     - debates
+claimed_by: zealotry-unturfed
+claimed_at: 2026-10-09T19:08:38.469896+01:00
 class: standard
 ---
 
@@ -21,3 +23,6 @@ Confirmed flow: shared Ideas and debate setup; request 2, 4, 6, or 8 candidates;
 - Verified: final npm run gatekeep passed (lint, typecheck, knip, 900 API tests, 403 web tests); full Playwright suite 18/18 passed with mocked external services; production web and Storybook builds passed; fresh migration and existing-data migration tests passed; desktop/mobile, saved selections, keyboard focus and gap refill inspected in the real local browser.
 - Review notes: shared flow requests 2/4/6/8 candidates; initial AI defaults remain user-editable, including empty or odd defaults; manual refills are unlimited, replace only the gap, retain discarded history and do not rescreen. Debate freezes 2/4/6/8 selected participants. Two uses one final; four uses three no-repeat Swiss rounds plus final; six/eight retain existing formats. Automatic prompt API flow preserved. Migration keeps existing data; no database reset. Root/API/DB/web checklist reviews passed, including final keyboard-focus change. No code commit, merge, push, deployment or pull request performed.
 - Preview: /private/tmp/rethinkloop-ticket-34-selection.png. Temporary mock preview services are stopped after verification.
+
+[[2026-10-09]] Fri 19:08
+Simplification pass requested: reuse the existing candidate projection, consolidate pending-control checks, remove redundant selection lookup, and preserve ordered batch replay with simpler deduplication. Keep behavior, schema, API contracts and tournament rules unchanged. The ready selected-candidate detail finding remains a separate fix.
