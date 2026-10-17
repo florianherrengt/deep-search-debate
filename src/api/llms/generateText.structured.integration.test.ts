@@ -5,6 +5,7 @@ import z from "zod"
 import { db } from "../db/index.ts"
 import { llmGenerations, llmModelSettings, user } from "../db/schema/index.ts"
 import { deleteDeepSeekApiKey, setDeepSeekApiKey } from "../deepseekConnection/keysRepository.ts"
+import { ideaSchema } from "../routes/ideas/schemas.ts"
 import { generateArrayStream, generateObjectStream } from "./generateText.ts"
 import { replaceLlmModelAssignments } from "./modelSettings.ts"
 import type { TextStreamPersistenceTransaction } from "./streams.ts"
@@ -182,6 +183,39 @@ describe("structured generation persistence integration", () => {
     ).toBe(creditsBefore)
   })
 
+  it("persists a 5,000-character refine-idea description through structured validation", async () => {
+    const output = {
+      title: "Useful idea",
+      description: "d".repeat(5_000),
+    }
+    const text = JSON.stringify(output)
+    installProviderOutput(text)
+
+    const generation = await generateObjectStream({
+      userId,
+      owner: { standalone: true },
+      prompt: "Refine this idea",
+      promptName: "refine-idea",
+      schema: ideaSchema,
+    })
+    const [parsedOutput, completion] = await Promise.allSettled([
+      generation.output,
+      generation.completion,
+    ])
+
+    expect(persistedGeneration(generation.id)).toMatchObject({
+      status: "completed",
+      text,
+      promptName: "refine-idea",
+      error: null,
+    })
+    expect(parsedOutput).toEqual({ status: "fulfilled", value: output })
+    expect(completion).toMatchObject({
+      status: "fulfilled",
+      value: { status: "completed", text },
+    })
+  })
+
   it("settles a validated array result and passes the parsed output to its hook", async () => {
     const onCompleted = vi.fn<
       (
@@ -251,6 +285,41 @@ describe("structured generation persistence integration", () => {
     expect(
       db.select({ credits: user.credits }).from(user).where(eq(user.id, userId)).get()!.credits,
     ).toBe(creditsBefore)
+  })
+
+  it("persists a generated idea with a 5,000-character description", async () => {
+    const output = {
+      elements: [{
+        title: "Useful idea",
+        description: "d".repeat(5_000),
+      }],
+    }
+    const text = JSON.stringify(output)
+    installProviderOutput(text)
+
+    const generation = await generateArrayStream({
+      userId,
+      owner: { standalone: true },
+      prompt: "Generate ideas",
+      promptName: "generate-ideas",
+      element: ideaSchema,
+    })
+    const [parsedOutput, completion] = await Promise.allSettled([
+      generation.output,
+      generation.completion,
+    ])
+
+    expect(persistedGeneration(generation.id)).toMatchObject({
+      status: "completed",
+      text,
+      promptName: "generate-ideas",
+      error: null,
+    })
+    expect(parsedOutput).toEqual({ status: "fulfilled", value: output.elements })
+    expect(completion).toMatchObject({
+      status: "fulfilled",
+      value: { status: "completed", text },
+    })
   })
 
   it("rejects prototype properties before the durable completion hook", async () => {

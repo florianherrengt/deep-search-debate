@@ -12,7 +12,7 @@ import {
 
 export const ideaSchema = z.object({
   title: z.string().trim().min(1).max(160),
-  description: z.string().trim().min(1).max(2_000),
+  description: z.string().trim().min(1).max(5_000),
 })
 
 export type Idea = z.infer<typeof ideaSchema>

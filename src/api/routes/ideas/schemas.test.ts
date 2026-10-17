@@ -2,7 +2,17 @@ import { describe, expect, it } from "vitest"
 import { ideaEvaluationSchema, ideaSchema } from "./schemas.ts"
 
 describe("idea schema", () => {
-  it("bounds generated idea fields before they enter later prompts", () => {
+  it("accepts useful descriptions through 5,000 characters without truncating them", () => {
+    const description = "d".repeat(5_000)
+    expect(
+      ideaSchema.parse({
+        title: " Useful title ",
+        description: ` ${description} `,
+      }),
+    ).toEqual({ title: "Useful title", description })
+  })
+
+  it("rejects descriptions above the cap and keeps title and empty-value bounds", () => {
     expect(
       ideaSchema.safeParse({
         title: "t".repeat(161),
@@ -12,9 +22,21 @@ describe("idea schema", () => {
     expect(
       ideaSchema.safeParse({
         title: "Useful title",
-        description: "d".repeat(2_001),
+        description: "d".repeat(5_001),
       }).success,
     ).toBe(false)
+    expect(
+      ideaSchema.safeParse({
+        title: "Useful title",
+        description: "  \n  ",
+      }).success,
+    ).toBe(false)
+  })
+
+  it("advertises the description cap to structured-output providers", () => {
+    const jsonSchema = ideaSchema.toJSONSchema({ target: "draft-7" })
+    expect(jsonSchema).toHaveProperty("properties.description.maxLength", 5_000)
+    expect(jsonSchema).toHaveProperty("properties.title.maxLength", 160)
   })
 })
 
