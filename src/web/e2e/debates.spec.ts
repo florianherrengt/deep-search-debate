@@ -77,7 +77,7 @@ test.describe("Debate tournament", () => {
     )
     expect(formActionTops[0]).toBe(formActionTops[1])
 
-    const prompt = debatePrompt
+    const prompt = `${debatePrompt} Prefer options that are simple for residents to adopt.`
     const createdResponse = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
@@ -398,6 +398,78 @@ test.describe("Debate tournament", () => {
       .first()
       .getAttribute("href")
     expect(ownerResearchPath).toMatch(/^\/deep-search\/[a-z0-9-]+$/)
+    const discoverySlug = ownerResearchPath?.split("/").at(-1)
+    expect(discoverySlug).toBeTruthy()
+    const discoveryResponse = await request.get(
+      `/api/deep-search-jobs/${discoverySlug}`,
+    )
+    expect(discoveryResponse.status()).toBe(200)
+    const { deepSearchJob } = (await discoveryResponse.json()) as {
+      deepSearchJob: { deepSearchJobId: string }
+    }
+    const discoveryEventsResponse = await request.get(
+      `/api/deep-search-jobs/${deepSearchJob.deepSearchJobId}/events`,
+    )
+    expect(discoveryEventsResponse.status()).toBe(200)
+    const discoveryEvents = (await discoveryEventsResponse.text())
+      .split("\n")
+      .filter((line) => line.trim())
+      .map((line) => JSON.parse(line) as {
+        type: string
+        round?: number
+        requirements?: Array<{
+          requirement: string
+          kind: "requirement" | "preference"
+        }>
+      })
+    const discoveryRequirementEvents = discoveryEvents.filter(
+      (event) => event.type === "research-requirements",
+    )
+    expect(discoveryRequirementEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          round: 0,
+          requirements: [
+            expect.objectContaining({
+              requirement: "Avoid installing new hardware",
+              kind: "requirement",
+            }),
+            expect.objectContaining({
+              requirement: "Prefer options that are simple for residents to adopt",
+              kind: "preference",
+            }),
+          ],
+        }),
+        expect.objectContaining({
+          round: 1,
+          requirements: [
+            expect.objectContaining({
+              requirement: "Avoid installing new hardware",
+              kind: "requirement",
+            }),
+            expect.objectContaining({
+              requirement: "Prefer options that are simple for residents to adopt",
+              kind: "preference",
+            }),
+          ],
+        }),
+      ]),
+    )
+    await page.goto(`${ownerResearchPath}/rounds/1`)
+    await expect(
+      page.getByRole("heading", { name: "Requirement coverage" }),
+    ).toBeVisible()
+    await expect(page.getByText("Avoid installing new hardware", { exact: true })).toBeVisible()
+    await expect(page.getByText("Requirement · Unresolved", { exact: true })).toBeVisible()
+    await expect(
+      page.getByText("Prefer options that are simple for residents to adopt", { exact: true }),
+    ).toBeVisible()
+    await expect(page.getByText("Preference · Unresolved", { exact: true })).toBeVisible()
+    await page.reload()
+    await expect(page.getByText("Avoid installing new hardware", { exact: true })).toBeVisible()
+    await expect(
+      page.getByText("Prefer options that are simple for residents to adopt", { exact: true }),
+    ).toBeVisible()
     await page.goto(ownerResearchPath ?? "/deep-search/missing")
     const researchFeedbackResponse = page.waitForResponse(
       (response) =>

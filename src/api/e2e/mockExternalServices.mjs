@@ -640,6 +640,40 @@ const discoveryOptions = [
   { name: "Draught-proofing kits", category: "Insulation", description: "Removable seals reduce draughts around doors and windows." },
   { name: "Shared energy-use monitoring", category: "Monitoring", description: "Shared monitoring helps residents understand building energy use." },
 ]
+const discoveryRequirements = [
+  {
+    requirement: "Avoid installing new hardware",
+    kind: "requirement",
+    status: "unresolved",
+    sources: [],
+    explanation: "No discovered option has been checked against this condition yet.",
+  },
+  {
+    requirement: "Prefer options that are simple for residents to adopt",
+    kind: "preference",
+    status: "unresolved",
+    sources: [],
+    explanation: "No discovered option has been checked against this preference yet.",
+  },
+]
+function expectedDiscoveryRequirements(user) {
+  return user.includes("Prefer options that are simple for residents to adopt.")
+    ? discoveryRequirements
+    : []
+}
+function assertDiscoveryRequirements(user, requirements, stage) {
+  const expected = expectedDiscoveryRequirements(user)
+  if (
+    requirements.length !== expected.length ||
+    expected.some((entry) =>
+      !requirements.some((actual) =>
+        actual.requirement === entry.requirement && actual.kind === entry.kind,
+      ),
+    )
+  ) {
+    throw new Error(`Discovery ${stage} lost canonical requirement fields`)
+  }
+}
 function suppliedDiscoveryOptions(user, tag) {
   return [...taggedText(user, tag).matchAll(/<discovered_option>\n([^\n]+)\n([\s\S]*?)\n<\/discovered_option>/g)]
     .map((match) => ({ ...JSON.parse(match[1]), description: match[2] }))
@@ -756,13 +790,17 @@ function modelOutput(system, user) {
   if (system.includes("You plan broad web searches to discover an option space.")) {
     const previousQueries = parseTaggedJson(user, "previous_queries")
     const followUp = previousQueries.length > 0
+    const requirements = followUp
+      ? parseTaggedJson(user, "requirements")
+      : expectedDiscoveryRequirements(user)
+    assertDiscoveryRequirements(user, requirements, "planning")
     if (followUp && !taggedText(user, "previous_review_reason").includes("monitoring approaches")) {
       throw new Error("Discovery follow-up lost its missing category coverage target")
     }
     const count = Number(/Generate exactly (\d+) (?:new )?search queries/.exec(user)?.[1])
     return {
       reasoning: "Find concrete alternatives across distinct categories.",
-      text: JSON.stringify({ version: 1, requirements: [], queries: Array.from({ length: count }, (_, index) => `London renter energy ${followUp ? "monitoring approaches" : "controls insulation options"} ${index + 1}`) }),
+      text: JSON.stringify({ version: 1, requirements, queries: Array.from({ length: count }, (_, index) => `London renter energy ${followUp ? "monitoring approaches" : "controls insulation options"} ${index + 1}`) }),
       ...(user.includes(ideaStopMarker) ? { delayMs: 20, secondTextDelayMs: 2_000 } : {}),
     }
   }
@@ -785,8 +823,10 @@ function modelOutput(system, user) {
   }
   if (system.includes("You review breadth coverage in an option-space discovery run.")) {
     const options = suppliedDiscoveryOptions(user, "discovery_inventory")
+    const requirements = parseTaggedJson(user, "requirements")
+    assertDiscoveryRequirements(user, requirements, "review")
     if (options.length < 2) throw new Error("Discovery review lost its concrete option inventory")
-    return { reasoning: "Review category coverage rather than choose a preferred option.", text: JSON.stringify({ version: 1, requirements: [], reason: "The inventory covers the categories found in the available sources.", gaps: options.length < 3 ? [{ title: "Monitoring approaches", description: "The inventory has controls and insulation but no monitoring approaches.", evidenceToFind: "Find concrete shared energy-use monitoring approaches and their general descriptions." }] : [] }) }
+    return { reasoning: "Review category coverage rather than choose a preferred option.", text: JSON.stringify({ version: 1, requirements, reason: "The inventory covers the categories found in the available sources.", gaps: options.length < 3 ? [{ title: "Monitoring approaches", description: "The inventory has controls and insulation but no monitoring approaches.", evidenceToFind: "Find concrete shared energy-use monitoring approaches and their general descriptions." }] : [] }) }
   }
 
   if (user.includes("Linked-source research")) {

@@ -64,6 +64,39 @@ describe("generateWebSearchQueries", () => {
     await expect(generation.queries).resolves.toEqual(output.queries)
   })
 
+  it("keeps requirement and preference text under the canonical requirement field", async () => {
+    const mixedRequirements: ResearchRequirements = [
+      requirements[0],
+      {
+        requirement: "Prefer open source licensing",
+        kind: "preference",
+        status: "unresolved",
+        sources: [],
+        explanation: "The user expressed a preference for open source.",
+      },
+    ]
+    const output = { version: 1 as const, requirements: mixedRequirements, queries: ["local agentic LLM options"] }
+    mocks.generateObjectStream.mockResolvedValueOnce(completedGeneration(output))
+
+    await generateWebSearchQueries({
+      userId: "test-user-id", deepSearchJobId: "deep-search-job-id",
+      researchRequest: "Find local agentic LLMs", maxSearches: 1,
+    })
+
+    const { schema } = planningCall()
+    expect(schema.parse(output).requirements).toEqual(mixedRequirements)
+    expect(schema.safeParse({
+      ...output,
+      requirements: [{
+        preference: "Prefer open source licensing",
+        kind: "preference",
+        status: "unresolved",
+        sources: [],
+        explanation: "The user expressed a preference for open source.",
+      }],
+    }).success).toBe(false)
+  })
+
   it("rejects malformed, repeated, or incorrectly sized new query plans instead of repairing them", async () => {
     mocks.generateObjectStream.mockResolvedValueOnce(completedGeneration(plan(["trial age", "trial region"])))
     await generateWebSearchQueries({

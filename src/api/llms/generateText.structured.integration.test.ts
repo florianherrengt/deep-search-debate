@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import z from "zod"
 
+import { researchPlanSchema } from "../agents/deep_search/schemas.ts"
 import { db } from "../db/index.ts"
 import { llmGenerations, llmModelSettings, user } from "../db/schema/index.ts"
 import { deleteDeepSeekApiKey, setDeepSeekApiKey } from "../deepseekConnection/keysRepository.ts"
@@ -36,7 +37,7 @@ function usage(): LlmUsage {
   }
 }
 
-function installProviderOutput(text: string): void {
+function installProviderOutput(text: string) {
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
     const request = new Request(input, init)
     expect(request.url).toBe("https://api.deepseek.com/chat/completions")
@@ -63,6 +64,7 @@ function installProviderOutput(text: string): void {
     )
   })
   vi.stubGlobal("fetch", fetch)
+  return fetch
 }
 
 function persistedGeneration(id: string) {
@@ -148,6 +150,69 @@ describe("structured generation persistence integration", () => {
     expect(
       db.select({ credits: user.credits }).from(user).where(eq(user.id, userId)).get()!.credits,
     ).toBe(creditsBefore)
+  })
+
+  it("sends canonical requirement field guidance and durably completes mixed discovery requirements", async () => {
+    const output = {
+      version: 1,
+      requirements: [
+        {
+          requirement: "Must run locally on an M1 Max",
+          kind: "requirement",
+          status: "unresolved",
+          sources: [],
+          explanation: "The user made local execution mandatory.",
+        },
+        {
+          requirement: "Prefer an open source license",
+          kind: "preference",
+          status: "unresolved",
+          sources: [],
+          explanation: "The user expressed a preference for open source.",
+        },
+      ],
+      queries: ["agentic LLMs for Apple M1 Max local inference"],
+    }
+    const text = JSON.stringify(output)
+    const fetch = installProviderOutput(text)
+    const generation = await generateObjectStream({
+      userId,
+      owner: { standalone: true },
+      prompt: "Best local agentic LLM for M1 Max",
+      promptName: "generate-discovery-queries",
+      schema: researchPlanSchema.extend({
+        queries: z.array(z.string().trim().min(1).max(500)).length(1),
+      }),
+      onCompleted: (completed, transaction) => {
+        transaction
+          .update(llmGenerations)
+          .set({ promptName: `completed:${completed.output.queries.join("|")}` })
+          .where(eq(llmGenerations.llmGenerationId, completed.id))
+          .run()
+      },
+    })
+
+    await expect(generation.output).resolves.toEqual(output)
+    await expect(generation.completion).resolves.toMatchObject({
+      status: "completed",
+      text,
+    })
+
+    const [input, init] = fetch.mock.calls[0]
+    const request = new Request(input, init)
+    const payload = JSON.parse(await request.text()) as {
+      messages: Array<{ role: string; content: string }>
+    }
+    const systemPrompt = payload.messages.find(({ role }) => role === "system")?.content
+    expect(systemPrompt).toContain('"description"')
+    expect(systemPrompt).toMatch(/"requirement"\s*:\s*\{[^}]*"description"\s*:\s*"[^"]*(?:preference|kind)[^"]*"/i)
+
+    expect(persistedGeneration(generation.id)).toMatchObject({
+      status: "completed",
+      text,
+      promptName: `completed:${output.queries.join("|")}`,
+      error: null,
+    })
   })
 
   it("requeries a schema-invalid result as failed without billing or running its hook", async () => {

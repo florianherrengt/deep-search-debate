@@ -22,7 +22,9 @@ export const pageLinkSelectionSchema = z.object({
 type DeepSearchSearchResults = DeepSearchSearch[]
 
 export const researchRequirementsSchema = z.array(z.object({
-  requirement: z.string().trim().min(1).max(500),
+  requirement: z.string().trim().min(1).max(500).describe(
+    'The text of the condition for both requirements and preferences. Always use the "requirement" property, including when kind is "preference"; do not rename this property to "preference".',
+  ),
   kind: z.enum(["requirement", "preference"]),
   status: z.enum(["unresolved", "supported", "conflicting"]),
   sources: z.array(z.url({ protocol: /^https?$/ })).max(8),
