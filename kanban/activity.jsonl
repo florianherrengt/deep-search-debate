@@ -538,3 +538,7 @@
 {"timestamp":"2026-10-19T13:55:30.340979+01:00","action":"release","task_id":36,"detail":"Add Refine clarification controller and research handoff"}
 {"timestamp":"2026-10-19T15:04:26.030227+01:00","action":"edit","task_id":36,"detail":"Add Refine clarification controller and research handoff"}
 {"timestamp":"2026-10-19T15:04:26.030402+01:00","action":"claim","task_id":36,"detail":"sabotine-hushaby"}
+{"timestamp":"2026-10-19T15:05:36.964701+01:00","action":"move","task_id":36,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-10-19T15:05:36.96492+01:00","action":"handoff","task_id":36,"detail":"Add Refine clarification controller and research handoff"}
+{"timestamp":"2026-10-19T15:05:36.965041+01:00","action":"block","task_id":36,"detail":"Waiting on user: choose LLM condensation or rejecting oversize submissions before immutable save when accumulated Refine input exceeds the research prompt limit."}
+{"timestamp":"2026-10-19T15:05:36.965138+01:00","action":"release","task_id":36,"detail":"Add Refine clarification controller and research handoff"}

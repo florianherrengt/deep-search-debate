@@ -1,15 +1,15 @@
 ---
 id: 36
 title: Add Refine clarification controller and research handoff
-status: in-progress
+status: review
 priority: high
 created: 2026-10-19T11:29:09.403839+01:00
-updated: 2026-10-19T15:04:26.02794+01:00
+updated: 2026-10-19T15:05:36.961524+01:00
 tags:
     - feature
     - refine
-claimed_by: sabotine-hushaby
-claimed_at: 2026-10-19T15:04:26.028232+01:00
+blocked: true
+block_reason: 'Waiting on user: choose LLM condensation or rejecting oversize submissions before immutable save when accumulated Refine input exceeds the research prompt limit.'
 class: standard
 ---
 
@@ -45,3 +45,6 @@ Real-provider browser validation exposed a Refine retry defect: schema-valid rec
 
 [[2026-10-19]] Mon 15:04
 Reopened after user requested fixes for the review findings: oversized accumulated Refine input can block research handoff; empty provenance arrays admit unsupported factual claims. Investigating bounded-prompt policy before code changes and preparing regression coverage.
+
+[[2026-10-19]] Mon 15:05
+Review-fix investigation complete; no source or test files changed in this fix turn. Provenance remedy is scoped to confirmed requirements, known facts, and domain findings; assumptions remain optional-source records. Existing bounded-text utilities remove passages, so using them would choose a material data-loss policy. Product clarification is pending: LLM condensation (recommended, with originals retained) versus rejecting oversize submissions before immutable save. Existing feature worktree and recorded real-LLM evidence are preserved.
