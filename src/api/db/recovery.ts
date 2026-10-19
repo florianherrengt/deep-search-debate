@@ -1,10 +1,10 @@
-import { and, asc, isNull, ne } from "drizzle-orm"
+import { and, asc, eq, isNull, ne, notExists } from "drizzle-orm"
 
 import type { DebateJobManager } from "../routes/debates/manager.ts"
 import type { DeepSearchJobManager } from "../routes/deepSearch/manager.ts"
 import type { IdeaJobManager } from "../routes/ideas/manager.ts"
 import { db } from "./index.ts"
-import { debateJobs, deepSearchJobs, ideaJobs } from "./schema/index.ts"
+import { debateJobs, deepSearchJobs, ideaJobs, refineSearchLinks } from "./schema/index.ts"
 
 type ResearchManagers = {
   debates: Pick<DebateJobManager, "resumeExisting">
@@ -43,6 +43,12 @@ export function loadPersistedResearchRoots(): PersistedResearchRoots {
       and(
         isNull(deepSearchJobs.ideaJobId),
         ne(deepSearchJobs.status, "completed"),
+        notExists(db.select({ id: refineSearchLinks.refineSearchLinkId })
+          .from(refineSearchLinks)
+          .where(and(
+            eq(refineSearchLinks.deepSearchJobId, deepSearchJobs.deepSearchJobId),
+            eq(refineSearchLinks.role, "preparation"),
+          ))),
       ),
     )
     .orderBy(

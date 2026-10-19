@@ -76,6 +76,16 @@ describe("LLM model settings", () => {
       "debate-opening": "big",
       "debate-rebuttal": "big",
       "debate-judge": "big",
+      "refine-recover-context": "big",
+      "refine-research-domain": "big",
+      "refine-map-decisions": "big",
+      "refine-generate-questions": "big",
+      "refine-review-questions": "big",
+      "refine-choose-action": "big",
+      "refine-present-question": "big",
+      "refine-integrate-answers": "big",
+      "refine-review-assumptions": "big",
+      "refine-condense-research-request": "big",
     })
   })
 

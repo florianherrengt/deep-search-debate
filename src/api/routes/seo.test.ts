@@ -13,6 +13,7 @@ import {
   ideaJobs as ideaJobsTable,
   ideas as ideasTable,
   llmGenerations as llmGenerationsTable,
+  refineSessions as refineSessionsTable,
 } from "../db/schema/index.ts"
 import { app } from "../index.ts"
 import { DEBATE_TOURNAMENT_FORMAT } from "./debates/tournament.ts"
@@ -209,6 +210,7 @@ function createSeoApp(debateJobIds: readonly string[] = []): Hono<AppEnv> {
 }
 
 beforeEach(() => {
+  db.delete(refineSessionsTable).run()
   db.delete(debateJobsTable).run()
   db.delete(ideaJobsTable).run()
   db.delete(deepSearchJobsTable).run()
@@ -382,6 +384,43 @@ describe("resolveSeoPage", () => {
         noindex: true,
         title: "Settings — RethinkLoop",
       },
+    })
+  })
+
+  it("serves Refine sessions only to their owner with noindex metadata", () => {
+    const refineSessionId = crypto.randomUUID()
+    db.insert(refineSessionsTable)
+      .values({
+        refineSessionId,
+        userId: "test-user-id",
+        originalPrompt: "Choose a practical home energy intervention",
+        sharedStateRevision: 0,
+      })
+      .run()
+
+    expect(resolveSeoPage("/refine", null)).toMatchObject({
+      kind: "page",
+      metadata: { canonicalUrl: null, noindex: true, title: "Refine — RethinkLoop" },
+    })
+    expect(resolveSeoPage(`/refine/${refineSessionId}`, "test-user-id")).toMatchObject({
+      kind: "page",
+      metadata: {
+        canonicalUrl: null,
+        noindex: true,
+        title: "Refine — RethinkLoop",
+      },
+    })
+    expect(resolveSeoPage(`/refine/${refineSessionId}`, null)).toEqual({
+      kind: "not-found",
+    })
+    expect(resolveSeoPage(`/refine/${refineSessionId}`, "other-user-id")).toEqual({
+      kind: "not-found",
+    })
+    expect(resolveSeoPage(`/refine/${crypto.randomUUID()}`, "test-user-id")).toEqual({
+      kind: "not-found",
+    })
+    expect(resolveSeoPage("/refine/not-a-uuid", "test-user-id")).toEqual({
+      kind: "not-found",
     })
   })
 

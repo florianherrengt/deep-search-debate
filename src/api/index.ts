@@ -37,6 +37,8 @@ import { openAiConnectionRoutes } from "./routes/openAiConnection.ts"
 import { OpenAiCodexError } from "./openaiConnection/codexErrors.ts"
 import { llmModelSettingsRoutes } from "./routes/llmModelSettings.ts"
 import { deepSeekConnectionRoutes } from "./routes/deepSeekConnection.ts"
+import { createRefineSessionManager } from "./routes/refine/manager.ts"
+import { refineSessions } from "./routes/refine/index.ts"
 
 export function handleRequestError(
   error: Error,
@@ -115,6 +117,7 @@ api.use("*", requireTrustedOrigin)
 api.use("*", loadOptionalSession)
 waitlistRoutes(api)
 const deepSearchManager = createDeepSearchJobManager()
+const refineSessionManager = createRefineSessionManager(deepSearchManager)
 const ideaJobManager = createIdeaJobManager(deepSearchManager)
 const debateJobManager = createDebateJobManager(ideaJobManager)
 
@@ -125,6 +128,7 @@ export function reconcilePersistedResearch(): void {
     ideas: ideaJobManager,
     deepSearches: deepSearchManager,
   })
+  refineSessionManager.reconcilePersisted()
 }
 
 streamReads(api)
@@ -140,6 +144,7 @@ llmModelSettingsRoutes(api)
 if (config.auth.debugUser.enabled) debug(api)
 streams(api)
 deepSearchJobs(api, deepSearchManager)
+refineSessions(api, refineSessionManager)
 ideaJobs(api, ideaJobManager)
 debateJobs(api, debateJobManager)
 

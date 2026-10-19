@@ -6,6 +6,7 @@ import {
   getTableColumns,
   isNotNull,
   isNull,
+  or,
 } from "drizzle-orm"
 import type { Hono } from "hono"
 import { stream } from "hono/streaming"
@@ -14,6 +15,8 @@ import {
   debateJobs as debateJobsTable,
   deepSearchJobs as deepSearchJobsTable,
   ideaJobs as ideaJobsTable,
+  refineSearchLinks as refineSearchLinksTable,
+  refineSessions as refineSessionsTable,
 } from "../../db/schema/index.ts"
 import {
   createDeepSearchJobManager,
@@ -200,6 +203,11 @@ function listDeepSearchJobs(
         debateJobId: ideaJobsTable.debateJobId,
         cancelRequestedAt: ideaJobsTable.cancelRequestedAt,
       },
+      refine: {
+        refineSessionId: refineSearchLinksTable.refineSessionId,
+        role: refineSearchLinksTable.role,
+        originalPrompt: refineSessionsTable.originalPrompt,
+      },
       debateCancelRequestedAt: debateJobsTable.cancelRequestedAt,
     })
     .from(deepSearchJobsTable)
@@ -211,12 +219,32 @@ function listDeepSearchJobs(
       debateJobsTable,
       eq(ideaJobsTable.debateJobId, debateJobsTable.debateJobId),
     )
+    .leftJoin(
+      refineSearchLinksTable,
+      eq(deepSearchJobsTable.deepSearchJobId, refineSearchLinksTable.deepSearchJobId),
+    )
+    .leftJoin(
+      refineSessionsTable,
+      eq(refineSearchLinksTable.refineSessionId, refineSessionsTable.refineSessionId),
+    )
     .where(
       and(
         eq(deepSearchJobsTable.userId, userId),
         source === "automated"
-          ? isNotNull(deepSearchJobsTable.ideaJobId)
-          : isNull(deepSearchJobsTable.ideaJobId),
+          ? or(
+              isNotNull(deepSearchJobsTable.ideaJobId),
+              and(
+                isNotNull(refineSearchLinksTable.refineSessionId),
+                eq(refineSearchLinksTable.role, "preparation"),
+              ),
+            )
+          : and(
+              isNull(deepSearchJobsTable.ideaJobId),
+              or(
+                isNull(refineSearchLinksTable.role),
+                eq(refineSearchLinksTable.role, "research"),
+              ),
+            ),
       ),
     )
     .orderBy(
@@ -226,7 +254,7 @@ function listDeepSearchJobs(
     .limit(limit)
     .all()
   return rows.map(
-    ({ job, directCancelRequestedAt, idea, debateCancelRequestedAt }) => ({
+    ({ job, directCancelRequestedAt, idea, refine, debateCancelRequestedAt }) => ({
       ...job,
       stopRequested: stopRequestAppliesToJob({
         status: job.status,
@@ -236,7 +264,9 @@ function listDeepSearchJobs(
           idea?.cancelRequestedAt ??
           directCancelRequestedAt,
       }),
-      origin: deepSearchJobOrigin(idea),
+      origin: deepSearchJobOrigin(idea) ?? (refine?.refineSessionId
+        ? { kind: "refine" as const, title: refine.originalPrompt, slug: refine.refineSessionId }
+        : null),
     }),
   )
 }

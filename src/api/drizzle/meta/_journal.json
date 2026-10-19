@@ -36,6 +36,13 @@
       "when": 1791387216120,
       "tag": "0004_deepseek_api_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1792407547389,
+      "tag": "0005_refine-sessions",
+      "breakpoints": true
     }
   ]
 }

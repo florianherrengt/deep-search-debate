@@ -13,6 +13,7 @@ import {
   ideaJobs as ideaJobsTable,
   ideas as ideasTable,
   llmGenerations as llmGenerationsTable,
+  refineSessions as refineSessionsTable,
 } from "../db/schema/index.ts"
 import type { AppEnv } from "../types/auth.ts"
 import { parseIdeaEvaluation } from "./ideas/schemas.ts"
@@ -34,6 +35,7 @@ const privatePageLabels: Readonly<Record<string, string>> = {
   "/debates": "Debates",
   "/deep-search": "Deep Search",
   "/ideas": "Ideas",
+  "/refine": "Refine",
   "/settings": "Settings",
 }
 
@@ -565,6 +567,33 @@ export function resolveSeoPage(
         noindex: true,
         openGraphType: "website",
         title: `${privatePageLabel} — RethinkLoop`,
+      },
+    }
+  }
+
+  const refineMatch = normalizedPath.match(/^\/refine\/([^/]+)$/)
+  if (refineMatch !== null) {
+    const id = decodeSegment(refineMatch[1])
+    if (viewerUserId === null || id === null || !uuidSchema.safeParse(id).success) {
+      return { kind: "not-found" }
+    }
+    const session = db
+      .select({ id: refineSessionsTable.refineSessionId })
+      .from(refineSessionsTable)
+      .where(and(
+        eq(refineSessionsTable.refineSessionId, id),
+        eq(refineSessionsTable.userId, viewerUserId),
+      ))
+      .get()
+    if (!session) return { kind: "not-found" }
+    return {
+      kind: "page",
+      metadata: {
+        canonicalUrl: null,
+        description: "Clarify your research question before starting deep research.",
+        noindex: true,
+        openGraphType: "website",
+        title: "Refine — RethinkLoop",
       },
     }
   }

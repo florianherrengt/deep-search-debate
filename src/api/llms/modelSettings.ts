@@ -62,6 +62,16 @@ export function modelRoleForPrompt(promptName: PromptName): LlmModelRole {
     case "evaluate-idea":
     case "select-ideas":
     case "refine-idea":
+    case "refine-recover-context":
+    case "refine-research-domain":
+    case "refine-map-decisions":
+    case "refine-generate-questions":
+    case "refine-review-questions":
+    case "refine-choose-action":
+    case "refine-present-question":
+    case "refine-integrate-answers":
+    case "refine-review-assumptions":
+    case "refine-condense-research-request":
     case "create-idea-site":
     case "debate-opening":
     case "debate-rebuttal":

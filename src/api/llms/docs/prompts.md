@@ -107,3 +107,16 @@ provided evidence. The coverage review reuses the gap-review schema and
 application-derived continuation. Discovery skips final correction and analysis.
 Its bounded inventory briefing preserves every option identity and source URL
 for idea generation instead of generating another summarizing LLM call.
+
+Refine uses nine dedicated prompt stages for context recovery, domain research
+mapping, decision mapping, question generation and review, typed action choice,
+question presentation, answer integration, and assumption review. These are
+callable stages behind a dependency-aware controller, not a mandatory fixed
+sequence. Structured outputs carry stable need/decision keys, source references,
+status, and state revisions. Stage 6 can route targeted deep-search work or yield
+questions/an empty batch; the user alone decides whether to ask more or start
+research. A separate Big-role `refine-condense-research-request` prompt is called
+only when a preparation or final research request exceeds the configured request
+limit. It incrementally combines bounded source excerpts and a checkpointed
+brief while preserving requirements and unanswered questions. See
+[the Refine session contract](../../routes/docs/refine-sessions.md).

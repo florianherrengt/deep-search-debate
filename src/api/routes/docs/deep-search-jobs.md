@@ -523,3 +523,6 @@ link replacement occur in the new generation's registration transaction.
 Completed generations and settled credit charges are reused rather than run or
 debited again. A synchronous root reset or scheduling failure aborts server
 startup.
+
+
+Refine preparation searches are linked through `refine_search_links` and appear in automated research with a Refine origin. Generic root recovery excludes these linked preparation jobs; the Refine session manager owns their retry/reconciliation policy. The linked final Refine research remains a standalone root and is recovered by the ordinary deep-search manager. See [Refine sessions](./refine-sessions.md).
