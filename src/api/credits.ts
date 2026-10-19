@@ -94,11 +94,3 @@ export function addUserCredits(userId: string, credits: number): number {
       .get()!.credits
   })
 }
-
-/** Converts ScrapingAnt's $19 / 100,000 provider-credit plan to product credits. */
-export function calculateScrapingAntCredits(providerCredits: number): number {
-  if (!Number.isFinite(providerCredits) || providerCredits < 0) {
-    throw new Error(`Invalid ScrapingAnt credit cost: ${providerCredits}`)
-  }
-  return Math.ceil((providerCredits * 19) / 100)
-}

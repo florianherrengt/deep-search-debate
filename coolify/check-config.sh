@@ -125,7 +125,8 @@ runtime_environment_value() {
 required_runtime_keys=(
   SERPER_API_KEY
   OPENAI_CODEX_CREDENTIAL_KEY
-  SCRAPINGANT_API_KEY
+  BROWSERLESS_URL
+  BROWSERLESS_TOKEN
   BETTER_AUTH_SECRET
   GITHUB_CLIENT_ID
   GITHUB_CLIENT_SECRET
@@ -135,6 +136,11 @@ required_runtime_keys=(
 for key in "${required_runtime_keys[@]}"; do
   check_required_runtime_key "${key}"
 done
+
+if [[ "$(runtime_environment_value "BROWSERLESS_URL")" != "${COOLIFY_BROWSERLESS_URL}" ]]; then
+  configuration_ok=false
+  echo "BROWSERLESS_URL must point to the private Browserless service at ${COOLIFY_BROWSERLESS_URL}." >&2
+fi
 
 openai_codex_credential_key="$(runtime_environment_value "OPENAI_CODEX_CREDENTIAL_KEY")"
 if ! printf '%s' "${openai_codex_credential_key}" | node -e '

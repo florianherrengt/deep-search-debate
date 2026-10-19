@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { eq } from "drizzle-orm"
 import { Hono } from "hono"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   webExtract: vi.fn(),
@@ -16,6 +17,15 @@ vi.mock("../web_search/webExtract.ts", () => ({
 
 import { debug } from "./debug.ts"
 import type { AppEnv } from "../types/auth.ts"
+import { db } from "../db/index.ts"
+import { user } from "../db/schema/index.ts"
+
+const userId = "test-user-id"
+const originalCredits = db
+  .select({ credits: user.credits })
+  .from(user)
+  .where(eq(user.id, userId))
+  .get()!.credits
 
 function createApp(isDebugUser: boolean): Hono<AppEnv> {
   const app = new Hono<AppEnv>().basePath("/api")
@@ -32,6 +42,7 @@ const app = createApp(true)
 const regularUserApp = createApp(false)
 
 beforeEach(() => {
+  db.update(user).set({ credits: originalCredits }).where(eq(user.id, userId)).run()
   vi.clearAllMocks()
   vi.spyOn(console, "error").mockImplementation(() => undefined)
 })
@@ -74,11 +85,12 @@ describe("GET /api/debug/search", () => {
 })
 
 describe("GET /api/debug/extract", () => {
-  it("returns content and the successful retrieval method", async () => {
+  it("returns content at zero balance without charging for extraction", async () => {
+    db.update(user).set({ credits: 0 }).where(eq(user.id, userId)).run()
     mocks.webExtract.mockResolvedValueOnce({
       url: "https://example.com",
       content: "Hello World",
-      retrievalMethod: "scrapingant-browser-us",
+      retrievalMethod: "browserless",
     })
 
     const response = await app.request(
@@ -90,11 +102,12 @@ describe("GET /api/debug/extract", () => {
       url: "https://example.com",
       content: "Hello World",
       contentLength: 11,
-      retrievalMethod: "scrapingant-browser-us",
+      retrievalMethod: "browserless",
     })
     expect(mocks.webExtract).toHaveBeenCalledWith({
       url: "https://example.com",
     })
+    expect(db.select({ credits: user.credits }).from(user).where(eq(user.id, userId)).get()!.credits).toBe(0)
   })
 
   it("returns a sanitized 500 when extraction fails", async () => {

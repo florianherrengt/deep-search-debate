@@ -1,0 +1,46 @@
+# Cover both the shared addresses in browserless.yaml and the dedicated service
+# network. Definitions are shared by routed and same-bridge filtering.
+define sources4 = { 10.0.1.37, 10.37.0.0/24 }
+define sources6 = { fd78:b3fe:2167::37, fd78:b3fe:37::/64 }
+define nonpublic4 = { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8,
+  169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24,
+  192.88.99.0/24, 192.168.0.0/16, 198.18.0.0/15, 198.51.100.0/24,
+  203.0.113.0/24, 224.0.0.0/4, 240.0.0.0/4 }
+define nonpublic6 = { 2001::/23, 2001:db8::/32, 2002::/16, 3fff::/20 }
+
+# nft applies this entire file atomically and preserves every unrelated table.
+add table inet rethinkloop_browserless
+flush table inet rethinkloop_browserless
+add table bridge rethinkloop_browserless
+flush table bridge rethinkloop_browserless
+
+table inet rethinkloop_browserless {
+  chain forward {
+    type filter hook forward priority -10; policy accept;
+    # Permit responses to the private RethinkLoop caller, not new connections.
+    ip saddr $sources4 ct state established,related accept
+    ip6 saddr $sources6 ct state established,related accept
+    ip saddr $sources4 ip daddr $nonpublic4 counter reject with icmpx type admin-prohibited
+    ip6 saddr $sources6 ip6 daddr != 2000::/3 counter reject with icmpx type admin-prohibited
+    ip6 saddr $sources6 ip6 daddr $nonpublic6 counter reject with icmpx type admin-prohibited
+  }
+  chain input {
+    type filter hook input priority -10; policy accept;
+    ip saddr $sources4 ct state established,related accept
+    ip6 saddr $sources6 ct state established,related accept
+    ip saddr $sources4 counter reject with icmpx type admin-prohibited
+    ip6 saddr $sources6 counter reject with icmpx type admin-prohibited
+  }
+}
+
+# Same-bridge frames need their own hook when bridge-nf-call-iptables is off.
+table bridge rethinkloop_browserless {
+  chain forward {
+    type filter hook forward priority -10; policy accept;
+    ip saddr $sources4 ct state established,related accept
+    ip6 saddr $sources6 ct state established,related accept
+    ip saddr $sources4 ip daddr $nonpublic4 counter drop
+    ip6 saddr $sources6 ip6 daddr != 2000::/3 counter drop
+    ip6 saddr $sources6 ip6 daddr $nonpublic6 counter drop
+  }
+}

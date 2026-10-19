@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import {
   addUserCredits,
-  calculateScrapingAntCredits,
   chargeUserCredits,
   getCreditAccount,
   OutOfCreditsError,
@@ -16,19 +15,6 @@ const creditTestUserId = "credit-test-user"
 
 afterEach(() => {
   db.delete(user).where(eq(user.id, creditTestUserId)).run()
-})
-
-describe("calculateScrapingAntCredits", () => {
-  it.each([
-    [0, 0],
-    [1, 1],
-    [5, 1],
-    [10, 2],
-    [25, 5],
-    [100, 19],
-  ])("converts %s provider credits to %s product credits", (input, expected) => {
-    expect(calculateScrapingAntCredits(input)).toBe(expected)
-  })
 })
 
 describe("credit accounts", () => {
@@ -75,9 +61,6 @@ describe("credit accounts", () => {
     )
     expect(() => addUserCredits(creditTestUserId, 0)).toThrow(
       "Invalid credit grant",
-    )
-    expect(() => calculateScrapingAntCredits(Number.NaN)).toThrow(
-      "Invalid ScrapingAnt credit cost",
     )
     expect(() => chargeUserCredits("missing-credit-user", 1)).toThrow(
       "Credit account was not found",

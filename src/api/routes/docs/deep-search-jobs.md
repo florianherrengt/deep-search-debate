@@ -369,7 +369,7 @@ must succeed before page work starts. Started page and query-summary work is
 also settled before a pipeline failure reaches the job runner, so no generation
 callback can write after the job becomes terminal. Selected-page
 extraction-plus-summary work passes through a process-wide queue (four tasks by
-default), and its ScrapingAnt requests continue through the provider's stricter
+default), and direct HTTPS and Browserless requests share a stricter
 single-request queue.
 
 The failure policy is:
@@ -456,11 +456,10 @@ command commits. Job lifecycle writes remain in `jobLifecycle.ts`.
   attachment and result-link commit are one-shot compare-and-swap transitions,
   so a retry cannot rewrite replay history or orphan an earlier selected page.
 - `deep_search_web_pages` deduplicates selected URLs within a job, links its
-  page-summary generation, and records the product-credit cost of every reported
-  ScrapingAnt attempt for that URL, including unsuccessful attempts. After
+  page-summary generation, and settles new extractions at zero product credits.
+  Historical nonzero charges remain unchanged. After
   extraction settles it retains the bounded extracted content until summary
-  success clears it, so a resumed summary retry does not extract or charge the
-  page again. Separately, nullable `original_passages` retains up to 16,000
+  success clears it, so a resumed summary retry does not extract the page again. Separately, nullable `original_passages` retains up to 16,000
   query-relevant characters selected verbatim at extraction settlement. Summary
   completion refines them using the request and completed summary before
   clearing extraction, atomically with the page's completion. These survive

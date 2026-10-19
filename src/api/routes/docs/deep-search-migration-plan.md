@@ -92,7 +92,7 @@ source of truth.
   admitted roots have priority over already queued children; running work is
   never pre-empted.
 - Selected-page extraction and summarization use a second process queue with
-  concurrency four. ScrapingAnt retains its stricter single-request queue.
+  concurrency four. Direct HTTPS and Browserless retain the stricter single-request queue.
 - Every LLM call shares a process queue with concurrency four. LLM streams and
   web searches have typed deadlines. Direct `/api/streams` requests use the
   research prompt-size ceiling and a per-user active limit.

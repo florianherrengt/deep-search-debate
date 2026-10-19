@@ -1,0 +1,12 @@
+[Unit]
+Description=Block Browserless requests to private networks
+Before=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/nft --file /etc/nftables.d/rethinkloop-browserless.nft
+ExecReload=/usr/sbin/nft --file /etc/nftables.d/rethinkloop-browserless.nft
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

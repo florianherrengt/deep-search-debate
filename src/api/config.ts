@@ -60,7 +60,7 @@ const exampleDebateIdsSchema = z.preprocess(
 )
 
 const secretSchemas = {
-  SCRAPINGANT_API_KEY: nonWhitespaceSecretSchema,
+  BROWSERLESS_TOKEN: nonWhitespaceSecretSchema,
   BETTER_AUTH_SECRET: z
     .string()
     .min(32)
@@ -148,19 +148,25 @@ const nonSecretEnvironmentShape = {
     .min(0)
     .max(100_000)
     .default(1),
-  SCRAPINGANT_REQUEST_TIMEOUT_MS: z.coerce
+  BROWSERLESS_URL: z.url().refine((value) => {
+    if (!URL.canParse(value)) return false
+    const url = new URL(value)
+    return (url.protocol === "http:" || url.protocol === "https:") &&
+      !url.username && !url.password && !url.search && !url.hash
+  }, "Browserless URL must use HTTP or HTTPS without credentials, query, or fragment"),
+  PAGE_FETCH_REQUEST_TIMEOUT_MS: z.coerce
     .number()
     .int()
     .min(10_000)
     .max(65_000)
     .default(35_000),
-  SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS: z.coerce
+  PAGE_FETCH_QUEUE_WAIT_TIMEOUT_MS: z.coerce
     .number()
     .int()
     .min(10_000)
     .max(600_000)
     .default(120_000),
-  SCRAPINGANT_MAX_RESPONSE_BYTES: z.coerce
+  PAGE_FETCH_MAX_RESPONSE_BYTES: z.coerce
     .number()
     .int()
     .min(10_000)
@@ -298,7 +304,7 @@ const rawEnvironmentSchema = z.object({
   LLM_MODEL_NAME: z.string().trim().min(1).optional(),
   SERPER_API_KEY: optionalSecretSchema,
   OPENCODE_ZEN_API_KEY: optionalSecretSchema,
-  SCRAPINGANT_API_KEY: secretSchemas.SCRAPINGANT_API_KEY,
+  BROWSERLESS_TOKEN: secretSchemas.BROWSERLESS_TOKEN,
   BETTER_AUTH_SECRET: secretSchemas.BETTER_AUTH_SECRET,
   GITHUB_CLIENT_ID: secretSchemas.GITHUB_CLIENT_ID,
   GITHUB_CLIENT_SECRET: secretSchemas.GITHUB_CLIENT_SECRET,
@@ -316,7 +322,7 @@ const environmentSchema = z.object({
   AUTH_DEBUG_USER_ENABLED: z.boolean(),
   SERPER_API_KEY: optionalSecretSchema,
   OPENCODE_ZEN_API_KEY: optionalSecretSchema,
-  SCRAPINGANT_API_KEY: secretSchemas.SCRAPINGANT_API_KEY,
+  BROWSERLESS_TOKEN: secretSchemas.BROWSERLESS_TOKEN,
   BETTER_AUTH_SECRET: secretSchemas.BETTER_AUTH_SECRET,
   GITHUB_CLIENT_ID: secretSchemas.GITHUB_CLIENT_ID,
   GITHUB_CLIENT_SECRET: secretSchemas.GITHUB_CLIENT_SECRET,
@@ -565,12 +571,13 @@ export const config = {
     creditsPerRequest: environment.WEB_SEARCH_CREDITS_COST,
   },
   extraction: {
-    scrapingant: {
-      apiKey: environment.SCRAPINGANT_API_KEY,
-      queueWaitTimeoutMs: environment.SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS,
-      requestTimeoutMs: environment.SCRAPINGANT_REQUEST_TIMEOUT_MS,
-      maxResponseBytes: environment.SCRAPINGANT_MAX_RESPONSE_BYTES,
+    browserless: {
+      url: environment.BROWSERLESS_URL,
+      token: environment.BROWSERLESS_TOKEN,
     },
+    queueWaitTimeoutMs: environment.PAGE_FETCH_QUEUE_WAIT_TIMEOUT_MS,
+    requestTimeoutMs: environment.PAGE_FETCH_REQUEST_TIMEOUT_MS,
+    maxResponseBytes: environment.PAGE_FETCH_MAX_RESPONSE_BYTES,
   },
   deepSearch: {
     maxSearches: environment.DEEP_SEARCH_MAX_SEARCHES,

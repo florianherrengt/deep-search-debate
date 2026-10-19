@@ -7,19 +7,19 @@ import { config } from "../config.ts"
 import { secureJsonParse } from "../helpers/secureJsonParse.ts"
 import { MAX_WEB_SEARCH_RESULTS, normalizeWebSearchResults } from "./types.ts"
 import {
-  createScrapingAntClient,
-  ScrapingAntRequestError,
-  type ScrapingAntClient,
-  type ScrapingAntMode,
-} from "./scrapingAnt.ts"
+  createPageFetchClient,
+  PageFetchRequestError,
+  type PageFetchClient,
+  type PageFetchMode,
+} from "./pageFetch.ts"
 
 const minimumUsableContentChars = 200
 const maxJsonContentChars = 100_000
 const retrievalStages = [
-  { mode: "http", method: "scrapingant-http" },
-  { mode: "browser-us", method: "scrapingant-browser-us" },
+  { mode: "http", method: "http" },
+  { mode: "browser", method: "browserless" },
 ] as const satisfies ReadonlyArray<{
-  mode: ScrapingAntMode
+  mode: PageFetchMode
   method: string
 }>
 
@@ -32,7 +32,6 @@ export type PageRetrievalLog = {
   method: PageRetrievalMethod
   outcome: "success" | "failure"
   latencyMs: number
-  credits?: number
   providerStatusCode?: number
   failure?: string
 }
@@ -42,25 +41,14 @@ export type WebExtractResult = {
   content: string
   links: Array<{ url: string; title: string }>
   retrievalMethod: PageRetrievalMethod
-  scrapingAntCredits: number
 }
 
 class WebExtractionError extends Error {
   override readonly name = "WebExtractionError"
-  readonly scrapingAntCredits: number
-
-  constructor(
-    message: string,
-    scrapingAntCredits: number,
-    options?: { cause?: unknown },
-  ) {
-    super(message, options)
-    this.scrapingAntCredits = scrapingAntCredits
-  }
 }
 
 type WebExtractorDeps = {
-  client: ScrapingAntClient
+  client: PageFetchClient
   pdfExtractor?: Pick<PdfExtractor, "extract">
   now?: () => number
   log?: (entry: PageRetrievalLog) => void
@@ -300,7 +288,6 @@ export function createWebExtractor(deps: WebExtractorDeps) {
     signal?: AbortSignal
   }): Promise<WebExtractResult> {
     const parsedUrl = validateUrl(params.url)
-    let scrapingAntCredits = 0
 
     for (const { mode, method } of retrievalStages) {
       const startedAt = now()
@@ -311,7 +298,6 @@ export function createWebExtractor(deps: WebExtractorDeps) {
           mode,
           signal: params.signal,
         })
-        scrapingAntCredits += page.credits ?? 0
         const { content, html, isJson } = await extractContent({
           body: page.body,
           contentType: page.contentType,
@@ -329,7 +315,6 @@ export function createWebExtractor(deps: WebExtractorDeps) {
           domain: parsedUrl.hostname,
           method,
           latencyMs: roundedLatency(now, startedAt),
-          credits: page.credits,
         }
 
         if (failure !== undefined) {
@@ -343,12 +328,10 @@ export function createWebExtractor(deps: WebExtractorDeps) {
           content,
           links: pageLinks(html, parsedUrl),
           retrievalMethod: method,
-          scrapingAntCredits,
         }
       } catch (error) {
         const providerError =
-          error instanceof ScrapingAntRequestError ? error : undefined
-        scrapingAntCredits += providerError?.credits ?? 0
+          error instanceof PageFetchRequestError ? error : undefined
         deps.log?.({
           event: "page-retrieval-attempt",
           url: params.url,
@@ -356,14 +339,12 @@ export function createWebExtractor(deps: WebExtractorDeps) {
           method,
           outcome: "failure",
           latencyMs: roundedLatency(now, startedAt),
-          credits: providerError?.credits,
           providerStatusCode: providerError?.providerStatusCode,
           failure: errorMessage(error),
         })
         if (params.signal?.aborted) {
           throw new WebExtractionError(
             errorMessage(error),
-            scrapingAntCredits,
             { cause: error },
           )
         }
@@ -372,24 +353,24 @@ export function createWebExtractor(deps: WebExtractorDeps) {
 
     throw new WebExtractionError(
       `No retrieval method returned usable content for ${params.url}`,
-      scrapingAntCredits,
     )
   }
 }
 
-const scrapingAntClient = createScrapingAntClient({
-  apiKey: config.extraction.scrapingant.apiKey,
-  queueWaitTimeoutMs: config.extraction.scrapingant.queueWaitTimeoutMs,
-  requestTimeoutMs: config.extraction.scrapingant.requestTimeoutMs,
-  maxResponseBytes: config.extraction.scrapingant.maxResponseBytes,
+const pageFetchClient = createPageFetchClient({
+  browserlessUrl: config.extraction.browserless.url,
+  browserlessToken: config.extraction.browserless.token,
+  queueWaitTimeoutMs: config.extraction.queueWaitTimeoutMs,
+  requestTimeoutMs: config.extraction.requestTimeoutMs,
+  maxResponseBytes: config.extraction.maxResponseBytes,
 })
 
 const pdfExtractor = new PdfExtractor({
-  maxBytes: config.extraction.scrapingant.maxResponseBytes,
-  parseTimeoutMs: config.extraction.scrapingant.requestTimeoutMs,
+  maxBytes: config.extraction.maxResponseBytes,
+  parseTimeoutMs: config.extraction.requestTimeoutMs,
 })
 
 export const webExtract = createWebExtractor({
-  client: scrapingAntClient,
+  client: pageFetchClient,
   pdfExtractor,
 })

@@ -1,9 +1,5 @@
 import { getErrorMessage } from "../../helpers/getErrorMessage.ts"
 import { selectRelevantPassages } from "../../helpers/boundedText.ts"
-import {
-  calculateScrapingAntCredits,
-  requirePositiveCreditBalance,
-} from "../../credits.ts"
 import { generateTextStream } from "../../llms/generateText.ts"
 import { PromptName } from "../../llms/prompts.ts"
 import type { DeepSearchMode } from "./schemas.ts"
@@ -102,7 +98,6 @@ async function extractPage(
   params: Pick<StartPageSummaryInput, "userId" | "url" | "researchRequest" | "workflowSignal">,
 ): Promise<PageExtractionResult> {
   try {
-    requirePositiveCreditBalance(params.userId)
     const page = await webExtract({
       url: params.url,
       signal: params.workflowSignal,
@@ -113,7 +108,7 @@ async function extractPage(
     return {
       status: "completed",
       content: page.content,
-      creditsUsed: calculateScrapingAntCredits(page.scrapingAntCredits ?? 0),
+      creditsUsed: 0,
       links: page.links,
     }
   } catch (error) {

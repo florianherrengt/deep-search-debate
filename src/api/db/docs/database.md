@@ -66,10 +66,11 @@ completed outcomes. No gap table, new column, or migration is needed.
   User-facing reads apply reusable SQL scopes to the query retrieving the root
   resource: an owner match grants private access, while a public debate grants
   inherited access through its idea job, child searches, and generations.
-- Billable search and extraction resources use one nullable `credits_used`
-  column: `deep_search_queries` for search-provider usage and
-  `deep_search_web_pages` for all ScrapingAnt attempts for that URL. Settlement
-  writes this value and decrements `user.credits` in one transaction.
+- Search resources use one nullable `credits_used` column on
+  `deep_search_queries`; settlement records usage and decrements `user.credits`
+  in one transaction. New page extractions set `deep_search_web_pages.credits_used`
+  to zero without a balance requirement or debit. Historical nonzero page costs
+  remain unchanged and continue to contribute to historical run totals.
   `llm_generations.credits_used` is zero on success and null on failure or
   interruption; LLM usage never debits product credits. LLM settlement still
   compare-and-swaps the generation from `running` to its terminal state; a

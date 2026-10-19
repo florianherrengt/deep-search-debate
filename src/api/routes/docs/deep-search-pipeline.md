@@ -268,9 +268,9 @@ Each selected URL is extracted at most once per job, even if it appears in more
 than one search or round. Selection runs in query priority order. Extraction
 starts after every query in the round has completed selection.
 
-ScrapingAnt first tries a cheaper HTTP retrieval. If the returned content is
-empty, too short, blocked by an anti-bot challenge, or looks like an error page,
-the extractor tries browser rendering through a US datacenter proxy. HTML is
+The extractor first fetches the public HTTPS document directly. If the returned
+content is empty, too short, blocked by an anti-bot challenge, or looks like an
+error page, it tries rendering through private Browserless Chromium. HTML is
 converted to visible text; PDF responses use the PDF extractor. Non-JSON
 content shorter than 200 characters is rejected as unusable.
 
@@ -545,7 +545,7 @@ The pipeline deliberately mixes sequential and concurrent work:
 3. Result selection runs one query at a time, in generated-query priority order.
 4. After all selections finish, unique page extraction and summarization tasks
    enter a process-wide queue with a small configured concurrency. The
-   ScrapingAnt client further serializes only the provider requests through its
+   page-fetch client further serializes direct and rendered requests through its
    own single-request queue.
 5. Bounded linked-source selection and each depth's page tasks settle before
    query summaries start concurrently.

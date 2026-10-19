@@ -18,7 +18,8 @@ at startup:
 | `DEEPSEEK_API_KEY` | `LLM_PROVIDER=deepseek` |
 | `OPENCODE_ZEN_API_KEY` | Development with `LLM_PROVIDER=zen` |
 | `OPENAI_CODEX_CREDENTIAL_KEY` | Always; canonical base64 encoding of exactly 32 bytes |
-| `SCRAPINGANT_API_KEY` | Always |
+| `BROWSERLESS_URL` | Always; private Browserless base URL |
+| `BROWSERLESS_TOKEN` | Always; Browserless authentication token |
 | `BETTER_AUTH_SECRET` | Always; at least 32 characters |
 | `GITHUB_CLIENT_ID` | Always |
 | `GITHUB_CLIENT_SECRET` | Always |
@@ -56,10 +57,11 @@ DEEPSEEK_API_KEY=
 OPENCODE_ZEN_API_KEY=
 # Canonical base64 encoding of exactly 32 random bytes, for example: openssl rand -base64 32
 OPENAI_CODEX_CREDENTIAL_KEY=
-SCRAPINGANT_API_KEY=
-SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS=120000
-SCRAPINGANT_REQUEST_TIMEOUT_MS=35000
-SCRAPINGANT_MAX_RESPONSE_BYTES=2000000
+BROWSERLESS_URL=http://127.0.0.1:3300
+BROWSERLESS_TOKEN=
+PAGE_FETCH_QUEUE_WAIT_TIMEOUT_MS=120000
+PAGE_FETCH_REQUEST_TIMEOUT_MS=35000
+PAGE_FETCH_MAX_RESPONSE_BYTES=2000000
 DEEP_SEARCH_MAX_SEARCHES=5
 DEEP_SEARCH_MAX_RESULTS_PER_SEARCH=5
 DEEP_SEARCH_MAX_SELECTED_URLS_PER_ROUND=15
@@ -123,12 +125,14 @@ Configure the GitHub OAuth callback as
 is accepted only when both the API binding and `BETTER_AUTH_URL` are loopback
 addresses.
 
-Page retrieval always starts with ScrapingAnt's cheap non-browser request and
-escalates once to browser rendering through a US datacenter proxy when the
-result is clearly unusable. A failed browser render remains an individual page
-failure; there are no residential proxies or provider retries. All ScrapingAnt
-requests share one process-wide queue with concurrency fixed at exactly one;
-pending attempts expire after `SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS`.
+Page retrieval first fetches public HTTPS documents directly. Unusable results
+escalate once to the private Browserless Chromium service. Both paths retain
+bounded HTML, text, PDF, and JSON extraction; failed rendering remains an
+individual page failure. There are no proxies, provider retries, or caches.
+Every request shares one process-wide queue with concurrency one; pending
+attempts expire after `PAGE_FETCH_QUEUE_WAIT_TIMEOUT_MS`. Direct requests pin
+DNS to validated public addresses and revalidate redirects. Browserless requires
+the host egress policy described in [Coolify operations](coolify/README.md).
 Deep-search pipelines also use process-wide admission and page-task queues so
 idea jobs cannot bypass provider backpressure by starting many child searches.
 All workflows additionally share a process-wide LLM queue configured by
@@ -151,14 +155,15 @@ assign an available DeepSeek or connected OpenAI model and reasoning effort to
 the application's Small and Big roles. OpenAI-backed calls use the selected
 Codex model through Pi's direct HTTPS provider, without spawning the Codex CLI
 and without a product-credit admission check or LLM debit.
-Search and extraction keep their existing product-credit charges. A configured
+Search keeps its existing product-credit charges; page extraction is free. A configured
 OpenAI choice whose connection is expired, rate-limited, or otherwise broken
 returns an actionable error instead of silently falling back to DeepSeek.
 Failed provider calls are not charged.
 Completed usage remains charged; stopped in-progress attempts do not debit
 RethinkLoop credits. The application cannot guarantee how an upstream provider
 bills work already performed.
-Successful ScrapingAnt extractions charge every reported retrieval attempt.
+New page extractions settle at zero credits, including browser fallback, and
+work at a zero balance. Historical extraction charges remain unchanged.
 
 Select the repository's Node version before installing dependencies. This is
 required because `better-sqlite3` contains a Node-version-specific native
@@ -411,4 +416,4 @@ Run the end-to-end test separately:
 npm run test:e2e
 ```
 
-The E2E tests start isolated API and Vite servers with a migrated temporary SQLite database. Deterministic mocks replace outbound Pi provider, SearXNG, and ScrapingAnt responses, including OpenAI device authentication and Codex generation. The Hono routes, extraction pipeline, persistence, NDJSON streams, React UI, replay, and history remain real. The Deep Search scenarios cover query generation through final synthesis and root Stop. The Ideas scenarios cover planning, parallel child searches, research summarization, exact-count idea generation, child-search links, durable replay and history, plus root Stop cascading to active children and surviving refresh. The Debates scenarios cover a complete deterministic tournament, the debate-only retry and failure behavior, and root Stop during active tournament work with completed results retained after refresh. No real provider credentials or network access are required.
+The E2E tests start isolated API and Vite servers with a migrated temporary SQLite database. Deterministic mocks replace outbound Pi provider, SearXNG, direct HTTPS, and Browserless responses, including OpenAI device authentication and Codex generation. The Hono routes, extraction pipeline, persistence, NDJSON streams, React UI, replay, and history remain real. The Deep Search scenarios cover query generation through final synthesis and root Stop. The Ideas scenarios cover planning, parallel child searches, research summarization, exact-count idea generation, child-search links, durable replay and history, plus root Stop cascading to active children and surviving refresh. The Debates scenarios cover a complete deterministic tournament, the debate-only retry and failure behavior, and root Stop during active tournament work with completed results retained after refresh. No real provider credentials or network access are required.

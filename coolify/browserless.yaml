@@ -1,0 +1,41 @@
+services:
+  browserless:
+    image: ghcr.io/browserless/chromium@sha256:93dc614e2532ee66bac78f68b6229c33392309293c626d2a0899ccdf0c8aac67
+    environment:
+      TOKEN: ${SERVICE_PASSWORD_BROWSERLESS}
+      CONCURRENT: "1"
+      QUEUED: "10"
+      TIMEOUT: "30000"
+      HEALTH: "true"
+    expose:
+      - "3000"
+    shm_size: 2g
+    mem_limit: 2g
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    dns:
+      - 1.1.1.1
+      - 1.0.0.1
+    restart: unless-stopped
+    networks:
+      coolify:
+        ipv4_address: 10.0.1.37
+        ipv6_address: fd78:b3fe:2167::37
+        aliases:
+          - rethinkloop-browserless
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/active?token='+process.env.TOKEN).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+networks:
+  coolify:
+    name: coolify
+    external: true

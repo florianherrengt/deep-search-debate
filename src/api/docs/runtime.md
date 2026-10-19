@@ -78,7 +78,7 @@ server or provider is constructed. DeepSeek uses each user's saved API key;
 there is no shared server key. Development alone may configure
 `LLM_PROVIDER=zen` with `LLM_MODEL_NAME` and `OPENCODE_ZEN_API_KEY` for local
 provider tests; these variables are otherwise optional.
-`SCRAPINGANT_API_KEY`, `BETTER_AUTH_SECRET`,
+`BROWSERLESS_URL`, `BROWSERLESS_TOKEN`, `BETTER_AUTH_SECRET`,
 `GITHUB_CLIENT_ID`, and `GITHUB_CLIENT_SECRET` are always required. Production
 also requires `SERPER_API_KEY` and `AUTH_ADMIN_EMAIL`. A missing, blank, or
 whitespace-only required secret fails startup.
@@ -132,8 +132,7 @@ including the next stage of an already-running workflow. DeepSeek uses the
 user's encrypted key; OpenAI uses that user's existing Codex connection and
 verifies the exact selected model and effort against its live catalog. A
 missing connection or unavailable selection fails without changing providers.
-LLM calls consume no product credits. Search and page extraction continue to
-consume credits. The optional development Zen provider is used by local tests.
+LLM calls consume no product credits. Search continues to consume credits; page extraction is free. The optional development Zen provider is used by local tests.
 
 `NODE_ENV` also selects non-secret defaults. Development and test use
 `BETTER_AUTH_URL=http://localhost:5173` and `DATABASE_URL=data.db`; production
@@ -281,8 +280,8 @@ production plan limit of 50.
 
 ## Real external services in dev
 
-A SearXNG instance, the selected LLM provider credential, and a ScrapingAnt API
-key are real runtime dependencies, not mocked outside tests:
+A SearXNG instance, the selected LLM provider credential, and a private
+Browserless service are real runtime dependencies, not mocked outside tests:
 
 - **SearXNG:** HTTP `/search?format=json`. Configure its URL via `SEARXNG_URL`.
   `SEARXNG_CATEGORIES` defaults to `general,science`, so evidence-oriented
@@ -297,49 +296,43 @@ key are real runtime dependencies, not mocked outside tests:
   API key. OpenAI uses the user's Codex connection. Development-only `zen`
   retains Pi's OpenAI-compatible `/chat/completions` transport for local provider
   tests. Structured output is validated with Zod.
-- **ScrapingAnt:** the only page-retrieval provider. Every selected URL first uses
-  its cheap non-browser request. Empty, trivial, challenged, or obvious error
-  content escalates once to headless-browser rendering through a US datacenter
-  proxy; failure there remains a page-level failure so deep research can use the
-  search snippet. Both tiers pass through the same local content extraction and
-  cheap validation. HTML uses the shared visible-text cleanup and ranks article
-  and main-content links ahead of navigation before retaining 30 candidates.
-  Bounded PDF responses use the existing memory-limited PDF parser. Declared
-  `application/json` and `application/*+json` responses are validated as UTF-8
-  JSON up to 100,000 characters, retaining original text rather than reserializing
-  values. Valid JSON bypasses the HTML minimum-length and error-page heuristics.
-  Declared non-document
-  media and binary-looking untyped bodies are rejected rather than decoded as
-  text. There are no provider
-  retries, residential proxies, domain rules, or caches. Configure
-  `SCRAPINGANT_API_KEY`, `SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS` (default 120
-  seconds),
-  `SCRAPINGANT_REQUEST_TIMEOUT_MS` (default 35 seconds, including five seconds
-  of client-side headroom), and `SCRAPINGANT_MAX_RESPONSE_BYTES` (default 2 MB).
-  Every ScrapingAnt request, across all URLs and both tiers, shares one
-  process-wide queue with concurrency fixed at exactly one for free-plan
-  compatibility. Pending work that cannot acquire the slot before its queue
-  deadline fails as an individual page attempt. A failed or timed-out active
-  request releases the slot. The higher-level page-task queue prevents every
-  selected URL from entering this single provider queue at once while still
-  allowing extraction and LLM summarization to overlap.
-  Retrieval emits one flat structured console record per attempt with its
-  latency, outcome, provider status on failures, and ScrapingAnt credit cost when
-  the provider reports it.
+- **Page fetching:** selected URLs first use direct HTTPS, then escalate once to
+  private Browserless Chromium rendering if the response is unusable. Both tiers
+  pass through the existing visible-text cleanup, HTML validation, main-content
+  link ranking, bounded PDF parser, and declared UTF-8 JSON validation. JSON is
+  limited to 100,000 characters and retains its original text. Unsupported media
+  and binary-looking untyped bodies are rejected. A failed render remains a
+  page-level failure so research can use the search snippet. There are no
+  provider retries, proxies, domain rules, or caches.
+  Configure `BROWSERLESS_URL` and `BROWSERLESS_TOKEN`, with
+  `PAGE_FETCH_QUEUE_WAIT_TIMEOUT_MS` (default 120 seconds),
+  `PAGE_FETCH_REQUEST_TIMEOUT_MS` (default 35 seconds), and
+  `PAGE_FETCH_MAX_RESPONSE_BYTES` (default 2 MB). Browserless navigation has five
+  seconds of client-side headroom and waits for `networkidle2`, blocking images,
+  media, and fonts. All requests share one process-wide queue with concurrency
+  one. Queue deadlines, request deadlines, and workflow aborts release their
+  slots; the higher-level page-task queue still permits local extraction and
+  LLM summarization to overlap.
+  Direct fetching resolves each target and redirect, rejects non-public or mixed
+  DNS answers, and pins the TLS socket to a validated address while retaining
+  hostname verification. Browserless is private and token-protected; its host
+  firewall blocks private/special destinations and host access from both of its
+  Docker networks. The stock image alone does not enforce that policy. See
+  [Coolify operations](../../../coolify/README.md) before deploying it elsewhere.
+  Retrieval logs retain latency, outcome, and failed HTTP status without
+  provider-credit metadata.
 
 ## Credit accounting
 
-Users start with 500 credits. One product credit represents $0.001. Search and
-page-extraction provider calls check that the initiating user's signed balance
-is positive before starting; there is no reservation, so concurrent calls may
-pass and overspend. After a successful call, the resource row and user debit
-commit together and the balance may become negative. Failed provider calls
-are not charged. LLM calls use the user's own provider connection or key and
-never debit product credits, including development Zen calls. This does not
-promise that an upstream provider will waive its own charge. Successful
-ScrapingAnt extractions accumulate every reported `ant-credits-cost` across both
-retrieval modes. Its $19 / 100,000 provider-credit plan is converted with
-`ceil(providerCredits * 19 / 100)`.
+Users start with 500 credits. One product credit represents $0.001. Search
+calls require a positive balance before starting; there is no reservation, so
+concurrent searches may pass and overspend. A successful search and its debit
+settle transactionally. Failed provider calls are not charged. Page extraction
+and LLM calls are free and do not require a positive balance. New extracted
+pages settle `credits_used = 0`; existing charged page rows and historical run
+totals remain unchanged. LLM calls use the user's own provider connection or
+key, including development Zen calls. This does not promise that an upstream
+provider will waive its own charge.
 
 Generation token counts remain available as diagnostic metadata when the
 provider reports them; they do not affect product credits.

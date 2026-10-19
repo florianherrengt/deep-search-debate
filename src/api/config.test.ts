@@ -518,37 +518,53 @@ describe("config", () => {
     expect(config.llm).toBeUndefined()
   })
 
-  it("uses bounded ScrapingAnt retrieval defaults", async () => {
-    vi.stubEnv("SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS", undefined)
-    vi.stubEnv("SCRAPINGANT_REQUEST_TIMEOUT_MS", undefined)
-    vi.stubEnv("SCRAPINGANT_MAX_RESPONSE_BYTES", undefined)
+  it("uses bounded page retrieval defaults", async () => {
+    vi.stubEnv("PAGE_FETCH_QUEUE_WAIT_TIMEOUT_MS", undefined)
+    vi.stubEnv("PAGE_FETCH_REQUEST_TIMEOUT_MS", undefined)
+    vi.stubEnv("PAGE_FETCH_MAX_RESPONSE_BYTES", undefined)
     vi.resetModules()
 
     const { config } = await import("./config.ts")
 
-    expect(config.extraction.scrapingant).toMatchObject({
+    expect(config.extraction).toMatchObject({
+      browserless: {
+        url: "http://e2e-browserless.test",
+        token: "test-browserless-token",
+      },
       queueWaitTimeoutMs: 120_000,
       requestTimeoutMs: 35_000,
       maxResponseBytes: 2_000_000,
     })
   })
 
-  it("rejects an unbounded ScrapingAnt response limit", async () => {
-    vi.stubEnv("SCRAPINGANT_MAX_RESPONSE_BYTES", "10000001")
+  it("rejects an unbounded page retrieval response limit", async () => {
+    vi.stubEnv("PAGE_FETCH_MAX_RESPONSE_BYTES", "10000001")
     vi.resetModules()
 
     await expect(import("./config.ts")).rejects.toThrow(
-      "SCRAPINGANT_MAX_RESPONSE_BYTES",
+      "PAGE_FETCH_MAX_RESPONSE_BYTES",
     )
   })
 
-  it("rejects an unbounded ScrapingAnt queue wait", async () => {
-    vi.stubEnv("SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS", "600001")
+  it("rejects an unbounded page retrieval queue wait", async () => {
+    vi.stubEnv("PAGE_FETCH_QUEUE_WAIT_TIMEOUT_MS", "600001")
     vi.resetModules()
 
     await expect(import("./config.ts")).rejects.toThrow(
-      "SCRAPINGANT_QUEUE_WAIT_TIMEOUT_MS",
+      "PAGE_FETCH_QUEUE_WAIT_TIMEOUT_MS",
     )
+  })
+
+  it.each([
+    "https://user:password@browserless.example.test",
+    "https://browserless.example.test?token=embedded",
+    "https://browserless.example.test/#fragment",
+    "ftp://browserless.example.test",
+  ])("rejects an unsafe Browserless URL: %s", async (url) => {
+    vi.stubEnv("BROWSERLESS_URL", url)
+    vi.resetModules()
+
+    await expect(import("./config.ts")).rejects.toThrow("BROWSERLESS_URL")
   })
 
   it("uses bounded deep-search defaults", async () => {

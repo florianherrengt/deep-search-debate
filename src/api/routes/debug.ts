@@ -3,11 +3,7 @@ import type { Hono } from "hono"
 import z from "zod"
 import { webExtract } from "../web_search/webExtract.ts"
 import { webSearch } from "../web_search/index.ts"
-import {
-  calculateScrapingAntCredits,
-  chargeUserCredits,
-  requirePositiveCreditBalance,
-} from "../credits.ts"
+import { chargeUserCredits } from "../credits.ts"
 import type { AppEnv } from "../types/auth.ts"
 
 const debugSearchQuerySchema = z.object({
@@ -54,12 +50,7 @@ export function debug(app: Hono<AppEnv>) {
     async (c) => {
       const { url } = c.req.valid("query")
       try {
-        requirePositiveCreditBalance(c.get("userId"))
         const result = await webExtract({ url })
-        chargeUserCredits(
-          c.get("userId"),
-          calculateScrapingAntCredits(result.scrapingAntCredits ?? 0),
-        )
         return c.json({
           url: result.url,
           content: result.content,
@@ -67,8 +58,6 @@ export function debug(app: Hono<AppEnv>) {
           retrievalMethod: result.retrievalMethod,
         })
       } catch (error) {
-        // Keep the debug route aligned with product billing: failed provider
-        // calls are never charged to the user.
         console.error("Debug extraction failed", error)
         return c.json({ error: "Extraction failed" }, 500)
       }
