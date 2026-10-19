@@ -559,3 +559,6 @@
 {"timestamp":"2026-10-19T21:24:18.295291+01:00","action":"edit","task_id":36,"detail":"Add Refine clarification controller and research handoff"}
 {"timestamp":"2026-10-19T21:24:18.296611+01:00","action":"release","task_id":36,"detail":"sabotine-hushaby"}
 {"timestamp":"2026-10-19T21:24:18.314971+01:00","action":"move","task_id":36,"detail":"in-progress -\u003e done"}
+{"timestamp":"2026-10-19T21:34:42.479964+01:00","action":"move","task_id":37,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-10-19T21:34:42.481005+01:00","action":"handoff","task_id":37,"detail":"Replace ScrapingAnt with private Browserless and direct fetching"}
+{"timestamp":"2026-10-19T21:34:42.481113+01:00","action":"release","task_id":37,"detail":"Replace ScrapingAnt with private Browserless and direct fetching"}
