@@ -1,16 +1,16 @@
 ---
 id: 37
 title: Replace ScrapingAnt with private Browserless and direct fetching
-status: in-progress
+status: done
 priority: high
 created: 2026-10-19T21:06:52.310211+01:00
-updated: 2026-10-19T21:39:22.714396+01:00
+updated: 2026-10-19T21:39:35.514071+01:00
+started: 2026-10-19T21:39:35.516415+01:00
+completed: 2026-10-19T21:39:35.516415+01:00
 tags:
     - feature
     - api
     - infrastructure
-claimed_by: millpost-abrasive
-claimed_at: 2026-10-19T21:39:22.714563+01:00
 class: standard
 ---
 
@@ -21,3 +21,6 @@ Ready for review. Worktree: /Users/florian/projects/deep-search-debate/.worktree
 
 [[2026-10-19]] Mon 21:39
 User approved committing, merging, pushing, and deploying. Integrating reviewed task code with current main, then verifying and releasing the exact combined commit.
+
+[[2026-10-19]] Mon 21:39
+Approved task commit 528466e merged into main (8a357f1), preserving the concurrent Refine evidence-ID fix. Prior full gate and browser E2E proof recorded above; combined-main release checks are running before publishing. User explicitly authorized push and production deployment.
