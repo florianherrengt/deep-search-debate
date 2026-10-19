@@ -1,15 +1,13 @@
 ---
 id: 36
 title: Add Refine clarification controller and research handoff
-status: in-progress
+status: review
 priority: high
 created: 2026-10-19T11:29:09.403839+01:00
-updated: 2026-10-19T15:51:48.21743+01:00
+updated: 2026-10-19T16:02:37.18805+01:00
 tags:
     - feature
     - refine
-claimed_by: sabotine-hushaby
-claimed_at: 2026-10-19T15:51:48.217594+01:00
 class: standard
 ---
 
@@ -51,3 +49,12 @@ Review-fix investigation complete; no source or test files changed in this fix t
 
 [[2026-10-19]] Mon 15:51
 User confirmed LLM condensation when accumulated context exceeds the research request limit, preserving requirements and unanswered questions and retaining original input. Implementing conditional prompt condensation through existing generation/checkpoint lifecycle plus factual provenance guards.
+
+[[2026-10-19]] Mon 16:02
+## Review fixes handoff
+- User approved conditional LLM condensation for oversized Refine preparation and final research requests. Implemented bounded source chunks and rolling briefs with existing Big-role generation/checkpoint persistence; originals and immutable answers remain intact. Completed chunks survive preflight failure and restart; invalid model output fails without repair or application retries; Start remains retryable with saved answers.
+- Fixed factual provenance: confirmed requirements, recovered known facts and domain findings require exact non-empty permitted-source excerpts. User evidence is restricted to original request, selected labels and supplemental text; unanswered assistant questions cannot become user facts. Unsupported assumptions and unresolved records retain their distinct contract.
+- Added regressions before fixes for the size-limit trap, invalid output, retry/checkpoint reuse, bounded multi-batch input, restart recovery, missing evidence and unanswered leading questions. Added browser coverage of 10,000-character original plus long answer, reload persistence, bounded handoff and idempotent research link. Documented omitted SQLite checks in generated DBML.
+- Verified final source on Node 26.5.1: npm run gatekeep passed (lint, typecheck, knip, API and web tests); all five Refine browser tests passed using isolated controlled upstream services; git diff --check passed. Root, API, DB and web checklist reviews completed; confirmed findings addressed. History-list scaling observation was outside the two requested fixes; no pagination behavior changed.
+- Fresh real-provider smoke used the authenticated API, real DeepSeek Flash, and an isolated migrated DB copy: a 10,000-character original became a 510-character research request retaining Brighton, £200, north-facing conditions, drilling prohibition and UNANSWERED. Start interrupted preparation and launched ordinary research; the smoke then explicitly cancelled that research. Full report completion was not tested in this smoke. Safe audit: src/web/test-results/refine-real-20261019/condensation-fix-live-audit.json. Prior recorded real-LLM walkthrough remains preserved.
+- Worktree /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-36-refine; branch codex/ticket-36-refine. All feature code remains uncommitted. No dependencies or schema changes added for the fixes; no merge, push or deployment.
