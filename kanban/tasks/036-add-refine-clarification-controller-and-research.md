@@ -1,15 +1,17 @@
 ---
 id: 36
 title: Add Refine clarification controller and research handoff
-status: done
+status: in-progress
 priority: high
 created: 2026-10-19T11:29:09.403839+01:00
-updated: 2026-10-19T16:31:31.81217+01:00
+updated: 2026-10-19T21:11:25.792107+01:00
 started: 2026-10-19T16:31:31.813974+01:00
 completed: 2026-10-19T16:31:31.813974+01:00
 tags:
     - feature
     - refine
+claimed_by: sabotine-hushaby
+claimed_at: 2026-10-19T21:11:25.792267+01:00
 class: standard
 ---
 
@@ -66,3 +68,6 @@ User explicitly authorized committing Refine, merging into local main and deploy
 
 [[2026-10-19]] Mon 16:31
 Approved feature committed as 0e2d479 and merged into local main. Source code remains identical to the reviewed and verified worktree. Proceeding with full merged-tree gate and image release; deployment connectivity to configured helium:8000 is being checked. No Git push or worktree cleanup requested.
+
+[[2026-10-19]] Mon 21:11
+Reopened for confirmed production session failure 19015cf3-6ae1-4e71-832a-3136a0b1bc6c: preparation search completed; research-domain generation failed because one evidence excerpt added a full stop before an omitted inline citation. User approved validated IDs for stored evidence excerpts. Implementing a strict ID wire contract while retaining canonical stored excerpt/checkpoint format and explicit Retry; no production provider replay authorized or performed.
