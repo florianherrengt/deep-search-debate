@@ -11,6 +11,9 @@ import {
   deepSearchJobs,
   ideaJobs,
   llmGenerations,
+  refineBatches,
+  refineSearchLinks,
+  refineSessions,
 } from "./schema/index.ts"
 
 type RootOptions = {
@@ -187,6 +190,47 @@ describe("persisted research startup reconciliation", () => {
     db.delete(debateJobs).run()
     db.delete(ideaJobs).run()
     db.delete(deepSearchJobs).run()
+  })
+
+
+  it("excludes every Refine preparation search while recovering its linked final research", () => {
+    const sessionId = crypto.randomUUID()
+    const batchId = crypto.randomUUID()
+    db.insert(refineSessions).values({
+      refineSessionId: sessionId,
+      userId: "test-user-id",
+      originalPrompt: "Refine this request",
+      status: "research-started",
+      finalDeepSearchJobId: "refine-final-id",
+      finalResearchRequest: "Refine this request with explicit answers",
+    }).run()
+    db.insert(refineBatches).values({
+      refineBatchId: batchId,
+      refineSessionId: sessionId,
+      position: 0,
+      status: "failed",
+      error: "Preparation failed",
+    }).run()
+    const failedPrep = addDeepSearch("failed")
+    const interruptedPrep = addDeepSearch("failed")
+    const finalResearch = addDeepSearch("running", null, { id: "refine-final-id" })
+    for (const [id, role] of [[failedPrep, "preparation"], [interruptedPrep, "preparation"], [finalResearch, "research"]] as const) {
+      db.insert(refineSearchLinks).values({
+        refineSearchLinkId: crypto.randomUUID(),
+        refineSessionId: sessionId,
+        refineBatchId: role === "preparation" ? batchId : null,
+        deepSearchJobId: id,
+        userId: "test-user-id",
+        role,
+        position: role === "preparation" ? (id === failedPrep ? 0 : 1) : null,
+      }).run()
+    }
+    db.update(deepSearchJobs).set({ status: "interrupted", error: "Process stopped", completedAt: new Date() })
+      .where(eq(deepSearchJobs.deepSearchJobId, interruptedPrep)).run()
+
+    expect(loadPersistedResearchRoots().deepSearchJobIds).toContain(finalResearch)
+    expect(loadPersistedResearchRoots().deepSearchJobIds).not.toContain(failedPrep)
+    expect(loadPersistedResearchRoots().deepSearchJobIds).not.toContain(interruptedPrep)
   })
 
   it("schedules non-completed effective roots and never their descendants", () => {

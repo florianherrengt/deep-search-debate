@@ -399,6 +399,87 @@ table openai_codex_connections {
   credentials_authentication_tag blob [not null]
 }
 
+table refine_batches {
+  refine_batch_id text [pk, not null]
+  refine_session_id text [not null]
+  position integer [not null]
+  status text [not null]
+  questions text [not null, default: '[]']
+  draft_answers text [not null, default: '[]']
+  answers text
+  stage_checkpoints text [not null, default: '{}']
+  error text
+  created_at integer [not null, default: `(cast(unixepoch('subsecond') * 1000 as integer))`]
+  updated_at integer [not null, default: `(cast(unixepoch('subsecond') * 1000 as integer))`]
+
+  indexes {
+    (refine_session_id, position) [name: 'refine_batches_session_position_idx', unique]
+    (refine_batch_id, refine_session_id) [name: 'refine_batches_id_session_id_idx', unique]
+
+
+
+
+  }
+}
+
+table refine_search_links {
+  refine_search_link_id text [pk, not null]
+  refine_session_id text [not null]
+  refine_batch_id text
+  deep_search_job_id text [not null, unique]
+  user_id text [not null]
+  role text [not null]
+  position integer
+  created_at integer [not null, default: `(cast(unixepoch('subsecond') * 1000 as integer))`]
+
+  indexes {
+    (refine_session_id, role) [name: 'refine_search_links_session_role_idx']
+    // Partial unique index omitted: (refine_session_id, refine_batch_id, position) WHERE role = 'preparation'.
+    // Partial unique index omitted: refine_session_id WHERE role = 'research'.
+
+
+
+
+  }
+}
+
+table refine_sessions {
+  refine_session_id text [pk, not null]
+  user_id text [not null]
+  original_prompt text [not null]
+  status text [not null, default: 'clarifying']
+  active_batch_id text
+  final_deep_search_job_id text [unique]
+  final_research_request text
+  shared_state_revision integer [not null, default: 0]
+  created_at integer [not null, default: `(cast(unixepoch('subsecond') * 1000 as integer))`]
+  updated_at integer [not null, default: `(cast(unixepoch('subsecond') * 1000 as integer))`]
+
+  indexes {
+    (user_id, updated_at, refine_session_id) [name: 'refine_sessions_user_updated_at_idx']
+    (refine_session_id, user_id) [name: 'refine_sessions_id_user_id_idx', unique]
+
+
+
+
+
+  }
+}
+
+table refine_state_revisions {
+  refine_state_revision_id text [pk, not null]
+  refine_session_id text [not null]
+  revision integer [not null]
+  reason text [not null]
+  state text [not null]
+  created_at integer [not null, default: `(cast(unixepoch('subsecond') * 1000 as integer))`]
+
+  indexes {
+    (refine_session_id, revision) [name: 'refine_state_revisions_session_revision_idx', unique]
+
+  }
+}
+
 table research_job_admissions {
   research_job_admission_id text [pk, not null]
   user_id text [not null]
@@ -553,6 +634,22 @@ ref llm_model_settings_user_id_user_id_fk: llm_model_settings.user_id > user.id 
 
 ref openai_codex_connections_user_id_user_id_fk: openai_codex_connections.user_id > user.id [delete: cascade, update: no action]
 
+ref refine_batches_refine_session_id_refine_sessions_refine_session_id_fk: refine_batches.refine_session_id > refine_sessions.refine_session_id [delete: cascade, update: no action]
+
+ref refine_search_links_user_id_user_id_fk: refine_search_links.user_id > user.id [delete: cascade, update: no action]
+
+ref refine_search_links_session_owner_fk: refine_search_links.(refine_session_id, user_id) > refine_sessions.(refine_session_id, user_id) [delete: cascade, update: no action]
+
+ref refine_search_links_batch_owner_fk: refine_search_links.(refine_batch_id, refine_session_id) > refine_batches.(refine_batch_id, refine_session_id) [delete: cascade, update: no action]
+
+ref refine_search_links_deep_search_owner_fk: refine_search_links.(deep_search_job_id, user_id) > deep_search_jobs.(deep_search_job_id, user_id) [delete: cascade, update: no action]
+
+ref refine_sessions_user_id_user_id_fk: refine_sessions.user_id > user.id [delete: cascade, update: no action]
+
+ref refine_sessions_active_batch_owner_fk: refine_sessions.(active_batch_id, refine_session_id) > refine_batches.(refine_batch_id, refine_session_id) [delete: no action, update: no action]
+
+ref refine_state_revisions_refine_session_id_refine_sessions_refine_session_id_fk: refine_state_revisions.refine_session_id > refine_sessions.refine_session_id [delete: cascade, update: no action]
+
 ref research_job_admissions_user_id_user_id_fk: research_job_admissions.user_id > user.id [delete: cascade, update: no action]
 
 ref session_user_id_user_id_fk: session.user_id > user.id [delete: cascade, update: no action]
@@ -581,3 +678,9 @@ ref session_user_id_user_id_fk: session.user_id > user.id [delete: cascade, upda
 // one initial child and may enter ready with generated ideas but no selection.
 // A ready standalone discovery can acquire a debate parent exactly once when
 // entering running; existing parent links remain immutable.
+// refine_sessions requires a non-empty trimmed prompt, a non-negative shared
+// revision, and status clarifying, starting, or research-started. Final job ID
+// and request are both null while clarifying and both present after Start.
+// refine_batches requires a non-negative position and status preparing, ready,
+// failed, or submitted. An error exists exactly when failed; answers exist
+// exactly when submitted. refine_state_revisions.revision must be positive.

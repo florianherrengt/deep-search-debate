@@ -8,6 +8,9 @@ export const jobStatuses = [
 export const ideaJobStatuses = [...jobStatuses, "ready"] as const
 export const ideaWorkflows = ["research", "discovery"] as const
 
+export const refineSessionStatuses = ["clarifying", "starting", "research-started"] as const
+export const refineBatchStatuses = ["preparing", "ready", "failed", "submitted"] as const
+
 export const ideaJobStages = [
   "planning",
   "research",

@@ -285,6 +285,9 @@ describe("database migrations", () => {
         join(migrationsFolder, "0004_deepseek_api_keys.sql"),
         join(previousFolder, "0004_deepseek_api_keys.sql"),
       )
+      const refineMigration = readdirSync(migrationsFolder).find((name) => name.startsWith("0005_") && name.endsWith(".sql"))
+      if (!refineMigration) throw new Error("Expected the Refine migration")
+      copyFileSync(join(migrationsFolder, refineMigration), join(previousFolder, refineMigration))
       copyFileSync(join(migrationsFolder, "meta/_journal.json"), join(previousFolder, "meta/_journal.json"))
       expect(() => migrateDatabase(sqlite, { migrationsFolder: previousFolder })).toThrow(/discovery_migration_guard/)
       expect(existingRead.get()).toEqual(beforeIdeaJob)
@@ -351,6 +354,7 @@ describe("database migrations", () => {
       "0002_original-source-passages.sql",
       "0003_space-discovery.sql",
       "0004_deepseek_api_keys.sql",
+      expect.stringMatching(/^0005_.*\.sql$/),
     ])
 
     const sqlite = new Database(":memory:")
@@ -379,7 +383,25 @@ describe("database migrations", () => {
         .prepare("SELECT count(*) FROM __drizzle_migrations")
         .pluck()
         .get(),
-    ).toBe(5)
+    ).toBe(6)
+    expect(tableNames.has("refine_sessions")).toBe(true)
+    expect(tableNames.has("refine_batches")).toBe(true)
+    expect(tableNames.has("refine_search_links")).toBe(true)
+    sqlite.pragma("foreign_keys = OFF")
+    expect(() => sqlite.prepare(`
+      INSERT INTO refine_search_links
+        (refine_search_link_id, refine_session_id, refine_batch_id, deep_search_job_id, user_id, role, position)
+      VALUES ('link', 'session', 'batch', 'job', 'owner', 'preparation', NULL)
+    `).run()).toThrow(/CHECK constraint failed: refine_search_links_role_batch_check/)
+    sqlite.pragma("foreign_keys = ON")
+    expect(
+      sqlite
+        .prepare("PRAGMA foreign_key_list('refine_sessions')")
+        .all(),
+    ).toEqual(expect.arrayContaining([
+      expect.objectContaining({ from: "active_batch_id", table: "refine_batches", to: "refine_batch_id" }),
+      expect.objectContaining({ from: "refine_session_id", table: "refine_batches", to: "refine_session_id" }),
+    ]))
     expect(
       sqlite
         .prepare("PRAGMA table_info('openai_codex_connections')")

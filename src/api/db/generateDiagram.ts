@@ -3,19 +3,32 @@ import { sqliteGenerate } from "drizzle-dbml-generator"
 import * as schema from "./schema/index.ts"
 
 const generated = sqliteGenerate({ schema })
-const unconditionalJudgeIndex =
-  "    debate_match_id [name: 'debate_messages_match_judge_idx', unique]"
-if (!generated.includes(unconditionalJudgeIndex)) {
-  throw new Error("Could not annotate the partial debate judge index")
+const partialIndexAnnotations = [
+  {
+    rendered: "    debate_match_id [name: 'debate_messages_match_judge_idx', unique]",
+    annotation: "    // Partial unique index omitted: debate_match_id WHERE speaker_slot = 2.",
+  },
+  {
+    rendered: "    (refine_session_id, refine_batch_id, position) [name: 'refine_search_links_preparation_idx', unique]",
+    annotation: "    // Partial unique index omitted: (refine_session_id, refine_batch_id, position) WHERE role = 'preparation'.",
+  },
+  {
+    rendered: "    refine_session_id [name: 'refine_search_links_research_idx', unique]",
+    annotation: "    // Partial unique index omitted: refine_session_id WHERE role = 'research'.",
+  },
+]
+for (const { rendered } of partialIndexAnnotations) {
+  if (!generated.includes(rendered)) throw new Error(`Could not annotate partial index: ${rendered}`)
+}
+let annotated = generated
+for (const { rendered, annotation } of partialIndexAnnotations) {
+  annotated = annotated.replace(rendered, annotation)
 }
 
-// drizzle-dbml-generator drops SQLite partial-index predicates. Omitting the
-// rendered index is more accurate than claiming every message has a globally
-// unique match ID; the canonical schema limits uniqueness to judge rows.
-const dbml = `${generated.replace(
-  unconditionalJudgeIndex,
-  "    // Partial unique index omitted: debate_match_id WHERE speaker_slot = 2.",
-).replace(/[ \t]+$/gm, "")}
+// drizzle-dbml-generator drops SQLite partial-index predicates. The generated
+// DBML documents those indexes by their role predicates instead of claiming
+// global uniqueness for all rows.
+const dbml = `${annotated.replace(/[ \t]+$/gm, "")}
 
 // SQLite checks omitted from DBML require waitlist_entries.email to equal its
 // trimmed lowercase form and contain between 1 and 254 characters.
@@ -41,5 +54,11 @@ const dbml = `${generated.replace(
 // one initial child and may enter ready with generated ideas but no selection.
 // A ready standalone discovery can acquire a debate parent exactly once when
 // entering running; existing parent links remain immutable.
+// refine_sessions requires a non-empty trimmed prompt, a non-negative shared
+// revision, and status clarifying, starting, or research-started. Final job ID
+// and request are both null while clarifying and both present after Start.
+// refine_batches requires a non-negative position and status preparing, ready,
+// failed, or submitted. An error exists exactly when failed; answers exist
+// exactly when submitted. refine_state_revisions.revision must be positive.
 `
 writeFileSync(new URL("./schema.dbml", import.meta.url), dbml)

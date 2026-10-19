@@ -5,6 +5,9 @@ import { config } from "../../config.ts"
 import { db } from "../../db/index.ts"
 import {
   deepSearchJobs as deepSearchJobsTable,
+  refineBatches,
+  refineSearchLinks,
+  refineSessions,
 } from "../../db/schema/index.ts"
 import {
   createPromptIdentity,
@@ -41,6 +44,7 @@ type StartDeepSearchJobInput = DeepSearchExecutionRequest & {
   title?: string
   ideaJobId?: string
   ideaJobPosition?: number
+  deepSearchJobId?: string
 }
 
 type StartedDeepSearchJob = {
@@ -54,6 +58,13 @@ type StartedDeepSearchJob = {
 type StartDeepSearchJobOptions = {
   /** Internal parent cancellation; never sourced from an HTTP request. */
   workflowSignal?: AbortSignal
+  /** Atomic Refine ownership/origin link created with the deep-search row. */
+  refineLink?: {
+    refineSessionId: string
+    refineBatchId?: string
+    role: "preparation" | "research"
+    position?: number
+  }
 }
 
 type DeepSearchJobCreationTransaction = Parameters<
@@ -225,14 +236,39 @@ export function createDeepSearchJobManager(): DeepSearchJobManager {
     async start(userId, input, options) {
       const validatedInput = deepSearchExecutionInputSchema.parse(input)
       const normalizedInput = { ...input, ...validatedInput }
+      const deepSearchJobId = normalizedInput.deepSearchJobId ?? randomUUID()
+      const existing = db
+        .select()
+        .from(deepSearchJobsTable)
+        .where(eq(deepSearchJobsTable.deepSearchJobId, deepSearchJobId))
+        .get()
+      if (existing) {
+        const existingLink = db.select().from(refineSearchLinks)
+          .where(eq(refineSearchLinks.deepSearchJobId, deepSearchJobId)).get()
+        if (
+          existing.userId !== userId ||
+          (options?.refineLink !== undefined && (
+            existingLink?.refineSessionId !== options.refineLink.refineSessionId ||
+            existingLink?.refineBatchId !== (options.refineLink.refineBatchId ?? null) ||
+            existingLink?.role !== options.refineLink.role ||
+            existingLink?.position !== (options.refineLink.position ?? null)
+          ))
+        ) {
+          throw new Error("Deep-search job identity is already in use")
+        }
+        return schedulePersistedJob(existing, options)
+      }
       const isRootJob = normalizedInput.ideaJobId === undefined
       const releaseCapacity = isRootJob
         ? reserveRootResearchCapacity(userId)
         : undefined
-      const deepSearchJobId = randomUUID()
       const controller = createWorkflowController(options?.workflowSignal)
       try {
-        const { title: suppliedTitle, ...persistedInput } = normalizedInput
+        const {
+          title: suppliedTitle,
+          deepSearchJobId: _explicitJobId,
+          ...persistedInput
+        } = normalizedInput
         const generatedTitle =
           suppliedTitle ??
           (await generatePromptTitle(
@@ -249,6 +285,42 @@ export function createDeepSearchJobManager(): DeepSearchJobManager {
                 jobId: normalizedInput.ideaJobId,
               })
             }
+            if (options?.refineLink !== undefined) {
+              const { refineSessionId, refineBatchId, role } = options.refineLink
+              const refineSession = transaction
+                .select({
+                  userId: refineSessions.userId,
+                  status: refineSessions.status,
+                  activeBatchId: refineSessions.activeBatchId,
+                  finalDeepSearchJobId: refineSessions.finalDeepSearchJobId,
+                })
+                .from(refineSessions)
+                .where(eq(refineSessions.refineSessionId, refineSessionId))
+                .get()
+              if (!refineSession || refineSession.userId !== userId) {
+                throw new Error("Refine session was not found for the owner")
+              }
+              if (role === "preparation") {
+                const batch = refineBatchId === undefined
+                  ? undefined
+                  : transaction.select().from(refineBatches)
+                    .where(eq(refineBatches.refineBatchId, refineBatchId)).get()
+                if (
+                  refineSession.status !== "clarifying" ||
+                  refineSession.activeBatchId !== refineBatchId ||
+                  !batch || batch.refineSessionId !== refineSessionId ||
+                  batch.status !== "preparing"
+                ) {
+                  throw new Error("Refine preparation is no longer active")
+                }
+              } else if (
+                role !== "research" ||
+                refineSession.status !== "starting" ||
+                refineSession.finalDeepSearchJobId !== deepSearchJobId
+              ) {
+                throw new Error("Refine research handoff is not active")
+              }
+            }
             const createdIdentity = createDeepSearchIdentity(
               transaction,
               generatedTitle,
@@ -263,6 +335,25 @@ export function createDeepSearchJobManager(): DeepSearchJobManager {
                 strictQuality: normalizedInput.ideaJobId !== undefined,
               })
               .run()
+            if (options?.refineLink !== undefined) {
+              const { refineSessionId, refineBatchId, role } = options.refineLink
+              transaction.insert(refineSearchLinks).values({
+                refineSearchLinkId: randomUUID(),
+                refineSessionId,
+                refineBatchId: refineBatchId ?? null,
+                deepSearchJobId,
+                userId,
+                role,
+                position: options.refineLink.position ?? null,
+              }).run()
+              if (role === "research") {
+                transaction.update(refineSessions).set({
+                  status: "research-started",
+                  activeBatchId: null,
+                  updatedAt: new Date(),
+                }).where(eq(refineSessions.refineSessionId, refineSessionId)).run()
+              }
+            }
           },
           { behavior: "immediate" },
         )

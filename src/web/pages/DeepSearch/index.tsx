@@ -69,15 +69,17 @@ const manualSource: DeepSearchJobSource = "manual"
 
 function DeepSearchOrigin({ origin }: { origin: DeepSearchJobOrigin }) {
   const fromDebate = origin.kind === "debate"
+  const fromRefine = origin.kind === "refine"
+  const resource = fromRefine ? "refine" : fromDebate ? "debates" : "ideas"
   return (
-    <Link to={fromDebate ? `/debates/${origin.slug}` : `/ideas/${origin.slug}`}>
+    <Link to={`/${resource}/${encodeURIComponent(origin.slug)}`}>
       <Typography
         color="text.secondary"
         component="span"
         sx={{ overflowWrap: "anywhere", textDecoration: "underline" }}
         variant="caption"
       >
-        {fromDebate ? "From debate: " : "From idea: "}
+        {fromRefine ? "From Refine: " : fromDebate ? "From debate: " : "From idea: "}
         {origin.title}
       </Typography>
     </Link>

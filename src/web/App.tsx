@@ -36,6 +36,7 @@ import { Home } from "./pages/Home/Home.tsx"
 import { PrivacyPolicy, TermsAndConditions } from "./pages/Legal.tsx"
 import { About } from "./pages/About.tsx"
 import { DeepSearch } from "./pages/DeepSearch/index.tsx"
+import { Refine } from "./pages/Refine/index.tsx"
 import { Ideas } from "./pages/Ideas/index.tsx"
 import { Debates } from "./pages/Debates/index.tsx"
 import { AdminCredits } from "./pages/AdminCredits/index.ts"
@@ -53,6 +54,7 @@ import {
 
 const navigationItems = [
   { label: "Home", to: "/" },
+  { label: "Refine", to: "/refine" },
   { label: "Research a question", to: "/deep-search" },
   { label: "Generate options", to: "/ideas" },
   { label: "Compare options", to: "/debates" },
@@ -392,6 +394,8 @@ function RoutedContent() {
     >
       <Routes>
         <Route path="/deep-search" element={<DeepSearch />} />
+        <Route path="/refine" element={<Refine />} />
+        <Route path="/refine/:sessionId" element={<Refine />} />
         <Route
           path="/deep-search/:slug"
           element={<DeepSearch />}

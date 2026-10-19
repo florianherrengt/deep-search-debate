@@ -165,7 +165,7 @@ const deepSearchJobSchema = z.object({
 })
 
 const deepSearchJobOriginSchema = z.object({
-  kind: z.enum(["idea", "debate"]),
+  kind: z.enum(["idea", "debate", "refine"]),
   title: z.string().min(1),
   slug: z.string().min(1),
 })

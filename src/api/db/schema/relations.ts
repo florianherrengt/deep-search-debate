@@ -23,6 +23,7 @@ import { llmGenerations } from "./llmGenerations.ts"
 import { llmModelSettings } from "./llmModelSettings.ts"
 import { openAiCodexConnections } from "./openAiCodexConnections.ts"
 import { researchJobAdmissions } from "./researchJobAdmissions.ts"
+import { refineBatches, refineSearchLinks, refineSessions, refineStateRevisions } from "./refineSessions.ts"
 import { account, session, user } from "./auth.ts"
 import { waitlistEntries } from "./waitlistEntries.ts"
 
@@ -42,6 +43,7 @@ export const userRelations = relations(user, ({ many, one }) => ({
   debateJobs: many(debateJobs),
   llmGenerations: many(llmGenerations),
   researchJobAdmissions: many(researchJobAdmissions),
+  refineSessions: many(refineSessions),
 }))
 
 export const llmModelSettingsRelations = relations(
@@ -83,6 +85,28 @@ export const researchJobAdmissionsRelations = relations(
     }),
   }),
 )
+
+export const refineSessionsRelations = relations(refineSessions, ({ many, one }) => ({
+  user: one(user, { fields: [refineSessions.userId], references: [user.id] }),
+  batches: many(refineBatches),
+  stateRevisions: many(refineStateRevisions),
+  searchLinks: many(refineSearchLinks),
+}))
+
+export const refineBatchesRelations = relations(refineBatches, ({ many, one }) => ({
+  session: one(refineSessions, { fields: [refineBatches.refineSessionId], references: [refineSessions.refineSessionId] }),
+  searchLinks: many(refineSearchLinks),
+}))
+
+export const refineStateRevisionsRelations = relations(refineStateRevisions, ({ one }) => ({
+  session: one(refineSessions, { fields: [refineStateRevisions.refineSessionId], references: [refineSessions.refineSessionId] }),
+}))
+
+export const refineSearchLinksRelations = relations(refineSearchLinks, ({ one }) => ({
+  session: one(refineSessions, { fields: [refineSearchLinks.refineSessionId], references: [refineSessions.refineSessionId] }),
+  batch: one(refineBatches, { fields: [refineSearchLinks.refineBatchId], references: [refineBatches.refineBatchId] }),
+  deepSearchJob: one(deepSearchJobs, { fields: [refineSearchLinks.deepSearchJobId], references: [deepSearchJobs.deepSearchJobId] }),
+}))
 
 export const sessionRelations = relations(session, ({ one }) => ({
   user: one(user, {

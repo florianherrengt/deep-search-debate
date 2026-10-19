@@ -56,3 +56,4 @@ Detailed guidance lives in per-folder `docs/` files. Read the relevant one with 
 - `src/api/routes/docs/text-streaming.md` — the LLM stream lifecycle and NDJSON contract. Read before changing stream routes, generation, or the streaming client.
 - `src/api/routes/docs/deep-search-jobs.md` — the deep-search job and event contract. Read before changing the deep-search route, agent events, or frontend subscription.
 - `src/api/routes/docs/idea-jobs.md` — the researched-idea pipeline, child searches, failure policy, persistence, and event contract. Read before changing idea routes, stages, events, or frontend subscription.
+- `src/api/routes/docs/refine-sessions.md` — saved clarification sessions, controller stages, preparation searches, immutable answer batches, retry, and research handoff. Read before changing Refine routes, state, or frontend interactions.
