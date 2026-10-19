@@ -528,3 +528,6 @@
 {"timestamp":"2026-10-09T19:17:21.571775+01:00","action":"release","task_id":34,"detail":"Let users select and replace generated ideas before starting a debate"}
 {"timestamp":"2026-10-19T11:29:09.406073+01:00","action":"create","task_id":36,"detail":"Add Refine clarification controller and research handoff"}
 {"timestamp":"2026-10-19T11:46:38.294789+01:00","action":"edit","task_id":36,"detail":"Add Refine clarification controller and research handoff"}
+{"timestamp":"2026-10-19T12:16:02.012587+01:00","action":"move","task_id":36,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-10-19T12:16:02.013617+01:00","action":"handoff","task_id":36,"detail":"Add Refine clarification controller and research handoff"}
+{"timestamp":"2026-10-19T12:16:02.013705+01:00","action":"release","task_id":36,"detail":"Add Refine clarification controller and research handoff"}
