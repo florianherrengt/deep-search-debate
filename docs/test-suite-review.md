@@ -238,7 +238,7 @@ The table includes all 148 original files and the two added integration files.
 | `src/api/routes/waitlist.test.ts` | Retained | Uses the real app/origin path to cover normalized persistence, duplicate idempotency, invalid input, and cross-site rejection. |
 | `src/api/web_search/boundedFetch.test.ts` | Retained | Header and streamed response-size caps plus empty response are resource/security boundaries. |
 | `src/api/web_search/index.test.ts` | Retained | Thin real dispatch/balance/signal contract. |
-| `src/api/web_search/scrapingAnt.test.ts` | Retained | Real client with fake fetch covers processwide concurrency, request modes/headers, credits, HTTP/size/transport errors, request and queue timeouts, abort, and cleanup. |
+| `src/api/web_search/pageFetch.test.ts` | Retained | Real client with controlled HTTPS/DNS and Browserless fetch covers public-address pinning, redirects, concurrency, response limits, timeouts, abort, and cleanup. |
 | `src/api/web_search/searxng.test.ts` | Retained | Core-backed mapping, filtering, URL normalization, category/base URL, non-OK, malformed, missing, and empty responses. |
 | `src/api/web_search/serper.test.ts` | Retained | Real Response parsing, request key/body, dedupe/normalization, empty/malformed/non-OK errors, and rate-limit handling. |
 | `src/api/web_search/types.test.ts` | Retained | Text/count bounds and canonical URL first-ranked dedup are pure normalization invariants. |

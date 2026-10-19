@@ -186,7 +186,11 @@ async function startApi(input: {
         LLM_MAX_CONCURRENT_GENERATIONS: "8",
         SEARXNG_URL: "https://e2e-search.test",
         SEARXNG_MIN_INTERVAL_MS: "0",
-        SCRAPINGANT_API_KEY: "e2e-scrapingant-key",
+        BROWSERLESS_URL: "http://e2e-browserless.test",
+        BROWSERLESS_TOKEN: "e2e-browserless-token",
+        PAGE_FETCH_QUEUE_WAIT_TIMEOUT_MS: "120000",
+        PAGE_FETCH_REQUEST_TIMEOUT_MS: "35000",
+        PAGE_FETCH_MAX_RESPONSE_BYTES: "2000000",
         RETHINKLOOP_RESTART_CONTROL: "1",
         RETHINKLOOP_RESTART_HOLD: JSON.stringify(input.hold ?? {}),
         RETHINKLOOP_RESTART_HOLD_AFTER_SUCCESS: JSON.stringify(

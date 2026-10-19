@@ -25,7 +25,7 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   // The real API and Vite app run on isolated ports. A Node preload replaces
-  // only outbound Pi LLM, SearXNG, and ScrapingAnt responses, keeping routes,
+  // only outbound Pi LLM, SearXNG, and page retrieval, keeping routes,
   // SQLite, extraction, NDJSON streams, and the browser UI deterministic.
   webServer: [
     {
@@ -39,7 +39,11 @@ export default defineConfig({
         PORT: new URL(API).port,
         DATABASE_URL: e2eDatabase,
         SEARXNG_URL: "https://e2e-search.test",
-        SCRAPINGANT_API_KEY: "e2e-scrapingant-key",
+        BROWSERLESS_URL: "http://e2e-browserless.test",
+        BROWSERLESS_TOKEN: "e2e-browserless-token",
+        PAGE_FETCH_QUEUE_WAIT_TIMEOUT_MS: "120000",
+        PAGE_FETCH_REQUEST_TIMEOUT_MS: "35000",
+        PAGE_FETCH_MAX_RESPONSE_BYTES: "2000000",
         NODE_ENV: "test",
         BETTER_AUTH_URL: WEB,
         BETTER_AUTH_SECRET:

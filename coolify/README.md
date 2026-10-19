@@ -11,6 +11,7 @@ the operational source of truth for the live Coolify resource.
 | Project | `x4ourxjokp39jfmxfvbw5h1r` |
 | Environment | `qbtgd10bxar36onzm3gutnjp` |
 | Application | `uk9l7wyulny8bxcrkysddlws` |
+| Browserless service | `sby755x538nk9u9g1tuw2hj9` |
 
 The non-secret URL and UUIDs live in `config.sh`, together with the Docker Hub
 image name. The API base is `http://helium:8000/api/v1`.
@@ -66,7 +67,8 @@ Before the first deployment:
 | `SERPER_API_KEY` | Serper production credential |
 | `SERPER_MAX_QUERIES_PER_SECOND` | Optional Serper rate limit from 1 to 50; defaults to 50 |
 | `OPENAI_CODEX_CREDENTIAL_KEY` | Canonical base64 encoding of exactly 32 random bytes used to encrypt user OpenAI Codex credentials and DeepSeek API keys |
-| `SCRAPINGANT_API_KEY` | ScrapingAnt credential |
+| `BROWSERLESS_URL` | `http://rethinkloop-browserless:3000` |
+| `BROWSERLESS_TOKEN` | Same token as the private Browserless service |
 | `BETTER_AUTH_SECRET` | Better Auth signing secret, at least 32 characters |
 | `GITHUB_CLIENT_ID` | Production GitHub OAuth app client ID |
 | `GITHUB_CLIENT_SECRET` | Production GitHub OAuth app client secret |
@@ -141,6 +143,87 @@ is intentionally upgraded, update its release URL in `src/api/package.json` and
 regenerate the root lockfile with `npm install`.
 
 ## Deployment procedure
+
+### Private Browserless
+
+Page fetching uses direct public HTTPS first and Browserless Chromium once when
+the document is unusable. Neither path charges extraction credits. Browserless
+is a separate Coolify Compose service in the same project/environment, defined
+by [browserless.yaml](browserless.yaml). Its pinned image digest is Browserless
+`v2.57.1` and includes ARM64 support. There is no public domain or published host
+port. RethinkLoop reaches it at `http://rethinkloop-browserless:3000` through
+the shared `coolify` network. The service has one browser slot, a 30-second
+session limit, a 2 GB memory limit, and 2 GB shared memory. Its health check uses
+the authenticated `/active` endpoint without placing the token in arguments.
+
+Coolify generates `SERVICE_PASSWORD_BROWSERLESS`; its resolved value becomes the
+container's `TOKEN`. Supply the same value as RethinkLoop's literal, runtime-only
+`BROWSERLESS_TOKEN`, alongside `BROWSERLESS_URL`. Never put it in Compose source,
+URLs in documentation, command arguments, or logs. The old ScrapingAnt key may
+be removed from the application environment only after the replacement code is
+released; the previous image still requires it.
+
+The stock Browserless image permits private-network access. The host-level
+[egress policy](browserless-egress.nft) is therefore required before starting
+the service. It blocks new private/special-address connections and connections
+to the host, while permitting responses to incoming RethinkLoop requests. This
+also covers public DNS names or redirects that resolve to private addresses.
+It changes only the `rethinkloop_browserless` nftables tables in the `inet`
+and `bridge` families; both are required because same-bridge frames can bypass
+routed IP hooks. Routed hooks reject blocked connections; the bridge hook
+drops them.
+
+Coolify attaches both the shared `coolify` network and its service UUID network.
+The policy covers both; preserve all of these allocations on replacement:
+
+| Network | Browserless source addresses |
+| --- | --- |
+| `coolify` | `10.0.1.37`, `fd78:b3fe:2167::37` (fixed in Compose) |
+| `sby755x538nk9u9g1tuw2hj9` | `10.37.0.0/24`, `fd78:b3fe:37::/64` (dedicated network) |
+
+For a fresh host, first check that these networks/addresses do not overlap its
+existing allocations. On the Coolify host as root, install the policy and the
+[systemd unit](rethinkloop-browserless-egress.service) before starting the service:
+
+```sh
+install -D -m 644 coolify/browserless-egress.nft /etc/nftables.d/rethinkloop-browserless.nft
+install -D -m 644 coolify/rethinkloop-browserless-egress.service /etc/systemd/system/rethinkloop-browserless-egress.service
+nft --check --file /etc/nftables.d/rethinkloop-browserless.nft
+systemctl daemon-reload
+systemctl enable --now rethinkloop-browserless-egress.service
+docker network create --attachable --ipv6 --subnet 10.37.0.0/24 --subnet fd78:b3fe:37::/64 sby755x538nk9u9g1tuw2hj9
+```
+
+Create the service from the base64-encoded `browserless.yaml` through `api.sh`
+`POST /services`, with the configured project/environment/server/destination,
+`instant_deploy=false`, and no public URL. Leave `connect_to_docker_network`
+disabled: Compose already declares the shared network. For the existing service,
+use `PATCH /services/<uuid>` to update `docker_compose_raw`, preserving its token.
+The service UUID network must already exist with the dedicated allocations
+above; do not let Docker allocate an unprotected replacement subnet.
+
+```sh
+./coolify/api.sh POST /services/sby755x538nk9u9g1tuw2hj9/start
+./coolify/api.sh GET /services/sby755x538nk9u9g1tuw2hj9
+```
+
+After replacement, verify container health, both network addresses, absence of
+published ports, token rejection, authenticated HTML rendering, and blocked
+private-address/host connections. Check `systemctl is-enabled` and
+`systemctl is-active rethinkloop-browserless-egress.service`; inspect counters
+with `nft list table inet rethinkloop_browserless` and
+`nft list table bridge rethinkloop_browserless`. The policy is loaded before
+Docker at boot and remains in place during container replacements. Reapply it
+with `systemctl reload rethinkloop-browserless-egress.service` after any host
+firewall operation that flushes nftables tables.
+
+For local development, tunnel a loopback port to `10.0.1.37:3000` over an
+authorized SSH connection to the Coolify host, then set that loopback URL and the
+same token in the ignored API `.env`. Local fetching still applies its own
+public-address DNS/redirect validation. The Browserless host policy remains
+necessary when the caller runs on another computer.
+
+### RethinkLoop application
 
 Coolify pulls the released tag from Docker Hub instead of building on the
 server. The tag is a full commit SHA published by Dagger, so publish from a

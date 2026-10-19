@@ -89,7 +89,7 @@ it("persists two rounds of broader discovery and promotes the cumulative invento
     if (url !== roadUrl && url !== primerUrl && url !== trailUrl) throw new Error(`Unexpected page: ${url}`)
     return Promise.resolve({ url, content: url === trailUrl ? trail.description : `${daily.description} ${racer.description}`,
       links: url === roadUrl ? [{ url: primerUrl, title: "Road shoe approaches explained" }] : [],
-      retrievalMethod: "scrapingant-http", scrapingAntCredits: 1 })
+      retrievalMethod: "http" })
   })
   vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
     const request = new Request(input, init)
@@ -148,6 +148,7 @@ it("persists two rounds of broader discovery and promotes the cumulative invento
   expect(snapshot.rounds.every(({ queries }) => queries.every(({ status }) => status === "completed"))).toBe(true)
   expect(snapshot.pages).toHaveLength(3)
   expect(snapshot.pages.map(({ status }) => status)).toEqual(["completed", "completed", "completed"])
+  expect(snapshot.pages.map(({ creditsUsed }) => creditsUsed)).toEqual([0, 0, 0])
 
   const secondPlan = requests.filter(({ stage }) => stage.startsWith("You plan broad web searches"))[1].prompt
   for (const retained of [daily.name, racer.name, roadUrl, "Trail-running shoe categories and experiences"]) expect(secondPlan).toContain(retained)
@@ -160,7 +161,7 @@ it("persists two rounds of broader discovery and promotes the cumulative invento
     "generate-discovery-queries", "select-discovery-results", "select-discovery-links",
     "summarize-discovery-page", "summarize-discovery-query", "update-discovery-inventory", "review-discovery-round",
   ]))
-  expect(db.select({ credits: user.credits }).from(user).where(eq(user.id, userId)).get()!.credits).toBeLessThan(creditsBefore)
+  expect(db.select({ credits: user.credits }).from(user).where(eq(user.id, userId)).get()!.credits).toBe(creditsBefore - 2)
   expect(events.filter(({ type }) => type === "round-answer-stream")).toHaveLength(2)
   expect(events).toContainEqual({ type: "final-answer-stream", streamId: snapshot.finalAnswerGeneration!.generationId })
   expect(events.some(({ type }) => type === "research-analysis")).toBe(false)
@@ -205,7 +206,7 @@ it.each([
   })
   external.webExtract.mockResolvedValue({
     url: sourceUrl, content: "Daily trainers are cushioned everyday road shoes.", links: [],
-    retrievalMethod: "scrapingant-http", scrapingAntCredits: 1,
+    retrievalMethod: "http",
   })
   vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
     const request = new Request(input, init)

@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type {
-  ScrapingAntClient,
-  ScrapingAntPage,
-} from "./scrapingAnt.ts"
+import type { PageFetchClient } from "./pageFetch.ts"
+type PageFetchResult = Awaited<ReturnType<PageFetchClient["fetchPage"]>>
 import {
   createWebExtractor,
   type PageRetrievalLog,
@@ -15,8 +13,8 @@ function usableHtml(label = "Useful evidence"): string {
 
 function htmlPage(
   html: string,
-  metadata: Omit<ScrapingAntPage, "body"> = {},
-): ScrapingAntPage {
+  metadata: Omit<PageFetchResult, "body"> = {},
+): PageFetchResult {
   return { body: new TextEncoder().encode(html), ...metadata }
 }
 
@@ -61,7 +59,7 @@ function usablePdf(): Uint8Array {
 }
 
 function createHarness() {
-  const fetchPage = vi.fn<ScrapingAntClient["fetchPage"]>()
+  const fetchPage = vi.fn<PageFetchClient["fetchPage"]>()
   const logs: PageRetrievalLog[] = []
   let clock = 0
   const extract = createWebExtractor({
@@ -78,11 +76,9 @@ function createHarness() {
 describe("webExtract", () => {
   afterEach(() => vi.restoreAllMocks())
 
-  it("uses the cheap ScrapingAnt request when it returns usable content", async () => {
+  it("uses the cheap page fetch request when it returns usable content", async () => {
     const harness = createHarness()
-    harness.fetchPage.mockResolvedValueOnce(htmlPage(usableHtml(), {
-      credits: 1,
-    }))
+    harness.fetchPage.mockResolvedValueOnce(htmlPage(usableHtml()))
 
     const result = await harness.extract({ url: "https://example.com/page" })
 
@@ -91,26 +87,25 @@ describe("webExtract", () => {
       mode: "http",
       signal: undefined,
     })
-    expect(result.retrievalMethod).toBe("scrapingant-http")
+    expect(result.retrievalMethod).toBe("http")
     expect(result.content).toContain("Useful evidence explains")
     expect(harness.logs).toEqual([
       {
         event: "page-retrieval-attempt",
         url: "https://example.com/page",
         domain: "example.com",
-        method: "scrapingant-http",
+        method: "http",
         outcome: "success",
         latencyMs: 10,
-        credits: 1,
-      },
+        },
     ])
   })
 
   it("does not log page retrieval attempts by default", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
     const fetchPage = vi
-      .fn<ScrapingAntClient["fetchPage"]>()
-      .mockResolvedValueOnce(htmlPage(usableHtml(), { credits: 1 }))
+      .fn<PageFetchClient["fetchPage"]>()
+      .mockResolvedValueOnce(htmlPage(usableHtml()))
     const extract = createWebExtractor({ client: { fetchPage } })
 
     await extract({ url: "https://example.com/page" })
@@ -137,7 +132,7 @@ describe("webExtract", () => {
         <a href=&#47;specifications>Technical &#x73;pecifications</a>
         <a href="//cdn.example.com/manual.pdf">Manual</a>
         </main><nav><a href="/catalog">Catalog</a></nav>`)
-    harness.fetchPage.mockResolvedValueOnce(htmlPage(html, { credits: 1 }))
+    harness.fetchPage.mockResolvedValueOnce(htmlPage(html))
 
     const result = await harness.extract({ url: "https://example.com/start/page" })
 
@@ -148,7 +143,6 @@ describe("webExtract", () => {
       { url: "https://example.com/catalog", title: "Catalog" },
     ])
     expect(result.content).not.toContain("Catalog")
-    expect(result.scrapingAntCredits).toBe(1)
     expect(harness.fetchPage).toHaveBeenCalledTimes(1)
   })
 
@@ -252,14 +246,13 @@ describe("webExtract", () => {
     async (contentType) => {
       const harness = createHarness()
       const content = ' {"id":9007199254740993,"price":14.00,"scale":1e-20,"available":false,"note":null,"label":"<a href=\\"/fake\\">A &amp; B</a>","magic":"%PDF-"}\n'
-      harness.fetchPage.mockResolvedValueOnce(htmlPage(content, { contentType, credits: 1 }))
+      harness.fetchPage.mockResolvedValueOnce(htmlPage(content, { contentType }))
 
       const result = await harness.extract({ url: "https://example.com/data.json" })
 
       expect(result.content).toBe(content)
       expect(result.links).toEqual([])
-      expect(result.scrapingAntCredits).toBe(1)
-      expect(harness.fetchPage).toHaveBeenCalledTimes(1)
+        expect(harness.fetchPage).toHaveBeenCalledTimes(1)
     },
   )
 
@@ -277,15 +270,14 @@ describe("webExtract", () => {
     { name: "prototype properties", body: new TextEncoder().encode('{"nested":{"__proto__":{"polluted":true}}}') },
     { name: "oversized JSON", body: new TextEncoder().encode(JSON.stringify({ value: "x".repeat(100_000 - 11) })) },
     { name: "invalid UTF-8 inside otherwise valid JSON", body: new Uint8Array([123, 34, 120, 34, 58, 34, 255, 34, 125]) },
-  ])("rejects $name while retaining retrieval costs and fallback behavior", async ({ body }) => {
+  ])("rejects $name while preserving fallback behavior", async ({ body }) => {
     const harness = createHarness()
-    harness.fetchPage.mockResolvedValue({ body, contentType: "application/json", credits: 1 })
+    harness.fetchPage.mockResolvedValue({ body, contentType: "application/json" })
 
     await expect(harness.extract({ url: "https://example.com/data" })).rejects.toMatchObject({
       message: "No retrieval method returned usable content for https://example.com/data",
-      scrapingAntCredits: 2,
     })
-    expect(harness.fetchPage.mock.calls.map(([call]) => call.mode)).toEqual(["http", "browser-us"])
+    expect(harness.fetchPage.mock.calls.map(([call]) => call.mode)).toEqual(["http", "browser"])
     expect(harness.logs.map(({ outcome }) => outcome)).toEqual(["failure", "failure"])
   })
 
@@ -316,7 +308,6 @@ describe("webExtract", () => {
     harness.fetchPage.mockResolvedValueOnce({
       body: usablePdf(),
       contentType: "application/pdf",
-      credits: 1,
     })
 
     const result = await harness.extract({
@@ -334,18 +325,16 @@ describe("webExtract", () => {
       .mockResolvedValueOnce({
         body: new Uint8Array(500).fill(0xff),
         contentType: "image/png",
-        credits: 1,
-      })
+        })
       .mockResolvedValueOnce(htmlPage(usableHtml("Browser document"), {
         contentType: "text/html; charset=utf-8",
-        credits: 10,
-      }))
+        }))
 
     const result = await harness.extract({ url: "https://example.com/image" })
 
     expect(harness.fetchPage.mock.calls.map(([call]) => call.mode)).toEqual([
       "http",
-      "browser-us",
+      "browser",
     ])
     expect(result.content).toContain("Browser document explains")
     expect(harness.logs[0]).toMatchObject({
@@ -359,30 +348,28 @@ describe("webExtract", () => {
     harness.fetchPage
       .mockRejectedValueOnce(new Error("provider transport failed"))
       .mockResolvedValueOnce(htmlPage(usableHtml("Rendered evidence"), {
-        credits: 10,
-      }))
+        }))
 
     const result = await harness.extract({ url: "https://example.com/page" })
 
     expect(harness.fetchPage.mock.calls.map(([call]) => call.mode)).toEqual([
       "http",
-      "browser-us",
+      "browser",
     ])
-    expect(result.retrievalMethod).toBe("scrapingant-browser-us")
+    expect(result.retrievalMethod).toBe("browserless")
     expect(result.content).toContain("Rendered evidence explains")
     expect(harness.logs).toEqual([
       expect.objectContaining({
-        method: "scrapingant-http",
+        method: "http",
         outcome: "failure",
         latencyMs: 10,
         failure: "provider transport failed",
       }),
       expect.objectContaining({
-        method: "scrapingant-browser-us",
+        method: "browserless",
         outcome: "success",
         latencyMs: 10,
-        credits: 10,
-      }),
+        }),
     ])
   })
 
@@ -418,34 +405,31 @@ describe("webExtract", () => {
         contentType: "application/pdf",
       },
     },
-  ] satisfies Array<{ name: string; page: ScrapingAntPage }>)(
+  ] satisfies Array<{ name: string; page: PageFetchResult }>)(
     "escalates $name returned by the cheap request",
     async ({ page }) => {
       const harness = createHarness()
       harness.fetchPage
-        .mockResolvedValueOnce({ ...page, credits: 1 })
-        .mockResolvedValueOnce(htmlPage(usableHtml("Browser result"), {
-          credits: 10,
-        }))
+        .mockResolvedValueOnce(page)
+        .mockResolvedValueOnce(htmlPage(usableHtml("Browser result")))
 
       const result = await harness.extract({ url: "https://example.com/page" })
 
       expect(harness.fetchPage).toHaveBeenCalledTimes(2)
-      expect(result.retrievalMethod).toBe("scrapingant-browser-us")
+      expect(result.retrievalMethod).toBe("browserless")
       expect(harness.logs[0]).toEqual(
         expect.objectContaining({
-          method: "scrapingant-http",
+          method: "http",
           outcome: "failure",
-          credits: 1,
-        }),
+            }),
       )
     },
   )
 
-  it("fails after logging both unsuccessful ScrapingAnt modes", async () => {
+  it("fails after logging both unsuccessful page fetch modes", async () => {
     const harness = createHarness()
     harness.fetchPage
-      .mockResolvedValueOnce(htmlPage("<p>short</p>", { credits: 1 }))
+      .mockResolvedValueOnce(htmlPage("<p>short</p>"))
       .mockRejectedValueOnce(new Error("browser failed"))
 
     await expect(
@@ -455,21 +439,19 @@ describe("webExtract", () => {
     )
     expect(harness.logs).toHaveLength(2)
     expect(harness.logs.map(({ method, outcome }) => ({ method, outcome }))).toEqual([
-      { method: "scrapingant-http", outcome: "failure" },
-      { method: "scrapingant-browser-us", outcome: "failure" },
+      { method: "http", outcome: "failure" },
+      { method: "browserless", outcome: "failure" },
     ])
     expect(harness.logs[1]?.failure).toBe("browser failed")
   })
 
-  it("records credit metadata on each flat attempt log", async () => {
+  it("records flat retrieval attempt logs without billing metadata", async () => {
     const harness = createHarness()
     harness.fetchPage
       .mockResolvedValueOnce(htmlPage("<p>short</p>", {
-        credits: 1,
-      }))
+        }))
       .mockResolvedValueOnce(htmlPage(usableHtml(), {
-        credits: 10,
-      }))
+        }))
 
     await harness.extract({ url: "https://www.example.com/page" })
 
@@ -478,21 +460,19 @@ describe("webExtract", () => {
         event: "page-retrieval-attempt",
         url: "https://www.example.com/page",
         domain: "www.example.com",
-        method: "scrapingant-http",
+        method: "http",
         outcome: "failure",
         latencyMs: 10,
-        credits: 1,
-        failure: "Extracted content was shorter than 200 characters",
+          failure: "Extracted content was shorter than 200 characters",
       },
       {
         event: "page-retrieval-attempt",
         url: "https://www.example.com/page",
         domain: "www.example.com",
-        method: "scrapingant-browser-us",
+        method: "browserless",
         outcome: "success",
         latencyMs: 10,
-        credits: 10,
-      },
+        },
     ])
   })
 })

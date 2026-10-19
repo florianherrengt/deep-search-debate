@@ -2,12 +2,59 @@ import { createReadStream, rmSync, writeSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createInterface } from "node:readline"
+import dns from "node:dns"
+import https from "node:https"
+import { syncBuiltinESMExports } from "node:module"
+import { PassThrough } from "node:stream"
 import { fileURLToPath } from "node:url"
 import { zstdDecompressSync } from "node:zlib"
 import Database from "better-sqlite3"
 import { migrateDatabase } from "../db/migrate.ts"
 
 const restartControlEnabled = process.env.RETHINKLOOP_RESTART_CONTROL === "1"
+
+// The production direct-fetch path uses DNS validation and https.request. Keep
+// both transports deterministic and fail closed for every unlisted hostname.
+dns.promises.lookup = async (hostname) => {
+  if (hostname !== "e2e-content.test") {
+    throw new Error(`Unmocked E2E DNS lookup: ${hostname}`)
+  }
+  return [{ address: "93.184.216.34", family: 4 }]
+}
+https.request = (input, options, callback) => {
+  const url = input instanceof URL ? input : new URL(String(input))
+  const host = url.hostname
+  if (host !== "e2e-content.test") {
+    throw new Error(`Unmocked outbound E2E HTTPS request: ${url.href}`)
+  }
+  const request = new PassThrough()
+  request.end = async () => {
+    try {
+      const target = new URL(url.href)
+      const signal = options?.signal
+      const result = await controlledProviderResponse(
+        { signal },
+        `extract:${target.href}`,
+        async () => target.pathname === "/linked-source/offer"
+          ? new Response("<html><body><div id=app></div></body></html>", {
+            headers: { "content-type": "text/html; charset=utf-8" },
+          })
+          : pageResponse(target),
+      )
+      const response = new PassThrough()
+      Object.assign(response, {
+        statusCode: 200,
+        headers: { "content-type": result.headers.get("content-type") },
+      })
+      callback(response)
+      response.end(Buffer.from(await result.arrayBuffer()))
+    } catch (error) {
+      request.emit("error", error)
+    }
+  }
+  return request
+}
+syncBuiltinESMExports()
 const sharedDatabasePath = restartControlEnabled
   ? process.env.DATABASE_URL
   : undefined
@@ -1886,42 +1933,33 @@ function pageResponse(url) {
   )
 }
 
-async function scrapingAntResponse(request, url) {
-  if (request.method !== "GET" || url.pathname !== "/v2/general") {
-    throw new Error(
-      `Unexpected ScrapingAnt request: ${request.method} ${url.pathname}`,
-    )
+async function browserlessResponse(request, url) {
+  if (request.method !== "POST" || url.pathname !== "/chromium/content") {
+    throw new Error(`Unexpected Browserless request: ${request.method} ${url.pathname}`)
   }
-  if (request.headers.get("x-api-key") !== "e2e-scrapingant-key") {
-    throw new Error("ScrapingAnt request omitted its API key header")
+  if (url.searchParams.get("token") !== "e2e-browserless-token") {
+    throw new Error("Browserless request omitted its private token")
   }
-
-  const target = url.searchParams.get("url")
-  if (!target) throw new Error("ScrapingAnt request omitted its target URL")
-  const targetUrl = new URL(target)
-  if (targetUrl.hostname !== "e2e-content.test") {
-    throw new Error(`Unexpected ScrapingAnt target: ${targetUrl.href}`)
+  if (url.searchParams.get("timeout") !== "35000") {
+    throw new Error("Browserless request omitted its timeout")
   }
-
-  const browser = url.searchParams.get("browser")
-  if (browser !== "false" && browser !== "true") {
-    throw new Error(`Unexpected ScrapingAnt browser mode: ${browser}`)
-  }
+  const body = await request.json()
   if (
-    browser === "true" &&
-    (url.searchParams.get("proxy_type") !== "datacenter" ||
-      url.searchParams.get("proxy_country") !== "US")
+    body.gotoOptions?.waitUntil !== "networkidle2" ||
+    !Array.isArray(body.rejectResourceTypes) ||
+    !body.rejectResourceTypes.includes("image")
   ) {
-    throw new Error("Rendered ScrapingAnt request omitted its US proxy")
+    throw new Error("Browserless request omitted its rendering options")
   }
-
-  const targetResponse = pageResponse(targetUrl)
-  return new Response(await targetResponse.text(), {
-    headers: {
-      "content-type": targetResponse.headers.get("content-type"),
-      "ant-credits-cost": browser === "false" ? "1" : "10",
-    },
-  })
+  const targetUrl = new URL(body.url)
+  if (targetUrl.hostname !== "e2e-content.test") {
+    throw new Error(`Unexpected Browserless target: ${targetUrl.href}`)
+  }
+  return controlledProviderResponse(
+    request,
+    `extract:${targetUrl.href}`,
+    () => pageResponse(targetUrl),
+  )
 }
 
 globalThis.fetch = async (input, init) => {
@@ -2036,12 +2074,8 @@ globalThis.fetch = async (input, init) => {
       () => searXngResponse(url),
     )
   }
-  if (url.hostname === "api.scrapingant.com") {
-    return controlledProviderResponse(
-      request,
-      `extract:${url.searchParams.get("url") ?? "unknown url"}`,
-      () => scrapingAntResponse(request, url),
-    )
+  if (url.hostname === "e2e-browserless.test") {
+    return browserlessResponse(request, url)
   }
 
   throw new Error(`Unmocked outbound E2E request: ${request.method} ${url.href}`)

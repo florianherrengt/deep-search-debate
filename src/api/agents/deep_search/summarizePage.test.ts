@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import z from "zod"
 
@@ -14,7 +15,16 @@ vi.mock("../../web_search/webExtract.ts", () => ({
   webExtract: mocks.webExtract,
 }))
 
+import { db } from "../../db/index.ts"
+import { user } from "../../db/schema/index.ts"
 import { startPageSummary, summarizePage } from "./summaries.ts"
+
+const userId = "test-user-id"
+const originalCredits = db
+  .select({ credits: user.credits })
+  .from(user)
+  .where(eq(user.id, userId))
+  .get()!.credits
 
 function completedGeneration(
   id = "summary-stream-id",
@@ -32,11 +42,13 @@ function completedGeneration(
 
 describe("page summaries", () => {
   beforeEach(() => {
+    db.update(user).set({ credits: originalCredits }).where(eq(user.id, userId)).run()
     vi.clearAllMocks()
     mocks.webExtract.mockResolvedValue({
       url: "https://example.com/page",
       content: "Extracted page content",
       links: [],
+      retrievalMethod: "http",
     })
   })
 
@@ -112,13 +124,15 @@ describe("page summaries", () => {
     ).rejects.toThrow("Stream registration failed")
   })
 
-  it("extracts a page and returns its registered summary handle", async () => {
+  it("extracts and summarizes a page with zero credits remaining", async () => {
     mocks.generateTextStream.mockResolvedValueOnce(completedGeneration())
+    db.update(user).set({ credits: 0 }).where(eq(user.id, userId)).run()
     const links = [{ url: "https://example.com/terms", title: "Eligibility terms" }]
     mocks.webExtract.mockResolvedValueOnce({
       url: "https://example.com/page",
       content: "Extracted page content",
       links,
+      retrievalMethod: "browserless",
     })
     const onExtractionSettled = vi.fn()
 
@@ -139,11 +153,11 @@ describe("page summaries", () => {
       creditsUsed: 0,
       links,
     })
+    expect(db.select({ credits: user.credits }).from(user).where(eq(user.id, userId)).get()!.credits).toBe(0)
   })
 
   it("returns extraction failures without starting a summary stream or charging credits", async () => {
     const error = new Error("Extraction failed")
-    Object.assign(error, { scrapingAntCredits: 25 })
     mocks.webExtract.mockRejectedValueOnce(error)
     const onExtractionSettled = vi.fn()
 
@@ -173,6 +187,7 @@ describe("page summaries", () => {
         url,
         content: "Usable content from the other page",
         links: [],
+        retrievalMethod: "http" as const,
       })
     })
     mocks.generateTextStream.mockResolvedValueOnce(
