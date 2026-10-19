@@ -1,13 +1,15 @@
 ---
 id: 36
 title: Add Refine clarification controller and research handoff
-status: review
+status: in-progress
 priority: high
 created: 2026-10-19T11:29:09.403839+01:00
-updated: 2026-10-19T12:16:02.010239+01:00
+updated: 2026-10-19T13:05:21.627506+01:00
 tags:
     - feature
     - refine
+claimed_by: sabotine-hushaby
+claimed_at: 2026-10-19T13:05:21.627671+01:00
 class: standard
 ---
 
@@ -25,3 +27,6 @@ Implementation is isolated in .worktrees/codex-ticket-36-refine on codex/ticket-
 - Verified on Node 26.5.1: npm run gatekeep passed (94 API files / 911 tests; 56 web files / 409 tests); production Vite and Storybook builds passed; four Refine browser flows passed against real UI/API/SQLite with controlled upstream model/search services; desktop and 390px full-page screenshots inspected; git diff --check passed.
 - Independent root, API, DB and web gatekeep reviews completed; findings fixed and regression-tested, including stage-generation restart cleanup, active-batch ownership, Start/Ask more race, question reference validity and nullable preparation-position CHECK.
 - Review notes: no dependencies added. Browser model/search responses are fixtures; live-provider quality was not evaluated. Screenshots are under src/web/test-results/refine-desktop-ready.png and refine-mobile-390.png in the worktree. No feature-code commit, merge, push or deployment performed.
+
+[[2026-10-19]] Mon 13:05
+Real-provider browser validation exposed a Refine retry defect: schema-valid recovery output with unsupported evidence references was cached before semantic validation, causing permanent retry failure. Reopening the existing worktree to fix that validation/checkpoint boundary, add a regression, and continue the live recorded flow. Existing real research is preserved.
