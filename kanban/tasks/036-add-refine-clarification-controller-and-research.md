@@ -1,13 +1,15 @@
 ---
 id: 36
 title: Add Refine clarification controller and research handoff
-status: review
+status: in-progress
 priority: high
 created: 2026-10-19T11:29:09.403839+01:00
-updated: 2026-10-19T13:55:30.338474+01:00
+updated: 2026-10-19T15:04:26.02794+01:00
 tags:
     - feature
     - refine
+claimed_by: sabotine-hushaby
+claimed_at: 2026-10-19T15:04:26.028232+01:00
 class: standard
 ---
 
@@ -40,3 +42,6 @@ Real-provider browser validation exposed a Refine retry defect: schema-valid rec
 - Video: src/web/test-results/refine-real-20261019/refine-real-llm-walkthrough.mp4 (275.07 seconds, H.264 1440x1050, full decode checked). Safe provider/job audit: same directory, live-audit.json. Both are ignored local evidence files.
 - Recording boundary: resumes the saved live session; initial prompt entry preceded the valid window capture. Idle waits are shortened; failures/retries are retained. The second preparation was deliberately cancelled to verify Start. The recording ends with the normal research job in Round 1; final report completion and a clean first-attempt live run are not claimed.
 - Live-model evidence formatting and reference failures required manual retries. An existing deep-search linked-page enum violation also recovered through Retry. The controlled-provider fixture was corrected to classify all four needs after stricter validation. No dependency added, feature-code commit, merge, push or deployment performed.
+
+[[2026-10-19]] Mon 15:04
+Reopened after user requested fixes for the review findings: oversized accumulated Refine input can block research handoff; empty provenance arrays admit unsupported factual claims. Investigating bounded-prompt policy before code changes and preparing regression coverage.
