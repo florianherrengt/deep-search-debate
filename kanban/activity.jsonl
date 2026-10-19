@@ -533,3 +533,6 @@
 {"timestamp":"2026-10-19T12:16:02.013705+01:00","action":"release","task_id":36,"detail":"Add Refine clarification controller and research handoff"}
 {"timestamp":"2026-10-19T13:05:21.630036+01:00","action":"edit","task_id":36,"detail":"Add Refine clarification controller and research handoff"}
 {"timestamp":"2026-10-19T13:05:21.63101+01:00","action":"claim","task_id":36,"detail":"sabotine-hushaby"}
+{"timestamp":"2026-10-19T13:55:30.340705+01:00","action":"move","task_id":36,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-10-19T13:55:30.340871+01:00","action":"handoff","task_id":36,"detail":"Add Refine clarification controller and research handoff"}
+{"timestamp":"2026-10-19T13:55:30.340979+01:00","action":"release","task_id":36,"detail":"Add Refine clarification controller and research handoff"}

@@ -1,15 +1,13 @@
 ---
 id: 36
 title: Add Refine clarification controller and research handoff
-status: in-progress
+status: review
 priority: high
 created: 2026-10-19T11:29:09.403839+01:00
-updated: 2026-10-19T13:05:21.627506+01:00
+updated: 2026-10-19T13:55:30.338474+01:00
 tags:
     - feature
     - refine
-claimed_by: sabotine-hushaby
-claimed_at: 2026-10-19T13:05:21.627671+01:00
 class: standard
 ---
 
@@ -30,3 +28,15 @@ Implementation is isolated in .worktrees/codex-ticket-36-refine on codex/ticket-
 
 [[2026-10-19]] Mon 13:05
 Real-provider browser validation exposed a Refine retry defect: schema-valid recovery output with unsupported evidence references was cached before semantic validation, causing permanent retry failure. Reopening the existing worktree to fix that validation/checkpoint boundary, add a regression, and continue the live recorded flow. Existing real research is preserved.
+
+[[2026-10-19]] Mon 13:55
+## Live-provider verification handoff
+- Worktree: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-36-refine; branch codex/ticket-36-refine. Feature code remains uncommitted for review.
+- Tested the real browser against actual DeepSeek Flash and Pro calls, SearXNG and ScrapingAnt, using an isolated ignored database copy. No upstream fixtures were used in this live session.
+- Verified five questions with four choices each; two crop selections plus supplemental text; full reload persistence; three unanswered questions; Ask more submitting an immutable prior batch; Start during new preparation cancelling that preparation; one normal research job launched; Refine read-only with a working research link.
+- Live session 99ca2ac5-da5a-46bf-a8cd-854da4427a44 handed off to research job 273255cb-5310-46bc-a681-314d1f238904. Stored research request retains both selected choices, both typed supplements and all three unanswered markers. Cancelled preparation has no running model generations.
+- Live fixes: semantic validation now precedes successful stage checkpointing; explicit Retry evicts invalid cached stages and dependants while preserving valid work; prospective decision keys are resolved and checked by the map stage; model contracts distinguish raw excerpts from derived shared-state text and bibliographic citations, and constrain candidate decisions to their selected needs. Validation was not relaxed.
+- Verified final source on Node 26.5.1: npm run gatekeep passed (917 API tests, 409 web tests), four Refine browser regressions passed with isolated controlled upstream services, git diff --check passed. Independent root/API delta reviews found no remaining actionable issues; original DB/web reviews remain applicable.
+- Video: src/web/test-results/refine-real-20261019/refine-real-llm-walkthrough.mp4 (275.07 seconds, H.264 1440x1050, full decode checked). Safe provider/job audit: same directory, live-audit.json. Both are ignored local evidence files.
+- Recording boundary: resumes the saved live session; initial prompt entry preceded the valid window capture. Idle waits are shortened; failures/retries are retained. The second preparation was deliberately cancelled to verify Start. The recording ends with the normal research job in Round 1; final report completion and a clean first-attempt live run are not claimed.
+- Live-model evidence formatting and reference failures required manual retries. An existing deep-search linked-page enum violation also recovered through Retry. The controlled-provider fixture was corrected to classify all four needs after stricter validation. No dependency added, feature-code commit, merge, push or deployment performed.
