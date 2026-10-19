@@ -112,8 +112,12 @@ Refine uses nine dedicated prompt stages for context recovery, domain research
 mapping, decision mapping, question generation and review, typed action choice,
 question presentation, answer integration, and assumption review. These are
 callable stages behind a dependency-aware controller, not a mandatory fixed
-sequence. Structured outputs carry stable need/decision keys, source references,
-status, and state revisions. Stage 6 can route targeted deep-search work or yield
+sequence. Provenance-producing stages receive a stage-scoped catalog of verbatim
+evidence excerpts and must return exact catalog IDs. The controller validates
+each ID and resolves it to canonical excerpt text before checkpointing or
+updating shared state; existing quote-based checkpoints remain readable.
+Structured outputs carry stable need/decision keys, source references, status,
+and state revisions. Stage 6 can route targeted deep-search work or yield
 questions/an empty batch; the user alone decides whether to ask more or start
 research. A separate Big-role `refine-condense-research-request` prompt is called
 only when a preparation or final research request exceeds the configured request

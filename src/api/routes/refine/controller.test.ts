@@ -48,6 +48,30 @@ function modelOutput(promptName: PromptName, knownNeedKeys: string[] = []) {
   }
 }
 
+function catalogFromPrompt(prompt: string): { id: string; kind: string; text: string }[] {
+  const startTag = "<evidence_excerpts>\n"
+  const start = prompt.lastIndexOf(startTag)
+  if (start === -1) return []
+  const contentStart = start + startTag.length
+  const end = prompt.indexOf("\n</evidence_excerpts>", contentStart)
+  const raw = end === -1 ? undefined : prompt.slice(contentStart, end)
+  return raw ? JSON.parse(raw) as { id: string; kind: string; text: string }[] : []
+}
+
+function useCatalogIds(prompt: string, value: unknown): unknown {
+  const catalog = catalogFromPrompt(prompt)
+  if (Array.isArray(value)) return value.map((entry) => useCatalogIds(prompt, entry))
+  if (!value || typeof value !== "object") return value
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [
+    key,
+    key === "sourceRefs" || key === "evidenceRefs"
+      ? (entry as unknown[]).map((reference) => typeof reference === "string"
+        ? catalog.find(({ text }) => text === reference || text.includes(reference))?.id ?? reference
+        : reference)
+      : useCatalogIds(prompt, entry),
+  ]))
+}
+
 describe("Refine controller", () => {
   beforeEach(() => {
     mocks.generateObjectStream.mockReset()
@@ -63,8 +87,9 @@ describe("Refine controller", () => {
       const transaction = {} as never
       input.onRegistered?.(generationId, transaction)
       const completedOutput = (value: unknown) => {
-        input.onCompleted?.({ id: generationId, output: value }, transaction)
-        return value
+        const wired = useCatalogIds(input.prompt, value)
+        input.onCompleted?.({ id: generationId, output: wired }, transaction)
+        return wired
       }
       if (input.promptName === PromptName.RefineIntegrateAnswers) {
         return { output: Promise.resolve(modelOutput(input.promptName, ["choose|approach|priority|project"])).then(completedOutput) }
@@ -141,6 +166,7 @@ describe("Refine controller", () => {
       const completedStages: string[] = []
       mocks.generateObjectStream.mockImplementation((input: {
         promptName: PromptName
+        prompt: string
         onRegistered?: (id: string, transaction: never) => void
         onCompleted?: (completed: { id: string; output: unknown }, transaction: never) => void
       }) => {
@@ -149,8 +175,9 @@ describe("Refine controller", () => {
         input.onRegistered?.(generationId, transaction)
         const output = input.promptName === PromptName.RefineRecoverContext ? recovered : modelOutput(input.promptName)
         return { output: Promise.resolve(output).then((value) => {
-          input.onCompleted?.({ id: generationId, output: value }, transaction)
-          return value
+          const wired = useCatalogIds(input.prompt, value)
+          input.onCompleted?.({ id: generationId, output: wired }, transaction)
+          return wired
         }) }
       })
       await expect(prepareQuestionBatch({
@@ -217,6 +244,7 @@ describe("Refine controller", () => {
       const completedStages: string[] = []
       mocks.generateObjectStream.mockImplementation((input: {
         promptName: PromptName
+        prompt: string
         onRegistered?: (id: string, transaction: never) => void
         onCompleted?: (completed: { id: string; output: unknown }, transaction: never) => void
       }) => {
@@ -227,8 +255,9 @@ describe("Refine controller", () => {
           ? { resolvedNeedKeys: [], unresolvedNeedKeys: [], invalidatedNeedKeys: [], assumptionUpdates: [], requirementUpdates: [{ key: "budget|approach|limit|project", text: "The selected budget is £100,000", status: "confirmed", affectsDecisionKeys: [], sourceRefs: [sourceRef] }], followUpWork: [] }
           : modelOutput(input.promptName)
         return { output: Promise.resolve(output).then((value) => {
-          input.onCompleted?.({ id: generationId, output: value }, transaction)
-          return value
+          const wired = useCatalogIds(input.prompt, value)
+          input.onCompleted?.({ id: generationId, output: wired }, transaction)
+          return wired
         }) }
       })
       const result = prepareQuestionBatch({
@@ -292,6 +321,229 @@ describe("Refine controller", () => {
     }, true)).rejects.toThrow("required evidence")
     expect(completedStages).not.toContain("research-domain")
     expect(checkpoints["research-domain"]).toBeUndefined()
+  })
+
+  it("resolves a validated research excerpt ID to the exact stored paragraph including its citation", async () => {
+    const paragraph = "The study reports a 14% gain. [1](https://example.test/report)"
+    const checkpoints: Record<string, unknown> = {}
+    mocks.generateObjectStream.mockImplementation((input: {
+      promptName: PromptName
+      prompt: string
+      onRegistered?: (id: string, transaction: never) => void
+      onCompleted?: (completed: { id: string; output: unknown }, transaction: never) => void
+    }) => {
+      const generationId = `generation-${input.promptName}`
+      const transaction = {} as never
+      input.onRegistered?.(generationId, transaction)
+      const excerpts = catalogFromPrompt(input.prompt)
+      const excerptId = excerpts.find(({ text }) => text === paragraph)?.id ?? "missing-research-excerpt"
+      const output = input.promptName === PromptName.RefineResearchDomain
+        ? { domainMap: [{ key: "approach|constraints|performance|current", text: "The study found a 14% performance gain.", decisionKeys: [], sourceRefs: [excerptId] }], needs: [] }
+        : modelOutput(input.promptName)
+      return { output: Promise.resolve(output).then((value) => {
+        input.onCompleted?.({ id: generationId, output: value }, transaction)
+        return value
+      }) }
+    })
+
+    const result = await prepareQuestionBatch({
+      userId: "user", originalPrompt: request, priorAnswers: [], researchEvidence: paragraph, state: initialState, checkpoints,
+      saveCheckpoint: (stage, value) => { checkpoints[stage] = value }, onStageRegistered: () => {},
+      onStageCompleted: (stage, _generationId, output) => { checkpoints[stage] = output },
+    }, true)
+
+    expect(result.state.domainMap).toMatchObject([{ text: "The study found a 14% performance gain.", source: paragraph }])
+    expect(checkpoints["research-domain"]).toMatchObject({ domainMap: [{ sourceRefs: [paragraph] }] })
+  })
+
+  it("rejects unknown and user-scoped excerpt IDs as research evidence before checkpointing", async () => {
+    const originalPrompt = "The user requires exactly 12 seats."
+    const researchParagraph = "A synthetic study measured 12 seats in the test configuration."
+    const checkpoints: Record<string, unknown> = {}
+    const completedStages: string[] = []
+    let originalRequestId = ""
+    mocks.generateObjectStream.mockImplementation((input: {
+      promptName: PromptName
+      prompt: string
+      onRegistered?: (id: string, transaction: never) => void
+      onCompleted?: (completed: { id: string; output: unknown }, transaction: never) => void
+    }) => {
+      const generationId = `generation-${input.promptName}`
+      const transaction = {} as never
+      input.onRegistered?.(generationId, transaction)
+      if (input.promptName === PromptName.RefineRecoverContext) {
+        originalRequestId = catalogFromPrompt(input.prompt).find(({ kind, text }) => kind === "original-request" && text === originalPrompt)?.id ?? ""
+      }
+      const output = input.promptName === PromptName.RefineRecoverContext
+        ? modelOutput(input.promptName)
+        : input.promptName === PromptName.RefineResearchDomain
+          ? { domainMap: [{ key: "vehicle|seating|capacity|test", text: "The study tested a 12-seat configuration.", decisionKeys: [], sourceRefs: [originalRequestId] }], needs: [] }
+          : modelOutput(input.promptName)
+      return { output: Promise.resolve(output).then((value) => {
+        input.onCompleted?.({ id: generationId, output: value }, transaction)
+        return value
+      }) }
+    })
+
+    await expect(prepareQuestionBatch({
+      userId: "user", originalPrompt, priorAnswers: [], researchEvidence: researchParagraph, state: initialState, checkpoints,
+      saveCheckpoint: (stage, value) => { checkpoints[stage] = value }, onStageRegistered: () => {},
+      onStageCompleted: (stage) => { completedStages.push(stage) },
+    }, true)).rejects.toThrow("unsupported evidence")
+
+    expect(originalRequestId).toMatch(/^evidence_[a-f0-9]{32}$/)
+    expect(completedStages).not.toContain("research-domain")
+    expect(checkpoints["research-domain"]).toBeUndefined()
+  })
+
+  it("rejects an unknown evidence ID before checkpointing a research finding", async () => {
+    const paragraph = "A synthetic report measured 31 units in the stated conditions."
+    const checkpoints: Record<string, unknown> = {}
+    const completedStages: string[] = []
+    mocks.generateObjectStream.mockImplementation((input: {
+      promptName: PromptName
+      prompt: string
+      onRegistered?: (id: string, transaction: never) => void
+      onCompleted?: (completed: { id: string; output: unknown }, transaction: never) => void
+    }) => {
+      const generationId = `generation-${input.promptName}`
+      const transaction = {} as never
+      input.onRegistered?.(generationId, transaction)
+      const output = input.promptName === PromptName.RefineResearchDomain
+        ? { domainMap: [{ key: "device|limits|measurement|test", text: "The report measured 31 units.", decisionKeys: [], sourceRefs: [`evidence_${"f".repeat(32)}`] }], needs: [] }
+        : useCatalogIds(input.prompt, modelOutput(input.promptName))
+      return { output: Promise.resolve(output).then((value) => {
+        input.onCompleted?.({ id: generationId, output: value }, transaction)
+        return value
+      }) }
+    })
+
+    await expect(prepareQuestionBatch({
+      userId: "user", originalPrompt: request, priorAnswers: [], researchEvidence: paragraph, state: initialState, checkpoints,
+      saveCheckpoint: (stage, value) => { checkpoints[stage] = value }, onStageRegistered: () => {},
+      onStageCompleted: (stage) => { completedStages.push(stage) },
+    }, true)).rejects.toThrow("unsupported evidence")
+
+    expect(completedStages).not.toContain("research-domain")
+    expect(checkpoints["research-domain"]).toBeUndefined()
+  })
+
+  it("reuses canonical cached excerpts and keeps catalog IDs stable across retries", async () => {
+    const paragraph = "A synthetic trial measured 18 minutes of runtime. [1](https://synthetic.example/trial)"
+    const firstCheckpoints: Record<string, unknown> = {}
+    const secondCheckpoints: Record<string, unknown> = {}
+    const catalogIds: string[] = []
+    const generatedStages: PromptName[] = []
+    mocks.generateObjectStream.mockImplementation((input: {
+      promptName: PromptName
+      prompt: string
+      onRegistered?: (id: string, transaction: never) => void
+      onCompleted?: (completed: { id: string; output: unknown }, transaction: never) => void
+    }) => {
+      generatedStages.push(input.promptName)
+      const generationId = `generation-${input.promptName}`
+      const transaction = {} as never
+      input.onRegistered?.(generationId, transaction)
+      const excerptId = catalogFromPrompt(input.prompt).find(({ kind, text }) => kind === "research" && text === paragraph)?.id
+      if (input.promptName === PromptName.RefineResearchDomain && excerptId) catalogIds.push(excerptId)
+      const output = input.promptName === PromptName.RefineResearchDomain
+        ? { domainMap: [{ key: "device|constraints|runtime|test", text: "The trial reported 18 minutes of runtime.", decisionKeys: [], sourceRefs: [excerptId ?? "unknown-research-id"] }], needs: [] }
+        : useCatalogIds(input.prompt, modelOutput(input.promptName))
+      return { output: Promise.resolve(output).then((value) => {
+        input.onCompleted?.({ id: generationId, output: value }, transaction)
+        return value
+      }) }
+    })
+
+    const run = async (userId: string, checkpoints: Record<string, unknown>) => prepareQuestionBatch({
+      userId, originalPrompt: request, priorAnswers: [], researchEvidence: paragraph, state: initialState, checkpoints,
+      saveCheckpoint: (stage, value) => { checkpoints[stage] = value }, onStageRegistered: () => {},
+      onStageCompleted: (stage, _generationId, output) => { checkpoints[stage] = output },
+    }, true)
+
+    const first = await run("user", firstCheckpoints)
+    const second = await run("another-user", secondCheckpoints)
+    const promptCallsBeforeCacheReuse = generatedStages.length
+    const reused = await run("user", firstCheckpoints)
+
+    expect(first.state.domainMap).toMatchObject([{ source: paragraph }])
+    expect(second.state.domainMap).toMatchObject([{ source: paragraph }])
+    expect(reused.state.domainMap).toMatchObject([{ source: paragraph }])
+    expect(catalogIds).toHaveLength(2)
+    expect(new Set(catalogIds).size).toBe(1)
+    expect(generatedStages.slice(promptCallsBeforeCacheReuse)).not.toContain(PromptName.RefineResearchDomain)
+    expect(firstCheckpoints["research-domain"]).toMatchObject({ domainMap: [{ sourceRefs: [paragraph] }] })
+  })
+
+  it("reuses selected and supplemental excerpts with quotes and newlines across every canonical validator", async () => {
+    const selectedCandidate = 'The user selected "Quiet"\\mode.'
+    const selectedText = 'The user chose "quiet" mode\\with backup.\nTheir note keeps this second line.'
+    const priorAnswers = [{ question: "Which mode? Do you require a backup?", selectedCandidates: [selectedCandidate], supplementaryText: selectedText, unanswered: false }]
+    const checkpoints: Record<string, unknown> = {}
+    const integrationPrompts: string[] = []
+    const generatedStages: PromptName[] = []
+    const unansweredQuestion = "Which mode matters? Does the user demand a backup?"
+    mocks.generateObjectStream.mockImplementation((input: {
+      promptName: PromptName
+      prompt: string
+      onRegistered?: (id: string, transaction: never) => void
+      onCompleted?: (completed: { id: string; output: unknown }, transaction: never) => void
+    }) => {
+      const generationId = `generation-${input.promptName}`
+      const transaction = {} as never
+      input.onRegistered?.(generationId, transaction)
+      generatedStages.push(input.promptName)
+      if (input.promptName === PromptName.RefineIntegrateAnswers) integrationPrompts.push(input.prompt)
+      let output: unknown = modelOutput(input.promptName)
+      if (input.promptName === PromptName.RefineIntegrateAnswers) output = {
+        ...modelOutput(input.promptName),
+        requirementUpdates: [{ key: "mode|backup|preference|user", text: "The user requested quiet mode with backup.", status: "confirmed", affectsDecisionKeys: [], sourceRefs: [selectedCandidate, selectedText] }],
+      }
+      if (input.promptName === PromptName.RefineReviewAssumptions) output = {
+        assumptions: [{ key: "mode|backup|availability|user", text: "A backup is available.", consequence: "It supports the selected mode.", decisionKeys: [], status: "active", sourceRefs: [selectedText] }],
+        needs: [],
+      }
+      if (input.promptName === PromptName.RefineMapDecisions) output = {
+        decisions: [{ key: "mode-choice", text: "Choose the mode", alternatives: ["Quiet", "Standard"], sourceRefs: [selectedText] }],
+        needs: [{ key: "choose|mode|operation|user", text: "Which operating mode?", route: "clarification", decisionKeys: ["mode-choice"], sourceRefs: [selectedCandidate] }],
+        assumptions: [],
+      }
+      if (input.promptName === PromptName.RefineGenerateQuestions) output = {
+        questions: [{
+          question: "Which operating mode should be used?",
+          candidates: [{ label: "Quiet", action: "Use quiet mode", consequence: "Lower noise" }, { label: "Standard", action: "Use standard mode", consequence: "Normal operation" }],
+          needKeys: ["choose|mode|operation|user"], decisionKeys: ["mode-choice"], evidenceRefs: [selectedText],
+          known: "The user supplied a mode preference.", missing: "The final mode choice.", consequenceIfUnanswered: "The mode remains unspecified.",
+        }],
+      }
+      return { output: Promise.resolve(output).then((value) => {
+        const wired = useCatalogIds(input.prompt, value)
+        input.onCompleted?.({ id: generationId, output: wired }, transaction)
+        return wired
+      }) }
+    })
+    const run = () => prepareQuestionBatch({
+      userId: "user", originalPrompt: request, priorAnswers: [{ ...priorAnswers[0], question: unansweredQuestion }], researchEvidence: "", state: initialState, checkpoints,
+      saveCheckpoint: (stage, value) => { checkpoints[stage] = value }, onStageRegistered: () => {},
+      onStageCompleted: (stage, _generationId, output) => { checkpoints[stage] = output },
+    }, true)
+
+    const first = await run()
+    const firstSource = first.state.requirements.find(({ key }) => key === "mode|backup|preference|user")?.source
+    const second = await run()
+    const canonicalSource = `${selectedCandidate} ${selectedText}`
+
+    expect(firstSource).toBe(canonicalSource)
+    expect(second.state.requirements.find(({ key }) => key === "mode|backup|preference|user")?.source).toBe(canonicalSource)
+    expect(first.state.assumptions.find(({ key }) => key === "mode|backup|availability|user")?.source).toBe(selectedText)
+    expect(first.state.decisions.find(({ key }) => key === "mode-choice")?.source).toBe(selectedText)
+    expect(first.questions[0]?.evidenceRefs).toEqual([selectedText])
+    expect(integrationPrompts).toHaveLength(1)
+    expect(catalogFromPrompt(integrationPrompts[0] ?? "").some(({ text }) => text === unansweredQuestion)).toBe(false)
+    for (const stage of [PromptName.RefineIntegrateAnswers, PromptName.RefineReviewAssumptions, PromptName.RefineMapDecisions, PromptName.RefineGenerateQuestions]) {
+      expect(generatedStages.filter((generated) => generated === stage)).toHaveLength(1)
+    }
+    expect(checkpoints["integrate-answers"]).toMatchObject({ requirementUpdates: [{ sourceRefs: [selectedCandidate, selectedText] }] })
   })
 
   it("requires evidence for integrated confirmed requirements but allows unresolved ones", async () => {
@@ -497,10 +749,10 @@ describe("Refine controller", () => {
   })
 
   it("rejects unsupported decision-key references instead of silently dropping them", async () => {
-    mocks.generateObjectStream.mockImplementation((input: { promptName: PromptName }) => ({
+    mocks.generateObjectStream.mockImplementation((input: { promptName: PromptName; prompt: string }) => ({
       output: Promise.resolve(input.promptName === PromptName.RefineRecoverContext
         ? { requirements: [{ key: "spend|approach|budget|project", text: "Budget must remain below a limit", status: "confirmed", affectsDecisionKeys: ["missing-decision"], sourceRefs: ["budget under $500"] }], knownFacts: [], unresolved: [] }
-        : modelOutput(input.promptName)),
+        : modelOutput(input.promptName)).then((value) => useCatalogIds(input.prompt, value)),
     }))
     const checkpoints: Record<string, unknown> = {}
     const completedStages: string[] = []
@@ -516,6 +768,7 @@ describe("Refine controller", () => {
     const prospectiveKey = "approach-choice"
     mocks.generateObjectStream.mockImplementation((input: {
       promptName: PromptName
+      prompt: string
       onRegistered?: (id: string, transaction: never) => void
       onCompleted?: (completed: { id: string; output: unknown }, transaction: never) => void
     }) => {
@@ -532,8 +785,9 @@ describe("Refine controller", () => {
         needs: [],
       }
       return { output: Promise.resolve(output).then((value) => {
-        input.onCompleted?.({ id: generationId, output: value }, transaction)
-        return value
+        const wired = useCatalogIds(input.prompt, value)
+        input.onCompleted?.({ id: generationId, output: wired }, transaction)
+        return wired
       }) }
     })
     const checkpoints: Record<string, unknown> = {}
@@ -552,7 +806,7 @@ describe("Refine controller", () => {
     const prospectiveKey = "approach-choice"
     const needId = "b80fa0d5-7cd3-4f17-a795-f53854c57d35"
     const needKey = "choose|approach|priority|project"
-    mocks.generateObjectStream.mockImplementation((input: { promptName: PromptName }) => {
+    mocks.generateObjectStream.mockImplementation((input: { promptName: PromptName; prompt: string }) => {
       let output: unknown = modelOutput(input.promptName, [needKey])
       if (input.promptName === PromptName.RefineIntegrateAnswers) output = {
         resolvedNeedKeys: [], unresolvedNeedKeys: [needKey], invalidatedNeedKeys: [], assumptionUpdates: [],
@@ -563,7 +817,7 @@ describe("Refine controller", () => {
         assumptions: [{ key: "benchmark|approach|availability|current", text: "A benchmark is available", consequence: "Can compare approaches", decisionKeys: [prospectiveKey], status: "active", sourceRefs: ["budget under $500"] }],
         needs: [{ key: needKey, text: "Which outcome matters?", route: "clarification", status: "open", decisionKeys: [prospectiveKey], sourceRefs: ["budget under $500"] }],
       }
-      return { output: Promise.resolve(output) }
+      return { output: Promise.resolve(output).then((value) => useCatalogIds(input.prompt, value)) }
     })
     const checkpoints: Record<string, unknown> = {}
     const state: RefineSharedState = {

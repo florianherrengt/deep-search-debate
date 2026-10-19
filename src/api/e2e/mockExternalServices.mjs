@@ -792,6 +792,18 @@ function assertThinkingMode(body) {
   }
 }
 
+function suppliedEvidenceExcerpt(user, kind, predicate, stage) {
+  const match = /<evidence_excerpts>\n([\s\S]*?)\n<\/evidence_excerpts>/.exec(user)
+  if (!match) throw new Error(`Refine ${stage} omitted its evidence excerpt catalog`)
+  const excerpts = JSON.parse(match[1])
+  if (!Array.isArray(excerpts)) throw new Error(`Refine ${stage} supplied an invalid evidence excerpt catalog`)
+  const excerpt = excerpts.find((candidate) => candidate.kind === kind && predicate(candidate.text))
+  if (!excerpt || typeof excerpt.id !== "string" || !/^evidence_[0-9a-f]{32}$/.test(excerpt.id)) {
+    throw new Error(`Refine ${stage} omitted the expected ${kind} evidence excerpt`)
+  }
+  return excerpt
+}
+
 function modelOutput(system, user) {
   if (system.includes("Condense a Refine source record into a research request")) {
     const hasScenario = user.includes("[E2E_REFINE_CONDENSE]")
@@ -855,6 +867,26 @@ function modelOutput(system, user) {
     }
   }
   if (system.includes("Use only supplied deep-search findings to map domain evidence")) {
+    if (user.includes("[E2E_REFINE_EVIDENCE_IDS]")) {
+      const excerpt = suppliedEvidenceExcerpt(
+        user,
+        "research",
+        (text) => text.includes("[1](https://e2e-content.test/") && text.includes("Removable heating controls"),
+        "domain research",
+      )
+      return {
+        reasoning: "Map the cited renter intervention finding using its supplied research evidence ID.",
+        text: JSON.stringify({
+          domainMap: [{
+            key: "renter-energy|intervention|removable-controls|research",
+            text: "Removable heating controls and draught-proofing are practical renter-friendly interventions.",
+            decisionKeys: ["intervention|renters|approach|overall"],
+            sourceRefs: [excerpt.id],
+          }],
+          needs: [],
+        }),
+      }
+    }
     return { reasoning: "Map only facts evidenced by the supplied search.", text: JSON.stringify({ domainMap: [], needs: [] }) }
   }
   if (system.includes("Identify concrete decisions required by the original request")) {
@@ -1166,7 +1198,8 @@ function modelOutput(system, user) {
   }
   if (system.includes("You generate search-engine queries")) {
     const angle = researchAngle(user)
-    const query = `London renter household energy ${angle} evidence`
+    const evidenceIdScenario = user.includes("[E2E_REFINE_EVIDENCE_IDS]")
+    const query = `London renter household energy ${angle} evidence${evidenceIdScenario ? " [E2E_REFINE_EVIDENCE_IDS]" : ""}`
     const requestedCount = Number(/Generate exactly (\d+) (?:new )?search queries/.exec(user)?.[1])
     const queryCount = Number.isInteger(requestedCount) && requestedCount > 0 ? requestedCount : 3
     if (user.includes("Targeted research need:") && !user.includes("E2E targeted search: exact renter deposit and landlord permission evidence")) {
@@ -1245,6 +1278,17 @@ function modelOutput(system, user) {
   }
   if (system.includes("You write the current candidate answer for a deep research run")) {
     const angle = researchAngle(user)
+    const evidenceIdMarker = user.includes("[E2E_REFINE_EVIDENCE_IDS]")
+    if (evidenceIdMarker) {
+      const sources = [...user.matchAll(/<source_evidence>\n([^\n]+)\nContent:\n[\s\S]*?\n<\/source_evidence>/g)]
+        .map((match) => JSON.parse(match[1]))
+      const sourceUrl = sources.find(({ url }) => typeof url === "string" && url.startsWith("https://e2e-content.test/"))?.url
+      if (!sourceUrl) throw new Error("Refine evidence-ID scenario received no supplied citation URL")
+      return {
+        reasoning: "Cite the supplied page that supports the renter intervention finding.",
+        text: `Removable heating controls and draught-proofing are practical renter-friendly interventions [1](${sourceUrl}).`,
+      }
+    }
     const text = angle.startsWith("idea-")
       ? `Research specific to Improved Renter Energy Idea ${angle.slice(5)} validates its practical workflow, risks, and measurable pilot criteria.`
       : angle === "combined"

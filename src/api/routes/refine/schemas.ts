@@ -1,6 +1,6 @@
 import z from "zod"
 
-const evidenceExcerptDescription = "Copy a concise, exact contiguous substring only from the raw source tags permitted for this stage: <original_request>, <prior_answers>, and/or <research_evidence>. Do not copy from derived <stage_context> or <stage_input>, even when it repeats source wording. This is evidence text, not a citation or link: do not append Markdown citations, titles, URLs, quotation marks, or change punctuation, casing, or typography."
+const evidenceExcerptDescription = "Return only an exact ID from the stage-permitted <evidence_excerpts> catalog. IDs refer to verbatim stored evidence excerpts; never return excerpt text, an unknown ID, an ID from a disallowed source kind, or IDs from derived <stage_context> or <stage_input>. Application code resolves valid IDs to canonical excerpt text before persistence."
 
 export const refineIdParamsSchema = z.object({ id: z.uuid() })
 export const refinePipelineCheckpointSchema = z.object({

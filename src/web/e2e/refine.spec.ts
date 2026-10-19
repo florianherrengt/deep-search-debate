@@ -124,7 +124,7 @@ test.describe("Refine", () => {
     test.setTimeout(45_000)
     await page.setViewportSize({ width: 1440, height: 1000 })
     await page.goto("/refine")
-    await page.getByLabel("What would you like to research?").fill("Research practical renter-friendly energy interventions")
+    await page.getByLabel("What would you like to research?").fill("Research practical renter-friendly energy interventions [E2E_REFINE_EVIDENCE_IDS]")
 
     const creation = page.waitForResponse((response) =>
       response.request().method() === "POST" &&
