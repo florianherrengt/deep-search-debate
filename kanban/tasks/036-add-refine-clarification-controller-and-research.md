@@ -1,13 +1,15 @@
 ---
 id: 36
 title: Add Refine clarification controller and research handoff
-status: review
+status: in-progress
 priority: high
 created: 2026-10-19T11:29:09.403839+01:00
-updated: 2026-10-19T16:02:37.18805+01:00
+updated: 2026-10-19T16:31:21.020684+01:00
 tags:
     - feature
     - refine
+claimed_by: sabotine-hushaby
+claimed_at: 2026-10-19T16:31:21.02099+01:00
 class: standard
 ---
 
@@ -58,3 +60,6 @@ User confirmed LLM condensation when accumulated context exceeds the research re
 - Verified final source on Node 26.5.1: npm run gatekeep passed (lint, typecheck, knip, API and web tests); all five Refine browser tests passed using isolated controlled upstream services; git diff --check passed. Root, API, DB and web checklist reviews completed; confirmed findings addressed. History-list scaling observation was outside the two requested fixes; no pagination behavior changed.
 - Fresh real-provider smoke used the authenticated API, real DeepSeek Flash, and an isolated migrated DB copy: a 10,000-character original became a 510-character research request retaining Brighton, £200, north-facing conditions, drilling prohibition and UNANSWERED. Start interrupted preparation and launched ordinary research; the smoke then explicitly cancelled that research. Full report completion was not tested in this smoke. Safe audit: src/web/test-results/refine-real-20261019/condensation-fix-live-audit.json. Prior recorded real-LLM walkthrough remains preserved.
 - Worktree /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-36-refine; branch codex/ticket-36-refine. All feature code remains uncommitted. No dependencies or schema changes added for the fixes; no merge, push or deployment.
+
+[[2026-10-19]] Mon 16:31
+User explicitly authorized committing Refine, merging into local main and deploying via existing Coolify image release. Preparing the approved feature commit and verifying the merged release. Git push was not requested.
