@@ -1,15 +1,15 @@
 ---
 id: 36
 title: Add Refine clarification controller and research handoff
-status: review
+status: in-progress
 priority: high
 created: 2026-10-19T11:29:09.403839+01:00
-updated: 2026-10-19T15:05:36.961524+01:00
+updated: 2026-10-19T15:51:48.21743+01:00
 tags:
     - feature
     - refine
-blocked: true
-block_reason: 'Waiting on user: choose LLM condensation or rejecting oversize submissions before immutable save when accumulated Refine input exceeds the research prompt limit.'
+claimed_by: sabotine-hushaby
+claimed_at: 2026-10-19T15:51:48.217594+01:00
 class: standard
 ---
 
@@ -48,3 +48,6 @@ Reopened after user requested fixes for the review findings: oversized accumulat
 
 [[2026-10-19]] Mon 15:05
 Review-fix investigation complete; no source or test files changed in this fix turn. Provenance remedy is scoped to confirmed requirements, known facts, and domain findings; assumptions remain optional-source records. Existing bounded-text utilities remove passages, so using them would choose a material data-loss policy. Product clarification is pending: LLM condensation (recommended, with originals retained) versus rejecting oversize submissions before immutable save. Existing feature worktree and recorded real-LLM evidence are preserved.
+
+[[2026-10-19]] Mon 15:51
+User confirmed LLM condensation when accumulated context exceeds the research request limit, preserving requirements and unanswered questions and retaining original input. Implementing conditional prompt condensation through existing generation/checkpoint lifecycle plus factual provenance guards.
