@@ -556,3 +556,6 @@
 {"timestamp":"2026-10-19T21:06:52.313018+01:00","action":"create","task_id":37,"detail":"Replace ScrapingAnt with private Browserless and direct fetching"}
 {"timestamp":"2026-10-19T21:11:25.794021+01:00","action":"edit","task_id":36,"detail":"Add Refine clarification controller and research handoff"}
 {"timestamp":"2026-10-19T21:11:25.794518+01:00","action":"claim","task_id":36,"detail":"sabotine-hushaby"}
+{"timestamp":"2026-10-19T21:24:18.295291+01:00","action":"edit","task_id":36,"detail":"Add Refine clarification controller and research handoff"}
+{"timestamp":"2026-10-19T21:24:18.296611+01:00","action":"release","task_id":36,"detail":"sabotine-hushaby"}
+{"timestamp":"2026-10-19T21:24:18.314971+01:00","action":"move","task_id":36,"detail":"in-progress -\u003e done"}

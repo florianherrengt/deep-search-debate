@@ -1,17 +1,15 @@
 ---
 id: 36
 title: Add Refine clarification controller and research handoff
-status: in-progress
+status: done
 priority: high
 created: 2026-10-19T11:29:09.403839+01:00
-updated: 2026-10-19T21:11:25.792107+01:00
+updated: 2026-10-19T21:24:18.312602+01:00
 started: 2026-10-19T16:31:31.813974+01:00
-completed: 2026-10-19T16:31:31.813974+01:00
+completed: 2026-10-19T21:24:18.314769+01:00
 tags:
     - feature
     - refine
-claimed_by: sabotine-hushaby
-claimed_at: 2026-10-19T21:11:25.792267+01:00
 class: standard
 ---
 
@@ -71,3 +69,7 @@ Approved feature committed as 0e2d479 and merged into local main. Source code re
 
 [[2026-10-19]] Mon 21:11
 Reopened for confirmed production session failure 19015cf3-6ae1-4e71-832a-3136a0b1bc6c: preparation search completed; research-domain generation failed because one evidence excerpt added a full stop before an omitted inline citation. User approved validated IDs for stored evidence excerpts. Implementing a strict ID wire contract while retaining canonical stored excerpt/checkpoint format and explicit Retry; no production provider replay authorized or performed.
+
+[[2026-10-19]] Mon 21:24
+Evidence-ID production fix committed as 774f03b and fast-forwarded into local main. Replaced model-copied provenance quotes with stage-scoped deterministic excerpt IDs; validate membership and resolve to exact canonical text before checkpointing. Existing canonical checkpoints and completed preparation searches remain reusable; explicit Retry policy preserved. Fixed cached selected-answer refs containing quotes, newlines and backslashes. No dependencies or migration added.
+Verified Node 26.5.1 npm run gatekeep (933 API tests, 409 web tests), 29 focused controller tests, 5 Refine browser scenarios, and independent root/API/web checklist reviews. A real deepseek-v4-pro call at max effort with synthetic citation-bearing research evidence returned a valid offered ID and persisted completed. No production session replay performed. Audit: ignored src/web/test-results/refine-real-20261019/evidence-ids-live-audit.json. Prior real-LLM video preserved. Proceeding with the previously authorized image/Coolify release; no Git push or worktree cleanup requested.
