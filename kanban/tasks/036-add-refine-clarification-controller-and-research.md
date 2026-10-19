@@ -1,15 +1,15 @@
 ---
 id: 36
 title: Add Refine clarification controller and research handoff
-status: in-progress
+status: done
 priority: high
 created: 2026-10-19T11:29:09.403839+01:00
-updated: 2026-10-19T16:31:21.020684+01:00
+updated: 2026-10-19T16:31:31.81217+01:00
+started: 2026-10-19T16:31:31.813974+01:00
+completed: 2026-10-19T16:31:31.813974+01:00
 tags:
     - feature
     - refine
-claimed_by: sabotine-hushaby
-claimed_at: 2026-10-19T16:31:21.02099+01:00
 class: standard
 ---
 
@@ -63,3 +63,6 @@ User confirmed LLM condensation when accumulated context exceeds the research re
 
 [[2026-10-19]] Mon 16:31
 User explicitly authorized committing Refine, merging into local main and deploying via existing Coolify image release. Preparing the approved feature commit and verifying the merged release. Git push was not requested.
+
+[[2026-10-19]] Mon 16:31
+Approved feature committed as 0e2d479 and merged into local main. Source code remains identical to the reviewed and verified worktree. Proceeding with full merged-tree gate and image release; deployment connectivity to configured helium:8000 is being checked. No Git push or worktree cleanup requested.
