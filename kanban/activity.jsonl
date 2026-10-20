@@ -577,3 +577,5 @@
 {"timestamp":"2026-10-20T16:36:59.452851+01:00","action":"move","task_id":39,"detail":"in-progress -\u003e review"}
 {"timestamp":"2026-10-20T16:36:59.454011+01:00","action":"handoff","task_id":39,"detail":"Move used deep-search-core functionality into RethinkLoop"}
 {"timestamp":"2026-10-20T16:36:59.454122+01:00","action":"release","task_id":39,"detail":"Move used deep-search-core functionality into RethinkLoop"}
+{"timestamp":"2026-10-20T16:40:00.07847+01:00","action":"move","task_id":39,"detail":"review -\u003e done"}
+{"timestamp":"2026-10-20T16:40:00.147413+01:00","action":"edit","task_id":39,"detail":"Move used deep-search-core functionality into RethinkLoop"}
