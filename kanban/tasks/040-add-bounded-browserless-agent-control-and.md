@@ -4,11 +4,13 @@ title: Add bounded Browserless agent control and CapSolver recovery
 status: review
 priority: high
 created: 2026-10-20T17:49:40.962987+01:00
-updated: 2026-10-20T21:02:49.035288+01:00
+updated: 2026-10-20T21:13:58.052422+01:00
 tags:
     - feature
     - api
     - research
+claimed_by: linoxin-trithing
+claimed_at: 2026-10-20T21:13:58.052629+01:00
 class: standard
 ---
 
@@ -42,3 +44,6 @@ User approved the reviewed single-column CAPTCHA representation: NULL means unat
 - Final Node 26.5.1 npm run gatekeep passed: lint, typecheck, Knip, 1032 API tests and 409 web tests. Six isolated-port Playwright workflows passed: two-hop research/correction, root Stop/reconstruction, mixed-result replay, child Stop cascade, complete researched ideas, and Refine linked deep-search.
 - Regression coverage includes fresh and upgrade migrations, existing pages/triggers/FK/integrity, real client with migrated DB observing the sentinel before createTask, known-ID resume, uncertain-create no repurchase, blank provider ID, provider-reported expiry, and shared caps for all root types. Provider responses are synthetic; no paid calls made.
 - Dedicated root/API/schema reviews are clear. Secret scan, dependency scope, previous migration journal entries and git diff --check passed. Test servers exited and their isolated ports are free. Existing documented Browserless deployment and handshake limitations still apply.
+
+[[2026-10-20]] Tue 21:13
+User authorized committing the reviewed Browserless/CapSolver changes, merging into main, pushing and deploying. Release preflight is checking the existing application, CapSolver runtime secret and separate Browserless service timeout; credentials remain excluded from Git and output.
