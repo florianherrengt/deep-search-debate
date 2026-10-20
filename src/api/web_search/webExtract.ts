@@ -1,10 +1,8 @@
-import {
-  extractVisibleTextFromHtml,
-  PdfExtractor,
-  validateUrl,
-} from "deep-search-core/search-extract/core"
 import { config } from "../config.ts"
 import { secureJsonParse } from "../helpers/secureJsonParse.ts"
+import { extractVisibleTextFromHtml } from "./htmlText.ts"
+import { PdfExtractor } from "./pdfExtraction.ts"
+import { validateUrl } from "./urlValidation.ts"
 import { MAX_WEB_SEARCH_RESULTS, normalizeWebSearchResults } from "./types.ts"
 import {
   createPageFetchClient,
@@ -112,8 +110,8 @@ function htmlForTextExtraction(html: string): string {
     if (tag.closing) continue
     for (const attribute of pageAttributes(tag.attributes)) {
       if (attribute[1].toLowerCase() !== "class") continue
-      // Core 0.3.0 mistakes CSS variable names such as --fd-toc-popover-height
-      // for overlay labels. Keep real classes (including popover) intact.
+      // Ignore CSS variable declarations embedded in generated class tokens,
+      // while preserving semantic classes such as popover.
       const text = attribute[0].replace(/\[--[\w-]+:[^\]\s]*\]/g, "")
       if (text === attribute[0]) continue
       const start = tag.end - tag.attributes.length - 1 + attribute.index
@@ -299,7 +297,6 @@ async function extractContent(params: {
   if (isPdfBody(params.body)) {
     const result = await params.pdfExtractor.extract({
       url: params.url,
-      loader: {},
       fetch: () =>
         Promise.resolve(
           new Response(new Uint8Array(params.body), {

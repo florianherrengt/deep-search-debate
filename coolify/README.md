@@ -136,11 +136,11 @@ remain committed as operator-managed vaults, but the application does not read
 them and Docker excludes them from the build context. Production receives only
 the runtime environment variables listed above.
 
-The API pins `deep-search-core` to the npm tarball attached to its immutable
-GitHub release. That package is downloaded while the image is built locally by
-Dagger, so server-side deployments only pull a ready image. When the dependency
-is intentionally upgraded, update its release URL in `src/api/package.json` and
-regenerate the root lockfile with `npm install`.
+Search validation, SearXNG integration, HTML text cleanup, and isolated PDF
+parsing live in `src/api/web_search`. They run directly from this repository's
+TypeScript sources, including the PDF child-process entry point; no separate
+search-library release or build is needed. Dagger builds the complete image
+locally, and server-side deployments only pull that ready image.
 
 ## Deployment procedure
 

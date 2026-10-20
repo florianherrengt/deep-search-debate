@@ -133,6 +133,30 @@ describe("searxng", () => {
     );
   });
 
+  it("propagates an error while reading a successful response body", async () => {
+    const readError = new Error("response stream failed")
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: () => Promise.reject(readError),
+    })
+
+    await expect(searxng({ query: "test" })).rejects.toBe(readError)
+  })
+
+  it("preserves the upstream error text when an error response has no body or status text", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      statusText: "",
+      text: () => Promise.resolve(""),
+    })
+
+    await expect(searxng({ query: "test" })).rejects.toThrow(
+      "SearXNG search failed with HTTP 503: SearXNG search failed with HTTP 503",
+    )
+  })
+
   it("throws when results array is missing", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,

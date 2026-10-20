@@ -3,12 +3,9 @@ import https from "node:https"
 import type { LookupAddress } from "node:dns"
 import type { IncomingMessage } from "node:http"
 import { isIP, type LookupFunction } from "node:net"
-import {
-  validatePublicIpAddress,
-  validateUrl,
-} from "deep-search-core/search-extract/core"
 import PQueue from "p-queue"
 import { addAbortableQueueTask } from "../helpers/addAbortableQueueTask.ts"
+import { validatePublicIpAddress, validateUrl } from "./urlValidation.ts"
 
 const browserlessPath = "/chromium/content"
 const headlessTimeoutHeadroomMs = 5_000
