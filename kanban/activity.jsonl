@@ -567,3 +567,4 @@
 {"timestamp":"2026-10-19T21:39:35.497675+01:00","action":"edit","task_id":37,"detail":"Replace ScrapingAnt with private Browserless and direct fetching"}
 {"timestamp":"2026-10-19T21:39:35.497855+01:00","action":"release","task_id":37,"detail":"millpost-abrasive"}
 {"timestamp":"2026-10-19T21:39:35.516591+01:00","action":"move","task_id":37,"detail":"in-progress -\u003e done"}
+{"timestamp":"2026-10-20T14:02:51.734588+01:00","action":"create","task_id":38,"detail":"Fix four page extraction false positives and documentation pruning"}
