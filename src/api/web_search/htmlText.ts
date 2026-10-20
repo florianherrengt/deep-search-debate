@@ -286,4 +286,3 @@ export function extractVisibleTextFromHtml(html: string): string {
 
   return normalizeExtractedText(parts.join(""));
 }
-

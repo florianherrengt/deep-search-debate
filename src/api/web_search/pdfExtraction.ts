@@ -205,4 +205,3 @@ export class PdfExtractor {
     return content ? { content, warnings: warning ? [warning] : undefined } : null
   }
 }
-
