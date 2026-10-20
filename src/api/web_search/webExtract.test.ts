@@ -343,6 +343,166 @@ describe("webExtract", () => {
     })
   })
 
+  it("escalates the HTTP 200 Mozilla Client Challenge loading notice to Browserless", async () => {
+    const harness = createHarness()
+    const notice = "A required part of this site couldn’t load. This may be due to a browser extension, network issues, or browser settings. Please check your connection, disable any ad blockers, or try using a different browser."
+    const challenge = `<html><head><title>Client Challenge</title></head><body><main><p>${notice}</p></main></body></html>`
+    harness.fetchPage
+      .mockResolvedValueOnce(htmlPage(challenge))
+      .mockResolvedValueOnce(htmlPage(usableHtml("Rendered Mozilla article")))
+
+    const result = await harness.extract({ url: "https://example.com/protected" })
+
+    expect(notice).toHaveLength(209)
+    expect(harness.fetchPage.mock.calls.map(([call]) => call.mode)).toEqual([
+      "http",
+      "browser",
+    ])
+    expect(harness.logs[0]).toMatchObject({
+      method: "http",
+      outcome: "failure",
+      failure: "Page contained an access-denied or anti-bot challenge",
+    })
+    expect(result.retrievalMethod).toBe("browserless")
+    expect(result.content).toContain("Rendered Mozilla article explains")
+  })
+
+  it.each([
+    "Browser MCP capability matrix",
+    "GitHub - Agent360dk/browser-mcp: A 2FA code, a CAPTCHA, or a confirmation",
+  ])(
+    "keeps substantive CAPTCHA documentation usable under the title %s",
+    async (title) => {
+      const harness = createHarness()
+      const explanation = "Browser MCP documents how to automate pages that may request a 2FA code, a CAPTCHA, or confirmation from the user. These are supported browser workflows, and the guide explains the capability boundaries, accessibility tradeoffs, and when the automation should wait for a person."
+      const html = `<html><head><title>${title}</title></head><body><article><h1>Browser MCP capability matrix</h1><p>${explanation}</p></article></body></html>`
+      harness.fetchPage.mockResolvedValue(htmlPage(html))
+
+      const result = await harness.extract({ url: "https://example.com/captcha-guide" })
+
+      expect(harness.fetchPage.mock.calls.map(([call]) => call.mode)).toEqual([
+        "http",
+      ])
+      expect(result.retrievalMethod).toBe("http")
+      expect(result.content).toContain("accessibility tradeoffs")
+      expect(result.content).toContain("capability boundaries")
+    },
+  )
+
+  it("escalates a substantive CAPTCHA verification wall to Browserless", async () => {
+    const harness = createHarness()
+    const instructions = "Solve the CAPTCHA to continue. Enter the six characters displayed in the image into the verification field. If you cannot read them, select the refresh icon to request another challenge. Do not include spaces. Submit the answer and wait for the page to confirm verification before continuing to the requested document."
+    const wall = `<html><head><title>CAPTCHA verification required</title></head><body><main><h1>Solve the CAPTCHA to continue.</h1><p>${instructions}</p></main></body></html>`
+    harness.fetchPage
+      .mockResolvedValueOnce(htmlPage(wall))
+      .mockResolvedValueOnce(htmlPage(usableHtml("Rendered protected document")))
+
+    const result = await harness.extract({ url: "https://example.com/verification" })
+
+    expect(instructions.length).toBeGreaterThan(200)
+    expect(harness.fetchPage.mock.calls.map(([call]) => call.mode)).toEqual([
+      "http",
+      "browser",
+    ])
+    expect(harness.logs[0]).toMatchObject({ method: "http", outcome: "failure" })
+    expect(result.retrievalMethod).toBe("browserless")
+    expect(result.content).toContain("Rendered protected document explains")
+  })
+
+  it("keeps an explanatory article titled How to solve a CAPTCHA usable", async () => {
+    const harness = createHarness()
+    const explanation = "A CAPTCHA is a challenge-response test used to distinguish people from automated traffic. This help article explains why a site may ask for one, how to request an accessible alternative, and what to do if the verification image cannot be read. The instructions describe the test without asking the reader to complete a live verification."
+    const html = `<html><head><title>How to solve a CAPTCHA</title></head><body><article><h1>About CAPTCHA verification</h1><p>${explanation}</p></article></body></html>`
+    harness.fetchPage.mockResolvedValue(htmlPage(html))
+
+    const result = await harness.extract({ url: "https://example.com/help/captcha" })
+
+    expect(harness.fetchPage.mock.calls.map(([call]) => call.mode)).toEqual([
+      "http",
+    ])
+    expect(result.retrievalMethod).toBe("http")
+    expect(result.content).toContain("accessible alternative")
+    expect(result.content).toContain("live verification")
+  })
+
+  it("keeps an article quoting the loading notice usable and excludes challenge text in scripts and styles", async () => {
+    const harness = createHarness()
+    const notice = "A required part of this site couldn’t load. This may be due to a browser extension, network issues, or browser settings. Please check your connection, disable any ad blockers, or try using a different browser."
+    const html = `<html><head><title>Mozilla browser troubleshooting notes</title><style>.example::before { content: "CAPTCHA access denied"; }</style></head><body><article><h1>Understanding browser loading messages</h1><p>This article quotes a notice sometimes shown by a browser challenge: “${notice}” The message can also appear in troubleshooting discussions about extensions and network settings, where it is explanatory text rather than the response from a blocked page.</p><p>${"The article gives readers context for diagnosing browser behavior without treating every quoted warning as a live challenge. ".repeat(3)}</p><script>const challenge = "Access denied. Verify that you are human.";</script></article></body></html>`
+    harness.fetchPage.mockResolvedValue(htmlPage(html))
+
+    const result = await harness.extract({ url: "https://example.com/browser-notes" })
+
+    expect(harness.fetchPage.mock.calls.map(([call]) => call.mode)).toEqual([
+      "http",
+    ])
+    expect(result.content).toContain("quoted warning as a live challenge")
+    expect(result.content).not.toContain("CAPTCHA access denied")
+    expect(result.content).not.toContain("Verify that you are human")
+  })
+
+  it("ignores NUL bytes confined to script and style while retaining visible HTML", async () => {
+    const harness = createHarness()
+    const html = `<html><head><title>Useful post</title><style>.x::after { content: "\0"; }</style></head><body><script>const hidden = "\0";</script><article><h1>Useful post</h1><p>${"The visible post explains practical findings and gives readers useful evidence for their research. ".repeat(4)}</p></article></body></html>`
+    harness.fetchPage.mockResolvedValue(htmlPage(html, { contentType: "text/html; charset=utf-8" }))
+
+    const result = await harness.extract({ url: "https://example.com/post" })
+
+    expect(harness.fetchPage.mock.calls.map(([call]) => call.mode)).toEqual([
+      "http",
+    ])
+    expect(result.retrievalMethod).toBe("http")
+    expect(result.content).toContain("visible post explains practical findings")
+    expect(result.content).not.toContain("const hidden")
+  })
+
+  it.each(["text/html", "text/plain", undefined])(
+    "still rejects a visible NUL in %s text and uses rendered content",
+    async (contentType) => {
+      const harness = createHarness()
+      const visibleNul = usableHtml("Visible NUL document").replace(
+        "concrete facts",
+        `concrete\0 facts`,
+      )
+      harness.fetchPage
+        .mockResolvedValueOnce(htmlPage(visibleNul, { contentType }))
+        .mockResolvedValueOnce(htmlPage(usableHtml("Rendered clean document")))
+
+      const result = await harness.extract({ url: "https://example.com/nul" })
+
+      expect(harness.fetchPage.mock.calls.map(([call]) => call.mode)).toEqual([
+        "http",
+        "browser",
+      ])
+      expect(result.retrievalMethod).toBe("browserless")
+      expect(result.content).toContain("Rendered clean document explains")
+    },
+  )
+
+  it("retains an article wrapper with a popover-height CSS utility and still prunes actual page chrome", async () => {
+    const harness = createHarness()
+    const html = usableHtml("Documentation wrapper")
+      .replace(
+        "<body>",
+        '<body><div class="[--fd-toc-popover-height:0px]">',
+      )
+      .replace(
+        "</body>",
+        '</div><div class="popover [--fd-toc-popover-height:0px]">Open contents menu</div><div role="dialog">Cookie settings dialog</div><div class="cookie-banner">Accept cookies</div></body>',
+      )
+    harness.fetchPage.mockResolvedValue(htmlPage(html))
+
+    const result = await harness.extract({ url: "https://example.com/docs" })
+
+    expect(harness.fetchPage.mock.calls.map(([call]) => call.mode)).toEqual([
+      "http",
+    ])
+    expect(result.content).toContain("Documentation wrapper explains")
+    expect(result.content).not.toContain("Open contents menu")
+    expect(result.content).not.toContain("Cookie settings dialog")
+    expect(result.content).not.toContain("Accept cookies")
+  })
+
   it("logs a failed cheap request before escalating to browser rendering", async () => {
     const harness = createHarness()
     harness.fetchPage
