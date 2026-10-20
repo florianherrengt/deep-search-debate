@@ -296,26 +296,59 @@ Browserless service are real runtime dependencies, not mocked outside tests:
   API key. OpenAI uses the user's Codex connection. Development-only `zen`
   retains Pi's OpenAI-compatible `/chat/completions` transport for local provider
   tests. Structured output is validated with Zod.
-- **Page fetching:** selected URLs first use direct HTTPS, then escalate once to
-  private Browserless Chromium rendering if the response is unusable. Both tiers
+- **Page fetching:** selected URLs first use direct HTTPS, then private
+  Browserless Chromium rendering if the response is unusable. If rendering also
+  fails, research recovery opens a fresh Puppeteer CDP session and the Small
+  model can choose bounded DOM actions on that source. All retrieval attempts
   pass through the existing visible-text cleanup, HTML validation, main-content
   link ranking, bounded PDF parser, and declared UTF-8 JSON validation. JSON is
   limited to 100,000 characters and retains its original text. Unsupported media
-  and binary-looking untyped bodies are rejected. A failed render remains a
+  and binary-looking untyped bodies are rejected. Failed recovery remains a
   page-level failure so research can use the search snippet. There are no
-  provider retries, proxies, domain rules, or caches.
+  provider retries, proxies, domain rules, or caches. Browser recovery is limited
+  to anonymous public research controls: expansion, tabs, search/filter fields,
+  scrolling, waiting, and extraction. Links to another document remain candidates
+  for the existing linked-source selector; recovery cannot extract them under the
+  original source URL or bypass selected-page limits. Observed link candidates
+  remain available to that selector even when the source itself stays unreadable;
+  they do not turn the failed page into source evidence.
   Configure `BROWSERLESS_URL` and `BROWSERLESS_TOKEN`, with
   `PAGE_FETCH_QUEUE_WAIT_TIMEOUT_MS` (default 120 seconds),
   `PAGE_FETCH_REQUEST_TIMEOUT_MS` (default 35 seconds), and
-  `PAGE_FETCH_MAX_RESPONSE_BYTES` (default 2 MB). Browserless navigation has five
-  seconds of client-side headroom and waits for `networkidle2`, blocking images,
-  media, and fonts. All requests share one process-wide queue with concurrency
-  one. Queue deadlines, request deadlines, and workflow aborts release their
-  slots; the higher-level page-task queue still permits local extraction and
-  LLM summarization to overlap.
+  `PAGE_FETCH_MAX_RESPONSE_BYTES` (default 2 MB). Stateless content requests retain
+  `networkidle2` and block images, media, and fonts; research CDP sessions start
+  from `domcontentloaded` and can wait or interact when more rendering is needed.
+  HTML snapshots are checked against the byte limit inside Chromium before
+  they are transferred to the API.
+  `BROWSER_AGENT_MAX_ACTIONS` defaults to 12 and `BROWSER_AGENT_TIMEOUT_MS` to
+  120000; operators may lower these ceilings. All requests and interactive
+  sessions share one process-wide queue with concurrency one. A session retains
+  its permit through browser cleanup. Queue deadlines, session deadlines, and
+  workflow Stop close the browser; the higher-level page-task queue still permits
+  local extraction and LLM summarization to overlap.
+  Puppeteer's initial WebSocket handshake cannot be cancelled. If it stalls,
+  the queue permit remains held until it settles, then the browser is closed;
+  the Browserless server session timeout remains the remote bound.
+  Optional `CAPSOLVER_API_KEY` enables proxy-free Turnstile and reCAPTCHA v2
+  solving inside that session. The key and solution tokens never enter model
+  observations. Full Cloudflare challenge pages and other unsupported challenges
+  retain page-level failure/snippet fallback. Each page reserves at most one
+  task before contacting CapSolver; `CAPSOLVER_MAX_TASKS_PER_ROOT_JOB` defaults
+  to 10 and cannot exceed 10, shared by the effective root and all child searches.
+  Reservations survive Stop and Resume in the page's single `captcha_task_id`
+  field: null is unattempted, the exact empty string is reserved without a known
+  ID, and a nonempty value is a provider task ID. An uncertain reservation is
+  never purchased again automatically. Known tasks can resume polling;
+  CapSolver determines expiry, and expired or unavailable tasks retain the
+  page-level failure fallback. A successful solver response is insufficient:
+  rendered content must still pass the extraction checks. Provider charges use
+  the operator's CapSolver account and do not debit RethinkLoop product credits.
   Direct fetching resolves each target and redirect, rejects non-public or mixed
   DNS answers, and pins the TLS socket to a validated address while retaining
-  hostname verification. Browserless is private and token-protected; its host
+  hostname verification. Interactive browser requests also validate public HTTPS
+  URLs and DNS answers for navigations, subresources, and XHR. Chromium resolves
+  independently, so these checks do not pin its sockets. Browserless is private
+  and token-protected; its host
   firewall blocks private/special destinations and host access from both of its
   Docker networks. The stock image alone does not enforce that policy. See
   [Coolify operations](../../../coolify/README.md) before deploying it elsewhere.

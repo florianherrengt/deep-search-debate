@@ -512,6 +512,7 @@ async function summarizeSelectedPage(
     ? await startPageSummary({
         userId: params.userId,
         deepSearchJobId: params.deepSearchJobId,
+        pageId: page.pageId,
         researchRequest: params.researchRequest,
         mode: params.mode,
         url: page.url,
@@ -553,6 +554,7 @@ async function summarizeSelectedPage(
       pageId: page.pageId,
       stage: pageSummary.stage,
       message: pageSummary.message,
+      ...(pageSummary.links ? { links: pageSummary.links } : {}),
     })
     params.publish({
       type: "page-summary-error",

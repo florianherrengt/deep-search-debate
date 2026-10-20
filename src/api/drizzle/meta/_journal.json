@@ -43,6 +43,13 @@
       "when": 1792407547389,
       "tag": "0005_refine-sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1792515233787,
+      "tag": "0006_captcha_attempts",
+      "breakpoints": true
     }
   ]
 }

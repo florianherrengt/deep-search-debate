@@ -64,6 +64,7 @@ describe("LLM model settings", () => {
       default: "big",
       "generate-websearch-queries": "big",
       "answer-research-request": "big",
+      "browser-agent-action": "small",
       "correct-research-answer": "big",
       "analyze-research-answer": "big",
       "review-deep-search-round": "big",

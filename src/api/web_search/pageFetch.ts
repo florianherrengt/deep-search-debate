@@ -3,6 +3,7 @@ import https from "node:https"
 import type { LookupAddress } from "node:dns"
 import type { IncomingMessage } from "node:http"
 import { isIP, type LookupFunction } from "node:net"
+import puppeteer, { type Browser, type Page } from "puppeteer"
 import PQueue from "p-queue"
 import { addAbortableQueueTask } from "../helpers/addAbortableQueueTask.ts"
 import { validatePublicIpAddress, validateUrl } from "./urlValidation.ts"
@@ -10,6 +11,7 @@ import { validatePublicIpAddress, validateUrl } from "./urlValidation.ts"
 const browserlessPath = "/chromium/content"
 const headlessTimeoutHeadroomMs = 5_000
 const maximumRedirects = 5
+const browserCloseTimeoutMs = 5_000
 
 // One process-wide queue covers every client and both retrieval modes.
 const pageFetchQueue = new PQueue({ concurrency: 1 })
@@ -29,6 +31,16 @@ export type PageFetchClient = {
   }): Promise<PageFetchPage>
 }
 
+type BrowserPageRunnerParams<T> = {
+  url: string
+  signal?: AbortSignal
+  timeoutMs: number
+  prepare?: (page: Page, signal: AbortSignal) => Promise<void>
+  run: (page: Page, signal: AbortSignal) => Promise<T>
+}
+
+export type BrowserPageRunner = <T>(params: BrowserPageRunnerParams<T>) => Promise<T>
+
 type ResolvedAddress = LookupAddress
 
 type PageFetchClientConfig = {
@@ -40,6 +52,7 @@ type PageFetchClientConfig = {
   fetch?: typeof globalThis.fetch
   lookup?: (hostname: string) => Promise<ResolvedAddress[]>
   request?: typeof https.request
+  connect?: typeof puppeteer.connect
 }
 
 export class PageFetchRequestError extends Error {
@@ -53,6 +66,28 @@ export class PageFetchRequestError extends Error {
     this.name = "PageFetchRequestError"
     this.providerStatusCode = options?.providerStatusCode
   }
+}
+
+/** Read an HTML snapshot only when it fits the byte limit, before CDP transfers it. */
+export async function readBrowserPageHtml(page: Page, maxBytes: number): Promise<string> {
+  if (!Number.isFinite(maxBytes) || maxBytes < 0) {
+    throw new PageFetchRequestError("Rendered page size limit is invalid")
+  }
+
+  const result = await page.evaluate((byteLimit) => {
+    let html = ""
+    for (const node of document.childNodes) {
+      if (node === document.documentElement) html += document.documentElement.outerHTML
+      else html += new XMLSerializer().serializeToString(node)
+    }
+    const byteLength = new TextEncoder().encode(html).byteLength
+    return { html: byteLength <= byteLimit ? html : null }
+  }, maxBytes)
+
+  if (result.html === null) {
+    throw new PageFetchRequestError("Rendered page exceeds the response size limit")
+  }
+  return result.html
 }
 
 function createTimedSignal(signal: AbortSignal | undefined, timeoutMs: number) {
@@ -409,12 +444,76 @@ function buildBrowserlessRequestUrl(
   }
 }
 
+function buildBrowserlessWebSocketUrl(
+  browserlessUrl: string,
+  token: string,
+  timeoutMs: number,
+): string {
+  try {
+    const endpoint = new URL("/chromium", browserlessUrl)
+    endpoint.protocol = endpoint.protocol === "https:" ? "wss:" : "ws:"
+    endpoint.searchParams.set("token", token)
+    endpoint.searchParams.set("timeout", String(timeoutMs))
+    return endpoint.href
+  } catch {
+    throw new PageFetchRequestError("Browserless URL is invalid")
+  }
+}
+
+function validateNavigationUrl(url: string): void {
+  try {
+    validateUrl(url)
+  } catch {
+    throw new PageFetchRequestError("Browser navigation target is not publicly fetchable")
+  }
+}
+
+async function configureBrowserPage(
+  page: Page,
+  signal: AbortSignal,
+  lookup: (hostname: string) => Promise<ResolvedAddress[]>,
+): Promise<void> {
+  await page.setRequestInterception(true)
+  page.on("request", (request) => {
+    void (async () => {
+      try {
+        const rawUrl = request.url()
+        // These are browser-local resources, not network destinations.
+        if (/^(?:data:|blob:|about:blank$)/i.test(rawUrl)) {
+          if (signal.aborted) await request.abort("aborted")
+          else await request.continue()
+          return
+        }
+        const target = validateUrl(rawUrl)
+        await resolvePinnedPublicAddress(target, lookup, signal)
+        if (signal.aborted) await request.abort("aborted")
+        else await request.continue()
+      } catch {
+        await request.abort(signal.aborted ? "aborted" : "blockedbyclient").catch(() => undefined)
+      }
+    })()
+  })
+  page.on("popup", (popup) => { if (popup) void popup.close().catch(() => undefined) })
+}
+
+async function closeBrowser(browser: Browser): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  await Promise.race([
+    Promise.resolve().then(() => browser.close()).catch(() => undefined),
+    new Promise<void>((resolve) => {
+      timeout = setTimeout(resolve, browserCloseTimeoutMs)
+    }),
+  ])
+  if (timeout) clearTimeout(timeout)
+}
+
 export function createPageFetchClient(
   config: PageFetchClientConfig,
-): PageFetchClient {
+): PageFetchClient & { withBrowserPage: BrowserPageRunner } {
   const fetchImpl = config.fetch ?? globalThis.fetch
   const lookup = config.lookup ?? createDefaultLookup
   const request = config.request ?? https.request
+  const connect = config.connect ?? puppeteer.connect.bind(puppeteer)
 
   async function fetchPage({
     url,
@@ -494,7 +593,86 @@ export function createPageFetchClient(
     }
   }
 
+  async function withBrowserPage<T>(params: BrowserPageRunnerParams<T>): Promise<T> {
+    if (params.signal?.aborted) throw abortError()
+    validateNavigationUrl(params.url)
+    if (!Number.isFinite(params.timeoutMs) || params.timeoutMs <= 0) {
+      throw new PageFetchRequestError("Browser session timeout must be positive")
+    }
+
+    const queuedSignal = createTimedSignal(params.signal, config.queueWaitTimeoutMs)
+    const queueTaskController = new AbortController()
+    const cancelWhileQueued = () => queueTaskController.abort(queuedSignal.signal.reason)
+    if (queuedSignal.signal.aborted) cancelWhileQueued()
+    else queuedSignal.signal.addEventListener("abort", cancelWhileQueued, { once: true })
+    return addAbortableQueueTask(
+      pageFetchQueue,
+      async () => {
+        queuedSignal.signal.removeEventListener("abort", cancelWhileQueued)
+        if (queuedSignal.signal.aborted) throw abortError()
+        queuedSignal.cleanup()
+        const timedSignal = createTimedSignal(params.signal, params.timeoutMs)
+        let browser: Browser | undefined
+        try {
+          throwIfAborted(timedSignal.signal)
+          const connection = connect({
+            browserWSEndpoint: buildBrowserlessWebSocketUrl(
+              config.browserlessUrl,
+              config.browserlessToken,
+              params.timeoutMs,
+            ),
+            protocolTimeout: Math.min(params.timeoutMs, config.requestTimeoutMs),
+          })
+          // Puppeteer cannot cancel a WebSocket handshake. Keep the global queue
+          // permit until it settles, then close immediately if Stop/deadline won.
+          browser = await connection
+          throwIfAborted(timedSignal.signal)
+          const page = await waitForAbort(browser.newPage(), timedSignal.signal)
+          await waitForAbort(configureBrowserPage(page, timedSignal.signal, lookup), timedSignal.signal)
+          page.setDefaultNavigationTimeout(Math.min(params.timeoutMs, config.requestTimeoutMs))
+          page.setDefaultTimeout(Math.min(params.timeoutMs, config.requestTimeoutMs))
+          if (params.prepare) {
+            await waitForAbort(params.prepare(page, timedSignal.signal), timedSignal.signal)
+          }
+          await waitForAbort(page.goto(validateUrl(params.url).href, {
+            waitUntil: "domcontentloaded",
+            timeout: Math.min(params.timeoutMs, config.requestTimeoutMs),
+          }), timedSignal.signal)
+          throwIfAborted(timedSignal.signal)
+          return await waitForAbort(params.run(page, timedSignal.signal), timedSignal.signal)
+        } catch (error) {
+          if (params.signal?.aborted) throw abortError()
+          if (timedSignal.timedOut()) {
+            throw new PageFetchRequestError(`Browser session timed out after ${params.timeoutMs}ms`)
+          }
+          if (error instanceof PageFetchRequestError) throw error
+          throw new PageFetchRequestError("Browser session transport failed")
+        } finally {
+          timedSignal.cleanup()
+          if (browser) {
+            await closeBrowser(browser)
+          }
+        }
+      },
+      queueTaskController.signal,
+    )
+      .catch((error: unknown) => {
+        if (params.signal?.aborted) throw abortError()
+        if (queuedSignal.timedOut()) {
+          throw new PageFetchRequestError(
+            `Page fetch waited in the queue longer than ${config.queueWaitTimeoutMs}ms`,
+          )
+        }
+        throw error
+      })
+      .finally(() => {
+        queuedSignal.signal.removeEventListener("abort", cancelWhileQueued)
+        queuedSignal.cleanup()
+      })
+  }
+
   return {
+    withBrowserPage,
     fetchPage(params) {
       const queuedSignal = createTimedSignal(
         params.signal,

@@ -5,7 +5,8 @@ services:
       TOKEN: ${SERVICE_PASSWORD_BROWSERLESS}
       CONCURRENT: "1"
       QUEUED: "10"
-      TIMEOUT: "30000"
+      # Application browsing stops at 120s; leave time for session cleanup.
+      TIMEOUT: "130000"
       HEALTH: "true"
     expose:
       - "3000"

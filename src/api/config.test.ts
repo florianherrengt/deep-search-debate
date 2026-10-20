@@ -522,6 +522,10 @@ describe("config", () => {
     vi.stubEnv("PAGE_FETCH_QUEUE_WAIT_TIMEOUT_MS", undefined)
     vi.stubEnv("PAGE_FETCH_REQUEST_TIMEOUT_MS", undefined)
     vi.stubEnv("PAGE_FETCH_MAX_RESPONSE_BYTES", undefined)
+    vi.stubEnv("BROWSER_AGENT_MAX_ACTIONS", undefined)
+    vi.stubEnv("BROWSER_AGENT_TIMEOUT_MS", undefined)
+    vi.stubEnv("CAPSOLVER_API_KEY", undefined)
+    vi.stubEnv("CAPSOLVER_MAX_TASKS_PER_ROOT_JOB", undefined)
     vi.resetModules()
 
     const { config } = await import("./config.ts")
@@ -534,7 +538,38 @@ describe("config", () => {
       queueWaitTimeoutMs: 120_000,
       requestTimeoutMs: 35_000,
       maxResponseBytes: 2_000_000,
+      browserAgent: { maxActions: 12, timeoutMs: 120_000 },
+      capsolver: { apiKey: undefined, maxTasksPerRootJob: 10 },
     })
+  })
+
+  it.each([undefined, "   "])("treats an omitted or blank CapSolver key as disabled", async (apiKey) => {
+    vi.stubEnv("CAPSOLVER_API_KEY", apiKey)
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.extraction.capsolver.apiKey).toBeUndefined()
+  })
+
+  it("loads a nonempty CapSolver key from the server environment", async () => {
+    vi.stubEnv("CAPSOLVER_API_KEY", "test-capsolver-key")
+    vi.resetModules()
+
+    const { config } = await import("./config.ts")
+
+    expect(config.extraction.capsolver.apiKey).toBe("test-capsolver-key")
+  })
+
+  it.each([
+    ["BROWSER_AGENT_MAX_ACTIONS", "13"],
+    ["BROWSER_AGENT_TIMEOUT_MS", "120001"],
+    ["CAPSOLVER_MAX_TASKS_PER_ROOT_JOB", "11"],
+  ])("rejects a browser recovery budget above its approved cap (%s)", async (name, value) => {
+    vi.stubEnv(name, value)
+    vi.resetModules()
+
+    await expect(import("./config.ts")).rejects.toThrow(name)
   })
 
   it("rejects an unbounded page retrieval response limit", async () => {

@@ -1,14 +1,17 @@
 import { config } from "../config.ts"
+import type { Page } from "puppeteer"
 import { secureJsonParse } from "../helpers/secureJsonParse.ts"
 import { extractVisibleTextFromHtml } from "./htmlText.ts"
 import { PdfExtractor } from "./pdfExtraction.ts"
 import { validateUrl } from "./urlValidation.ts"
-import { MAX_WEB_SEARCH_RESULTS, normalizeWebSearchResults } from "./types.ts"
+import { canonicalUrl, MAX_WEB_SEARCH_RESULTS, normalizeWebSearchResults } from "./types.ts"
 import {
   createPageFetchClient,
   PageFetchRequestError,
+  readBrowserPageHtml,
   type PageFetchClient,
   type PageFetchMode,
+  type BrowserPageRunner,
 } from "./pageFetch.ts"
 
 const minimumUsableContentChars = 200
@@ -41,15 +44,78 @@ export type WebExtractResult = {
   retrievalMethod: PageRetrievalMethod
 }
 
-class WebExtractionError extends Error {
+export class WebExtractionError extends Error {
   override readonly name = "WebExtractionError"
+
+  constructor(
+    message: string,
+    options: {
+      cause?: unknown
+      observedLinks?: WebExtractResult["links"]
+      recoveryReason?: string
+      recoveryStatus?: string
+    } = {},
+  ) {
+    super(message, { cause: options.cause })
+    this.observedLinks = options.observedLinks ?? []
+    this.recoveryReason = options.recoveryReason
+    this.recoveryStatus = options.recoveryStatus
+  }
+
+  readonly observedLinks: WebExtractResult["links"]
+  readonly recoveryReason?: string
+  readonly recoveryStatus?: string
 }
 
 type WebExtractorDeps = {
   client: PageFetchClient
+  withBrowserPage?: BrowserPageRunner
   pdfExtractor?: Pick<PdfExtractor, "extract">
   now?: () => number
   log?: (entry: PageRetrievalLog) => void
+}
+
+export type BrowserRecovery = {
+  prepare: (page: Page, signal: AbortSignal) => Promise<void>
+  recover: (page: Page, signal: AbortSignal) => Promise<{
+    html?: string
+    links: Array<{ url: string; title: string }>
+    status: string
+    reason?: string
+  }>
+}
+
+const browserRecoveryReasons = new Set([
+  "unsupported-challenge", "missing-api-key", "attempt-limit", "attempt-already-reserved",
+  "solver-failed", "solver-timeout", "solver-unavailable",
+  "action-limit", "link-handed-off", "browser-timeout", "cancelled",
+])
+
+function safeRecoveryReason(reason: string | undefined): string | undefined {
+  return reason && browserRecoveryReasons.has(reason) ? reason : undefined
+}
+
+function safeRecoveryStatus(status: string): string | undefined {
+  return status === "extracted" || status === "unsupported-captcha" || status === "action-limit"
+    ? status
+    : undefined
+}
+
+function normalizeObservedLinks(
+  value: unknown,
+  sourceUrl: URL,
+): WebExtractResult["links"] {
+  if (!Array.isArray(value)) return []
+  const candidates = value.flatMap((item) => {
+    if (item === null || typeof item !== "object") return []
+    const candidate = item as Record<string, unknown>
+    if (typeof candidate.url !== "string" || typeof candidate.title !== "string") return []
+    return [{ link: candidate.url, title: candidate.title, shortText: candidate.title }]
+  })
+  const source = canonicalUrl(sourceUrl.href)
+  return normalizeWebSearchResults(candidates)
+    .filter(({ link }) => link !== source)
+    .map(({ link, title }) => ({ url: link, title }))
 }
 
 function errorMessage(error: unknown): string {
@@ -331,13 +397,127 @@ export function createWebExtractor(deps: WebExtractorDeps) {
   return async function extract(params: {
     url: string
     signal?: AbortSignal
+    browserRecovery?: BrowserRecovery
   }): Promise<WebExtractResult> {
     const parsedUrl = validateUrl(params.url)
+    let observedLinks: WebExtractResult["links"] = []
+    let observedRecoveryReason: string | undefined
+    let observedRecoveryStatus: string | undefined
 
     for (const { mode, method } of retrievalStages) {
       const startedAt = now()
+      let attemptObservedLinks: WebExtractResult["links"] = []
 
       try {
+        if (mode === "browser" && deps.withBrowserPage && params.browserRecovery) {
+          const recovery = params.browserRecovery
+          // Keep the ordinary stateless Browserless render as the first browser
+          // tier. The interactive CDP session is only needed when that render
+          // still shows a challenge or otherwise unusable content.
+          let rendered: Awaited<ReturnType<typeof extractContent>> | undefined
+          try {
+            const renderedPage = await deps.client.fetchPage({
+              url: parsedUrl.href,
+              mode,
+              signal: params.signal,
+            })
+            rendered = await extractContent({
+              body: renderedPage.body,
+              contentType: renderedPage.contentType,
+              pdfExtractor,
+              signal: params.signal,
+              url: parsedUrl,
+            })
+          } catch (error) {
+            if (params.signal?.aborted) throw error
+          }
+          if (rendered && (rendered.isJson || unusableReason(rendered) === undefined)) {
+            const links = pageLinks(rendered.html, parsedUrl)
+            deps.log?.({
+              event: "page-retrieval-attempt", url: params.url,
+              domain: parsedUrl.hostname, method, outcome: "success",
+              latencyMs: roundedLatency(now, startedAt),
+            })
+            return {
+              url: params.url,
+              content: rendered.content,
+              links,
+              retrievalMethod: method,
+            }
+          }
+          const result = await deps.withBrowserPage({
+            url: parsedUrl.href,
+            signal: params.signal,
+            timeoutMs: config.extraction.browserAgent.timeoutMs,
+            prepare: recovery.prepare,
+            run: async (page, signal) => {
+              // Redirect aliases keep the selected source identity, as with direct
+              // fetching. Recovery may not replace it with another document.
+              const sourceUrl = validateUrl(page.url())
+              const decode = async (html: string) => {
+                const body = new TextEncoder().encode(html)
+                if (body.byteLength > config.extraction.maxResponseBytes) {
+                  throw new Error("Rendered page exceeded the response size limit")
+                }
+                return extractContent({
+                  body,
+                  contentType: "text/html",
+                  pdfExtractor,
+                  signal,
+                  url: sourceUrl,
+                })
+              }
+              let extracted = await decode(await readBrowserPageHtml(page, config.extraction.maxResponseBytes))
+              let extraLinks: WebExtractResult["links"] = []
+              if (unusableReason(extracted) !== undefined) {
+                const recovered = await recovery.recover(page, signal)
+                attemptObservedLinks = normalizeObservedLinks(
+                  recovered.links,
+                  sourceUrl,
+                )
+                observedRecoveryStatus = safeRecoveryStatus(recovered.status)
+                if (recovered.status !== "extracted" || !recovered.html) {
+                  const recoveryReason = safeRecoveryReason(recovered.reason)
+                  const reason = recoveryReason ? ` (${recoveryReason})` : ""
+                  throw new WebExtractionError(
+                    `Browser recovery did not return usable source content${reason}`,
+                    {
+                      observedLinks: attemptObservedLinks,
+                      recoveryReason,
+                      recoveryStatus: observedRecoveryStatus,
+                    },
+                  )
+                }
+                extracted = await decode(recovered.html)
+                extraLinks = attemptObservedLinks
+              }
+              if (canonicalUrl(page.url()) !== canonicalUrl(sourceUrl.href)) {
+                attemptObservedLinks = []
+                throw new WebExtractionError(
+                  "Browser recovery left the selected source document",
+                )
+              }
+              const failure = unusableReason(extracted)
+              if (failure) {
+                throw new WebExtractionError(failure, {
+                  observedLinks: attemptObservedLinks,
+                })
+              }
+              const links = normalizeWebSearchResults([
+                ...pageLinks(extracted.html, sourceUrl),
+                ...extraLinks,
+              ].map(({ url, title }) => ({ link: url, title, shortText: title })))
+                .map(({ link, title }) => ({ url: link, title }))
+              return { url: params.url, content: extracted.content, links, retrievalMethod: method }
+            },
+          })
+          deps.log?.({
+            event: "page-retrieval-attempt", url: params.url,
+            domain: parsedUrl.hostname, method, outcome: "success",
+            latencyMs: roundedLatency(now, startedAt),
+          })
+          return result
+        }
         const page = await deps.client.fetchPage({
           url: parsedUrl.href,
           mode,
@@ -377,6 +557,16 @@ export function createWebExtractor(deps: WebExtractorDeps) {
       } catch (error) {
         const providerError =
           error instanceof PageFetchRequestError ? error : undefined
+        let recoveryReason: string | undefined
+        let recoveryStatus: string | undefined
+        if (error instanceof WebExtractionError) {
+          attemptObservedLinks = error.observedLinks
+          recoveryReason = error.recoveryReason
+          recoveryStatus = error.recoveryStatus
+        }
+        if (attemptObservedLinks.length > 0) observedLinks = attemptObservedLinks
+        if (recoveryReason) observedRecoveryReason = recoveryReason
+        if (recoveryStatus) observedRecoveryStatus = recoveryStatus
         deps.log?.({
           event: "page-retrieval-attempt",
           url: params.url,
@@ -390,14 +580,15 @@ export function createWebExtractor(deps: WebExtractorDeps) {
         if (params.signal?.aborted) {
           throw new WebExtractionError(
             errorMessage(error),
-            { cause: error },
+            { cause: error, observedLinks: attemptObservedLinks, recoveryReason, recoveryStatus },
           )
         }
       }
     }
 
     throw new WebExtractionError(
-      `No retrieval method returned usable content for ${params.url}`,
+      `No retrieval method returned usable content for ${params.url}${observedRecoveryStatus || observedRecoveryReason ? ` (${[observedRecoveryStatus, observedRecoveryReason].filter(Boolean).join("/")})` : ""}`,
+      { observedLinks, recoveryReason: observedRecoveryReason, recoveryStatus: observedRecoveryStatus },
     )
   }
 }
@@ -417,5 +608,6 @@ const pdfExtractor = new PdfExtractor({
 
 export const webExtract = createWebExtractor({
   client: pageFetchClient,
+  withBrowserPage: pageFetchClient.withBrowserPage,
   pdfExtractor,
 })

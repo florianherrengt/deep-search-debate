@@ -288,6 +288,9 @@ describe("database migrations", () => {
       const refineMigration = readdirSync(migrationsFolder).find((name) => name.startsWith("0005_") && name.endsWith(".sql"))
       if (!refineMigration) throw new Error("Expected the Refine migration")
       copyFileSync(join(migrationsFolder, refineMigration), join(previousFolder, refineMigration))
+      const captchaMigration = readdirSync(migrationsFolder).find((name) => name.startsWith("0006_") && name.endsWith(".sql"))
+      if (!captchaMigration) throw new Error("Expected the CAPTCHA migration")
+      copyFileSync(join(migrationsFolder, captchaMigration), join(previousFolder, captchaMigration))
       copyFileSync(join(migrationsFolder, "meta/_journal.json"), join(previousFolder, "meta/_journal.json"))
       expect(() => migrateDatabase(sqlite, { migrationsFolder: previousFolder })).toThrow(/discovery_migration_guard/)
       expect(existingRead.get()).toEqual(beforeIdeaJob)
@@ -355,6 +358,7 @@ describe("database migrations", () => {
       "0003_space-discovery.sql",
       "0004_deepseek_api_keys.sql",
       expect.stringMatching(/^0005_.*\.sql$/),
+      expect.stringMatching(/^0006_.*\.sql$/),
     ])
 
     const sqlite = new Database(":memory:")
@@ -383,7 +387,7 @@ describe("database migrations", () => {
         .prepare("SELECT count(*) FROM __drizzle_migrations")
         .pluck()
         .get(),
-    ).toBe(6)
+    ).toBe(7)
     expect(tableNames.has("refine_sessions")).toBe(true)
     expect(tableNames.has("refine_batches")).toBe(true)
     expect(tableNames.has("refine_search_links")).toBe(true)

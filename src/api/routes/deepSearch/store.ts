@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm"
+import { and, asc, eq, inArray, isNull } from "drizzle-orm"
 import {
   pageLinkSelectionSchema,
   type DeepSearchSearch,
@@ -20,7 +20,7 @@ import type { TextStreamPersistenceTransaction } from "../../llms/streams.ts"
 import { debitCredits } from "../../credits.ts"
 import { secureJsonParse } from "../../helpers/secureJsonParse.ts"
 import { selectRelevantPassages } from "../../helpers/boundedText.ts"
-import { MAX_WEB_SEARCH_RESULTS } from "../../web_search/types.ts"
+import { MAX_WEB_SEARCH_RESULTS, normalizeWebSearchResults } from "../../web_search/types.ts"
 import { assertEffectiveResearchRootRunning } from "../researchCancellation.ts"
 import { getLinkedPageBudget } from "./resourceLimits.ts"
 import type {
@@ -35,6 +35,39 @@ import type {
 } from "./records.ts"
 
 type SearchResultInput = DeepSearchSearch["results"][number]
+
+function persistDiscoveredPageLinks(
+  transaction: TextStreamPersistenceTransaction,
+  pageId: string,
+  input: Array<{ url: string; title: string }>,
+): void {
+  if (input.length > MAX_WEB_SEARCH_RESULTS) throw new Error("Page links exceed the extraction limit")
+  const normalized = input.some(({ title }) => !title.trim())
+    ? input
+    : normalizeWebSearchResults(input.map(({ url, title }) => ({
+      link: url, title, shortText: title,
+    }))).map(({ link, title }) => ({ url: link, title }))
+  if (normalized.length !== input.length || new Set(normalized.map(({ url }) => url)).size !== input.length) {
+    throw new Error("Page links contain invalid or duplicate URLs")
+  }
+  const existing = transaction
+    .select({ url: deepSearchPageLinks.url, title: deepSearchPageLinks.title })
+    .from(deepSearchPageLinks)
+    .where(eq(deepSearchPageLinks.sourceWebPageId, pageId))
+    .orderBy(asc(deepSearchPageLinks.position))
+    .all()
+  if (existing.length > 0) {
+    if (existing.length !== normalized.length || existing.some((link, index) =>
+      link.url !== normalized[index].url || link.title !== normalized[index].title
+    )) throw new Error("Page links conflict with persisted extraction")
+    return
+  }
+  if (normalized.length > 0) {
+    transaction.insert(deepSearchPageLinks).values(normalized.map((link, position) => ({
+      deepSearchPageLinkId: randomUUID(), sourceWebPageId: pageId, position, ...link,
+    }))).run()
+  }
+}
 
 function assertDeepSearchActive(
   transaction: TextStreamPersistenceTransaction,
@@ -975,12 +1008,6 @@ export function settlePageExtraction(input: {
     throw new Error("Web page extraction content exceeds the persisted limit")
   }
   const links = input.links ?? []
-  if (links.length > MAX_WEB_SEARCH_RESULTS) {
-    throw new Error("Page links exceed the extraction limit")
-  }
-  if (new Set(links.map(({ url }) => url)).size !== links.length) {
-    throw new Error("Extracted page links contain duplicate URLs")
-  }
   return db.transaction((transaction) => {
     assertDeepSearchActive(transaction, input.jobId)
     assertPageOwnedByJob(transaction, input.jobId, input.pageId)
@@ -1010,17 +1037,7 @@ export function settlePageExtraction(input: {
         throw new Error("Web page extraction conflicts with persisted settlement")
       }
       if (input.links !== undefined) {
-        const existingLinks = transaction
-          .select({ url: deepSearchPageLinks.url, title: deepSearchPageLinks.title })
-          .from(deepSearchPageLinks)
-          .where(eq(deepSearchPageLinks.sourceWebPageId, input.pageId))
-          .orderBy(asc(deepSearchPageLinks.position))
-          .all()
-        if (existingLinks.length !== links.length || existingLinks.some((link, index) =>
-          link.url !== links[index].url || link.title !== links[index].title
-        )) {
-          throw new Error("Page links conflict with persisted extraction")
-        }
+        persistDiscoveredPageLinks(transaction, input.pageId, links)
       }
       return { content: page.content, creditsUsed: page.creditsUsed }
     }
@@ -1043,14 +1060,7 @@ export function settlePageExtraction(input: {
     if (result.changes !== 1) {
       throw new Error("Web page was not ready for extraction settlement")
     }
-    if (links.length > 0) {
-      transaction.insert(deepSearchPageLinks).values(links.map((link, position) => ({
-        deepSearchPageLinkId: randomUUID(),
-        sourceWebPageId: input.pageId,
-        position,
-        ...link,
-      }))).run()
-    }
+    persistDiscoveredPageLinks(transaction, input.pageId, links)
     debitCredits(transaction, input.userId, input.creditsUsed)
     return { content: input.content, creditsUsed: input.creditsUsed }
   })
@@ -1071,13 +1081,25 @@ export function attachPageLinkSelectionGeneration(
   if (generation?.status !== "running") {
     throw new Error("Page link selection requires a running generation")
   }
+  const source = transaction
+    .select({ status: deepSearchWebPages.status, creditsUsed: deepSearchWebPages.creditsUsed })
+    .from(deepSearchWebPages)
+    .where(eq(deepSearchWebPages.deepSearchWebPageId, input.pageId))
+    .get()
+  const hasDiscoveredLinks = transaction
+    .select({ id: deepSearchPageLinks.deepSearchPageLinkId })
+    .from(deepSearchPageLinks)
+    .where(eq(deepSearchPageLinks.sourceWebPageId, input.pageId))
+    .get() !== undefined
+  if (!source || (source.creditsUsed === null && !(source.status === "failed" && hasDiscoveredLinks))) {
+    throw new Error("Page link selection requires completed extraction or failed-page discoveries")
+  }
   const result = transaction
     .update(deepSearchWebPages)
     .set({ linkSelectionGenerationId: input.generationId })
     .where(
       and(
         eq(deepSearchWebPages.deepSearchWebPageId, input.pageId),
-        isNotNull(deepSearchWebPages.creditsUsed),
         isNull(deepSearchWebPages.linkSelectionGenerationId),
       ),
     )
@@ -1364,6 +1386,7 @@ export function savePageFailure(input: {
   pageId: string
   stage: "extraction" | "summary"
   message: string
+  links?: Array<{ url: string; title: string }>
 }): void {
   db.transaction((transaction) => {
     assertDeepSearchActive(transaction, input.jobId)
@@ -1386,6 +1409,7 @@ export function savePageFailure(input: {
       stored.errorStage === input.stage &&
       stored.errorMessage === input.message
     ) {
+      if (input.links !== undefined) persistDiscoveredPageLinks(transaction, input.pageId, input.links)
       return
     }
     const result = transaction
@@ -1407,6 +1431,7 @@ export function savePageFailure(input: {
       )
       .run()
     if (result.changes !== 1) throw new Error("Web page was not persisted")
+    if (input.links !== undefined) persistDiscoveredPageLinks(transaction, input.pageId, input.links)
   })
 }
 

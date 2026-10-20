@@ -43,6 +43,18 @@ change the temporary extraction lifecycle. Existing pages, selected results,
 linked edges, and triggers survive the upgrade; older completed pages have null
 passages and remain usable through their summaries without re-extraction.
 
+Migration `0006_captcha_attempts` adds one nullable `captcha_task_id` field to
+the existing page row without rebuilding the table. Null means no attempt;
+the exact empty string reserves an attempt before calling CapSolver; a nonempty
+value is a known provider task ID. The empty reservation survives an uncertain
+paid request and is never purchased again automatically. An immediate
+transaction counts all non-null values over the existing effective-root
+ownership graph, so child searches and Resume share the same allowance.
+Task IDs can be recorded after a racing Stop. CapSolver determines whether a
+known task has expired; no local reservation timestamp is needed. Credentials,
+solution tokens, cookies, browser sessions, and browser-action snapshots are
+not stored here.
+
 Gap assessments reuse each round's existing review-generation link. New
 version-1 JSON contains material gaps and external evidence targets; legacy
 unversioned JSON contains the model's decision. The application derives new

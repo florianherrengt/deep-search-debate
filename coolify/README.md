@@ -152,8 +152,9 @@ is a separate Coolify Compose service in the same project/environment, defined
 by [browserless.yaml](browserless.yaml). Its pinned image digest is Browserless
 `v2.57.1` and includes ARM64 support. There is no public domain or published host
 port. RethinkLoop reaches it at `http://rethinkloop-browserless:3000` through
-the shared `coolify` network. The service has one browser slot, a 30-second
-session limit, a 2 GB memory limit, and 2 GB shared memory. Its health check uses
+the shared `coolify` network. The service has one browser slot, a 130-second
+session limit (including cleanup headroom above the application's 120-second
+browser-action deadline), a 2 GB memory limit, and 2 GB shared memory. Its health check uses
 the authenticated `/active` endpoint without placing the token in arguments.
 
 Coolify generates `SERVICE_PASSWORD_BROWSERLESS`; its resolved value becomes the
@@ -162,6 +163,14 @@ container's `TOKEN`. Supply the same value as RethinkLoop's literal, runtime-onl
 URLs in documentation, command arguments, or logs. The old ScrapingAnt key may
 be removed from the application environment only after the replacement code is
 released; the previous image still requires it.
+
+Research recovery controls this standard open-source image through Puppeteer/CDP;
+it does not use Browserless Cloud or licensed automatic solving. Add optional
+`CAPSOLVER_API_KEY` to the API service's runtime environment for the integrated
+proxy-free Turnstile/reCAPTCHA v2 handlers. The key is never supplied to the
+Browserless container or browser page. Apply the updated Compose session timeout
+when releasing browser recovery; changing the API image alone does not update
+the separately deployed Browserless service. Preserve the egress policy below.
 
 The stock Browserless image permits private-network access. The host-level
 [egress policy](browserless-egress.nft) is therefore required before starting

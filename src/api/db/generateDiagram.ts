@@ -50,6 +50,9 @@ const dbml = `${annotated.replace(/[ \t]+$/gm, "")}
 // checks selector-generation ownership in the selection transaction.
 // original_passages is nullable and limited to 16,000 characters. Its additive
 // migration preserves existing pages, links, and temporary extraction checks.
+// captcha_task_id is null before an attempt, the exact empty string for a durable
+// reservation with no known task ID, or a non-empty provider task ID. All non-null
+// values consume the shared root allowance and remain reserved across Resume.
 // idea_jobs.workflow is immutable research (legacy) or discovery. Discovery has
 // one initial child and may enter ready with generated ideas but no selection.
 // A ready standalone discovery can acquire a debate parent exactly once when
