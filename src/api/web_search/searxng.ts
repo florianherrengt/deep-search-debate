@@ -1,4 +1,4 @@
-import { createSearXNGFetchSearch } from "deep-search-core/search-extract/core"
+import z from "zod"
 import PQueue from "p-queue"
 import { config } from "../config.ts"
 import { addAbortableQueueTask } from "../helpers/addAbortableQueueTask.ts"
@@ -13,21 +13,71 @@ const boundedFetch = createBoundedFetch(
   (input, init) => globalThis.fetch(input, init),
 )
 
-const search =
-  config.webSearch.searxng.url === undefined
-    ? undefined
-    : createSearXNGFetchSearch({
-        baseUrl: config.webSearch.searxng.url,
-        fetch: (input, init) => {
-          const inputUrl = input instanceof Request ? input.url : input.toString()
-          const url = new URL(inputUrl)
-          url.searchParams.set(
-            "categories",
-            config.webSearch.searxng.categories.join(","),
-          )
-          return boundedFetch(url, init)
-        },
-      })
+const searxngResponseSchema = z.object({
+  results: z.array(z.object({
+    title: z.string(),
+    url: z.string(),
+    content: z.string(),
+  })),
+})
+
+class SearchProviderResponseError extends Error {
+  readonly provider = "SearXNG"
+
+  constructor(detail?: string) {
+    const detailSuffix = detail ? `: ${detail}` : ""
+    super(`SearXNG search response did not match the expected format${detailSuffix}`)
+    this.name = "SearchProviderResponseError"
+  }
+}
+
+class SearchProviderError extends Error {
+  readonly provider = "SearXNG"
+  readonly status: number
+
+  constructor(status: number, body?: string) {
+    const bodySuffix = body ? `: ${body}` : ""
+    super(`SearXNG search failed with HTTP ${status}${bodySuffix}`)
+    this.name = "SearchProviderError"
+    this.status = status
+  }
+}
+
+async function searchSearxng(query: string, signal?: AbortSignal) {
+  const baseUrl = config.webSearch.searxng.url?.trim() || "http://localhost:8080"
+  const url = new URL("/search", baseUrl)
+  url.searchParams.set("format", "json")
+  url.searchParams.set("q", query)
+  const requestUrl = new URL(url)
+  requestUrl.searchParams.set("categories", config.webSearch.searxng.categories.join(","))
+  const response = await boundedFetch(requestUrl, {
+    headers: { accept: "application/json" },
+    signal,
+  })
+
+  if (!response.ok) {
+    const body = await response.text().then((raw) => {
+      const text = raw.trim()
+      return text.length > 300 ? `${text.slice(0, 300)}...` : text
+    }).catch(() => "")
+    const statusText = response.statusText ? ` ${response.statusText}` : ""
+    const formattedError = `SearXNG search failed with HTTP ${response.status}${statusText}${body ? `: ${body}` : ""}`
+    const bodyPart = formattedError.replace(/^.*?: /, "")
+    const statusMatch = formattedError.match(/HTTP (\d+)/)
+    throw new SearchProviderError(statusMatch ? Number.parseInt(statusMatch[1], 10) : 0, bodyPart)
+  }
+
+  const raw = await response.text()
+  let parsed: unknown
+  try { parsed = JSON.parse(raw) as unknown } catch { parsed = null }
+  const result = searxngResponseSchema.safeParse(parsed)
+  if (!result.success) throw new SearchProviderResponseError(result.error.message)
+  return result.data.results.map((item) => ({
+    title: item.title,
+    url: item.url,
+    description: item.content,
+  }))
+}
 
 const searchQueue = new PQueue({
   concurrency: config.webSearch.searxng.maxConcurrentRequests,
@@ -44,10 +94,12 @@ export async function searxng(params: {
   query: string
   signal?: AbortSignal
 }): Promise<WebSearchResult[]> {
-  if (search === undefined) throw new Error("SearXNG is not configured")
+  if (config.webSearch.searxng.url === undefined) {
+    throw new Error("SearXNG is not configured")
+  }
   const results = await addAbortableQueueTask(
     searchQueue,
-    () => search(params.query, params.signal),
+    () => searchSearxng(params.query, params.signal),
     params.signal,
   )
   const mappedResults = results.map((result) => ({

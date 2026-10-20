@@ -1,5 +1,5 @@
 import z from "zod"
-import { validateUrl } from "deep-search-core/search-extract/core"
+import { validateUrl } from "./urlValidation.ts"
 
 export const MAX_WEB_SEARCH_RESULTS = 30
 export const MAX_WEB_SEARCH_TITLE_CHARS = 500
