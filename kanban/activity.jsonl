@@ -584,3 +584,5 @@
 {"timestamp":"2026-10-20T18:25:13.729475+01:00","action":"move","task_id":40,"detail":"in-progress -\u003e review"}
 {"timestamp":"2026-10-20T18:25:13.729922+01:00","action":"handoff","task_id":40,"detail":"Add bounded Browserless agent control and CapSolver recovery"}
 {"timestamp":"2026-10-20T18:25:13.73002+01:00","action":"release","task_id":40,"detail":"Add bounded Browserless agent control and CapSolver recovery"}
+{"timestamp":"2026-10-20T20:56:01.892853+01:00","action":"edit","task_id":40,"detail":"Add bounded Browserless agent control and CapSolver recovery"}
+{"timestamp":"2026-10-20T20:56:01.893884+01:00","action":"claim","task_id":40,"detail":"linoxin-trithing"}
