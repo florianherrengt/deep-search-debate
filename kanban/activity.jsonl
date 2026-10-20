@@ -571,3 +571,5 @@
 {"timestamp":"2026-10-20T14:10:34.543811+01:00","action":"move","task_id":38,"detail":"in-progress -\u003e review"}
 {"timestamp":"2026-10-20T14:10:34.544796+01:00","action":"handoff","task_id":38,"detail":"Fix four page extraction false positives and documentation pruning"}
 {"timestamp":"2026-10-20T14:10:34.544884+01:00","action":"release","task_id":38,"detail":"Fix four page extraction false positives and documentation pruning"}
+{"timestamp":"2026-10-20T16:26:37.406381+01:00","action":"move","task_id":38,"detail":"review -\u003e done"}
+{"timestamp":"2026-10-20T16:26:37.422804+01:00","action":"edit","task_id":38,"detail":"Fix four page extraction false positives and documentation pruning"}

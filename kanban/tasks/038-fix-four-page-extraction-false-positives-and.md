@@ -1,10 +1,12 @@
 ---
 id: 38
 title: Fix four page extraction false positives and documentation pruning
-status: review
+status: done
 priority: high
 created: 2026-10-20T14:02:51.731723+01:00
-updated: 2026-10-20T14:10:34.54132+01:00
+updated: 2026-10-20T16:26:37.422466+01:00
+started: 2026-10-20T16:26:37.405587+01:00
+completed: 2026-10-20T16:26:37.405587+01:00
 tags:
     - bug
     - api
@@ -23,3 +25,6 @@ Fix the four failures reproduced during Browserless diagnosis: Mozilla Client Ch
 - Real URLs: HTTP recovered Browser MCP capability matrix (9407 chars), Browser MCP docs (664, four script NULs), DoBrowser docs (641), GitHub (32887), X post (656, eleven script NULs). A side-process smoke using the new extractor and production transport credentials rejected the Mozilla HTTP Client Challenge, used private Browserless, and returned the real extension listing (1590 chars). No saved workflow, application image, production source, or DB was changed.
 - Root and API checklist agents reviewed the complete final diff; their final reports have no material findings.
 - Ready for user review; no task-code commit, merge, push, or deployment performed.
+
+[[2026-10-20]] Tue 16:26
+User approved commit, merge, push, and deploy. Task code committed on codex/ticket-38-page-extraction-fixes and integrated into local main. Release will publish the exact integrated SHA; production verification follows deployment.
