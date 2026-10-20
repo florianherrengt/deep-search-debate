@@ -1,16 +1,16 @@
 ---
 id: 40
 title: Add bounded Browserless agent control and CapSolver recovery
-status: review
+status: done
 priority: high
 created: 2026-10-20T17:49:40.962987+01:00
-updated: 2026-10-20T21:13:58.052422+01:00
+updated: 2026-10-20T21:15:44.469856+01:00
+started: 2026-10-20T21:15:44.472052+01:00
+completed: 2026-10-20T21:15:44.472052+01:00
 tags:
     - feature
     - api
     - research
-claimed_by: linoxin-trithing
-claimed_at: 2026-10-20T21:13:58.052629+01:00
 class: standard
 ---
 
@@ -47,3 +47,6 @@ User approved the reviewed single-column CAPTCHA representation: NULL means unat
 
 [[2026-10-20]] Tue 21:13
 User authorized committing the reviewed Browserless/CapSolver changes, merging into main, pushing and deploying. Release preflight is checking the existing application, CapSolver runtime secret and separate Browserless service timeout; credentials remain excluded from Git and output.
+
+[[2026-10-20]] Tue 21:15
+Committed the approved feature as b85667e39264083d24eef9e081e843d48fc6b95d and integrated it into local main. Fresh release gate passed 1032 API and 409 web tests; six relevant UI workflows were already verified. Production release is now proceeding with the separate Browserless timeout and runtime-only CapSolver key updates.
