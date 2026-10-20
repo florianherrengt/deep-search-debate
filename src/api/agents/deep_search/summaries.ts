@@ -7,7 +7,8 @@ import {
   type GenerationOutcome,
   type TextGenerationPersistenceCallbacks,
 } from "../../llms/streams.ts"
-import { webExtract, type WebExtractResult } from "../../web_search/webExtract.ts"
+import { WebExtractionError, webExtract, type WebExtractResult } from "../../web_search/webExtract.ts"
+import { installCaptchaHooks, recoverBrowserPage } from "./browserAgent.ts"
 
 const maxPageContentChars = 100_000
 
@@ -66,6 +67,7 @@ export async function summarizePage(
 type StartPageSummaryInput = TextGenerationPersistenceCallbacks & {
   userId: string
   deepSearchJobId: string
+  pageId: string
   researchRequest: string
   mode?: DeepSearchMode
   url: string
@@ -82,6 +84,7 @@ export type PageSummaryStart =
       status: "failed"
       stage: "extraction" | "summary"
       message: string
+      links?: WebExtractResult["links"]
     }
   | {
       status: "started"
@@ -91,16 +94,27 @@ export type PageSummaryStart =
     }
 
 type PageExtractionResult =
-  | { status: "failed"; message: string }
+  | { status: "failed"; message: string; links: WebExtractResult["links"] }
   | { status: "completed"; content: string; creditsUsed: number; links: WebExtractResult["links"] }
 
 async function extractPage(
-  params: Pick<StartPageSummaryInput, "userId" | "url" | "researchRequest" | "workflowSignal">,
+  params: Pick<StartPageSummaryInput, "userId" | "deepSearchJobId" | "pageId" | "url" | "researchRequest" | "workflowSignal">,
 ): Promise<PageExtractionResult> {
   try {
     const page = await webExtract({
       url: params.url,
       signal: params.workflowSignal,
+      browserRecovery: {
+        prepare: installCaptchaHooks,
+        recover: (page, signal) => recoverBrowserPage({
+          page, signal,
+          userId: params.userId,
+          deepSearchJobId: params.deepSearchJobId,
+          pageId: params.pageId,
+          url: page.url(),
+          researchRequest: params.researchRequest,
+        }),
+      },
     })
     if (!page.content.trim()) {
       throw new Error("Page extraction returned no content")
@@ -115,6 +129,7 @@ async function extractPage(
     return {
       status: "failed",
       message: getErrorMessage(error, "Page summary failed"),
+      links: error instanceof WebExtractionError ? error.observedLinks : [],
     }
   }
 }
@@ -132,6 +147,7 @@ export async function startPageSummary(
       status: "failed",
       stage: "extraction",
       message: extraction.message,
+      ...(extraction.links.length > 0 ? { links: extraction.links } : {}),
     }
   }
   const content = selectRelevantPassages(extraction.content, params.researchRequest, maxPageContentChars)

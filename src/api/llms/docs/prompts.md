@@ -15,7 +15,7 @@ The enum value and the filename (minus `.md`) must be identical, or `loadPrompt`
 
 `PromptName` exhaustively selects one of two user-configurable roles. Small is
 used for prompt titles, search-result and discovered-link filtering, page summaries, query
-summaries, and idea-research briefing summaries. Big is used for the default
+summaries, idea-research briefing summaries, and fallback browser actions. Big is used for the default
 standalone stream, research planning and synthesis, final source-backed answer
 correction (`correct-research-answer`), research audits and round
 reviews, idea planning/generation/evaluation/selection/refinement/site output,
@@ -49,6 +49,14 @@ values, filter invalid values, or retry because parsing or validation failed.
 Change the prompt or schema deliberately when the contract is wrong; switch the
 configured model when it cannot satisfy the contract. Provider-request retries
 remain governed separately by the configured Pi retry policy.
+
+`browser-agent-action` returns one strict action over bounded, untrusted DOM
+observations. It uses the user's Small model assignment and ordinary job-owned
+generation persistence. Element IDs are refreshed for every observation;
+application code validates permitted targets and actions. The model cannot
+supply JavaScript, selectors, CAPTCHA task parameters, or provider credentials.
+Browser sessions and action observations remain ephemeral. Resume reopens an
+interrupted source in a fresh session instead of replaying old clicks.
 
 
 ## Deep-search structured contracts

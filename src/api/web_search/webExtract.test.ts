@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { PageFetchClient } from "./pageFetch.ts"
+import type { Page } from "puppeteer"
+import { config } from "../config.ts"
+import type { BrowserPageRunner, PageFetchClient } from "./pageFetch.ts"
 type PageFetchResult = Awaited<ReturnType<PageFetchClient["fetchPage"]>>
 import {
   createWebExtractor,
+  type BrowserRecovery,
   type PageRetrievalLog,
 } from "./webExtract.ts"
 import { MAX_WEB_SEARCH_RESULTS, MAX_WEB_SEARCH_TITLE_CHARS } from "./types.ts"
@@ -60,17 +63,44 @@ function usablePdf(): Uint8Array {
 
 function createHarness() {
   const fetchPage = vi.fn<PageFetchClient["fetchPage"]>()
+  const withBrowserPage = vi.fn<BrowserPageRunner>()
   const logs: PageRetrievalLog[] = []
   let clock = 0
   const extract = createWebExtractor({
     client: { fetchPage: (params) => fetchPage(params) },
+    withBrowserPage: withBrowserPage as unknown as BrowserPageRunner,
     log: (entry) => logs.push(structuredClone(entry)),
     now: () => {
       clock += 10
       return clock
     },
   })
-  return { extract, fetchPage, logs }
+  return { extract, fetchPage, withBrowserPage, logs }
+}
+
+function browserPage(html: string, url = "https://example.com/protected") {
+  return {
+    evaluate: vi.fn(() => Promise.resolve({ html })),
+    url: vi.fn(() => url),
+  } as unknown as Page
+}
+
+function browserRecovery(
+  recover: BrowserRecovery["recover"] = vi.fn(() => Promise.resolve({
+    html: usableHtml("Recovered evidence"),
+    links: [],
+    status: "extracted",
+  })),
+): BrowserRecovery {
+  return { prepare: vi.fn(() => Promise.resolve()), recover: vi.fn(recover) }
+}
+
+function runBrowserPage(harness: ReturnType<typeof createHarness>, page: Page) {
+  harness.withBrowserPage.mockImplementation(async (params) => {
+    const signal = params.signal ?? new AbortController().signal
+    await params.prepare?.(page, signal)
+    return params.run(page, signal)
+  })
 }
 
 describe("webExtract", () => {
@@ -407,6 +437,201 @@ describe("webExtract", () => {
     expect(harness.logs[0]).toMatchObject({ method: "http", outcome: "failure" })
     expect(result.retrievalMethod).toBe("browserless")
     expect(result.content).toContain("Rendered protected document explains")
+  })
+
+  it("does not open an interactive browser or invoke recovery for usable HTTP content", async () => {
+    const harness = createHarness()
+    const recovery = browserRecovery()
+    harness.fetchPage.mockResolvedValueOnce(htmlPage(usableHtml()))
+
+    await harness.extract({ url: "https://example.com/page", browserRecovery: recovery })
+
+    expect(harness.withBrowserPage).not.toHaveBeenCalled()
+    expect(recovery.recover).not.toHaveBeenCalled()
+  })
+
+  it("uses a normal Browserless render without invoking the recovery agent when it is usable", async () => {
+    const harness = createHarness()
+    const recovery = browserRecovery()
+    harness.fetchPage
+      .mockResolvedValueOnce(htmlPage("<html><body>Short shell</body></html>"))
+      .mockResolvedValueOnce(htmlPage(usableHtml("Rendered evidence")))
+
+    const result = await harness.extract({ url: "https://example.com/protected", browserRecovery: recovery })
+
+    expect(result.retrievalMethod).toBe("browserless")
+    expect(result.content).toContain("Rendered evidence explains")
+    expect(harness.fetchPage.mock.calls.map(([call]) => call.mode)).toEqual(["http", "browser"])
+    expect(harness.withBrowserPage).not.toHaveBeenCalled()
+    expect(recovery.prepare).not.toHaveBeenCalled()
+    expect(recovery.recover).not.toHaveBeenCalled()
+  })
+
+  it("enters the interactive recovery session only after Browserless content remains unusable", async () => {
+    const harness = createHarness()
+    const recovery = browserRecovery()
+    const page = browserPage("<html><body>Short shell</body></html>")
+    runBrowserPage(harness, page)
+    const challenge =
+      "<html><head><title>Access denied</title></head><body><p>Access denied. Verify that you are human.</p></body></html>"
+    harness.fetchPage
+      .mockResolvedValueOnce(htmlPage("<html><body>Short shell</body></html>"))
+      .mockResolvedValueOnce(htmlPage(challenge))
+
+    const result = await harness.extract({ url: "https://example.com/protected", browserRecovery: recovery })
+
+    expect(result.retrievalMethod).toBe("browserless")
+    expect(result.content).toContain("Recovered evidence explains")
+    expect(recovery.prepare).toHaveBeenCalledOnce()
+    expect(recovery.recover).toHaveBeenCalledOnce()
+  })
+
+  it("enters interactive recovery when stateless Browserless rendering errors", async () => {
+    const harness = createHarness()
+    const recovery = browserRecovery()
+    const page = browserPage("<html><body>Short shell</body></html>")
+    runBrowserPage(harness, page)
+    harness.fetchPage
+      .mockResolvedValueOnce(htmlPage("<html><body>Short shell</body></html>"))
+      .mockRejectedValueOnce(new Error("Browserless networkidle timeout"))
+
+    const result = await harness.extract({ url: "https://example.com/protected", browserRecovery: recovery })
+
+    expect(result.content).toContain("Recovered evidence explains")
+    expect(harness.withBrowserPage).toHaveBeenCalledOnce()
+    expect(recovery.recover).toHaveBeenCalledOnce()
+  })
+
+  it("returns recovered page evidence and merges its verified links with rendered links", async () => {
+    const harness = createHarness()
+    const page = browserPage(
+      "<html><head><title>CAPTCHA verification required</title></head><body><main><p>Solve the CAPTCHA to continue and verify this browser before continuing.</p></main></body></html>",
+    )
+    runBrowserPage(harness, page)
+    const challenge = "<html><head><title>CAPTCHA verification required</title></head><body><main><p>Solve the CAPTCHA to continue and verify this browser before continuing.</p></main></body></html>"
+    harness.fetchPage
+      .mockResolvedValueOnce(htmlPage(challenge))
+      .mockResolvedValueOnce(htmlPage(challenge))
+    const recovery = browserRecovery(() => Promise.resolve({
+      html: usableHtml("Recovered protected document").replace(
+        "</main>",
+        '<a href="/terms">Eligibility terms</a></main>',
+      ),
+      links: [{ url: "https://example.com/related", title: "Related evidence" }],
+      status: "extracted",
+    }))
+
+    const result = await harness.extract({ url: "https://example.com/protected", browserRecovery: recovery })
+
+    expect(recovery.recover).toHaveBeenCalledOnce()
+    expect(result.content).toContain("Recovered protected document explains")
+    expect(result.links).toEqual([
+      { url: "https://example.com/terms", title: "Eligibility terms" },
+      { url: "https://example.com/related", title: "Related evidence" },
+    ])
+  })
+
+  it("preserves only safe links handed off from an unusable browser challenge", async () => {
+    const harness = createHarness()
+    const challenge = "<html><head><title>CAPTCHA verification required</title></head><body><p>Solve the CAPTCHA to continue and verify this browser before continuing.</p><a href='https://challenge.invalid/ignore'>challenge link</a></body></html>"
+    runBrowserPage(harness, browserPage(challenge))
+    harness.fetchPage
+      .mockResolvedValueOnce(htmlPage(challenge))
+      .mockResolvedValueOnce(htmlPage(challenge))
+    const recovery = browserRecovery(() => Promise.resolve({
+      links: [
+        { url: "https://example.com/next", title: "Next source" },
+        { url: "https://example.com/next#top", title: "Duplicate" },
+        { url: "http://127.0.0.1/private", title: "Private" },
+        { url: "not a URL", title: "Malformed" },
+        { url: "https://example.com/protected", title: "Source page" },
+      ],
+      status: "extracted",
+      reason: "link-handed-off",
+    }))
+
+    await expect(harness.extract({ url: "https://example.com/protected", browserRecovery: recovery }))
+      .rejects.toMatchObject({
+        name: "WebExtractionError",
+        recoveryStatus: "extracted",
+        recoveryReason: "link-handed-off",
+        observedLinks: [{ url: "https://example.com/next", title: "Next source" }],
+      })
+    expect(harness.logs.at(-1)?.failure).toContain("link-handed-off")
+  })
+
+  it.each([
+    {
+      name: "a challenge that remains after recovery",
+      recoveredHtml: "<html><head><title>CAPTCHA verification required</title></head><body><p>Solve the CAPTCHA to continue and verify this browser before continuing.</p></body></html>",
+      changedUrl: false,
+      oversized: false,
+    },
+    {
+      name: "a recovery that changes the selected document URL",
+      recoveredHtml: usableHtml("Recovered content"),
+      changedUrl: true,
+      oversized: false,
+    },
+    {
+      name: "a rendered document over the response size limit",
+      recoveredHtml: "",
+      changedUrl: false,
+      oversized: true,
+    },
+  ])("does not accept $name as evidence", async ({ recoveredHtml, changedUrl, oversized }) => {
+    const harness = createHarness()
+    let currentUrl = "https://example.com/protected"
+    const challengeHtml = "<html><head><title>CAPTCHA verification required</title></head><body><p>Solve the CAPTCHA to continue and verify this browser before continuing.</p></body></html>"
+    const page = {
+      evaluate: vi.fn(() => Promise.resolve({ html: challengeHtml })),
+      url: vi.fn(() => currentUrl),
+    } as unknown as Page
+    runBrowserPage(harness, page)
+    harness.fetchPage
+      .mockResolvedValueOnce(htmlPage(challengeHtml))
+      .mockResolvedValueOnce(htmlPage(challengeHtml))
+    const recovery = browserRecovery(() => {
+      if (changedUrl) currentUrl = "https://example.com/different-document"
+      return Promise.resolve({
+        html: oversized
+          ? `<html><body><p>${"x".repeat(config.extraction.maxResponseBytes + 1)}</p></body></html>`
+          : recoveredHtml,
+        links: [{ url: "https://example.com/untrusted", title: "Untrusted link" }],
+        status: "extracted",
+      })
+    })
+
+    await expect(harness.extract({
+      url: "https://example.com/protected",
+      browserRecovery: recovery,
+    })).rejects.toMatchObject({ name: "WebExtractionError" })
+    expect(recovery.recover).toHaveBeenCalledOnce()
+  })
+
+  it("propagates Stop through CAPTCHA recovery and returns no extracted evidence", async () => {
+    const harness = createHarness()
+    const controller = new AbortController()
+    const page = browserPage(
+      "<html><head><title>CAPTCHA verification required</title></head><body><p>Solve the CAPTCHA to continue and verify this browser before continuing.</p></body></html>",
+    )
+    runBrowserPage(harness, page)
+    const challenge = "<html><head><title>CAPTCHA verification required</title></head><body><p>Solve the CAPTCHA to continue and verify this browser before continuing.</p></body></html>"
+    harness.fetchPage
+      .mockResolvedValueOnce(htmlPage(challenge))
+      .mockResolvedValueOnce(htmlPage(challenge))
+    const recovery = browserRecovery((_page, signal) => {
+      expect(signal).toBe(controller.signal)
+      controller.abort()
+      return Promise.reject(new DOMException("Stopped", "AbortError"))
+    })
+
+    await expect(harness.extract({
+      url: "https://example.com/protected",
+      signal: controller.signal,
+      browserRecovery: recovery,
+    })).rejects.toMatchObject({ name: "WebExtractionError" })
+    expect(recovery.recover).toHaveBeenCalledOnce()
   })
 
   it("keeps an explanatory article titled How to solve a CAPTCHA usable", async () => {

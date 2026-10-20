@@ -274,6 +274,34 @@ error page, it tries rendering through private Browserless Chromium. HTML is
 converted to visible text; PDF responses use the PDF extractor. Non-JSON
 content shorter than 200 characters is rejected as unusable.
 
+If ordinary browser rendering is still unusable, a page-scoped Small-model
+agent can inspect bounded visible text and observed element IDs, then expand
+content, switch tabs, fill search/filter fields, scroll, wait, or extract. The
+server validates each action; page text cannot authorize arbitrary JavaScript,
+selectors, credentials, or new navigation targets. This fallback permits at most
+12 action decisions and 120 seconds per browser session. It does not run for
+ordinary usable HTTP or rendered pages. Cross-document links go through the
+existing linked-page selection and budget checks rather than being read under
+the selected source's identity.
+Observed link candidates can survive an unreadable source: they are stored as
+discoveries on that failed page and selected through the same link-generation
+and budget checks. The failed source still has no extracted evidence and keeps
+its search-snippet fallback.
+
+With `CAPSOLVER_API_KEY` configured, server-owned challenge handlers can solve
+proxy-free Turnstile and reCAPTCHA v2 in the same browser session. Each page has
+one durable paid-attempt reservation, with at most ten across the effective
+root workflow and its descendants. The page's nullable `captcha_task_id` holds
+the reservation: null is unattempted, the exact empty string reserves an attempt,
+and a nonempty value is a known task ID for polling. An uncertain creation
+result is not automatically purchased again. CapSolver determines task expiry;
+an expired task keeps the ordinary failure fallback. Full Cloudflare
+challenge pages require a proxy integration and remain unsupported. Every
+recovery result still passes the ordinary content checks before it becomes
+source evidence. Unsupported or exhausted recovery retains the existing
+extraction-failure/snippet fallback. Stop closes the session, interrupted pages
+reopen in fresh sessions, and persisted extraction is reused on summary retry.
+
 HTML, XHTML, plain text, Markdown, recognized PDF bodies, and declared JSON
 documents are accepted. `application/json` and `application/*+json` bodies must
 be valid UTF-8 JSON and at most 100,000 characters. Their original text is
@@ -283,7 +311,7 @@ heuristics. Other declared media types are rejected. A response without a conten
 still pass a text-likeness check, so a long image or other binary body is never
 decoded and summarized as a web page.
 
-If neither retrieval method produces usable content, the page records an
+If no retrieval attempt produces usable content, the page records an
 extraction failure and the later query summary uses the original search snippet.
 The wider standalone deep-search job can still complete.
 

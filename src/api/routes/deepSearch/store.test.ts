@@ -220,6 +220,36 @@ describe("deep-search store", () => {
     expect(() => settlePageExtraction({ ...input, links: [] })).toThrow("Page links conflict with persisted extraction")
   })
 
+  it("persists safe handoff discoveries on failed pages and reuses normal link selection", () => {
+    const { jobId, roundId } = createLinkJob()
+    const pageId = crypto.randomUUID()
+    const generationId = crypto.randomUUID()
+    db.insert(deepSearchWebPages).values({ deepSearchWebPageId: pageId, deepSearchJobId: jobId, url: "https://example.com/challenge", status: "extracting" }).run()
+    const links = [{ url: "https://example.com/next", title: "Next source" }]
+    expect(() => savePageFailure({ jobId, pageId, stage: "extraction", message: "Browser handoff", links: [
+      { url: "http://127.0.0.1/private", title: "Private" },
+    ] })).toThrow(/invalid or duplicate URLs/)
+    savePageFailure({ jobId, pageId, stage: "extraction", message: "Browser handoff", links })
+    const first = loadDeepSearchExecutionSnapshot(jobId)!.pages.find(({ pageId: id }) => id === pageId)!
+    const firstLink = first.links[0]
+    if (!firstLink) throw new Error("Observed link was not persisted")
+    savePageFailure({ jobId, pageId, stage: "extraction", message: "Browser handoff", links })
+    expect(loadDeepSearchExecutionSnapshot(jobId)!.pages.find(({ pageId: id }) => id === pageId)!.links).toEqual(first.links)
+    expect(first).toMatchObject({ status: "failed", extractedContent: null, creditsUsed: null, links: [{ url: links[0].url, title: links[0].title }] })
+
+    insertGenerations(jobId, [generationId])
+    db.transaction((transaction) => attachPageLinkSelectionGeneration(transaction, { jobId, pageId, generationId }))
+    const [selected] = completeLinkSelection({
+      jobId, sourcePageId: pageId, roundId, generationId,
+      selectedLinkIds: [firstLink.linkId],
+    })
+    if (!selected) throw new Error("Selected link did not create a page")
+    expect(selected).toMatchObject({ url: links[0].url })
+    const sourceAfter = loadDeepSearchExecutionSnapshot(jobId)!.pages.find(({ pageId: id }) => id === pageId)!
+    expect(sourceAfter).toMatchObject({ extractedContent: null, creditsUsed: null, status: "failed" })
+    expect(sourceAfter.links[0]).toMatchObject({ selectedWebPageId: selected.pageId, selectedRoundId: roundId })
+  })
+
   it("deduplicates linked destinations across parents without fabricating search results", () => {
     const { jobId, roundId } = createLinkJob()
     const target = { url: "https://example.com/primary", title: "Primary evidence" }

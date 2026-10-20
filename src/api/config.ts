@@ -172,6 +172,9 @@ const nonSecretEnvironmentShape = {
     .min(10_000)
     .max(10_000_000)
     .default(2_000_000),
+  BROWSER_AGENT_MAX_ACTIONS: z.coerce.number().int().min(1).max(12).default(12),
+  BROWSER_AGENT_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(120_000).default(120_000),
+  CAPSOLVER_MAX_TASKS_PER_ROOT_JOB: z.coerce.number().int().min(1).max(10).default(10),
   DEEP_SEARCH_MAX_SEARCHES: z.coerce
     .number()
     .int()
@@ -303,6 +306,7 @@ const rawEnvironmentSchema = z.object({
   LLM_PROVIDER: z.enum(["deepseek", "zen"]).optional(),
   LLM_MODEL_NAME: z.string().trim().min(1).optional(),
   SERPER_API_KEY: optionalSecretSchema,
+  CAPSOLVER_API_KEY: optionalSecretSchema,
   OPENCODE_ZEN_API_KEY: optionalSecretSchema,
   BROWSERLESS_TOKEN: secretSchemas.BROWSERLESS_TOKEN,
   BETTER_AUTH_SECRET: secretSchemas.BETTER_AUTH_SECRET,
@@ -321,6 +325,7 @@ const environmentSchema = z.object({
   BETTER_AUTH_URL: z.url(),
   AUTH_DEBUG_USER_ENABLED: z.boolean(),
   SERPER_API_KEY: optionalSecretSchema,
+  CAPSOLVER_API_KEY: optionalSecretSchema,
   OPENCODE_ZEN_API_KEY: optionalSecretSchema,
   BROWSERLESS_TOKEN: secretSchemas.BROWSERLESS_TOKEN,
   BETTER_AUTH_SECRET: secretSchemas.BETTER_AUTH_SECRET,
@@ -574,6 +579,14 @@ export const config = {
     browserless: {
       url: environment.BROWSERLESS_URL,
       token: environment.BROWSERLESS_TOKEN,
+    },
+    browserAgent: {
+      maxActions: environment.BROWSER_AGENT_MAX_ACTIONS,
+      timeoutMs: environment.BROWSER_AGENT_TIMEOUT_MS,
+    },
+    capsolver: {
+      apiKey: environment.CAPSOLVER_API_KEY,
+      maxTasksPerRootJob: environment.CAPSOLVER_MAX_TASKS_PER_ROOT_JOB,
     },
     queueWaitTimeoutMs: environment.PAGE_FETCH_QUEUE_WAIT_TIMEOUT_MS,
     requestTimeoutMs: environment.PAGE_FETCH_REQUEST_TIMEOUT_MS,

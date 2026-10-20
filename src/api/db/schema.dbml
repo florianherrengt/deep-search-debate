@@ -237,6 +237,7 @@ table deep_search_web_pages {
   status text [not null, default: 'pending']
   extracted_content text
   original_passages text
+  captcha_task_id text
   summary_generation_id text
   link_selection_generation_id text
   error_stage text
@@ -248,6 +249,7 @@ table deep_search_web_pages {
     (deep_search_job_id, url) [name: 'deep_search_web_pages_job_url_idx', unique]
     summary_generation_id [name: 'deep_search_web_pages_summary_generation_id_idx']
     link_selection_generation_id [name: 'deep_search_web_pages_link_selection_generation_id_idx', unique]
+
 
 
 
@@ -674,6 +676,9 @@ ref session_user_id_user_id_fk: session.user_id > user.id [delete: cascade, upda
 // checks selector-generation ownership in the selection transaction.
 // original_passages is nullable and limited to 16,000 characters. Its additive
 // migration preserves existing pages, links, and temporary extraction checks.
+// captcha_task_id is null before an attempt, the exact empty string for a durable
+// reservation with no known task ID, or a non-empty provider task ID. All non-null
+// values consume the shared root allowance and remain reserved across Resume.
 // idea_jobs.workflow is immutable research (legacy) or discovery. Discovery has
 // one initial child and may enter ready with generated ideas but no selection.
 // A ready standalone discovery can acquire a debate parent exactly once when

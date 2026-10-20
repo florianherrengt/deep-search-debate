@@ -35,6 +35,8 @@ export const deepSearchWebPages = sqliteTable(
     extractedContent: text("extracted_content"),
     /** Original source passages remain available after the model summary commits. */
     originalPassages: text("original_passages"),
+    /** Empty string reserves a spend attempt whose createTask outcome is unknown. */
+    captchaTaskId: text("captcha_task_id"),
     summaryGenerationId: text("summary_generation_id").references(
       () => llmGenerations.llmGenerationId,
       { onDelete: "no action" },
@@ -82,6 +84,10 @@ export const deepSearchWebPages = sqliteTable(
     check(
       "deep_search_web_pages_original_passages_check",
       sql`${table.originalPassages} is null or length(${table.originalPassages}) <= 16000`,
+    ),
+    check(
+      "deep_search_web_pages_captcha_task_check",
+      sql`${table.captchaTaskId} is null or ${table.captchaTaskId} = '' or (length(trim(${table.captchaTaskId})) > 0 and length(${table.captchaTaskId}) <= 200)`,
     ),
     check(
       "deep_search_web_pages_error_stage_check",

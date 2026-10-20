@@ -47,6 +47,7 @@ export function modelRoleForPrompt(promptName: PromptName): LlmModelRole {
     case "select-discovery-links":
     case "summarize-discovery-page":
     case "summarize-discovery-query":
+    case "browser-agent-action":
       return "small"
     case "default":
     case "generate-websearch-queries":
