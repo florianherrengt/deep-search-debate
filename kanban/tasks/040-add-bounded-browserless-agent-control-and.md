@@ -1,16 +1,14 @@
 ---
 id: 40
 title: Add bounded Browserless agent control and CapSolver recovery
-status: in-progress
+status: review
 priority: high
 created: 2026-10-20T17:49:40.962987+01:00
-updated: 2026-10-20T20:56:01.890581+01:00
+updated: 2026-10-20T21:02:49.035288+01:00
 tags:
     - feature
     - api
     - research
-claimed_by: linoxin-trithing
-claimed_at: 2026-10-20T20:56:01.890738+01:00
 class: standard
 ---
 
@@ -33,3 +31,14 @@ Implemented remote Browserless sessions, Small-model DOM actions, CapSolver clie
 
 [[2026-10-20]] Tue 20:56
 User approved the reviewed single-column CAPTCHA representation: NULL means unattempted, empty string means reserved with unknown task ID, nonempty means known provider task. Remove the reservation timestamp and local expiry calculation; retain transactional root budgets, at-most-once purchase, Stop/Resume, and provider-owned expiry. Implement in existing task worktree, then run gatekeep and relevant end-to-end tests.
+
+[[2026-10-20]] Tue 21:02
+## Single-column implementation verified
+
+- Implemented the approved simplification in /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-40-browser-control-capsolver on codex/ticket-40-browser-control-capsolver. Task code remains uncommitted; no push or deployment.
+- Current schema adds only nullable captcha_task_id: NULL is unattempted, exact empty string is a durable unknown reservation, and a nonempty value is the known provider task ID. Removed captcha_attempt_reserved_at, local expiry arithmetic, and the obsolete task-expired outcome. Provider expiry retains the existing failure fallback.
+- Existing immediate transactions reserve before createTask and count all non-NULL values across standalone deep-search, standalone idea, and debate roots. Unknown creates are never repurchased; known tasks resume polling; registration rejects unreserved pages, permits same-ID replay and the Stop race, and rejects conflicting IDs.
+- Unreleased migration 0006 is now one additive ALTER with its state CHECK. Isolated Drizzle Kit generation verified the snapshot; the additive SQL avoids the generated table rebuild and preserves triggers. Prior supported migration entries are unchanged. DBML and scoped docs updated.
+- Final Node 26.5.1 npm run gatekeep passed: lint, typecheck, Knip, 1032 API tests and 409 web tests. Six isolated-port Playwright workflows passed: two-hop research/correction, root Stop/reconstruction, mixed-result replay, child Stop cascade, complete researched ideas, and Refine linked deep-search.
+- Regression coverage includes fresh and upgrade migrations, existing pages/triggers/FK/integrity, real client with migrated DB observing the sentinel before createTask, known-ID resume, uncertain-create no repurchase, blank provider ID, provider-reported expiry, and shared caps for all root types. Provider responses are synthetic; no paid calls made.
+- Dedicated root/API/schema reviews are clear. Secret scan, dependency scope, previous migration journal entries and git diff --check passed. Test servers exited and their isolated ports are free. Existing documented Browserless deployment and handshake limitations still apply.
