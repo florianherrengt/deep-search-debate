@@ -67,7 +67,10 @@ function pageTitle(html: string): string {
 
 // Tokenize complete tags so quoted `>` and tag-like attribute text stay inside
 // their tag. Comments and raw-text elements cannot advertise research links.
-function* pageTags(html: string) {
+function* pageTags(
+  html: string,
+  onRawText?: (name: string, start: number, end: number) => void,
+) {
   const tags = /<!--[\s\S]*?(?:-->|$)|<\/?([a-z][\w:-]*)\b((?:[^"'<>]|"[^"]*"|'[^']*')*)>/gi
   for (let match = tags.exec(html); match; match = tags.exec(html)) {
     const name = match[1]?.toLowerCase()
@@ -78,6 +81,7 @@ function* pageTags(html: string) {
       const end = new RegExp(`</${name}\\s*>`, "gi")
       end.lastIndex = tags.lastIndex
       const close = end.exec(html)
+      onRawText?.(name, tags.lastIndex, close?.index ?? html.length)
       if (!close) return
       tags.lastIndex = end.lastIndex
       continue
@@ -86,13 +90,45 @@ function* pageTags(html: string) {
   }
 }
 
+function pageAttributes(attributes: string) {
+  return attributes.matchAll(/([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g)
+}
+
 function attributeValue(attributes: string, name: string): string | undefined {
-  const attribute = /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g
-  for (const match of attributes.matchAll(attribute)) {
+  for (const match of pageAttributes(attributes)) {
     if (match[1].toLowerCase() !== name) continue
     const value = match[2] ?? match[3] ?? match[4] ?? ""
     return extractVisibleTextFromHtml(`<span>${value.replaceAll("<", "&lt;")}</span>`)
   }
+}
+
+function htmlForTextExtraction(html: string): string {
+  const edits: Array<{ start: number; end: number; text: string }> = []
+  for (const tag of pageTags(html, (name, start, end) => {
+    if (name !== "script" && name !== "style") return
+    const raw = html.slice(start, end)
+    if (raw.includes("\0")) edits.push({ start, end, text: raw.replaceAll("\0", "") })
+  })) {
+    if (tag.closing) continue
+    for (const attribute of pageAttributes(tag.attributes)) {
+      if (attribute[1].toLowerCase() !== "class") continue
+      // Core 0.3.0 mistakes CSS variable names such as --fd-toc-popover-height
+      // for overlay labels. Keep real classes (including popover) intact.
+      const text = attribute[0].replace(/\[--[\w-]+:[^\]\s]*\]/g, "")
+      if (text === attribute[0]) continue
+      const start = tag.end - tag.attributes.length - 1 + attribute.index
+      edits.push({ start, end: start + attribute[0].length, text })
+    }
+  }
+
+  const parts: string[] = []
+  let cursor = 0
+  for (const edit of edits) {
+    parts.push(html.slice(cursor, edit.start), edit.text)
+    cursor = edit.end
+  }
+  parts.push(html.slice(cursor))
+  return parts.join("")
 }
 
 function pageLinks(html: string, pageUrl: URL): WebExtractResult["links"] {
@@ -183,13 +219,21 @@ function unusableReason(params: {
 
   const title = pageTitle(params.html)
   const prominentText = `${title}\n${params.content.slice(0, 1_000)}`
+  const errorTitle = title.split(/\s+(?:\||–|—)\s+/u, 1)[0] ?? title
   const challengePattern =
-    /\b(?:access denied|attention required|captcha|checking your browser|cloudflare ray id|request (?:was )?blocked|unusual traffic|verify (?:that )?you are human)\b/i
-  if (challengePattern.test(prominentText)) {
+    /\b(?:access denied|attention required|checking your browser|cloudflare ray id|request (?:was )?blocked|unusual traffic|verify (?:that )?you are human)\b/i
+  // CAPTCHA is also a documentation topic; require a verification instruction.
+  const captchaChallengePattern =
+    /^(?:captcha verification (?:is )?required|(?:please )?(?:solve|complete) (?:a |the |this )?captcha\b)/i
+  if (
+    /^client challenge$/i.test(errorTitle) ||
+    challengePattern.test(prominentText) ||
+    captchaChallengePattern.test(title) ||
+    captchaChallengePattern.test(params.content.trimStart())
+  ) {
     return "Page contained an access-denied or anti-bot challenge"
   }
 
-  const errorTitle = title.split(/\s+(?:\||–|—)\s+/u, 1)[0] ?? title
   const errorTitlePattern =
     /^(?:(?:4\d\d|5\d\d)(?:\s+[^|]*)?|bad gateway|error|gateway timeout|internal server error|not found|page not found|service unavailable)$/i
   if (errorTitlePattern.test(errorTitle)) {
@@ -229,10 +273,7 @@ function decodeTextDocument(body: Uint8Array, contentType: string | undefined): 
 
   const text = new TextDecoder().decode(body)
   const replacementCount = text.split("\ufffd").length - 1
-  if (
-    text.includes("\0") ||
-    (text.length > 0 && replacementCount / text.length > 0.01)
-  ) {
+  if (text.length > 0 && replacementCount / text.length > 0.01) {
     throw new Error("Page response was not valid text content")
   }
   return text
@@ -273,10 +314,17 @@ async function extractContent(params: {
   }
 
   const html = decodeTextDocument(params.body, params.contentType)
-  if (normalizedContentType(params.contentType) === "text/plain") {
-    return { content: html, html: "" }
+  const plainText = normalizedContentType(params.contentType) === "text/plain"
+  const textHtml = plainText ? html : htmlForTextExtraction(html)
+  // NULs in ignored script/style state are harmless; visible or untyped binary
+  // NULs must still fail before the HTML parser can silently discard them.
+  if (textHtml.includes("\0")) {
+    throw new Error("Page response was not valid text content")
   }
-  return { content: extractVisibleTextFromHtml(html), html }
+  return {
+    content: plainText ? textHtml : extractVisibleTextFromHtml(textHtml),
+    html: plainText ? "" : html,
+  }
 }
 
 export function createWebExtractor(deps: WebExtractorDeps) {
