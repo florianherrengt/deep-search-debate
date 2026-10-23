@@ -1,15 +1,13 @@
 ---
 id: 41
 title: Add a final synthesis answer above completed debate results
-status: in-progress
+status: review
 priority: high
 created: 2026-10-23T15:25:44.362103+02:00
-updated: 2026-10-23T17:12:31.99845+02:00
+updated: 2026-10-23T17:18:08.282777+02:00
 tags:
     - feature
     - debates
-claimed_by: polyzoic-adduce
-claimed_at: 2026-10-23T17:12:31.99845+02:00
 class: standard
 ---
 
@@ -24,3 +22,11 @@ Confirmed scope: automatically generate a full explanation answering the origina
 - Reviews: dedicated root/API/database/web checklists complete. Fixed Stop falsely announcing a partial answer complete, escaped prompt-data delimiters with exact roundtrip regression, exercised linked answer cascade deletion, and corrected event docs.
 - Review notes: one nullable owned generation pointer, no new dependency, no clipping/condensation/new research/backfill or regeneration controls. Fresh0000 baseline changed as requested; pre-change databases need recreation. Existing database files were not deleted. Initial fixture/lint failures were caused by the new completion requirement and are fixed; worktree dependency discovery was resolved by linking the existing installed dependency tree without changing manifests.
 - Next: user review; commit/merge/push/deploy not performed.
+
+[[2026-10-23]] Fri 17:18
+## Schema simplification follow-up
+- Removed the final-answer column uniqueness and named unique index; kept the nullable checkpoint, composite same-debate foreign key and completion check.
+- Updated the fresh SQL baseline, all seven Drizzle snapshots, and regenerated DBML. No new migration or unrelated page-table rebuild retained.
+- Verified fresh migrated SQLite: answer index absent, composite ownership FK preserved, 21 triggers retained, foreign-key and integrity checks clean. The FK lookup uses the existing debate primary-key index.
+- Checks passed: 23 focused schema/lifecycle tests; all 10 browser-agent tests on retry; full Node 26.5.1 gate passed lint, typecheck, Knip, 1,041 API and 414 web tests (1,455 total). An unchanged browser/CAPTCHA test hit its 5-second timeout on the first full run and passed in the focused rerun and final full gate; no assertions or timeouts changed.
+- Dedicated root, API, database and web checklist rechecks are clean. Worktree and branch unchanged; task code remains uncommitted for review.
