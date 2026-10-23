@@ -1,13 +1,15 @@
 ---
 id: 41
 title: Add a final synthesis answer above completed debate results
-status: review
+status: in-progress
 priority: high
 created: 2026-10-23T15:25:44.362103+02:00
-updated: 2026-10-23T15:46:40.383797+02:00
+updated: 2026-10-23T17:12:31.99845+02:00
 tags:
     - feature
     - debates
+claimed_by: polyzoic-adduce
+claimed_at: 2026-10-23T17:12:31.99845+02:00
 class: standard
 ---
 
