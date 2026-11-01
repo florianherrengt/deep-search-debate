@@ -4,12 +4,12 @@ title: Bound Clarify preparation searches and benchmark question latency
 status: in-progress
 priority: high
 created: 2026-11-01T20:49:53.257887Z
-updated: 2026-11-01T21:13:06.347367Z
+updated: 2026-11-01T21:43:44.59818Z
 tags:
     - refine
     - performance
 claimed_by: harsh-belick
-claimed_at: 2026-11-01T21:13:06.34751Z
+claimed_at: 2026-11-01T21:43:44.598404Z
 class: standard
 ---
 
@@ -31,3 +31,6 @@ Implemented the initial 2-search / 2-result / 1-round preparation budget, plus t
 
 [[2026-11-01]] Sun 21:13
 User confirmed: save a short evidence brief for completed preparation searches. Proceed with preparation-only skipping of linked-page expansion and final report correction/analysis, reusing existing durable output/completion and retaining current Small model selection. Ordinary final research remains unchanged.
+
+[[2026-11-01]] Sun 21:43
+User approved saving a short evidence brief and explicitly waived backward compatibility for older in-progress preparation checkpoints. Implemented preparation-purpose detection from the durable link, no linked-page expansion, concise brief request framing, and direct atomic candidate-to-final promotion without correction or research analysis; no new tables, columns, public modes, or dependencies. Ordinary final research is unchanged. Focused pipeline/store/replay tests: 93 passed. Current npm run gatekeep passed 1,050 API tests and 409 web tests (1,459 total), plus lint/typecheck/knip. All 5 Refine browser E2E tests passed. Root/API checklist reviews found no issues. Live brief run: preparation saved in 53,992 ms versus 212,201 ms in the earlier shallow run, with 4 selected pages and no analysis generation. The controller then failed after 80,662 ms on an unsupported model evidence ID. Reusing the saved brief in an independent diagnostic completed the controller in 45,019 ms with an empty ready batch: upstream model stages routed all needs to research despite four user scoping decisions, so question generation correctly had no allowed clarification needs. No controller wiring defect found; invalid references still fail closed. Reports: /Users/florian/Documents/Codex/2026-11-01/clarify-benchmark/evidence-brief-small-model-80662ms.json and controller-from-saved-brief-45019ms.json. User decision pending on replacing the staged question controller with one Small-model call to reduce latency and cross-stage disagreement; no single-call controller changes made yet.
