@@ -19,7 +19,9 @@ export async function webSearch(params: {
   const results = await providers[config.webSearch.provider]({
     query: params.query,
     signal,
+    deadlineSignal: deadline,
   })
+  params.signal?.throwIfAborted()
   return { results, creditsUsed: config.webSearch.creditsPerRequest }
 }
 

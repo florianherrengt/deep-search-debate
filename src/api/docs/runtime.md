@@ -215,8 +215,17 @@ the provider's own model limits still apply. Provider-request failures use two P
 retries by default, configured through `LLM_MAX_RETRIES`, so dependency upgrades cannot silently
 change retry cost or latency. The selected Small or Big role's reasoning effort is
 authoritative for every stage; older call-site reasoning flags remain accepted
-but do not override the role. Web searches have a 30-second deadline
-configured by `WEB_SEARCH_TIMEOUT_MS` and charge the fixed product-credit amount
+but do not override the role. Web searches have one total deadline configured by
+`WEB_SEARCH_TIMEOUT_MS`: 120 seconds by default for production Serper searches,
+and 30 seconds for development/test SearXNG searches. The budget includes queue
+wait, the initial search, Serper URL resolution, and any resolution retry waits.
+Serper responses containing organic `google.com/goto` links are sent in full to
+its free `/resolve` endpoint before normalization or storage. Partial responses
+with `retryAfter` are resubmitted after that delay within the same deadline.
+If resolution fails, remains incomplete without a retry hint, or reaches the
+deadline, only real URLs from the latest valid response are returned; unresolved
+Google links are omitted. Caller cancellation still aborts the search, and an
+initial search failure still fails it. Searches charge the fixed product-credit amount
 configured by `WEB_SEARCH_CREDITS_COST` (default 1) after a successful provider
 response. Production Serper calls are limited process-wide by
 `SERPER_MAX_QUERIES_PER_SECOND` (default and maximum 50 for the configured
