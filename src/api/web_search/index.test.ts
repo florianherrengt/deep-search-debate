@@ -11,7 +11,7 @@ vi.mock("../config.ts", () => ({
     auth: { adminEmail: undefined },
     webSearch: {
       provider: "serper",
-      timeoutMs: 30_000,
+      timeoutMs: 120_000,
       creditsPerRequest: 1,
     },
   },
@@ -36,6 +36,33 @@ describe("webSearch", () => {
     const providerInput = vi.mocked(serper).mock.calls[0]?.[0]
     expect(providerInput?.query).toBe("hello")
     expect(providerInput?.signal).toBeInstanceOf(AbortSignal)
+    expect(providerInput?.deadlineSignal).toBeInstanceOf(AbortSignal)
     expect(searxng).not.toHaveBeenCalled()
   })
+
+  it("rejects caller cancellation that arrives after deadline fallback starts settling", async () => {
+    const caller = new AbortController()
+    const deadline = new AbortController()
+    const providerStarted = Promise.withResolvers<void>()
+    const finishProvider = Promise.withResolvers<void>()
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(deadline.signal)
+    vi.mocked(serper).mockImplementationOnce(async () => {
+      providerStarted.resolve()
+      await finishProvider.promise
+      return [{ title: "Top result", shortText: "Resolved top result", link: "https://example.com" }]
+    })
+
+    try {
+      const pending = webSearch({ userId: "test-user-id", query: "hello", signal: caller.signal })
+      await providerStarted.promise
+      deadline.abort(new Error("Search deadline exceeded"))
+      caller.abort(new Error("User stopped search"))
+      finishProvider.resolve()
+
+      await expect(pending).rejects.toThrow("User stopped search")
+    } finally {
+      timeout.mockRestore()
+    }
+  })
+
 })

@@ -135,7 +135,7 @@ const nonSecretEnvironmentShape = {
     .int()
     .min(1_000)
     .max(120_000)
-    .default(30_000),
+    .optional(),
   WEB_SEARCH_MAX_RESPONSE_BYTES: z.coerce
     .number()
     .int()
@@ -571,7 +571,8 @@ export const config = {
       maxConcurrentRequests: environment.SEARXNG_MAX_CONCURRENT_REQUESTS,
       minIntervalMs: environment.SEARXNG_MIN_INTERVAL_MS,
     },
-    timeoutMs: environment.WEB_SEARCH_TIMEOUT_MS,
+    timeoutMs: environment.WEB_SEARCH_TIMEOUT_MS ??
+      (environment.NODE_ENV === "production" ? 120_000 : 30_000),
     maxResponseBytes: environment.WEB_SEARCH_MAX_RESPONSE_BYTES,
     creditsPerRequest: environment.WEB_SEARCH_CREDITS_COST,
   },

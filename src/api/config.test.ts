@@ -226,6 +226,27 @@ describe("config", () => {
     expect(config.webSearch.serper.maxQueriesPerSecond).toBe(40)
   })
 
+  it("defaults to a 120-second Serper deadline and a 30-second development deadline", async () => {
+    vi.stubEnv("WEB_SEARCH_TIMEOUT_MS", undefined)
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("SERPER_API_KEY", "production-serper-key")
+    vi.stubEnv("BETTER_AUTH_URL", "https://app.example.com")
+    vi.stubEnv("BETTER_AUTH_SECRET", "production-secret-with-at-least-32-characters")
+    vi.stubEnv("GITHUB_CLIENT_ID", "production-github-client-id")
+    vi.stubEnv("GITHUB_CLIENT_SECRET", "production-github-client-secret")
+    vi.stubEnv("AUTH_DEBUG_USER_ENABLED", "false")
+    vi.resetModules()
+
+    const production = await import("./config.ts")
+    expect(production.config.webSearch.timeoutMs).toBe(120_000)
+
+    vi.stubEnv("NODE_ENV", "test")
+    vi.resetModules()
+
+    const development = await import("./config.ts")
+    expect(development.config.webSearch.timeoutMs).toBe(30_000)
+  })
+
   it("defaults to ten minutes of inactivity before and between content without a total deadline", async () => {
     vi.stubEnv("LLM_GENERATION_TIMEOUT_MS", undefined)
     vi.stubEnv("LLM_FIRST_CHUNK_TIMEOUT_MS", undefined)
