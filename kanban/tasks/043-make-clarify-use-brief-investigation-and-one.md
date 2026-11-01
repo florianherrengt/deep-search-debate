@@ -1,15 +1,15 @@
 ---
 id: 43
-title: Bound Clarify preparation searches and benchmark question latency
-status: review
+title: Make Clarify use brief investigation and one question-generation call
+status: in-progress
 priority: high
 created: 2026-11-01T20:49:53.257887Z
-updated: 2026-11-01T21:45:57.077104Z
+updated: 2026-11-01T21:54:37.91224Z
 tags:
     - refine
     - performance
-blocked: true
-block_reason: 'Waiting on user: replace the staged question controller with one Small-model call, or retain the staged controller?'
+claimed_by: harsh-belick
+claimed_at: 2026-11-01T21:54:37.912402Z
 class: standard
 ---
 
@@ -43,3 +43,6 @@ User approved saving a short evidence brief and explicitly waived backward compa
 - Live evidence: current preparation saved its brief in 53,992 ms, compared with 212,201 ms for the earlier shallow full-report preparation. The full current attempt failed after 80,662 ms when Flash returned an evidence ID outside the allowed catalog. Validation remains strict. An independent replay using that same saved brief completed the controller in 45,019 ms with a ready but empty question batch. Captured inputs show all needs routed to research, leaving no allowed clarification needs; the later action still said ASK_USER. This is permitted model under-generation/cross-stage disagreement, not a wiring defect. No speculative controller fixes were made.
 - Reports: /Users/florian/Documents/Codex/2026-11-01/clarify-benchmark/evidence-brief-small-model-80662ms.json and controller-from-saved-brief-45019ms.json.
 - Remaining: interactive latency and reliable useful questions are not yet achieved. Proposed next architecture is one Small-model call taking the saved brief and prior answers to return the next questions, preserving strict validation, immutable saved answer batches and final research handoff. Awaiting explicit user choice before that change.
+
+[[2026-11-01]] Sun 21:54
+User approved one Small-model call for question preparation and explicitly chose reusing the session evidence brief for Ask more. Implement a direct validated question response, removing the staged routing/taxonomy and automatic extra-search loop. Keep exact allowed evidence-reference validation, immutable answer batches, one registered-generation checkpoint/retry/cancellation, and ordinary final research handoff. No backward compatibility or new database migration is required.
