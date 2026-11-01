@@ -1,15 +1,15 @@
 ---
 id: 43
 title: Bound Clarify preparation searches and benchmark question latency
-status: review
+status: in-progress
 priority: high
 created: 2026-11-01T20:49:53.257887Z
-updated: 2026-11-01T21:10:53.125821Z
+updated: 2026-11-01T21:13:06.347367Z
 tags:
     - refine
     - performance
-blocked: true
-block_reason: 'Waiting on user: may preparation searches save a short evidence brief in search history instead of a full audited report?'
+claimed_by: harsh-belick
+claimed_at: 2026-11-01T21:13:06.34751Z
 class: standard
 ---
 
@@ -28,3 +28,6 @@ Implemented the initial 2-search / 2-result / 1-round preparation budget, plus t
 - Live result: DeepSeek Flash, reasoning none, real local SearXNG/Browserless, synthetic in-memory account. Preparation completed in 212,201 ms; overall attempt failed after 259,248 ms on unknown question-review candidate. No usable questions. A later prompt clarification makes zero-based indexes explicit, but the full live flow was not rerun and the exact invalid output was not retained, so the root cause and live fix remain unproven.
 - Timing evidence: /Users/florian/Documents/Codex/2026-11-01/clarify-benchmark/shallow-small-model-259248ms.json
 - Remaining: shallow settings alone are too slow. Proposed preparation-only next step skips linked pages and final correction/analysis, promoting an evidence brief through existing durable completion. User must confirm its saved-history meaning before implementation. No such stage skips are included yet.
+
+[[2026-11-01]] Sun 21:13
+User confirmed: save a short evidence brief for completed preparation searches. Proceed with preparation-only skipping of linked-page expansion and final report correction/analysis, reusing existing durable output/completion and retaining current Small model selection. Ordinary final research remains unchanged.
