@@ -623,3 +623,7 @@
 {"timestamp":"2026-11-01T21:13:06.330049Z","action":"move","task_id":43,"detail":"review -\u003e in-progress"}
 {"timestamp":"2026-11-01T21:13:06.347901Z","action":"edit","task_id":43,"detail":"Bound Clarify preparation searches and benchmark question latency"}
 {"timestamp":"2026-11-01T21:43:44.598726Z","action":"edit","task_id":43,"detail":"Bound Clarify preparation searches and benchmark question latency"}
+{"timestamp":"2026-11-01T21:45:57.079134Z","action":"move","task_id":43,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-11-01T21:45:57.07944Z","action":"handoff","task_id":43,"detail":"Bound Clarify preparation searches and benchmark question latency"}
+{"timestamp":"2026-11-01T21:45:57.079731Z","action":"block","task_id":43,"detail":"Waiting on user: replace the staged question controller with one Small-model call, or retain the staged controller?"}
+{"timestamp":"2026-11-01T21:45:57.079885Z","action":"release","task_id":43,"detail":"Bound Clarify preparation searches and benchmark question latency"}

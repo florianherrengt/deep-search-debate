@@ -1,15 +1,15 @@
 ---
 id: 43
 title: Bound Clarify preparation searches and benchmark question latency
-status: in-progress
+status: review
 priority: high
 created: 2026-11-01T20:49:53.257887Z
-updated: 2026-11-01T21:43:44.59818Z
+updated: 2026-11-01T21:45:57.077104Z
 tags:
     - refine
     - performance
-claimed_by: harsh-belick
-claimed_at: 2026-11-01T21:43:44.598404Z
+blocked: true
+block_reason: 'Waiting on user: replace the staged question controller with one Small-model call, or retain the staged controller?'
 class: standard
 ---
 
@@ -34,3 +34,12 @@ User confirmed: save a short evidence brief for completed preparation searches. 
 
 [[2026-11-01]] Sun 21:43
 User approved saving a short evidence brief and explicitly waived backward compatibility for older in-progress preparation checkpoints. Implemented preparation-purpose detection from the durable link, no linked-page expansion, concise brief request framing, and direct atomic candidate-to-final promotion without correction or research analysis; no new tables, columns, public modes, or dependencies. Ordinary final research is unchanged. Focused pipeline/store/replay tests: 93 passed. Current npm run gatekeep passed 1,050 API tests and 409 web tests (1,459 total), plus lint/typecheck/knip. All 5 Refine browser E2E tests passed. Root/API checklist reviews found no issues. Live brief run: preparation saved in 53,992 ms versus 212,201 ms in the earlier shallow run, with 4 selected pages and no analysis generation. The controller then failed after 80,662 ms on an unsupported model evidence ID. Reusing the saved brief in an independent diagnostic completed the controller in 45,019 ms with an empty ready batch: upstream model stages routed all needs to research despite four user scoping decisions, so question generation correctly had no allowed clarification needs. No controller wiring defect found; invalid references still fail closed. Reports: /Users/florian/Documents/Codex/2026-11-01/clarify-benchmark/evidence-brief-small-model-80662ms.json and controller-from-saved-brief-45019ms.json. User decision pending on replacing the staged question controller with one Small-model call to reduce latency and cross-stage disagreement; no single-call controller changes made yet.
+
+[[2026-11-01]] Sun 21:45
+## Brief-path handoff
+- Worktree: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-43-clarify-investigation; branch codex/ticket-43-clarify-investigation. Task code is uncommitted.
+- Completed: saved source-backed preparation briefs, no linked-page expansion, no full report correction or structured analysis, existing final-output and replay mechanism reused. All clarification uses the selected Small provider/model/effort; final research keeps its normal roles and pipeline. No backward-compatibility branch, new schema, migration, public mode or dependency.
+- Verified: npm run gatekeep passed lint/typecheck/knip and 1,459 tests (1,050 API + 409 web); all 5 Refine browser E2E scenarios passed; 93 focused pipeline/store/replay tests passed; root and API checklist reviews found no issues.
+- Live evidence: current preparation saved its brief in 53,992 ms, compared with 212,201 ms for the earlier shallow full-report preparation. The full current attempt failed after 80,662 ms when Flash returned an evidence ID outside the allowed catalog. Validation remains strict. An independent replay using that same saved brief completed the controller in 45,019 ms with a ready but empty question batch. Captured inputs show all needs routed to research, leaving no allowed clarification needs; the later action still said ASK_USER. This is permitted model under-generation/cross-stage disagreement, not a wiring defect. No speculative controller fixes were made.
+- Reports: /Users/florian/Documents/Codex/2026-11-01/clarify-benchmark/evidence-brief-small-model-80662ms.json and controller-from-saved-brief-45019ms.json.
+- Remaining: interactive latency and reliable useful questions are not yet achieved. Proposed next architecture is one Small-model call taking the saved brief and prior answers to return the next questions, preserving strict validation, immutable saved answer batches and final research handoff. Awaiting explicit user choice before that change.
