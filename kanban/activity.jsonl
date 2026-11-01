@@ -613,3 +613,7 @@
 {"timestamp":"2026-11-01T20:35:39.157861Z","action":"release","task_id":42,"detail":"purpurin-dialyzer"}
 {"timestamp":"2026-11-01T20:49:53.260921Z","action":"create","task_id":43,"detail":"Bound Clarify preparation searches and benchmark question latency"}
 {"timestamp":"2026-11-01T21:06:17.24045Z","action":"edit","task_id":43,"detail":"Bound Clarify preparation searches and benchmark question latency"}
+{"timestamp":"2026-11-01T21:10:53.128937Z","action":"move","task_id":43,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-11-01T21:10:53.13009Z","action":"handoff","task_id":43,"detail":"Bound Clarify preparation searches and benchmark question latency"}
+{"timestamp":"2026-11-01T21:10:53.130196Z","action":"block","task_id":43,"detail":"Waiting on user: may preparation searches save a short evidence brief in search history instead of a full audited report?"}
+{"timestamp":"2026-11-01T21:10:53.130286Z","action":"release","task_id":43,"detail":"Bound Clarify preparation searches and benchmark question latency"}
