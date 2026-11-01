@@ -632,3 +632,6 @@
 {"timestamp":"2026-11-01T21:54:37.877026Z","action":"claim","task_id":43,"detail":"harsh-belick"}
 {"timestamp":"2026-11-01T21:54:37.896115Z","action":"move","task_id":43,"detail":"review -\u003e in-progress"}
 {"timestamp":"2026-11-01T21:54:37.912766Z","action":"edit","task_id":43,"detail":"Make Clarify use brief investigation and one question-generation call"}
+{"timestamp":"2026-11-01T22:08:45.852957Z","action":"move","task_id":43,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-11-01T22:08:45.854066Z","action":"handoff","task_id":43,"detail":"Make Clarify use brief investigation and one question-generation call"}
+{"timestamp":"2026-11-01T22:08:45.854204Z","action":"release","task_id":43,"detail":"Make Clarify use brief investigation and one question-generation call"}

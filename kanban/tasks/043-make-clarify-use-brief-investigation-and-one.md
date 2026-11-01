@@ -1,15 +1,13 @@
 ---
 id: 43
 title: Make Clarify use brief investigation and one question-generation call
-status: in-progress
+status: review
 priority: high
 created: 2026-11-01T20:49:53.257887Z
-updated: 2026-11-01T21:54:37.91224Z
+updated: 2026-11-01T22:08:45.850886Z
 tags:
     - refine
     - performance
-claimed_by: harsh-belick
-claimed_at: 2026-11-01T21:54:37.912402Z
 class: standard
 ---
 
@@ -46,3 +44,14 @@ User approved saving a short evidence brief and explicitly waived backward compa
 
 [[2026-11-01]] Sun 21:54
 User approved one Small-model call for question preparation and explicitly chose reusing the session evidence brief for Ask more. Implement a direct validated question response, removing the staged routing/taxonomy and automatic extra-search loop. Keep exact allowed evidence-reference validation, immutable answer batches, one registered-generation checkpoint/retry/cancellation, and ordinary final research handoff. No backward compatibility or new database migration is required.
+
+[[2026-11-01]] Sun 22:08
+## Final implementation handoff
+- Worktree: /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-43-clarify-investigation
+- Branch: codex/ticket-43-clarify-investigation. Task code remains uncommitted for user review; no merge, push, PR or deployment performed.
+- Final behavior: one initial preparation search per session (2 searches x 2 selected results x 1 round), selected pages only, concise saved evidence brief, no linked-page expansion/correction/analysis. Every question batch uses one selected Small-model call; Ask more reuses the same brief plus immutable prior answers. Final research retains its ordinary roles, limits and handoff.
+- Simplification: removed the staged need/decision/assumption taxonomy, its derived state writes and TOOL_WORK loop, and eight retired prompts. Existing DB table/column left untouched, no migration/dependency/compatibility layer. Evidence IDs, strict schemas, duplicate checks, canonical generation checkpoint, ownership, retry, cancellation, draft/history and immutable submissions remain verified.
+- Validation: final npm run gatekeep passed lint, typecheck, knip, 1,030 API tests and 409 web tests (1,439 total). Stage-specific tests were replaced by direct-controller contract tests for the approved architecture. Focused controller/manager/model suites passed 31/31. All 5 Refine browser E2E scenarios passed, covering shared-brief reuse/reload, drafts and history, invalid evidence failure/retry, Start during preparation, and condensation/final handoff. Independent root, API and web checklist reviews reported no findings. git diff --check clean.
+- Live verification with DeepSeek Flash, reasoning none, real local SearXNG/Browserless and disposable in-memory account: fresh session returned 7 questions in 78,486 ms; preparation itself was 69,488 ms, and question generation 8,166 ms. Follow-up returned 5 questions in 8,113 ms (generation 8,075 ms). Exactly one completed prep search and two question generations across both batches; no analysis generation. The initial one-time investigation remains the main latency cost. Earlier model-reference/under-generation failures belonged to the removed staged controller; the final live flow completed both batches successfully without relaxing validation.
+- Reports: /Users/florian/Documents/Codex/2026-11-01/clarify-benchmark/final-first-78486ms-followup-8113ms.json and single-call-8665ms-followup-10175ms.json.
+- Ready for review. No remaining implementation blocker; first-session investigation timing is a measured limitation, not a promise of instant startup.
