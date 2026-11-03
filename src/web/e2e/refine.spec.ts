@@ -323,10 +323,10 @@ test.describe("Refine", () => {
     await expect(page.getByRole("button", { name: "Start research" })).toHaveCount(0)
   })
 
-  test("routes targeted controller research through the linked deep-search flow", async ({ page, request }) => {
+  test("reuses the saved preparation brief for the next question batch", async ({ page, request }) => {
     test.setTimeout(45_000)
     await page.goto("/refine")
-    await page.getByLabel("What would you like to research?").fill("[E2E_REFINE_TARGETED_TOOL] Research renter adoption constraints")
+    await page.getByLabel("What would you like to research?").fill("[E2E_REFINE_REUSE_BRIEF] Research renter adoption constraints")
     const creation = page.waitForResponse((response) =>
       response.request().method() === "POST" && new URL(response.url()).pathname === "/api/refine-sessions",
     )
@@ -334,27 +334,35 @@ test.describe("Refine", () => {
     const created = await creation
     const { refineSession } = await created.json() as { refineSession: RefineSession }
 
-    await expect.poll(async () => {
-      const snapshot = await getSession(request, refineSession.id)
-      const batch = snapshot.batches.at(-1)
-      if (batch?.status === "failed") console.log("Refine targeted controller failure:", JSON.stringify(snapshot))
-      return batch?.status
-    }, { timeout: 30_000 }).toBe("ready")
-    await expect(page.getByRole("group", { name: "Which renter constraint should the research prioritize?" })).toBeVisible({ timeout: 30_000 })
-    await expect.poll(async () => (await getSession(request, refineSession.id)).prepSearches.length, { timeout: 20_000 }).toBeGreaterThanOrEqual(2)
-    const session = await getSession(request, refineSession.id)
-    const targetedPrep = session.prepSearches.at(-1)
-    expect(targetedPrep?.deepSearchJobId).toBeTruthy()
-    const linkedJobResponse = await request.get(`/api/deep-search-jobs/${targetedPrep?.slug}`)
-    expect(linkedJobResponse.status()).toBe(200)
-    const linkedJob = (await linkedJobResponse.json() as { deepSearchJob: { researchRequest: string } }).deepSearchJob
-    expect(linkedJob.researchRequest).toContain("E2E targeted search: exact renter deposit and landlord permission evidence")
-    expect(linkedJob.researchRequest).toContain("Targeted research need:")
+    await expect.poll(async () => (await getSession(request, refineSession.id)).batches.at(-1)?.status, { timeout: 30_000 }).toBe("ready")
+    const initial = await getSession(request, refineSession.id)
+    expect(initial.batches).toHaveLength(1)
+    expect(initial.batches[0]?.questions).toHaveLength(2)
+    expect(initial.prepSearches).toHaveLength(1)
+    const savedBrief = initial.prepSearches[0]
+    expect(savedBrief?.deepSearchJobId).toBeTruthy()
+    expect(savedBrief?.status).toBe("completed")
+    await expect(page.getByRole("link", { name: "Saved Research Request" })).toBeVisible()
 
-    await expect.poll(async () => {
-      const response = await request.get(`/api/deep-search-jobs/${targetedPrep?.slug}`)
-      if (!response.ok()) return null
-      return ((await response.json()) as { deepSearchJob: { status: string } }).deepSearchJob.status
-    }, { timeout: 20_000 }).toBe("completed")
+    const firstQuestion = page.getByRole("group", { name: "Which renter constraint should the research prioritize?" })
+    await firstQuestion.getByLabel(/^Landlord permission(?: —|$)/).check()
+    await firstQuestion.getByLabel("Add your own context").fill("[E2E_REFINE_REUSE_BRIEF_ANSWER] Landlord permission is the main constraint.")
+    const submitted = page.waitForResponse((response) =>
+      response.request().method() === "POST" && new URL(response.url()).pathname === `/api/refine-sessions/${refineSession.id}/batches`,
+    )
+    await page.getByRole("button", { name: "Ask more questions" }).click()
+    expect([200, 202]).toContain((await submitted).status())
+    await expect(page.getByRole("group", { name: "What measurable result should the intervention target?" })).toBeVisible({ timeout: 30_000 })
+
+    const afterFollowUp = await getSession(request, refineSession.id)
+    expect(afterFollowUp.batches).toHaveLength(2)
+    expect(afterFollowUp.batches[0]?.status).toBe("submitted")
+    expect(afterFollowUp.batches[1]?.status).toBe("ready")
+    expect(afterFollowUp.batches[1]?.questions).toHaveLength(1)
+    expect(afterFollowUp.prepSearches).toHaveLength(1)
+    expect(afterFollowUp.prepSearches[0]?.deepSearchJobId).toBe(savedBrief?.deepSearchJobId)
+    await page.reload()
+    await expect(page.getByRole("group", { name: "What measurable result should the intervention target?" })).toBeVisible()
+    await expect(page.getByRole("link", { name: "Saved Research Request" })).toBeVisible()
   })
 })

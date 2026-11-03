@@ -8,18 +8,31 @@ import {
   startedLlmStream,
   subscriptionLlmCall,
 } from "./generateText.testSupport.ts"
+import { eq } from "drizzle-orm"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import z from "zod"
 
 import { config } from "../config.ts"
 import { db } from "../db/index.ts"
-import { llmModelSettings, user } from "../db/schema/index.ts"
-import { generateTextStream } from "./generateText.ts"
+import {
+  deepSearchJobs,
+  llmModelSettings,
+  refineBatches,
+  refineSearchLinks,
+  refineSessions,
+  user,
+} from "../db/schema/index.ts"
+import { generateArrayStream, generateTextStream } from "./generateText.ts"
 import { replaceLlmModelAssignments } from "./modelSettings.ts"
+
+let refineSessionId: string | undefined
+let preparationJobId: string | undefined
 
 describe("generateTextStream", () => {
   beforeEach(() => {
     resetGenerateTextMocks()
+    refineSessionId = undefined
+    preparationJobId = undefined
     db.delete(llmModelSettings).run()
     replaceLlmModelAssignments("test-user-id", {
       small: { provider: "deepseek", modelId: "deepseek-v4-pro", reasoningEffort: "none" },
@@ -27,6 +40,12 @@ describe("generateTextStream", () => {
     })
   })
   afterEach(() => {
+    if (refineSessionId) {
+      db.delete(refineSessions).where(eq(refineSessions.refineSessionId, refineSessionId)).run()
+    }
+    if (preparationJobId) {
+      db.delete(deepSearchJobs).where(eq(deepSearchJobs.deepSearchJobId, preparationJobId)).run()
+    }
     db.delete(llmModelSettings).run()
   })
 
@@ -94,6 +113,74 @@ describe("generateTextStream", () => {
     await expect(result.completion).resolves.toMatchObject({
       status: "completed",
     })
+  })
+
+  it("uses the linked preparation job's Small assignment for deep-search planning", async () => {
+    const assignments = {
+      small: { provider: "deepseek" as const, modelId: "deepseek-v4-flash", reasoningEffort: "low" as const },
+      big: { provider: "deepseek" as const, modelId: "deepseek-v4-pro", reasoningEffort: "xhigh" as const },
+    }
+    replaceLlmModelAssignments("test-user-id", assignments)
+    refineSessionId = crypto.randomUUID()
+    preparationJobId = crypto.randomUUID()
+    const refineBatchId = crypto.randomUUID()
+
+    db.transaction((transaction) => {
+      transaction.insert(refineSessions).values({
+        refineSessionId: refineSessionId!,
+        userId: "test-user-id",
+        originalPrompt: "Clarify the research request",
+        status: "clarifying",
+        activeBatchId: null,
+      }).run()
+      transaction.insert(refineBatches).values({
+        refineBatchId,
+        refineSessionId: refineSessionId!,
+        position: 0,
+        status: "preparing",
+      }).run()
+      transaction.update(refineSessions).set({ activeBatchId: refineBatchId })
+        .where(eq(refineSessions.refineSessionId, refineSessionId!)).run()
+      transaction.insert(deepSearchJobs).values({
+        deepSearchJobId: preparationJobId!,
+        userId: "test-user-id",
+        title: "Clarify preparation",
+        slug: `clarify-preparation-${preparationJobId}`,
+        researchRequest: "Gather evidence for clarification questions",
+        maxSearches: 2,
+        maxResultsPerSearch: 2,
+        maxRounds: 1,
+        strictQuality: false,
+        status: "running",
+        finalAnswerGenerationId: null,
+      }).run()
+      transaction.insert(refineSearchLinks).values({
+        refineSearchLinkId: crypto.randomUUID(),
+        refineSessionId: refineSessionId!,
+        refineBatchId,
+        deepSearchJobId: preparationJobId!,
+        userId: "test-user-id",
+        role: "preparation",
+        position: 0,
+      }).run()
+    })
+
+    mocks.loadPrompt.mockResolvedValue("Research query planning prompt")
+    mockPreparedGeneration(completedGenerationHandle('{"elements":["research clarification"]}'))
+
+    const result = await generateArrayStream({
+      userId: "test-user-id",
+      owner: { deepSearchJobId: preparationJobId },
+      prompt: "Research this request to prepare clarification questions",
+      promptName: "generate-websearch-queries",
+      element: z.string(),
+    })
+
+    await expect(result.output).resolves.toEqual(["research clarification"])
+    expect(mocks.reserveLlmCall).toHaveBeenCalledWith("test-user-id", {
+      role: "small",
+      assignment: assignments.small,
+    }, undefined)
   })
 
   it("uses a connected Codex subscription without charging LLM credits", async () => {

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest"
+import { eq } from "drizzle-orm"
 
 import { db } from "../../db/index.ts"
 import {
@@ -7,8 +8,12 @@ import {
   deepSearchRounds,
   deepSearchWebPages,
   llmGenerations,
+  refineBatches,
+  refineSearchLinks,
+  refineSessions,
 } from "../../db/schema/index.ts"
 import { reconstructDeepSearchJobEvents } from "./replay.ts"
+import { loadDeepSearchExecutionSnapshot } from "./store.ts"
 
 const analysis = {
   facts: [
@@ -75,6 +80,7 @@ describe("deep-search replay", () => {
   beforeEach(() => {
     db.delete(deepSearchJobs).run()
     db.delete(llmGenerations).run()
+    db.delete(refineSessions).run()
   })
 
   it.each([
@@ -119,6 +125,67 @@ describe("deep-search replay", () => {
       { type: "research-analysis", analysis },
       { type: "done" },
     ])
+  })
+
+  it("replays a completed Refine preparation candidate as the saved final answer without analysis", () => {
+    const jobId = crypto.randomUUID()
+    const answerGenerationId = crypto.randomUUID()
+    const sessionId = crypto.randomUUID()
+    const batchId = crypto.randomUUID()
+    db.insert(deepSearchJobs).values({
+      deepSearchJobId: jobId,
+      userId: "test-user-id",
+      slug: `preparation-${jobId}`,
+      researchRequest: "Prepare clarification questions",
+      maxSearches: 2,
+      maxResultsPerSearch: 2,
+      maxRounds: 1,
+      strictQuality: false,
+    }).run()
+    db.insert(llmGenerations).values({
+      llmGenerationId: answerGenerationId,
+      userId: "test-user-id",
+      deepSearchJobId: jobId,
+      status: "completed",
+      text: "The saved evidence brief.",
+      reasoning: "",
+      completedAt: new Date(),
+    }).run()
+    db.update(deepSearchJobs).set({
+      finalAnswerGenerationId: answerGenerationId,
+      status: "completed",
+      completedAt: new Date(),
+    }).where(eq(deepSearchJobs.deepSearchJobId, jobId)).run()
+    db.insert(refineSessions).values({
+      refineSessionId: sessionId,
+      userId: "test-user-id",
+      originalPrompt: "What should I clarify?",
+    }).run()
+    db.insert(refineBatches).values({
+      refineBatchId: batchId,
+      refineSessionId: sessionId,
+      position: 0,
+      status: "ready",
+    }).run()
+    db.insert(refineSearchLinks).values({
+      refineSearchLinkId: crypto.randomUUID(),
+      refineSessionId: sessionId,
+      refineBatchId: batchId,
+      deepSearchJobId: jobId,
+      userId: "test-user-id",
+      role: "preparation",
+      position: 0,
+    }).run()
+
+    expect(reconstructDeepSearchJobEvents(jobId)).toEqual([
+      { type: "final-answer-stream", streamId: answerGenerationId },
+      { type: "done" },
+    ])
+    expect(loadDeepSearchExecutionSnapshot(jobId)?.finalAnswerGeneration).toMatchObject({
+      generationId: answerGenerationId,
+      status: "completed",
+      text: "The saved evidence brief.",
+    })
   })
 
   it("does not expose malformed persisted structured output", () => {

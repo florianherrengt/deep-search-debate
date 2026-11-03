@@ -271,7 +271,7 @@ remain in the existing generation JSON. The effective decision and reason
 commit with that generation and are reused by Resume and replay. Legacy reviews
 retain their recorded outcomes. No additional model stage or table is added.
 
-`continue` starts the next numbered round using the previous candidate and
+For ordinary research, `continue` starts the next numbered round using the previous candidate and
 review reason as additional planning context. `stop`, review failure, or the
 hard round limit starts one mandatory source-backed answer correction.
 `final-answer-stream` references that distinct generation before it completes.
@@ -496,11 +496,13 @@ completed queries to have selection and summary generations, completed pages to
 have a summary generation, and selected results to have a page. Active and
 terminal timestamp/error fields cannot be mixed. Page-summary and query-summary
 generation registration, success, and failure update both sides of each
-relationship transactionally. The current pipeline also requires the research
+relationship transactionally. Ordinary research also requires the research
 analysis generation before completion; the link is nullable while a running job
-has not started that generation. Successful job completion is one transaction
+has not started that generation. Ordinary research completes in one transaction
 after the registered corrected answer and structured analysis generations
-complete. The legacy completed-analysis checkpoint may still promote the
+complete. Refine preparation instead attaches its completed evidence brief to the
+final-answer link and completes in one transaction after retrieval and summary
+work settles, without a separate correction or analysis generation. The legacy completed-analysis checkpoint may still promote the
 original candidate as described above. Every durable
 work-start transaction, plus normal success, failure, and credit transitions,
 asserts that the effective root is still running and has no stop request. A
@@ -524,4 +526,4 @@ debited again. A synchronous root reset or scheduling failure aborts server
 startup.
 
 
-Refine preparation searches are linked through `refine_search_links` and appear in automated research with a Refine origin. Generic root recovery excludes these linked preparation jobs; the Refine session manager owns their retry/reconciliation policy. The linked final Refine research remains a standalone root and is recovered by the ordinary deep-search manager. See [Refine sessions](./refine-sessions.md).
+Refine preparation searches are linked through `refine_search_links` and appear in automated research with a Refine origin. They read selected search-result pages without expanding linked pages, synthesize a concise evidence brief, and promote that generation as their saved final answer. They emit the existing `final-answer-stream` and `done` events without `research-analysis`; saved and reloaded preparation pages show the brief. The preparation purpose is derived from the link and does not introduce a public search mode. One preparation job serves the whole Refine session; Ask more reuses its saved brief. Generic root recovery excludes these linked preparation jobs; the Refine session manager owns their retry/reconciliation policy. The linked final Refine research remains a standalone root and is recovered by the ordinary deep-search manager. See [Refine sessions](./refine-sessions.md).

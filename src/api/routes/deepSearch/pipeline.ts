@@ -717,6 +717,20 @@ async function promoteCandidateAnswer(
   }
   const previousAnalysis = snapshot.researchAnalysisGeneration
   const previousFinal = snapshot.finalAnswerGeneration
+  if (snapshot.isRefinePreparation) {
+    db.transaction((transaction) => {
+      attachFinalAnswerGeneration(transaction, {
+        jobId: params.deepSearchJobId,
+        generationId,
+      })
+      completeDeepSearchJob(transaction, {
+        jobId: params.deepSearchJobId,
+        generationId,
+      })
+    })
+    params.publish({ type: "final-answer-stream", streamId: generationId })
+    return candidateAnswer
+  }
   if (previousAnalysis?.status === "completed" && !previousFinal) {
     // A pre-upgrade completed audit belongs to its original candidate. Keep
     // that completed checkpoint instead of silently pairing it with new text.
@@ -1242,15 +1256,17 @@ function deepSearchPipelineEffect(
         pageSummaries.set(url, summary)
       }
 
-      yield* exploreLinkedPages(
-        durableParams,
-        persistedRound,
-        [...pagesToSummarize.values()],
-        pageSummaries,
-        strictQuality,
-        maxSearches,
-        maxResultsPerSearch,
-      )
+      if (!initialSnapshot.isRefinePreparation) {
+        yield* exploreLinkedPages(
+          durableParams,
+          persistedRound,
+          [...pagesToSummarize.values()],
+          pageSummaries,
+          strictQuality,
+          maxSearches,
+          maxResultsPerSearch,
+        )
+      }
 
       const roundSummaries = yield* settleAll(
         executedQueries.map((search) =>

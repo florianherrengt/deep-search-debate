@@ -23,7 +23,9 @@ stored twice.
 
 Each invocation snapshots the current user's exact Small or Big provider,
 model, and reasoning-effort assignment before provider reservation and shared
-admission. This lets the next stage of an active or resumed workflow observe a
+admission. Refine clarification prompts and all generations owned by a linked
+preparation search use Small; final research retains the ordinary prompt-based
+roles. This lets the next stage of an active or resumed workflow observe a
 successful Settings update. All LLM choices use zero product credits. OpenAI choices take the
 per-user reservation, recheck the connection before decrypting credentials,
 verify the exact model and effort against the connected account's live Codex catalog, and
@@ -115,7 +117,11 @@ hooks own structured inventories: each round retains its
 validated cumulative option list, and discovery completion promotes that same
 generation through the final-output link. It skips correction and analysis;
 clients render the inventory as options rather than showing its JSON envelope.
-The correction and analysis sequence below applies to research-mode searches.
+Refine preparation similarly promotes its completed evidence-brief generation
+through the final-answer link after selected-source retrieval and summaries settle.
+It skips linked-page expansion, correction, and research analysis. The correction
+and analysis sequence below applies to ordinary research-mode searches, including
+final Refine research.
 
 Registration hooks link a newly inserted generation to its owning stage before provider
 construction or consumption starts. Completion and failure hooks run in the

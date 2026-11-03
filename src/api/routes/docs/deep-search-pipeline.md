@@ -1,10 +1,17 @@
 # How deep search works
 
-This walkthrough describes research-mode searches. Initial space discovery
+This walkthrough describes ordinary research-mode searches. Initial space discovery
 reuses the retrieval and round machinery with a cumulative option inventory
 and coverage review, then promotes that inventory without answer correction
 or analysis. See [Deep-search jobs](deep-search-jobs.md) for that branch and
 [Idea jobs](idea-jobs.md) for its generation and Start debate boundary.
+
+Refine preparation uses the same selected-source retrieval and summarization but
+skips linked-page expansion. It writes a concise evidence brief and promotes that
+completed generation directly as its saved final output, without correction or
+structured research analysis. Its purpose is derived from the durable preparation
+link; the public search mode stays `research`. Final Refine research follows the
+ordinary pipeline below. See [Refine sessions](refine-sessions.md).
 
 Deep search turns one research request into a final answer through a sequence of
 search and LLM stages. It combines page and query summaries with bounded

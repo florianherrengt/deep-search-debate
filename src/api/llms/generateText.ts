@@ -44,14 +44,13 @@ function asError(error: unknown, fallback: string): Error {
 }
 
 async function enqueueStreamingGeneration<T extends GenerationHandle>(
-  userId: string,
-  promptName: PromptName,
+  params: GenerateStreamInput,
   legacyReasoning: LlmCallReasoning,
   start: (call: ResolvedLlmCall) => T | Promise<T>,
-  signal?: AbortSignal,
 ): Promise<T> {
-  const modelSnapshot = snapshotLlmModelAssignment(userId, promptName)
-  const reservation = await reserveLlmCall(userId, modelSnapshot, signal)
+  const deepSearchJobId = "deepSearchJobId" in params.owner ? params.owner.deepSearchJobId : undefined
+  const modelSnapshot = snapshotLlmModelAssignment(params.userId, params.promptName, deepSearchJobId)
+  const reservation = await reserveLlmCall(params.userId, modelSnapshot, params.workflowSignal)
   const ready = Promise.withResolvers<T>()
   void addAbortableQueueTask(
     llmGenerationQueue,
@@ -75,7 +74,7 @@ async function enqueueStreamingGeneration<T extends GenerationHandle>(
         await call.release()
       }
     },
-    signal,
+    params.workflowSignal,
   )
     .catch((error: unknown) => {
       reservation.release()
@@ -175,8 +174,7 @@ export async function generateTextStream(
     TextGenerationPersistenceCallbacks & { reasoning: LlmCallReasoning },
 ): Promise<GenerationHandle> {
   return enqueueStreamingGeneration(
-    params.userId,
-    params.promptName,
+    params,
     params.reasoning,
     async (call) => {
       const system = await loadPrompt(params.promptName)
@@ -201,7 +199,6 @@ export async function generateTextStream(
         diagnostics: result.diagnostics,
       })
     },
-    params.workflowSignal,
   )
 }
 
@@ -237,8 +234,7 @@ export async function generateArrayStream<Element>(
 > {
   const outputSchema = z.object({ elements: z.array(params.element) })
   return enqueueStreamingGeneration(
-    params.userId,
-    params.promptName,
+    params,
     "disabled",
     async (call) => {
       const system = await loadStructuredPrompt(
@@ -288,7 +284,6 @@ export async function generateArrayStream<Element>(
         ),
       }
     },
-    params.workflowSignal,
   )
 }
 
@@ -309,8 +304,7 @@ export async function generateObjectStream<Result>(
   },
 ): Promise<GenerationHandle & { output: Promise<Result> }> {
   return enqueueStreamingGeneration(
-    params.userId,
-    params.promptName,
+    params,
     params.reasoning ?? "disabled",
     async (call) => {
       const system = await loadStructuredPrompt(
@@ -355,6 +349,5 @@ export async function generateObjectStream<Result>(
         ),
       }
     },
-    params.workflowSignal,
   )
 }

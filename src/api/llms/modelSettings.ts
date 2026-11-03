@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import z from "zod"
 
 import { db } from "../db/index.ts"
@@ -7,6 +7,7 @@ import {
   llmModelSettings,
   llmReasoningEfforts,
   openAiCodexConnections,
+  refineSearchLinks,
 } from "../db/schema/index.ts"
 import type { PromptName } from "./prompts.ts"
 
@@ -48,6 +49,8 @@ export function modelRoleForPrompt(promptName: PromptName): LlmModelRole {
     case "summarize-discovery-page":
     case "summarize-discovery-query":
     case "browser-agent-action":
+    case "refine-generate-questions":
+    case "refine-condense-research-request":
       return "small"
     case "default":
     case "generate-websearch-queries":
@@ -63,16 +66,6 @@ export function modelRoleForPrompt(promptName: PromptName): LlmModelRole {
     case "evaluate-idea":
     case "select-ideas":
     case "refine-idea":
-    case "refine-recover-context":
-    case "refine-research-domain":
-    case "refine-map-decisions":
-    case "refine-generate-questions":
-    case "refine-review-questions":
-    case "refine-choose-action":
-    case "refine-present-question":
-    case "refine-integrate-answers":
-    case "refine-review-assumptions":
-    case "refine-condense-research-request":
     case "create-idea-site":
     case "debate-opening":
     case "debate-rebuttal":
@@ -177,8 +170,17 @@ export class ModelSelectionRequiredError extends Error {
 export function snapshotLlmModelAssignment(
   userId: string,
   promptName: PromptName,
+  deepSearchJobId?: string,
 ): LlmModelAssignmentSnapshot {
-  const role = modelRoleForPrompt(promptName)
+  const refineLink = deepSearchJobId === undefined ? undefined : db
+    .select({ role: refineSearchLinks.role })
+    .from(refineSearchLinks)
+    .where(and(
+      eq(refineSearchLinks.deepSearchJobId, deepSearchJobId),
+      eq(refineSearchLinks.userId, userId),
+    ))
+    .get()
+  const role = refineLink?.role === "preparation" ? "small" : modelRoleForPrompt(promptName)
   const stored = getStoredLlmModelAssignments(userId)
   if (stored) return { role, assignment: stored[role] }
   throw new ModelSelectionRequiredError()

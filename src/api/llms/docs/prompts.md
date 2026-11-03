@@ -15,7 +15,10 @@ The enum value and the filename (minus `.md`) must be identical, or `loadPrompt`
 
 `PromptName` exhaustively selects one of two user-configurable roles. Small is
 used for prompt titles, search-result and discovered-link filtering, page summaries, query
-summaries, idea-research briefing summaries, and fallback browser actions. Big is used for the default
+summaries, idea-research briefing summaries, fallback browser actions, and Refine
+clarification stages. All generations owned by a Refine preparation search use
+Small, selected from its durable preparation link before provider reservation.
+Final research retains the ordinary prompt-based roles. Big is used for the default
 standalone stream, research planning and synthesis, final source-backed answer
 correction (`correct-research-answer`), research audits and round
 reviews, idea planning/generation/evaluation/selection/refinement/site output,
@@ -95,7 +98,7 @@ summary to locate supporting original text. Final context narrowing uses the
 same vocabulary before shortening the displayed summary; generated text never
 becomes an original passage.
 
-Every newly finalized research-mode search calls `correct-research-answer` after exploration
+Ordinary research-mode searches call `correct-research-answer` after exploration
 ends, then analyzes the corrected text with `analyze-research-answer`. The
 correction preserves supported findings, checks decisive claims against original
 passages where available, and qualifies unresolved requirements and evidence. It
@@ -104,6 +107,11 @@ answer; the round candidate remains immutable. Both generations use existing
 durable job links and reuse completed output on Resume. See
 [the pipeline contract](../../routes/docs/deep-search-pipeline.md) for the legacy
 completed-analysis checkpoint exception.
+
+Refine preparation searches use the existing candidate-answer prompt with a request
+for a concise, source-backed evidence brief. They skip linked-page expansion, final
+correction, and structured analysis, then promote the completed brief through the
+existing final-answer link. Final Refine research uses the ordinary report pipeline.
 
 Initial space discovery has dedicated query planning, result/link selection,
 page/query summary, inventory, and coverage-review prompts. The same Small/Big
@@ -116,19 +124,18 @@ application-derived continuation. Discovery skips final correction and analysis.
 Its bounded inventory briefing preserves every option identity and source URL
 for idea generation instead of generating another summarizing LLM call.
 
-Refine uses nine dedicated prompt stages for context recovery, domain research
-mapping, decision mapping, question generation and review, typed action choice,
-question presentation, answer integration, and assumption review. These are
-callable stages behind a dependency-aware controller, not a mandatory fixed
-sequence. Provenance-producing stages receive a stage-scoped catalog of verbatim
-evidence excerpts and must return exact catalog IDs. The controller validates
-each ID and resolves it to canonical excerpt text before checkpointing or
-updating shared state; existing quote-based checkpoints remain readable.
-Structured outputs carry stable need/decision keys, source references, status,
-and state revisions. Stage 6 can route targeted deep-search work or yield
-questions/an empty batch; the user alone decides whether to ask more or start
-research. A separate Big-role `refine-condense-research-request` prompt is called
-only when a preparation or final research request exceeds the configured request
-limit. It incrementally combines bounded source excerpts and a checkpointed
+Refine uses one `refine-generate-questions` Small-model call per batch. It selects
+material user-owned choices and presents their questions and candidate actions
+and consequences together. Its input is the original request, the session's
+saved evidence brief, and immutable answer history; Ask more reuses the same
+brief and cannot trigger another investigation. Model output must reference exact
+IDs from a supplied catalog of verbatim user/answer/research excerpts. Application
+code validates those references, question/choice text and uniqueness, assigns
+UUIDs, and resolves evidence IDs to canonical text before checkpointing. There
+are no model-generated need/decision routes or intermediate classification stages.
+
+A separate Small-role `refine-condense-research-request` prompt is called only
+when the initial preparation or final research request exceeds the configured
+request limit. It combines bounded source excerpts and a checkpointed rolling
 brief while preserving requirements and unanswered questions. See
 [the Refine session contract](../../routes/docs/refine-sessions.md).

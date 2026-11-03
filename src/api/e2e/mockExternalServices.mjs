@@ -144,8 +144,7 @@ const debateFailureMessage = "Injected debate opening failure"
 const debateFailureCandidateOrdinal = 8
 const debateFailureAttempts = new Map()
 const standaloneRetryAttempts = new Map()
-const refinePreparationSearchAttempts = new Map()
-const refineTargetedActionAttempts = new Map()
+const refineQuestionRetryAttempts = new Map()
 
 const providerOccurrences = new Map()
 const providerReleaseWaiters = new Map()
@@ -743,24 +742,8 @@ function deepSeekRequestKey(body) {
           ? "select-websearch-results"
             : system.includes("Condense a Refine source record into a research request")
               ? "refine-condense-research-request"
-            : system.includes("Recover only explicit requirements and known facts")
-              ? "refine-recover-context"
-              : system.includes("Integrate only submitted user answers")
-                ? "refine-integrate-answers"
-                : system.includes("Use only supplied deep-search findings to map domain evidence")
-                  ? "refine-research-domain"
-                : system.includes("Identify concrete decisions required by the original request")
-              ? "refine-map-decisions"
-              : system.includes("Generate candidates only for open, material")
+            : system.includes("Ask only questions whose different answers would materially change the research or its recommendation")
                 ? "refine-generate-questions"
-                : system.includes("Independently review every candidate against the original request")
-                  ? "refine-review-questions"
-                  : system.includes("Choose the next action from the reviewed questions")
-                    ? "refine-choose-action"
-                    : system.includes("Present only supplied approved questions")
-                      ? "refine-present-question"
-                      : system.includes("Review new evidence and answers against confirmed requirements")
-                        ? "refine-review-assumptions"
           : system.includes("You select which links discovered on a retrieved page")
             ? "select-linked-pages"
           : system.includes("You analyse the evidence gaps in a deep-research candidate")
@@ -839,18 +822,6 @@ function assertThinkingMode(body) {
   }
 }
 
-function suppliedEvidenceExcerpt(user, kind, predicate, stage) {
-  const match = /<evidence_excerpts>\n([\s\S]*?)\n<\/evidence_excerpts>/.exec(user)
-  if (!match) throw new Error(`Refine ${stage} omitted its evidence excerpt catalog`)
-  const excerpts = JSON.parse(match[1])
-  if (!Array.isArray(excerpts)) throw new Error(`Refine ${stage} supplied an invalid evidence excerpt catalog`)
-  const excerpt = excerpts.find((candidate) => candidate.kind === kind && predicate(candidate.text))
-  if (!excerpt || typeof excerpt.id !== "string" || !/^evidence_[0-9a-f]{32}$/.test(excerpt.id)) {
-    throw new Error(`Refine ${stage} omitted the expected ${kind} evidence excerpt`)
-  }
-  return excerpt
-}
-
 function modelOutput(system, user) {
   if (system.includes("Condense a Refine source record into a research request")) {
     const hasScenario = user.includes("[E2E_REFINE_CONDENSE]")
@@ -867,128 +838,59 @@ function modelOutput(system, user) {
       }),
     }
   }
-  if (system.includes("Independently review the original request, prior answers, shared state")) {
-    return {
-      reasoning: "Review the supplied evidence and preserve unresolved user-owned choices.",
-      text: JSON.stringify({ assumptions: [], needs: [] }),
+  if (system.includes("Ask only questions whose different answers would materially change the research or its recommendation")) {
+    const originalRequest = taggedText(user, "original_request")
+    const answers = parseTaggedJson(user, "prior_answers")
+    const excerptMatch = /\n<evidence_excerpts>\n([\s\S]*?)\n<\/evidence_excerpts>/.exec(user)
+    const excerpts = excerptMatch ? JSON.parse(excerptMatch[1]) : undefined
+    if (!Array.isArray(answers) || !Array.isArray(excerpts)) {
+      throw new Error("Refine question preparation omitted the saved brief inputs or evidence catalog")
     }
-  }
-  if (system.includes("Recover only explicit requirements and known facts")) {
-    return {
-      reasoning: "Separate supplied facts from missing information without inventing requirements.",
-      text: JSON.stringify({ requirements: [], knownFacts: [], unresolved: [] }),
+    const evidenceRefs = []
+    if (originalRequest.includes("[E2E_REFINE_CONDENSE]")) {
+      const excerpt = excerpts.find(({ kind, text }) => kind === "original-request" && text.includes("budget cap £123 and removable-only constraint"))
+      if (!excerpt) throw new Error("Refine question preparation lost the preserved original requirement")
+      evidenceRefs.push(excerpt.id)
     }
-  }
-  if (system.includes("Integrate only submitted user answers")) {
-    const answers = JSON.parse(/<prior_answers>\n([\s\S]*?)\n<\/prior_answers>/.exec(user)?.[1] ?? "[]")
-    const initialAnswer = answers.find(({ question }) => question === "Which renter constraint should the research prioritize?")
-    const selectedLabels = initialAnswer?.selectedCandidates ?? []
-    const hasLandlordChoice = selectedLabels.some((label) => label.startsWith("Landlord permission"))
-    const hasUpfrontChoice = selectedLabels.some((label) => label.startsWith("Upfront cost"))
-    const mainFlow = answers.some(({ supplementaryText }) => supplementaryText.includes("Landlord approval is the main barrier."))
-    if (!initialAnswer || !hasLandlordChoice || (mainFlow && !hasUpfrontChoice) || !initialAnswer.question.includes("renter constraint")) {
-      throw new Error("Refine answer integration lost the selected candidate labels or question wording")
+    if (originalRequest.includes("[E2E_REFINE_EVIDENCE_IDS]")) {
+      const excerpt = excerpts.find(({ kind, text }) => kind === "original-request" && text.includes("[E2E_REFINE_EVIDENCE_IDS]"))
+      if (!excerpt) throw new Error("Refine question preparation lost the evidence-reference scenario")
+      evidenceRefs.push(excerpt.id)
     }
-    if (!answers.some(({ question, unanswered }) =>
-      question === "What outcome matters most?" && unanswered === true,
-    )) {
-      throw new Error("Refine answer integration did not preserve the unanswered question")
-    }
-    if (!mainFlow && !answers.some(({ supplementaryText }) => supplementaryText.includes("Keep landlord permission central."))) {
-      throw new Error("Refine retry integration lost supplementary user text")
-    }
-    return {
-      reasoning: "Resolve only the need answered with selected candidates; preserve the skipped need.",
-      text: JSON.stringify({
-        resolvedNeedKeys: ["intervention|renters|adoption-constraint|overall"],
-        unresolvedNeedKeys: [
-          "intervention|renters|success-measure|overall",
-          "intervention|renters|measurement-detail|overall",
-          "intervention|renters|deposit-evidence|overall",
-        ],
-        invalidatedNeedKeys: [],
-        assumptionUpdates: [],
-        requirementUpdates: [],
-        followUpWork: [],
-      }),
-    }
-  }
-  if (system.includes("Use only supplied deep-search findings to map domain evidence")) {
-    if (user.includes("[E2E_REFINE_EVIDENCE_IDS]")) {
-      const excerpt = suppliedEvidenceExcerpt(
-        user,
-        "research",
-        (text) => text.includes("[1](https://e2e-content.test/") && text.includes("Removable heating controls"),
-        "domain research",
-      )
-      return {
-        reasoning: "Map the cited renter intervention finding using its supplied research evidence ID.",
-        text: JSON.stringify({
-          domainMap: [{
-            key: "renter-energy|intervention|removable-controls|research",
-            text: "Removable heating controls and draught-proofing are practical renter-friendly interventions.",
-            decisionKeys: ["intervention|renters|approach|overall"],
-            sourceRefs: [excerpt.id],
-          }],
-          needs: [],
-        }),
-      }
-    }
-    return { reasoning: "Map only facts evidenced by the supplied search.", text: JSON.stringify({ domainMap: [], needs: [] }) }
-  }
-  if (system.includes("Identify concrete decisions required by the original request")) {
-    return {
-      reasoning: "Map the decision to the evidence and user-owned trade-offs.",
-      text: JSON.stringify({
-        decisions: [{ key: "intervention|renters|approach|overall", text: "Choose the renter-friendly intervention approach", alternatives: ["Reduce adoption barriers", "Maximize measurable savings"], sourceRefs: [] }],
-        needs: [
-          { key: "intervention|renters|adoption-constraint|overall", text: "Which renter constraint should the research prioritize?", route: "clarification", decisionKeys: ["intervention|renters|approach|overall"], sourceRefs: [] },
-          { key: "intervention|renters|success-measure|overall", text: "What outcome matters most?", route: "clarification", decisionKeys: ["intervention|renters|approach|overall"], sourceRefs: [] },
-          { key: "intervention|renters|measurement-detail|overall", text: "What measurable result should the intervention target?", route: "clarification", decisionKeys: ["intervention|renters|approach|overall"], sourceRefs: [] },
-          { key: "intervention|renters|deposit-evidence|overall", text: "What renter deposit evidence is available?", route: "research", decisionKeys: ["intervention|renters|approach|overall"], sourceRefs: [] },
-        ],
-        assumptions: [],
-      }),
-    }
-  }
-  if (system.includes("Generate candidates only for open, material")) {
-    const answers = JSON.parse(/<prior_answers>\n([\s\S]*?)\n<\/prior_answers>/.exec(user)?.[1] ?? "[]")
-    const hasPriorAnswers = answers.length > 0
-    const mainFlow = answers.some(({ supplementaryText }) => supplementaryText.includes("Landlord approval is the main barrier."))
-    if (hasPriorAnswers) {
-      const sharedState = JSON.parse(/<stage_context>\n([\s\S]*?)\n<\/stage_context>/.exec(user)?.[1] ?? "{}")
+    if (answers.length > 0) {
       const firstAnswer = answers.find(({ question }) => question === "Which renter constraint should the research prioritize?")
-      const labels = firstAnswer?.selectedCandidates ?? []
-      const preservesInitialContext = firstAnswer && labels.some((label) => label.startsWith("Landlord permission")) &&
-        (!mainFlow || labels.some((label) => label.startsWith("Upfront cost"))) &&
-        (mainFlow ? firstAnswer.supplementaryText.includes("Landlord approval is the main barrier.") : firstAnswer.supplementaryText.includes("Keep landlord permission central."))
-      if (!preservesInitialContext) {
-        throw new Error("Refine next-batch generation lost the prior question wording, selections, or text")
+      const selectedLabels = firstAnswer?.selectedCandidates ?? []
+      const hasLandlordChoice = selectedLabels.some((label) => label.startsWith("Landlord permission"))
+      const reuseBriefFlow = answers.some(({ supplementaryText }) => supplementaryText.includes("Landlord permission is the main constraint."))
+      const expectedAnswerText = reuseBriefFlow
+        ? "Landlord permission is the main constraint."
+        : firstAnswer?.supplementaryText.includes("Landlord approval is the main barrier.")
+          ? "Landlord approval is the main barrier."
+          : "Keep landlord permission central."
+      if (!firstAnswer || !hasLandlordChoice || !firstAnswer.supplementaryText.includes(expectedAnswerText)) {
+        throw new Error("Refine question preparation lost the prior question, selected candidate, or answer text")
       }
       if (!answers.some(({ question, unanswered }) => question === "What outcome matters most?" && unanswered === true)) {
-        throw new Error("Refine next-batch generation lost the unanswered prior question")
-      }
-      const priorStatuses = sharedState.questions?.map(({ status }) => status) ?? []
-      if (!priorStatuses.includes("answered") || !priorStatuses.includes("unanswered")) {
-        throw new Error("Refine next-batch generation lost canonical answered and unanswered question state")
+        throw new Error("Refine question preparation lost the unanswered prior question")
       }
     }
+    const retryMarker = answers.some(({ supplementaryText }) => supplementaryText.includes("[E2E_REFINE_PREP_FAIL_ONCE]"))
+    const retryAttempt = retryMarker
+      ? (refineQuestionRetryAttempts.get(originalRequest) ?? 0) + 1
+      : 0
+    if (retryAttempt > 0) refineQuestionRetryAttempts.set(originalRequest, retryAttempt)
+    if (retryAttempt === 1) evidenceRefs.push("unsupported-evidence-id")
     return {
-      reasoning: "Ask only about a decision that remains open after the prior answers.",
+      reasoning: "Ask only about a meaningful choice that remains open after the saved answers.",
       text: JSON.stringify({
-        questions: hasPriorAnswers
+        questions: answers.length > 0
           ? [{
               question: "What measurable result should the intervention target?",
               candidates: [
                 { label: "Lower bills", action: "Prioritize cost evidence", consequence: "The research focuses on tenant savings." },
                 { label: "Lower energy use", action: "Prioritize energy reduction evidence", consequence: "The research focuses on consumption changes." },
               ],
-              needKeys: ["intervention|renters|measurement-detail|overall"],
-              decisionKeys: ["intervention|renters|approach|overall"],
-              known: "The user selected adoption constraints and left the preferred outcome unanswered.",
-              missing: "The measurable result the intervention should target remains unspecified.",
-              consequenceIfUnanswered: "The research may prioritize a different measure of success.",
-              evidenceRefs: [],
+              evidenceRefs,
             }]
           : [
               {
@@ -998,12 +900,7 @@ function modelOutput(system, user) {
                   { label: "Upfront cost", action: "Prioritize low-cost options", consequence: "The research favors interventions with little initial spend." },
                   { label: "Installation effort", action: "Prioritize simple installation", consequence: "The research favors options residents can install quickly." },
                 ],
-                needKeys: ["intervention|renters|adoption-constraint|overall"],
-                decisionKeys: ["intervention|renters|approach|overall"],
-                known: "Renters may face permission, cost, and installation barriers.",
-                missing: "The user has not stated which adoption barrier matters most.",
-                consequenceIfUnanswered: "The research could emphasize an intervention that is hard for the user to adopt.",
-                evidenceRefs: [],
+                evidenceRefs,
               },
               {
                 question: "What outcome matters most?",
@@ -1011,71 +908,10 @@ function modelOutput(system, user) {
                   { label: "Lower bills", action: "Prioritize household cost savings", consequence: "The research emphasizes tenant financial outcomes." },
                   { label: "Lower energy use", action: "Prioritize reduced consumption", consequence: "The research emphasizes energy reduction outcomes." },
                 ],
-                needKeys: ["intervention|renters|success-measure|overall"],
-                decisionKeys: ["intervention|renters|approach|overall"],
-                known: "Renter-friendly options can be evaluated through cost or consumption changes.",
-                missing: "The user's preferred success measure is not known.",
-                consequenceIfUnanswered: "The final comparison may use a measure that does not reflect the user's priorities.",
-                evidenceRefs: [],
-              },
-              {
-                question: "Should the intervention be blue?",
-                candidates: [{ label: "Yes", action: "Choose blue", consequence: "The interface is blue." }],
-                needKeys: ["intervention|renters|success-measure|overall"],
-                decisionKeys: ["intervention|renters|approach|overall"],
-                known: "No evidence connects color to the research outcome.",
-                missing: "Nothing material to the research decision is missing.",
-                consequenceIfUnanswered: "No research decision changes.",
                 evidenceRefs: [],
               },
             ],
       }),
-    }
-  }
-  if (system.includes("Independently review every candidate against the original request")) {
-    const input = JSON.parse(/<stage_input>\n([\s\S]*?)\n<\/stage_input>/.exec(user)?.[1] ?? "{}")
-    const questions = input.candidates?.questions ?? []
-    if (questions.length === 0) {
-      throw new Error("Refine question review received no candidates")
-    }
-    if (questions.some(({ needKeys, decisionKeys }) => needKeys.length === 0 || decisionKeys.length === 0)) {
-      throw new Error("Refine question review received a question without canonical need and decision keys")
-    }
-    const rejected = questions.flatMap((question, index) => question.question === "Should the intervention be blue?"
-      ? [{ index, reason: "The answer does not change a concrete research decision." }]
-      : [])
-    return {
-      reasoning: "Keep questions whose answers change a concrete research decision.",
-      text: JSON.stringify({
-        approvedIndexes: questions.map((question, index) => question.question === "Should the intervention be blue?" ? null : index).filter((index) => index !== null),
-        rejected,
-      }),
-    }
-  }
-  if (system.includes("Choose the next action from the reviewed questions")) {
-    const stageInput = JSON.parse(/<stage_input>\n([\s\S]*?)\n<\/stage_input>/.exec(user)?.[1] ?? "{}")
-    const approvedCount = stageInput.approved?.length ?? 0
-    const target = "E2E targeted search: exact renter deposit and landlord permission evidence"
-    const targetedMarker = user.includes("[E2E_REFINE_TARGETED_TOOL]")
-    const targetAttempt = targetedMarker ? (refineTargetedActionAttempts.get(target) ?? 0) + 1 : 0
-    if (targetedMarker) refineTargetedActionAttempts.set(target, targetAttempt)
-    const targetNeed = stageInput.openResearchNeeds?.find(({ key }) => key === "intervention|renters|deposit-evidence|overall")
-    const targetedTool = targetedMarker && targetAttempt === 1 && stageInput.canResearch === true && targetNeed !== undefined
-    return {
-      reasoning: "The user controls whether to answer more questions or start research.",
-      text: JSON.stringify({
-        action: targetedTool ? "TOOL_WORK" : "ASK_USER",
-        questionIndexes: targetedTool ? [] : Array.from({ length: approvedCount }, (_, index) => index),
-        toolResearchRequests: targetedTool ? [{ needIds: targetNeed ? [targetNeed.id] : [], request: target }] : [],
-        reason: targetedTool ? "Search for evidence tied to the open renter adoption constraint." : "The remaining choices belong to the user and can change the research direction.",
-      }),
-    }
-  }
-  if (system.includes("Present only supplied approved questions")) {
-    const selected = JSON.parse(/<stage_input>\n([\s\S]*?)\n<\/stage_input>/.exec(user)?.[1] ?? "[]")
-    return {
-      reasoning: "Present the reviewed question and its practical alternatives.",
-      text: JSON.stringify({ questions: selected.map(({ question }) => question) }),
     }
   }
 
@@ -1249,25 +1085,12 @@ function modelOutput(system, user) {
     const query = `London renter household energy ${angle} evidence${evidenceIdScenario ? " [E2E_REFINE_EVIDENCE_IDS]" : ""}`
     const requestedCount = Number(/Generate exactly (\d+) (?:new )?search queries/.exec(user)?.[1])
     const queryCount = Number.isInteger(requestedCount) && requestedCount > 0 ? requestedCount : 3
-    if (user.includes("Targeted research need:") && !user.includes("E2E targeted search: exact renter deposit and landlord permission evidence")) {
-      throw new Error("Refine targeted need did not reach the deep-search query planner")
-    }
-    const targetedToolQuery = user.includes("E2E targeted search: exact renter deposit and landlord permission evidence")
-      ? "E2E targeted search: exact renter deposit and landlord permission evidence"
-      : null
-    const refineRetryQuery = user.includes("[E2E_REFINE_PREP_FAIL_ONCE]")
-      ? "E2E refine-prep-retry evidence"
-      : null
     return {
       reasoning: `Use one focused ${angle} query for the deterministic test.`,
       text: JSON.stringify({
         version: 1,
         requirements: [],
-        queries: refineRetryQuery !== null
-          ? Array.from({ length: queryCount }, (_, index) => index === 0 ? refineRetryQuery : `${refineRetryQuery} ${index + 1}`)
-          : targetedToolQuery !== null
-            ? [targetedToolQuery, `${targetedToolQuery} tenant protections`, `${targetedToolQuery} deposit rules`]
-          : restartControlEnabled && user.includes("[E2E_RESTART_TWO_QUERIES]")
+        queries: restartControlEnabled && user.includes("[E2E_RESTART_TWO_QUERIES]")
           ? [`${query} primary`, `${query} secondary`]
           : Array.from({ length: queryCount }, (_, index) => index === 0 ? query : `${query} ${index + 1}`),
       }),
@@ -1734,6 +1557,7 @@ function codexEvents(body) {
   const smallRole = [
     "generate-prompt-title", "select-websearch-results", "summarize-web-page",
     "summarize-search-query", "summarize-idea-research", "select-linked-pages",
+    "refine-generate-questions", "refine-condense-research-request",
     "select-discovery-results", "select-discovery-links", "summarize-discovery-page", "summarize-discovery-query",
   ].includes(stage)
   const expectedModel = connectionScenario
@@ -1918,13 +1742,6 @@ async function openAiAuthResponse(request, url) {
 
 function searXngResponse(url) {
   const query = url.searchParams.get("q") ?? "unknown query"
-  if (query.startsWith("E2E refine-prep-retry evidence")) {
-    const attempt = (refinePreparationSearchAttempts.get(query) ?? 0) + 1
-    refinePreparationSearchAttempts.set(query, attempt)
-    if (attempt === 1) {
-      return Response.json({ error: "Injected Refine preparation failure" }, { status: 503 })
-    }
-  }
   if (query.startsWith("linked-source duration evidence")) {
     return Response.json({ results: [{ title: "Offer duration", url: "https://e2e-content.test/linked-source/duration.json", content: "The provider publishes the duration of the promotional price." }] })
   }
