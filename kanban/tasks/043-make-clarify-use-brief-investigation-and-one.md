@@ -1,10 +1,12 @@
 ---
 id: 43
 title: Make Clarify use brief investigation and one question-generation call
-status: review
+status: done
 priority: high
 created: 2026-11-01T20:49:53.257887Z
-updated: 2026-11-01T22:08:45.850886Z
+updated: 2026-11-03T13:42:51.533771Z
+started: 2026-11-03T13:42:51.536041Z
+completed: 2026-11-03T13:42:51.536041Z
 tags:
     - refine
     - performance
@@ -55,3 +57,6 @@ User approved one Small-model call for question preparation and explicitly chose
 - Live verification with DeepSeek Flash, reasoning none, real local SearXNG/Browserless and disposable in-memory account: fresh session returned 7 questions in 78,486 ms; preparation itself was 69,488 ms, and question generation 8,166 ms. Follow-up returned 5 questions in 8,113 ms (generation 8,075 ms). Exactly one completed prep search and two question generations across both batches; no analysis generation. The initial one-time investigation remains the main latency cost. Earlier model-reference/under-generation failures belonged to the removed staged controller; the final live flow completed both batches successfully without relaxing validation.
 - Reports: /Users/florian/Documents/Codex/2026-11-01/clarify-benchmark/final-first-78486ms-followup-8113ms.json and single-call-8665ms-followup-10175ms.json.
 - Ready for review. No remaining implementation blocker; first-session investigation timing is a measured limitation, not a promise of instant startup.
+
+[[2026-11-03]] Tue 13:42
+User approved commit, push and deployment. Task code committed as ed9511c and merged into local main. Release will use a clean checkout of the final main SHA, preserving unrelated uncommitted Browserless configuration edits. Final implementation gate and browser evidence are recorded above; production deployment verification follows.
