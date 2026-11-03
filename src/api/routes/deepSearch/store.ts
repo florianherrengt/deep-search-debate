@@ -15,6 +15,7 @@ import {
   deepSearchWebPages,
   ideaJobs,
   llmGenerations,
+  refineSearchLinks,
 } from "../../db/schema/index.ts"
 import type { TextStreamPersistenceTransaction } from "../../llms/streams.ts"
 import { debitCredits } from "../../credits.ts"
@@ -168,6 +169,12 @@ export function loadDeepSearchExecutionSnapshot(
   const discovery = job.ideaJobPosition === 0 && job.ideaJobId !== null &&
     db.select({ workflow: ideaJobs.workflow }).from(ideaJobs)
       .where(eq(ideaJobs.ideaJobId, job.ideaJobId)).get()?.workflow === "discovery"
+  const isRefinePreparation = db.select({ id: refineSearchLinks.refineSearchLinkId })
+    .from(refineSearchLinks)
+    .where(and(
+      eq(refineSearchLinks.deepSearchJobId, jobId),
+      eq(refineSearchLinks.role, "preparation"),
+    )).get() !== undefined
 
   const rounds = db
     .select()
@@ -281,6 +288,7 @@ export function loadDeepSearchExecutionSnapshot(
     userId: job.userId,
     ideaJobId: job.ideaJobId,
     mode: discovery ? "discovery" : "research",
+    isRefinePreparation,
     researchRequest: job.researchRequest,
     maxSearches: job.maxSearches,
     maxResultsPerSearch: job.maxResultsPerSearch,

@@ -28,6 +28,12 @@ ignores this one documented peer-resolution shim.
 
 ## Schema and migrations
 
+Refine question batches and immutable submitted answers are the canonical
+clarification record. Current question preparation saves one generation checkpoint
+per batch and reuses the session-owned evidence brief. It no longer writes the
+old derived need/decision taxonomy to `refine_state_revisions`; the existing table
+and session revision column remain untouched by this change.
+
 Deep-search pages retain discovered links in `deep_search_page_links`, with
 stable IDs and order scoped to the originating page. Extraction content,
 discovery, and extraction charges commit together. A page's optional
@@ -313,8 +319,8 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
   `idea_jobs` parent. Child searches store their planning-generation position.
   Its normalized query, result, web-page, and
   generation rows preserve research progress without a JSON snapshot. Each
-  search round links its immutable candidate-answer generation. After searching,
-  a distinct final correction generation is registered through the existing
+  search round links its immutable candidate-answer generation. After ordinary
+  research, a distinct final correction generation is registered through the existing
   job final-answer link. A separate structured generation analyzes the corrected
   text and stores facts, disagreements, gaps, assumptions, and requirements;
   the job links that generation instead of duplicating its JSON. Completion
@@ -323,6 +329,10 @@ Generate the reviewable DBML relationship graph with `npm run db:diagram`. The o
   same exact-attempt replacement policy as other generations; completed
   correction and analysis are reused on Resume. An older completed-analysis
   checkpoint without a final link preserves its original candidate promotion.
+  Refine preparation instead promotes its completed evidence-brief generation
+  directly through the final-answer link and completes after retrieval and summary
+  work settles, without correction or structured analysis. Its preparation purpose
+  is derived from `refine_search_links`, not stored as a separate job mode.
   Planning and review also retain the requirement/evidence checklist in existing
   generation JSON. Version-1 plans contain requirements and queries; completed
   legacy arrays remain readable without invented requirements.

@@ -27,7 +27,6 @@ import { PromptName } from "../../llms/prompts.ts"
 import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
 import { createRefineSessionManager } from "./manager.ts"
 import { refinePipelineCheckpointSchema, type RefineAnswerInput } from "./schemas.ts"
-import { emptyRefineState } from "./controller.ts"
 
 function fakeDeepSearchManager(onStart?: (role: "preparation" | "research" | undefined, researchRequest: string) => void): DeepSearchJobManager {
   return {
@@ -79,18 +78,11 @@ function fakeDeepSearchManager(onStart?: (role: "preparation" | "research" | und
 
 function questionBatch() {
   return {
-    action: "ASK_USER" as const,
-    toolResearchRequests: [],
-    reason: "A user choice remains.",
     questions: [{
       id: crypto.randomUUID(),
       prompt: "Which scope should the report cover?",
-      needIds: ["need-id"],
-      decisionIds: ["decision-id"],
-      evidenceRefs: ["evidence"],
       candidates: [{ id: crypto.randomUUID(), label: "Local" }, { id: crypto.randomUUID(), label: "Global" }],
     }],
-    state: emptyRefineState(),
   }
 }
 
@@ -145,12 +137,13 @@ function mockCondensation(output: (input: CondenseInput) => unknown): void {
 
 describe("Refine session persistence", () => {
   it("rejects malformed persisted preparation checkpoints", () => {
-    expect(refinePipelineCheckpointSchema.parse({ prepJobIds: {}, stageGenerationIds: {}, stageOutputs: {}, evidence: [], targetedRequests: {}, currentPosition: 0 })).toEqual({
-      prepJobIds: {}, stageGenerationIds: {}, stageOutputs: {}, evidence: [], targetedRequests: {}, currentPosition: 0,
+    expect(refinePipelineCheckpointSchema.parse({ stageGenerationIds: {}, stageOutputs: {} })).toEqual({
+      stageGenerationIds: {}, stageOutputs: {},
     })
-    expect(() => refinePipelineCheckpointSchema.parse({ prepJobIds: [], stageGenerationIds: {}, stageOutputs: {}, evidence: [], targetedRequests: {}, currentPosition: 0 })).toThrow()
-    expect(() => refinePipelineCheckpointSchema.parse({ prepJobIds: {}, stageGenerationIds: { stage: "not-a-uuid" }, stageOutputs: {}, evidence: [], targetedRequests: {}, currentPosition: 0 })).toThrow()
-    expect(() => refinePipelineCheckpointSchema.parse({ prepJobIds: { nope: "not-a-uuid" }, stageGenerationIds: {}, stageOutputs: {}, evidence: [], targetedRequests: {}, currentPosition: -1 })).toThrow()
+    expect(refinePipelineCheckpointSchema.parse({ preparationJobId: crypto.randomUUID(), stageGenerationIds: {}, stageOutputs: {} }).preparationJobId).toBeDefined()
+    expect(() => refinePipelineCheckpointSchema.parse({ preparationJobId: "not-a-uuid", stageGenerationIds: {}, stageOutputs: {} })).toThrow()
+    expect(() => refinePipelineCheckpointSchema.parse({ stageGenerationIds: { stage: "not-a-uuid" }, stageOutputs: {} })).toThrow()
+    expect(() => refinePipelineCheckpointSchema.parse({ stageGenerationIds: {}, stageOutputs: {}, evidence: [] })).toThrow()
   })
 
   beforeEach(() => {
@@ -174,179 +167,71 @@ describe("Refine session persistence", () => {
     expect(() => db.update(refineSessions).set({ activeBatchId: secondBatchId }).where(eq(refineSessions.refineSessionId, firstId)).run()).toThrow(/FOREIGN KEY constraint failed/)
   })
 
-  it("interrupts only its registered running stage attempt and reuses successful stage checkpoints on recovery", async () => {
+  it("interrupts the one question generation and reuses its completed checkpoint on recovery", async () => {
     const manager = createRefineSessionManager(fakeDeepSearchManager())
     const sessionId = crypto.randomUUID()
     const batchId = crypto.randomUUID()
     const generationId = crypto.randomUUID()
     const prepJobId = crypto.randomUUID()
     const prepAnswerId = crypto.randomUUID()
+    const savedQuestions = { questions: [{ question: "Choose?", candidates: [{ label: "Local", action: "Choose local", consequence: "Nearby" }], evidenceRefs: [] }] }
     db.transaction((transaction) => {
-      transaction.insert(refineSessions).values({
-        refineSessionId: sessionId,
-        userId: "test-user-id",
-        originalPrompt: "Recover the interrupted preparation",
-        status: "clarifying",
-        activeBatchId: null,
-      }).run()
+      transaction.insert(refineSessions).values({ refineSessionId: sessionId, userId: "test-user-id", originalPrompt: "Recover preparation", status: "clarifying", activeBatchId: null }).run()
       transaction.insert(refineBatches).values({
-        refineBatchId: batchId,
-        refineSessionId: sessionId,
-        position: 0,
-        status: "preparing",
-        stageCheckpoints: JSON.stringify({
-          prepJobIds: {},
-          stageGenerationIds: { "recover-context": generationId },
-          stageOutputs: { "integrate-answers": { previouslyCompleted: true } },
-          evidence: ["previous evidence"],
-          targetedRequests: {},
-          currentPosition: 0,
-        }),
+        refineBatchId: batchId, refineSessionId: sessionId, position: 0, status: "preparing",
+        stageCheckpoints: JSON.stringify({ preparationJobId: prepJobId, stageGenerationIds: { "generate-questions": generationId }, stageOutputs: { "generate-questions": savedQuestions } }),
       }).run()
       transaction.update(refineSessions).set({ activeBatchId: batchId }).where(eq(refineSessions.refineSessionId, sessionId)).run()
-      transaction.insert(llmGenerations).values({
-        llmGenerationId: generationId,
-        userId: "test-user-id",
-        promptName: PromptName.RefineRecoverContext,
-        status: "running",
-      }).run()
+      transaction.insert(llmGenerations).values({ llmGenerationId: generationId, userId: "test-user-id", promptName: PromptName.RefineGenerateQuestions, status: "running" }).run()
       transaction.insert(deepSearchJobs).values({
-        deepSearchJobId: prepJobId,
-        userId: "test-user-id",
-        title: "Existing preparation evidence",
-        slug: `search-${prepJobId}`,
-        researchRequest: "Prepare the same evidence",
-        maxSearches: 3,
-        maxResultsPerSearch: 3,
-        maxRounds: 3,
-        strictQuality: false,
-        status: "running",
-        finalAnswerGenerationId: null,
-        completedAt: null,
+        deepSearchJobId: prepJobId, userId: "test-user-id", title: "Preparation brief", slug: `search-${prepJobId}`,
+        researchRequest: "Prepare the same evidence", maxSearches: 2, maxResultsPerSearch: 2, maxRounds: 1,
+        strictQuality: false, status: "running", finalAnswerGenerationId: null,
       }).run()
-      transaction.insert(llmGenerations).values({
-        llmGenerationId: prepAnswerId,
-        userId: "test-user-id",
-        deepSearchJobId: prepJobId,
-        status: "completed",
-        text: "previous evidence",
-        reasoning: "",
-        completedAt: new Date(),
-      }).run()
-      transaction.update(deepSearchJobs).set({ status: "completed", finalAnswerGenerationId: prepAnswerId, completedAt: new Date() })
-        .where(eq(deepSearchJobs.deepSearchJobId, prepJobId)).run()
-      transaction.insert(refineSearchLinks).values({
-        refineSearchLinkId: crypto.randomUUID(),
-        refineSessionId: sessionId,
-        refineBatchId: batchId,
-        deepSearchJobId: prepJobId,
-        userId: "test-user-id",
-        role: "preparation",
-        position: 0,
-      }).run()
+      transaction.insert(llmGenerations).values({ llmGenerationId: prepAnswerId, userId: "test-user-id", deepSearchJobId: prepJobId, status: "completed", text: "previous evidence", reasoning: "", completedAt: new Date() }).run()
+      transaction.update(deepSearchJobs).set({ status: "completed", finalAnswerGenerationId: prepAnswerId, completedAt: new Date() }).where(eq(deepSearchJobs.deepSearchJobId, prepJobId)).run()
+      transaction.insert(refineSearchLinks).values({ refineSearchLinkId: crypto.randomUUID(), refineSessionId: sessionId, refineBatchId: batchId, deepSearchJobId: prepJobId, userId: "test-user-id", role: "preparation", position: 0 }).run()
     }, { behavior: "immediate" })
 
     manager.reconcilePersisted()
     await vi.waitFor(() => expect(manager.get("test-user-id", sessionId)?.batches[0]?.status).toBe("ready"))
-    expect(db.select().from(llmGenerations).where(eq(llmGenerations.llmGenerationId, generationId)).get()).toMatchObject({
-      userId: "test-user-id",
-      promptName: PromptName.RefineRecoverContext,
-      status: "interrupted",
-    })
-    expect(mocks.prepareQuestionBatch.mock.calls[0]?.[0]).toMatchObject({
-      checkpoints: { "integrate-answers": { previouslyCompleted: true } },
-    })
-    expect(manager.get("test-user-id", sessionId)?.batches[0]?.status).toBe("ready")
+    expect(db.select().from(llmGenerations).where(eq(llmGenerations.llmGenerationId, generationId)).get()).toMatchObject({ promptName: PromptName.RefineGenerateQuestions, status: "interrupted" })
+    expect(mocks.prepareQuestionBatch.mock.calls[0]?.[0]).toMatchObject({ checkpoints: { "generate-questions": savedQuestions } })
   })
-
-  it("explicit retry evicts only a failed stage and its downstream checkpoints while preserving prior work", async () => {
+  it("explicit retry reruns the single question generation after a failed batch", async () => {
     const manager = createRefineSessionManager(fakeDeepSearchManager())
-    mocks.prepareQuestionBatch.mockImplementationOnce(() => Promise.reject(new Error("A stage failed")))
+    mocks.prepareQuestionBatch.mockImplementationOnce(() => Promise.reject(new Error("Question generation failed")))
     const created = manager.create("test-user-id", "Research a supported choice")
     await vi.waitFor(() => expect(manager.get("test-user-id", created.id)?.batches[0]?.status).toBe("failed"))
-    const initial = manager.get("test-user-id", created.id)!
-    const batchId = initial.batches[0].id
-    const before = db.select().from(refineBatches).where(eq(refineBatches.refineBatchId, batchId)).get()!
-    const pipeline = JSON.parse(before.stageCheckpoints) as {
-      prepJobIds: Record<string, string>
-      evidence: string[]
-      stageOutputs: Record<string, unknown>
-    }
-    pipeline.stageOutputs = {
-      "recover-context": { preserved: "earlier valid output" },
-      "integrate-answers": { preserved: "earlier valid output" },
-      "generate-questions": { preserved: "valid source candidates" },
-      "review-questions": { invalid: true },
-      "choose-action": { stale: true },
-      "present-questions": { stale: true },
-      "shared-state": { preserved: "valid frozen state" },
-    }
-    db.update(refineBatches).set({ stageCheckpoints: JSON.stringify(pipeline) }).where(eq(refineBatches.refineBatchId, batchId)).run()
+    const failedBatch = manager.get("test-user-id", created.id)?.batches[0]
+    if (!failedBatch) throw new Error("Expected the failed batch")
+    const batchId = failedBatch.id
 
     let checkpointsSeen: Record<string, unknown> | undefined
-    mocks.prepareQuestionBatch.mockImplementationOnce((input: {
-      checkpoints: Record<string, unknown>
-      recoverInvalidCheckpoint?: (stage: string, error: unknown) => boolean
-    }) => {
-      const recovered = input.recoverInvalidCheckpoint?.("review-questions", new Error("Cached review is invalid"))
-      if (!recovered) throw new Error("Explicit retry did not evict the invalid stage")
+    mocks.prepareQuestionBatch.mockImplementationOnce((input: { checkpoints: Record<string, unknown> }) => {
       checkpointsSeen = { ...input.checkpoints }
       return Promise.resolve(questionBatch())
     })
     manager.retry("test-user-id", created.id, batchId)
     await vi.waitFor(() => expect(manager.get("test-user-id", created.id)?.batches[0]?.status).toBe("ready"))
 
-    expect(checkpointsSeen).toEqual({
-      "recover-context": { preserved: "earlier valid output" },
-      "integrate-answers": { preserved: "earlier valid output" },
-      "generate-questions": { preserved: "valid source candidates" },
-      "shared-state": { preserved: "valid frozen state" },
-    })
-    const after = JSON.parse(db.select().from(refineBatches).where(eq(refineBatches.refineBatchId, batchId)).get()!.stageCheckpoints) as typeof pipeline
-    expect(after.prepJobIds).toEqual(pipeline.prepJobIds)
-    expect(after.evidence).toEqual(pipeline.evidence)
-    expect(after.stageOutputs).toEqual(checkpointsSeen)
+    expect(checkpointsSeen).toEqual({})
     expect(manager.get("test-user-id", created.id)?.prepSearches).toHaveLength(1)
   })
-
-  it("settles a registered stage attempt before recovering a persisted starting handoff", async () => {
+  it("settles a registered question-generation attempt before recovering a persisted handoff", async () => {
     const manager = createRefineSessionManager(fakeDeepSearchManager())
     const sessionId = crypto.randomUUID()
     const batchId = crypto.randomUUID()
     const generationId = crypto.randomUUID()
     const finalJobId = crypto.randomUUID()
     db.transaction((transaction) => {
-      transaction.insert(refineSessions).values({
-        refineSessionId: sessionId,
-        userId: "test-user-id",
-        originalPrompt: "Finish the requested research",
-        status: "starting",
-        activeBatchId: null,
-        finalDeepSearchJobId: finalJobId,
-        finalResearchRequest: "Original request and unanswered clarification record",
-      }).run()
+      transaction.insert(refineSessions).values({ refineSessionId: sessionId, userId: "test-user-id", originalPrompt: "Finish the requested research", status: "starting", activeBatchId: null, finalDeepSearchJobId: finalJobId, finalResearchRequest: "Original request and unanswered clarification record" }).run()
       transaction.insert(refineBatches).values({
-        refineBatchId: batchId,
-        refineSessionId: sessionId,
-        position: 0,
-        status: "submitted",
-        answers: "[]",
-        stageCheckpoints: JSON.stringify({
-          prepJobIds: {},
-          stageGenerationIds: { "recover-context": generationId },
-          stageOutputs: {},
-          evidence: [],
-          targetedRequests: {},
-          currentPosition: 0,
-        }),
+        refineBatchId: batchId, refineSessionId: sessionId, position: 0, status: "submitted", answers: "[]",
+        stageCheckpoints: JSON.stringify({ stageGenerationIds: { "generate-questions": generationId }, stageOutputs: {} }),
       }).run()
       transaction.update(refineSessions).set({ activeBatchId: batchId }).where(eq(refineSessions.refineSessionId, sessionId)).run()
-      transaction.insert(llmGenerations).values({
-        llmGenerationId: generationId,
-        userId: "test-user-id",
-        promptName: PromptName.RefineRecoverContext,
-        status: "running",
-      }).run()
+      transaction.insert(llmGenerations).values({ llmGenerationId: generationId, userId: "test-user-id", promptName: PromptName.RefineGenerateQuestions, status: "running" }).run()
     }, { behavior: "immediate" })
 
     manager.reconcilePersisted()
@@ -354,7 +239,6 @@ describe("Refine session persistence", () => {
     expect(db.select().from(llmGenerations).where(eq(llmGenerations.llmGenerationId, generationId)).get()).toMatchObject({ status: "interrupted" })
     expect(db.select().from(refineSearchLinks).where(and(eq(refineSearchLinks.refineSessionId, sessionId), eq(refineSearchLinks.role, "research"))).all()).toHaveLength(1)
   })
-
   it("recovers an interrupted final condensation with the reserved research job", async () => {
     const manager = createRefineSessionManager(fakeDeepSearchManager())
     const sessionId = crypto.randomUUID()
@@ -379,12 +263,8 @@ describe("Refine session persistence", () => {
         status: "submitted",
         answers: "[]",
         stageCheckpoints: JSON.stringify({
-          prepJobIds: {},
           stageGenerationIds: { "condense-research:0": generationId },
           stageOutputs: {},
-          evidence: [],
-          targetedRequests: {},
-          currentPosition: 0,
         }),
       }).run()
       transaction.insert(llmGenerations).values({
@@ -429,6 +309,12 @@ describe("Refine session persistence", () => {
     const drafted = manager.saveDraft("test-user-id", created.id, batchId, answers)
     expect(drafted.draftAnswers).toEqual(answers)
     expect(manager.get("other-user-id", created.id)).toBeUndefined()
+    expect(() => manager.askMore("test-user-id", created.id, batchId, [{
+      questionId: crypto.randomUUID(), selectedCandidateIds: [selected.id], text: "Do not attach to another question",
+    }])).toThrow("outside this batch")
+    expect(() => manager.askMore("test-user-id", created.id, batchId, [{
+      questionId: question.id, selectedCandidateIds: [selected.id, selected.id], text: "Duplicate selection",
+    }])).toThrow("Duplicate candidate selections")
 
     const next = manager.askMore("test-user-id", created.id, batchId, answers)
     expect(next.batches[0]).toMatchObject({ status: "submitted", answers: [{ text: "Prioritize cost", unanswered: false }] })
@@ -436,6 +322,64 @@ describe("Refine session persistence", () => {
     await vi.waitFor(() => expect(manager.get("test-user-id", created.id)?.batches[1]?.status).toBe("ready"))
     expect(() => manager.saveDraft("test-user-id", created.id, batchId, answers)).toThrow()
     expect(manager.askMore("test-user-id", created.id, batchId, answers).batches).toHaveLength(2)
+  })
+
+  it("uses bounded searches for each clarification batch and the normal budget for final research", async () => {
+    const starts: Array<{ role: "preparation" | "research" | undefined; researchRequest: string }> = []
+    const manager = createRefineSessionManager(fakeDeepSearchManager((role, researchRequest) => starts.push({ role, researchRequest })))
+    const created = manager.create("test-user-id", "Research the best local option")
+    await vi.waitFor(() => {
+      const batch = manager.get("test-user-id", created.id)?.batches[0]
+      if (batch?.status === "failed") throw new Error(batch.error)
+      expect(batch?.status).toBe("ready")
+    })
+
+    const first = manager.get("test-user-id", created.id)!
+    const question = first.batches[0]?.questions[0]
+    if (!question || !first.currentBatchId) throw new Error("Expected a ready first batch")
+    const prepSearch = first.prepSearches[0]
+    if (!prepSearch) throw new Error("Expected the linked preparation search")
+    const prepJob = db.select().from(deepSearchJobs).where(eq(deepSearchJobs.deepSearchJobId, prepSearch.deepSearchJobId)).get()
+    expect(prepJob).toMatchObject({ maxSearches: 2, maxResultsPerSearch: 2, maxRounds: 1 })
+    const callsBeforeAskMore = mocks.prepareQuestionBatch.mock.calls.length
+    manager.askMore("test-user-id", created.id, first.currentBatchId, [{
+      questionId: question.id,
+      selectedCandidateIds: [],
+      text: "",
+    }])
+    await vi.waitFor(() => {
+      const batch = manager.get("test-user-id", created.id)?.batches[1]
+      if (batch?.status === "failed") throw new Error(batch.error)
+      expect(batch?.status).toBe("ready")
+    })
+
+    const second = manager.get("test-user-id", created.id)!
+    expect(mocks.prepareQuestionBatch).toHaveBeenCalledTimes(callsBeforeAskMore + 1)
+    expect(second.prepSearches).toHaveLength(1)
+    expect(starts.filter(({ role }) => role === "preparation")).toHaveLength(1)
+    expect(db.select().from(refineSearchLinks)
+      .where(and(eq(refineSearchLinks.refineSessionId, created.id), eq(refineSearchLinks.role, "preparation"))).all()).toHaveLength(1)
+    const final = await manager.startResearch("test-user-id", created.id, second.currentBatchId!, [])
+    const links = db.select().from(refineSearchLinks)
+      .where(eq(refineSearchLinks.refineSessionId, created.id)).all()
+    const linkedJobs = links.map((link) => ({
+      link,
+      job: db.select().from(deepSearchJobs)
+        .where(eq(deepSearchJobs.deepSearchJobId, link.deepSearchJobId)).get(),
+    }))
+
+    expect(linkedJobs.filter(({ link }) => link.role === "preparation")).toHaveLength(1)
+    for (const { job } of linkedJobs.filter(({ link }) => link.role === "preparation")) {
+      expect(job).toMatchObject({ maxSearches: 2, maxResultsPerSearch: 2, maxRounds: 1 })
+    }
+    const finalJob = linkedJobs.find(({ link }) => link.role === "research")?.job
+    expect(final.status).toBe("research-started")
+    expect(finalJob).toMatchObject({
+      maxSearches: 3,
+      maxResultsPerSearch: 3,
+      maxRounds: Math.min(3, config.deepSearch.maxRounds),
+    })
+    expect(starts.filter(({ role }) => role === "research")).toHaveLength(1)
   })
 
   it("hands off one linked final search and makes the session read-only", async () => {

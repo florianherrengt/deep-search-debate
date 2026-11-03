@@ -43,6 +43,7 @@ export type PersistedGeneration = {
 export type DeepSearchExecutionSnapshot = {
   jobId: string
   mode: DeepSearchMode
+  isRefinePreparation: boolean
   userId: string
   ideaJobId: string | null
   researchRequest: string

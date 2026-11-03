@@ -3,7 +3,7 @@ import { and, asc, eq } from "drizzle-orm"
 import z from "zod"
 import { config } from "../../config.ts"
 import { db } from "../../db/index.ts"
-import { deepSearchJobs, llmGenerations, refineBatches, refineSearchLinks, refineSessions, refineStateRevisions } from "../../db/schema/index.ts"
+import { deepSearchJobs, llmGenerations, refineBatches, refineSearchLinks, refineSessions } from "../../db/schema/index.ts"
 import { getErrorMessage } from "../../helpers/getErrorMessage.ts"
 import { PromptName } from "../../llms/prompts.ts"
 import { generateObjectStream } from "../../llms/generateText.ts"
@@ -13,14 +13,12 @@ import { WorkflowInterruptedError, workflowAbortReason } from "../../workflowRun
 import type { DeepSearchJobManager } from "../deepSearch/manager.ts"
 import {
   refinePipelineCheckpointSchema,
-  refineSharedStateSchema,
   refineStoredAnswersSchema,
   refineStoredDraftAnswersSchema,
   refineStoredQuestionsSchema,
   type RefineAnswerInput,
-  type RefineSharedState,
 } from "./schemas.ts"
-import { emptyRefineState, prepareQuestionBatch, recoverUserContext } from "./controller.ts"
+import { prepareQuestionBatch, recoverUserContext } from "./controller.ts"
 
 
 export class RefineSessionError extends Error {
@@ -39,12 +37,9 @@ type SessionRow = typeof refineSessions.$inferSelect
 type BatchRow = typeof refineBatches.$inferSelect
 type SessionWriteTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 type PrepPipelineState = {
-  prepJobIds: Record<string, string>
+  preparationJobId?: string
   stageGenerationIds: Record<string, string>
   stageOutputs: Record<string, unknown>
-  evidence: string[]
-  targetedRequests: Record<string, string>
-  currentPosition: number
 }
 
 type RefineSessionSnapshot = {
@@ -86,40 +81,8 @@ function parseJson<T>(value: string, schema: { parse(input: unknown): T }): T {
 }
 
 function parsePipelineState(value: string): PrepPipelineState {
-  if (value === "{}") return { prepJobIds: {}, stageGenerationIds: {}, stageOutputs: {}, evidence: [], targetedRequests: {}, currentPosition: 0 }
+  if (value === "{}") return { stageGenerationIds: {}, stageOutputs: {} }
   return refinePipelineCheckpointSchema.parse(JSON.parse(value) as unknown)
-}
-
-function saveStateRevision(
-  transaction: SessionWriteTransaction,
-  session: SessionRow,
-  nextState: RefineSharedState,
-  reason: string,
-): void {
-  const revision = session.sharedStateRevision + 1
-  transaction.insert(refineStateRevisions).values({
-    refineStateRevisionId: randomUUID(),
-    refineSessionId: session.refineSessionId,
-    revision,
-    reason,
-    state: JSON.stringify(nextState),
-  }).run()
-  transaction.update(refineSessions).set({
-    sharedStateRevision: revision,
-    updatedAt: new Date(),
-  }).where(eq(refineSessions.refineSessionId, session.refineSessionId)).run()
-}
-
-function loadState(session: SessionRow): RefineSharedState {
-  if (session.sharedStateRevision === 0) return emptyRefineState()
-  const row = db.select({ state: refineStateRevisions.state })
-    .from(refineStateRevisions)
-    .where(and(
-      eq(refineStateRevisions.refineSessionId, session.refineSessionId),
-      eq(refineStateRevisions.revision, session.sharedStateRevision),
-    )).get()
-  if (!row) throw new Error("Refine shared state revision is missing")
-  return parseJson(row.state, refineSharedStateSchema)
 }
 
 function answersForQuestions(
@@ -280,22 +243,11 @@ export function createRefineSessionManager(deepSearchManager: DeepSearchJobManag
     }, { behavior: "immediate" })
   }
 
-  const stagePromptNames: Record<string, string> = {
-    "recover-context": PromptName.RefineRecoverContext,
-    "integrate-answers": PromptName.RefineIntegrateAnswers,
-    "research-domain": PromptName.RefineResearchDomain,
-    "review-assumptions": PromptName.RefineReviewAssumptions,
-    "map-decisions": PromptName.RefineMapDecisions,
-    "generate-questions": PromptName.RefineGenerateQuestions,
-    "review-questions": PromptName.RefineReviewQuestions,
-    "choose-action": PromptName.RefineChooseAction,
-    "present-questions": PromptName.RefinePresentQuestion,
-  }
 
   function assertStageGenerationOwner(transaction: SessionWriteTransaction, userId: string, stage: string, generationId: string) {
     const expectedPromptName = /^condense-(preparation:[0-9]+|research):[0-9]+$/.test(stage)
       ? PromptName.RefineCondenseResearchRequest
-      : stagePromptNames[stage]
+      : stage === "generate-questions" ? PromptName.RefineGenerateQuestions : undefined
     if (!expectedPromptName) throw new Error(`Unknown Refine controller stage: ${stage}`)
     const generation = transaction.select().from(llmGenerations)
       .where(eq(llmGenerations.llmGenerationId, generationId)).get()
@@ -385,14 +337,6 @@ export function createRefineSessionManager(deepSearchManager: DeepSearchJobManag
     }, { behavior: "immediate" })
   }
 
-  function appendEvidenceState(sessionId: string, batchId: string, nextState: RefineSharedState, reason: string): void {
-    db.transaction((transaction) => {
-      const session = transaction.select().from(refineSessions).where(eq(refineSessions.refineSessionId, sessionId)).get()
-      if (!session || session.status !== "clarifying" || session.activeBatchId !== batchId) return
-      saveStateRevision(transaction, session, nextState, reason)
-    }, { behavior: "immediate" })
-  }
-
   async function boundResearchRequest(userId: string, sessionId: string, batchId: string, request: string, stagePrefix: string, workflowSignal?: AbortSignal): Promise<string> {
     if (request.length <= config.deepSearch.maxRequestChars) return deepSearchResearchRequestSchema.parse(request)
     // Bound both sides of each call, even after an unlimited number of answer batches.
@@ -430,40 +374,33 @@ export function createRefineSessionManager(deepSearchManager: DeepSearchJobManag
     return summary
   }
 
-  async function waitForSearch(userId: string, session: SessionRow, batch: BatchRow, position: number, targetedRequest: string | undefined, retryExisting: boolean, workflowSignal?: AbortSignal): Promise<string> {
-    const link = db.select({ link: refineSearchLinks, job: deepSearchJobs })
+  async function waitForSearch(userId: string, session: SessionRow, batch: BatchRow, retryExisting: boolean, workflowSignal?: AbortSignal): Promise<string> {
+    const link = db.select({ job: deepSearchJobs })
       .from(refineSearchLinks)
       .innerJoin(deepSearchJobs, eq(refineSearchLinks.deepSearchJobId, deepSearchJobs.deepSearchJobId))
       .where(and(
         eq(refineSearchLinks.refineSessionId, session.refineSessionId),
-        eq(refineSearchLinks.refineBatchId, batch.refineBatchId),
+        eq(refineSearchLinks.userId, userId),
         eq(refineSearchLinks.role, "preparation"),
-        eq(refineSearchLinks.position, position),
-      )).get()
+      ))
+      .orderBy(asc(refineSearchLinks.createdAt), asc(refineSearchLinks.refineSearchLinkId))
+      .get()
     if (link) {
       if (link.job.status === "completed") {
-        const completed = db.select({ generationId: deepSearchJobs.finalAnswerGenerationId })
-          .from(deepSearchJobs).where(eq(deepSearchJobs.deepSearchJobId, link.job.deepSearchJobId)).get()
-        if (completed?.generationId) {
-          const generation = db.select().from(llmGenerations)
-            .where(eq(llmGenerations.llmGenerationId, completed.generationId)).get()
-          if (generation?.status === "completed" && generation.text !== null) return generation.text
-        }
-        throw new Error("Completed preparation search has no persisted answer")
+        const generation = link.job.finalAnswerGenerationId === null ? undefined : db.select().from(llmGenerations)
+          .where(eq(llmGenerations.llmGenerationId, link.job.finalAnswerGenerationId)).get()
+        if (generation?.status === "completed" && generation.text !== null && generation.text.trim().length > 0) return generation.text
+        throw new Error("Completed preparation search has no persisted evidence brief")
       }
       if (link.job.status !== "running" && !retryExisting) {
         throw new Error(link.job.error ?? "Preparation search failed; retry this batch to continue")
       }
-      const resumed = deepSearchManager.resumeExisting(link.job.deepSearchJobId, { userId, workflowSignal })
-      return resumed.completion
+      return deepSearchManager.resumeExisting(link.job.deepSearchJobId, { userId, workflowSignal }).completion
     }
 
     const state = parsePipelineState(batch.stageCheckpoints)
-    let jobId = state.prepJobIds[String(position)]
-    if (!jobId) {
-      jobId = randomUUID()
-      state.prepJobIds[String(position)] = jobId
-      state.currentPosition = position
+    if (!state.preparationJobId) {
+      state.preparationJobId = randomUUID()
       if (!persistPipeline(userId, session.refineSessionId, batch.refineBatchId, state)) throw new Error("Refine preparation is no longer active")
     }
     const allBatches = db.select().from(refineBatches)
@@ -471,23 +408,22 @@ export function createRefineSessionManager(deepSearchManager: DeepSearchJobManag
       .orderBy(asc(refineBatches.position)).all()
     const { priorAnswers } = recoverUserContext(session.originalPrompt, allBatches)
     const rawRequest = [
-      `Research the unresolved decisions in this user request before asking further clarification questions.`,
+      `Prepare a short, source-backed evidence brief to inform clarification questions about this request. Cover key domain facts, materially different options and trade-offs, and unresolved choices that only the user can make. Cite supporting source URLs and state evidence limitations. Keep the brief concise and do not infer user preferences or requirements.`,
       `Original request:\n${session.originalPrompt}`,
       `Previously submitted answers:\n${JSON.stringify(priorAnswers)}`,
-      ...(targetedRequest ? [`Targeted research need:\n${targetedRequest}`] : []),
     ].join("\n\n")
-    const researchRequest = await boundResearchRequest(userId, session.refineSessionId, batch.refineBatchId, rawRequest, `condense-preparation:${position}`, workflowSignal)
+    const researchRequest = await boundResearchRequest(userId, session.refineSessionId, batch.refineBatchId, rawRequest, "condense-preparation:0", workflowSignal)
     workflowSignal?.throwIfAborted()
     const started = await deepSearchManager.start(userId, {
-      deepSearchJobId: jobId,
-      ...deepSearchExecutionInputSchema.parse({ researchRequest }),
+      deepSearchJobId: state.preparationJobId,
+      ...deepSearchExecutionInputSchema.parse({ researchRequest, maxSearches: 2, maxResultsPerSearch: 2, maxRounds: 1 }),
     }, {
       workflowSignal,
       refineLink: {
         refineSessionId: session.refineSessionId,
         refineBatchId: batch.refineBatchId,
         role: "preparation",
-        position,
+        position: 0,
       },
     })
     return started.completion
@@ -506,109 +442,36 @@ export function createRefineSessionManager(deepSearchManager: DeepSearchJobManag
         settleRegisteredStageGenerations(userId, sessionId, batchId)
         initialBatch = getBatch(sessionId, batchId)
         if (!initialBatch) return
-        let pipeline = parsePipelineState(initialBatch.stageCheckpoints)
-        let position = pipeline.currentPosition
-        let lastSearchEvidence = ""
-        for (;;) {
-          const freshSession = getSession(userId, sessionId)
-          const freshBatch = getBatch(sessionId, batchId)
-          if (!freshSession || !freshBatch || freshSession.status !== "clarifying" || freshSession.activeBatchId !== batchId || freshBatch.status !== "preparing") return
-          const search = db.select({ link: refineSearchLinks, job: deepSearchJobs })
-            .from(refineSearchLinks)
-            .innerJoin(deepSearchJobs, eq(refineSearchLinks.deepSearchJobId, deepSearchJobs.deepSearchJobId))
-            .where(and(
-              eq(refineSearchLinks.refineSessionId, sessionId),
-              eq(refineSearchLinks.refineBatchId, batchId),
-              eq(refineSearchLinks.role, "preparation"),
-              eq(refineSearchLinks.position, position),
-            )).get()
-          if (search?.job.status === "failed" || search?.job.status === "interrupted") {
-            if (!retryExisting) throw new Error(search.job.error ?? "Preparation search failed")
-          }
-          const target = pipeline.targetedRequests[String(position)]
-          lastSearchEvidence = await waitForSearch(userId, freshSession, freshBatch, position, target, retryExisting, controller.signal)
-          const completedBatch = getBatch(sessionId, batchId)
-          if (!completedBatch) throw new Error("Refine batch disappeared during preparation")
-          pipeline = parsePipelineState(completedBatch.stageCheckpoints)
-          const evidenceChanged = pipeline.evidence[position] !== lastSearchEvidence
-          pipeline.evidence[position] = lastSearchEvidence
-          pipeline.currentPosition = position
-          if (evidenceChanged) pipeline.stageOutputs = {}
-          if (controller.signal.aborted || !persistPipeline(userId, sessionId, batchId, pipeline)) return
-          const batches = db.select().from(refineBatches)
-            .where(eq(refineBatches.refineSessionId, sessionId))
-            .orderBy(asc(refineBatches.position)).all()
-          const context = recoverUserContext(freshSession.originalPrompt, batches)
-          const state = loadState(freshSession)
-          const evidence = pipeline.evidence.join("\n\n")
-          const checkpoints = pipeline.stageOutputs
-          const prepared = await prepareQuestionBatch({
-            userId,
-            originalPrompt: context.prompt,
-            priorAnswers: context.priorAnswers,
-            researchEvidence: evidence,
-            state,
-            checkpoints,
-            workflowSignal: controller.signal,
-            recoverInvalidCheckpoint: (stage, _error) => {
-              if (!retryExisting) return false
-              const stages = ["recover-context", "integrate-answers", "research-domain", "review-assumptions", "map-decisions", "generate-questions", "review-questions", "choose-action", "present-questions"]
-              const invalidIndex = stages.indexOf(stage)
-              if (invalidIndex < 0) return false
-              const current = getBatch(sessionId, batchId)
-              if (!current || current.status !== "preparing" || controller.signal.aborted) return false
-              const saved = parsePipelineState(current.stageCheckpoints)
-              if (!(stage in saved.stageOutputs)) return false
-              for (const invalidatedStage of stages.slice(invalidIndex)) delete saved.stageOutputs[invalidatedStage]
-              if (invalidIndex <= stages.indexOf("map-decisions")) delete saved.stageOutputs["shared-state"]
-              if (!persistPipeline(userId, sessionId, batchId, saved)) return false
-              for (const invalidatedStage of stages.slice(invalidIndex)) delete checkpoints[invalidatedStage]
-              if (invalidIndex <= stages.indexOf("map-decisions")) delete checkpoints["shared-state"]
-              pipeline = saved
-              return true
-            },
-            onStageRegistered: (stage, generationId, transaction) => onStageRegistered(userId, sessionId, batchId, stage, generationId, transaction),
-            onStageCompleted: (stage, generationId, value, transaction) => onStageCompleted(userId, sessionId, batchId, stage, generationId, value, transaction),
-            saveCheckpoint: (stage, value) => {
-              const current = getBatch(sessionId, batchId)
-              if (!current) throw new Error("Refine batch disappeared during preparation")
-              const saved = parsePipelineState(current.stageCheckpoints)
-              saved.stageOutputs[stage] = value
-              if (!persistPipeline(userId, sessionId, batchId, saved)) throw new Error("Refine batch is no longer active")
-              pipeline = saved
-            },
-          }, position + 1 < config.deepSearch.maxRounds)
-          if (prepared.action === "TOOL_WORK") {
-            if (position + 1 >= config.deepSearch.maxRounds) {
-              throw new Error("Refine controller exceeded the configured research-round budget")
-            }
-            appendEvidenceState(sessionId, batchId, prepared.state, `preparation-round-${position}`)
-            const checkpoint = getBatch(sessionId, batchId)
-            if (!checkpoint) throw new Error("Refine batch disappeared before targeted research")
-            pipeline = parsePipelineState(checkpoint.stageCheckpoints)
-            pipeline.currentPosition = position + 1
-            pipeline.targetedRequests[String(position + 1)] = prepared.toolResearchRequests.map(({ request }) => request).join("\n\n")
-            pipeline.stageOutputs = {}
-            if (!persistPipeline(userId, sessionId, batchId, pipeline)) return
-            position += 1
-            retryExisting = false
-            continue
-          }
-          const finalState = prepared.state
-          db.transaction((transaction) => {
-            const latestSession = transaction.select().from(refineSessions).where(eq(refineSessions.refineSessionId, sessionId)).get()
-            const latestBatch = transaction.select().from(refineBatches).where(eq(refineBatches.refineBatchId, batchId)).get()
-            if (!latestSession || latestSession.status !== "clarifying" || latestSession.activeBatchId !== batchId || !latestBatch || latestBatch.status !== "preparing") return
-            saveStateRevision(transaction, latestSession, finalState, "question-batch-prepared")
-            transaction.update(refineBatches).set({
-              status: "ready",
-              questions: JSON.stringify(prepared.questions),
-              error: null,
-              updatedAt: new Date(),
-            }).where(eq(refineBatches.refineBatchId, batchId)).run()
-          }, { behavior: "immediate" })
-          return
-        }
+        const researchEvidence = await waitForSearch(userId, session, initialBatch, retryExisting, controller.signal)
+        const freshSession = getSession(userId, sessionId)
+        const freshBatch = getBatch(sessionId, batchId)
+        if (controller.signal.aborted || !freshSession || !freshBatch || freshSession.status !== "clarifying" || freshSession.activeBatchId !== batchId || freshBatch.status !== "preparing") return
+        const batches = db.select().from(refineBatches)
+          .where(eq(refineBatches.refineSessionId, sessionId))
+          .orderBy(asc(refineBatches.position)).all()
+        const context = recoverUserContext(freshSession.originalPrompt, batches)
+        const prepared = await prepareQuestionBatch({
+          userId,
+          originalPrompt: context.prompt,
+          priorAnswers: context.priorAnswers,
+          researchEvidence,
+          checkpoints: parsePipelineState(freshBatch.stageCheckpoints).stageOutputs,
+          workflowSignal: controller.signal,
+          onStageRegistered: (stage, generationId, transaction) => onStageRegistered(userId, sessionId, batchId, stage, generationId, transaction),
+          onStageCompleted: (stage, generationId, value, transaction) => onStageCompleted(userId, sessionId, batchId, stage, generationId, value, transaction),
+        })
+        if (controller.signal.aborted) return
+        db.transaction((transaction) => {
+          const latestSession = transaction.select().from(refineSessions).where(eq(refineSessions.refineSessionId, sessionId)).get()
+          const latestBatch = transaction.select().from(refineBatches).where(eq(refineBatches.refineBatchId, batchId)).get()
+          if (!latestSession || latestSession.status !== "clarifying" || latestSession.activeBatchId !== batchId || !latestBatch || latestBatch.status !== "preparing") return
+          transaction.update(refineBatches).set({
+            status: "ready",
+            questions: JSON.stringify(prepared.questions),
+            error: null,
+            updatedAt: new Date(),
+          }).where(eq(refineBatches.refineBatchId, batchId)).run()
+        }, { behavior: "immediate" })
       } catch (error) {
         setBatchFailed(sessionId, batchId, error)
       }
@@ -681,33 +544,11 @@ export function createRefineSessionManager(deepSearchManager: DeepSearchJobManag
 
   function saveAnswers(
     transaction: SessionWriteTransaction,
-    session: SessionRow,
     batch: BatchRow,
     answers: RefineAnswerInput[],
   ): void {
     const questions = parseJson(batch.questions, refineStoredQuestionsSchema)
     const normalized = answersForQuestions(questions, answers)
-    const currentState = loadState(session)
-    const answerByQuestion = new Map(normalized.map((answer) => [answer.questionId, answer]))
-    const questionsState = currentState.questions.map((question) => {
-      const answer = answerByQuestion.get(question.questionId)
-      return answer ? { ...question, status: answer.unanswered ? "unanswered" as const : "answered" as const, version: question.version + 1 } : question
-    })
-    const nextState = {
-      ...currentState,
-      evidence: [...currentState.evidence, ...normalized.filter(({ unanswered }) => !unanswered).map((answer) => ({
-        id: randomUUID(),
-        text: JSON.stringify({
-          question: questions.find(({ id }) => id === answer.questionId)?.prompt,
-          selectedCandidates: questions.find(({ id }) => id === answer.questionId)?.candidates.filter(({ id }) => answer.selectedCandidateIds.includes(id)).map(({ label }) => label),
-          supplementaryText: answer.text,
-        }),
-        source: `user-answer:${batch.refineBatchId}`,
-        kind: "user" as const,
-      }))],
-      questions: questionsState,
-    }
-    saveStateRevision(transaction, session, nextState, `answers-submitted:${batch.refineBatchId}`)
     transaction.update(refineBatches).set({ status: "submitted", answers: JSON.stringify(normalized), error: null, updatedAt: new Date() })
       .where(eq(refineBatches.refineBatchId, batch.refineBatchId)).run()
   }
@@ -716,7 +557,6 @@ export function createRefineSessionManager(deepSearchManager: DeepSearchJobManag
     create(userId, prompt) {
       const id = randomUUID()
       const batchId = randomUUID()
-      const initialState = emptyRefineState()
       db.transaction((transaction) => {
         transaction.insert(refineSessions).values({
           refineSessionId: id,
@@ -724,11 +564,9 @@ export function createRefineSessionManager(deepSearchManager: DeepSearchJobManag
           originalPrompt: prompt,
           status: "clarifying",
           activeBatchId: null,
-          sharedStateRevision: 1,
         }).run()
         transaction.insert(refineBatches).values({ refineBatchId: batchId, refineSessionId: id, position: 0, status: "preparing" }).run()
         transaction.update(refineSessions).set({ activeBatchId: batchId }).where(eq(refineSessions.refineSessionId, id)).run()
-        transaction.insert(refineStateRevisions).values({ refineStateRevisionId: randomUUID(), refineSessionId: id, revision: 1, reason: "session-created", state: JSON.stringify(initialState) }).run()
       }, { behavior: "immediate" })
       void runBatch(userId, id, batchId).catch(() => {})
       const snapshot = getSnapshot(userId, id)
@@ -747,7 +585,7 @@ export function createRefineSessionManager(deepSearchManager: DeepSearchJobManag
         if (batch?.status !== "preparing") continue
         const links = db.select({ job: deepSearchJobs, link: refineSearchLinks })
           .from(refineSearchLinks).innerJoin(deepSearchJobs, eq(refineSearchLinks.deepSearchJobId, deepSearchJobs.deepSearchJobId))
-          .where(and(eq(refineSearchLinks.refineSessionId, session.refineSessionId), eq(refineSearchLinks.refineBatchId, batch.refineBatchId), eq(refineSearchLinks.role, "preparation"))).all()
+          .where(and(eq(refineSearchLinks.refineSessionId, session.refineSessionId), eq(refineSearchLinks.userId, session.userId), eq(refineSearchLinks.role, "preparation"))).all()
         if (links.some(({ job }) => job.status === "failed" || job.status === "interrupted")) {
           setBatchFailed(session.refineSessionId, batch.refineBatchId, new Error("Preparation search failed; retry this batch to continue"))
         } else {
@@ -794,7 +632,7 @@ export function createRefineSessionManager(deepSearchManager: DeepSearchJobManag
           return
         }
         if (session.activeBatchId !== batchId || batch.status !== "ready") fail(409, "Only the current ready batch can be submitted")
-        saveAnswers(transaction, session, batch, answers)
+        saveAnswers(transaction, batch, answers)
         newBatchId = randomUUID()
         transaction.insert(refineBatches).values({ refineBatchId: newBatchId, refineSessionId: id, position: batch.position + 1, status: "preparing" }).run()
         transaction.update(refineSessions).set({ activeBatchId: newBatchId, updatedAt: new Date() }).where(eq(refineSessions.refineSessionId, id)).run()
@@ -858,17 +696,17 @@ export function createRefineSessionManager(deepSearchManager: DeepSearchJobManag
           currentAnswers = current.refineBatchId === batchId
             ? answers
             : parseJson(current.draftAnswers, refineStoredDraftAnswersSchema)
-          saveAnswers(transaction, latestSession, current, currentAnswers)
+          saveAnswers(transaction, current, currentAnswers)
         } else if (current && current.status === "preparing") {
           const questions = parseJson(current.questions, refineStoredQuestionsSchema)
           currentBatch = current
           currentAnswers = answersForQuestions(questions, [])
-          saveAnswers(transaction, latestSession, current, currentAnswers)
+          saveAnswers(transaction, current, currentAnswers)
         } else if (current && current.status === "failed") {
           const questions = parseJson(current.questions, refineStoredQuestionsSchema)
           currentBatch = current
           currentAnswers = answersForQuestions(questions, [])
-          saveAnswers(transaction, latestSession, current, currentAnswers)
+          saveAnswers(transaction, current, currentAnswers)
         }
         const allBatches = transaction.select().from(refineBatches).where(eq(refineBatches.refineSessionId, id)).orderBy(asc(refineBatches.position)).all()
         researchRequest = encodeFinalResearchRequest(latestSession, allBatches, currentBatch, currentAnswers)

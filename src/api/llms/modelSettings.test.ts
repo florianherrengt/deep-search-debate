@@ -1,9 +1,14 @@
+import { eq, inArray } from "drizzle-orm"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { db } from "../db/index.ts"
 import {
+  deepSearchJobs,
   llmModelSettings,
   openAiCodexConnections,
+  refineBatches,
+  refineSearchLinks,
+  refineSessions,
 } from "../db/schema/index.ts"
 import { PromptName } from "./prompts.ts"
 import {
@@ -16,6 +21,57 @@ import {
 } from "./modelSettings.ts"
 
 const userId = "test-user-id"
+const refineSessionId = "model-settings-refine-session"
+const refineBatchId = "model-settings-refine-batch"
+const preparationJobId = "model-settings-preparation-job"
+const researchJobId = "model-settings-research-job"
+
+function insertLinkedDeepSearches(): void {
+  db.insert(refineSessions).values({
+    refineSessionId,
+    userId,
+    originalPrompt: "Clarify a research request",
+    status: "research-started",
+    activeBatchId: null,
+    finalDeepSearchJobId: researchJobId,
+    finalResearchRequest: "Complete the final research",
+  }).run()
+  db.insert(refineBatches).values({
+    refineBatchId,
+    refineSessionId,
+    position: 0,
+    status: "ready",
+  }).run()
+  db.update(refineSessions).set({ activeBatchId: refineBatchId })
+    .where(eq(refineSessions.refineSessionId, refineSessionId)).run()
+  for (const [deepSearchJobId, role] of [
+    [preparationJobId, "preparation"],
+    [researchJobId, "research"],
+  ] as const) {
+    db.insert(deepSearchJobs).values({
+      deepSearchJobId,
+      userId,
+      title: role,
+      slug: `model-settings-${role}`,
+      researchRequest: role,
+      maxSearches: 1,
+      maxResultsPerSearch: 1,
+      maxRounds: 1,
+      strictQuality: false,
+      status: "running",
+      finalAnswerGenerationId: null,
+    }).run()
+    db.insert(refineSearchLinks).values({
+      refineSearchLinkId: `model-settings-${role}-link`,
+      refineSessionId,
+      refineBatchId: role === "preparation" ? refineBatchId : null,
+      deepSearchJobId,
+      userId,
+      role,
+      position: role === "preparation" ? 0 : null,
+    }).run()
+  }
+}
 
 function insertConnection(): void {
   db.insert(openAiCodexConnections)
@@ -35,6 +91,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  db.delete(refineSessions).where(eq(refineSessions.refineSessionId, refineSessionId)).run()
+  db.delete(deepSearchJobs).where(inArray(deepSearchJobs.deepSearchJobId, [preparationJobId, researchJobId])).run()
   db.delete(llmModelSettings).run()
   db.delete(openAiCodexConnections).run()
 })
@@ -77,16 +135,8 @@ describe("LLM model settings", () => {
       "debate-opening": "big",
       "debate-rebuttal": "big",
       "debate-judge": "big",
-      "refine-recover-context": "big",
-      "refine-research-domain": "big",
-      "refine-map-decisions": "big",
-      "refine-generate-questions": "big",
-      "refine-review-questions": "big",
-      "refine-choose-action": "big",
-      "refine-present-question": "big",
-      "refine-integrate-answers": "big",
-      "refine-review-assumptions": "big",
-      "refine-condense-research-request": "big",
+      "refine-generate-questions": "small",
+      "refine-condense-research-request": "small",
     })
   })
 
@@ -134,6 +184,47 @@ describe("LLM model settings", () => {
     expect(replaceLlmModelAssignments(userId, next)).toBe(true)
     expect(snapshotLlmModelAssignment(userId, PromptName.DebateOpening))
       .toMatchObject({ assignment: next.big })
+  })
+
+  it("uses the current Small assignment for preparation work and Big for the linked research job", () => {
+    const assignments = {
+      small: {
+        provider: "deepseek" as const,
+        modelId: "deepseek-v4-flash",
+        reasoningEffort: "low" as const,
+      },
+      big: {
+        provider: "openai" as const,
+        modelId: "gpt-5.6-sol",
+        reasoningEffort: "xhigh" as const,
+      },
+    }
+    insertConnection()
+    expect(replaceLlmModelAssignments(userId, assignments)).toBe(true)
+    insertLinkedDeepSearches()
+
+    expect(snapshotLlmModelAssignment(
+      userId,
+      PromptName.GenerateWebSearchQueries,
+      preparationJobId,
+    )).toEqual({ role: "small", assignment: assignments.small })
+    expect(snapshotLlmModelAssignment(
+      userId,
+      PromptName.GenerateWebSearchQueries,
+      researchJobId,
+    )).toEqual({ role: "big", assignment: assignments.big })
+    expect(snapshotLlmModelAssignment(
+      userId,
+      PromptName.GenerateWebSearchQueries,
+    )).toEqual({ role: "big", assignment: assignments.big })
+    expect(snapshotLlmModelAssignment(
+      userId,
+      PromptName.RefineGenerateQuestions,
+    )).toEqual({ role: "small", assignment: assignments.small })
+    expect(snapshotLlmModelAssignment(
+      userId,
+      PromptName.RefineCondenseResearchRequest,
+    )).toEqual({ role: "small", assignment: assignments.small })
   })
 
   it("requires an OpenAI connection in the same transaction as replacement", () => {

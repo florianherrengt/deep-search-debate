@@ -15,6 +15,9 @@ import {
   deepSearchResults,
   deepSearchWebPages,
   llmGenerations,
+  refineBatches,
+  refineSearchLinks,
+  refineSessions,
   user,
 } from "../../db/schema/index.ts"
 import {
@@ -198,6 +201,7 @@ function completeLinkSelection(input: Parameters<typeof completePageLinkSelectio
 describe("deep-search store", () => {
   beforeEach(() => {
     db.delete(deepSearchJobs).run()
+    db.delete(refineSessions).run()
     db.delete(llmGenerations).run()
   })
 
@@ -218,6 +222,38 @@ describe("deep-search store", () => {
     expect(loadDeepSearchExecutionSnapshot(jobId)!.pages[0].links).toEqual(firstLinks)
     expect(db.select({ balance: user.credits }).from(user).where(eq(user.id, "test-user-id")).get()!.balance).toBe(credits - 2)
     expect(() => settlePageExtraction({ ...input, links: [] })).toThrow("Page links conflict with persisted extraction")
+  })
+
+  it("derives preparation mode from the durable Refine search link", () => {
+    const jobId = crypto.randomUUID()
+    const ordinaryJobId = crypto.randomUUID()
+    const sessionId = crypto.randomUUID()
+    const batchId = crypto.randomUUID()
+    insertJob(jobId)
+    insertJob(ordinaryJobId)
+    db.insert(refineSessions).values({
+      refineSessionId: sessionId,
+      userId: "test-user-id",
+      originalPrompt: "What should I clarify?",
+    }).run()
+    db.insert(refineBatches).values({
+      refineBatchId: batchId,
+      refineSessionId: sessionId,
+      position: 0,
+      status: "preparing",
+    }).run()
+    db.insert(refineSearchLinks).values({
+      refineSearchLinkId: crypto.randomUUID(),
+      refineSessionId: sessionId,
+      refineBatchId: batchId,
+      deepSearchJobId: jobId,
+      userId: "test-user-id",
+      role: "preparation",
+      position: 0,
+    }).run()
+
+    expect(loadDeepSearchExecutionSnapshot(jobId)?.isRefinePreparation).toBe(true)
+    expect(loadDeepSearchExecutionSnapshot(ordinaryJobId)?.isRefinePreparation).toBe(false)
   })
 
   it("persists safe handoff discoveries on failed pages and reuses normal link selection", () => {

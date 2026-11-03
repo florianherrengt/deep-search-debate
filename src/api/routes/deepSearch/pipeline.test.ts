@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   attachFinalAnswerGeneration: vi.fn<typeof import("./store.ts").attachFinalAnswerGeneration>(),
   replaceFinalAnswerGeneration: vi.fn<typeof import("./store.ts").replaceFinalAnswerGeneration>(),
   completeReviewedAnswer: vi.fn<typeof import("./jobLifecycle.ts").completeReviewedAnswer>(),
+  completeDeepSearchJob: vi.fn<typeof import("./jobLifecycle.ts").completeDeepSearchJob>(),
   attachPageLinkSelectionGeneration: vi.fn<typeof import("./store.ts").attachPageLinkSelectionGeneration>(),
   replacePageLinkSelectionGeneration: vi.fn<typeof import("./store.ts").replacePageLinkSelectionGeneration>(),
   completePageLinkSelection: vi.fn<typeof import("./store.ts").completePageLinkSelection>(),
@@ -178,6 +179,7 @@ vi.mock("./store.ts", () => ({
 vi.mock("./jobLifecycle.ts", () => ({
   promoteRoundAnswer: mocks.promoteRoundAnswer,
   completeReviewedAnswer: mocks.completeReviewedAnswer,
+  completeDeepSearchJob: mocks.completeDeepSearchJob,
 }))
 
 import type {
@@ -206,6 +208,7 @@ function emptySnapshot(): DeepSearchExecutionSnapshot {
     jobId: "deep-search-job-id",
     userId: "test-user-id",
     ideaJobId: null,
+    isRefinePreparation: false,
     mode: "research",
     researchRequest: "Research this",
     maxSearches: 3,
@@ -412,6 +415,14 @@ describe("deepSearch", () => {
     )
     mocks.attachFinalAnswerGeneration.mockImplementation((_transaction, { generationId }) => {
       executionSnapshot.finalAnswerGeneration = persistedGeneration(generationId)
+    })
+    mocks.completeDeepSearchJob.mockImplementation((_transaction, { generationId }) => {
+      executionSnapshot.status = "completed"
+      executionSnapshot.completedAt = new Date()
+      const roundAnswer = executionSnapshot.rounds
+        .flatMap(({ answerGeneration }) => answerGeneration ? [answerGeneration] : [])
+        .find(({ generationId: candidateId }) => candidateId === generationId)
+      if (roundAnswer) executionSnapshot.finalAnswerGeneration = roundAnswer
     })
     mocks.replaceFinalAnswerGeneration.mockImplementation((_transaction, { newGenerationId }) => {
       executionSnapshot.finalAnswerGeneration = persistedGeneration(newGenerationId)
@@ -1110,6 +1121,52 @@ describe("deepSearch", () => {
       generationId: "corrected-answer-stream",
       researchAnalysisGenerationId: "research-analysis-generation-id",
     })
+  })
+
+  it("completes Refine preparation from its candidate without linked-page exploration, correction, or analysis", async () => {
+    executionSnapshot.isRefinePreparation = true
+    executionSnapshot.researchRequest = "Prepare clarification questions"
+    const publish = createPublisher()
+
+    await expect(
+      deepSearch({
+        userId: "test-user-id",
+        deepSearchJobId: "deep-search-job-id",
+        researchRequest: "Prepare clarification questions",
+        publish,
+      }),
+    ).resolves.toBe("Completed answer")
+
+    expect(mocks.answerResearchRequest).toHaveBeenCalledOnce()
+    expect(mocks.answerResearchRequest.mock.calls[0]?.[0]).toMatchObject({
+      researchRequest: "Prepare clarification questions",
+      searchSummaries: [{ query: "test query", content: "Completed query summary" }],
+    })
+    expect(mocks.analyzeResearchAnswer).not.toHaveBeenCalled()
+    expect(mocks.selectPageLinks).not.toHaveBeenCalled()
+    expect(mocks.attachPageLinkSelectionGeneration).not.toHaveBeenCalled()
+    expect(mocks.completePageLinkSelection).not.toHaveBeenCalled()
+    expect(mocks.attachFinalAnswerGeneration).toHaveBeenCalledWith(expect.anything(), {
+      jobId: "deep-search-job-id",
+      generationId: "round-answer-stream-0",
+    })
+    expect(mocks.completeDeepSearchJob).toHaveBeenCalledWith(expect.anything(), {
+      jobId: "deep-search-job-id",
+      generationId: "round-answer-stream-0",
+    })
+    expect(executionSnapshot).toMatchObject({
+      status: "completed",
+      finalAnswerGeneration: {
+        generationId: "round-answer-stream-0",
+        status: "completed",
+        text: "Completed answer",
+      },
+    })
+    expect(publish).toHaveBeenCalledWith({
+      type: "final-answer-stream",
+      streamId: "round-answer-stream-0",
+    })
+    expect(publish.mock.calls.map(([event]) => event.type)).not.toContain("research-analysis")
   })
 
   it("carries two-hop evidence absent from search results through answer, review, and analysis despite a summary losing its URL", async () => {
