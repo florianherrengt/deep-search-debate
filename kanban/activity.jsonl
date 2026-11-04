@@ -638,3 +638,6 @@
 {"timestamp":"2026-11-03T13:42:51.466077Z","action":"edit","task_id":43,"detail":"Make Clarify use brief investigation and one question-generation call"}
 {"timestamp":"2026-11-03T13:42:51.536324Z","action":"move","task_id":43,"detail":"review -\u003e done"}
 {"timestamp":"2026-11-04T11:38:23.182575Z","action":"create","task_id":44,"detail":"Rewrite the research prompt after clarification"}
+{"timestamp":"2026-11-04T11:54:09.458488Z","action":"move","task_id":44,"detail":"in-progress -\u003e review"}
+{"timestamp":"2026-11-04T11:54:09.4595Z","action":"handoff","task_id":44,"detail":"Rewrite the research prompt after clarification"}
+{"timestamp":"2026-11-04T11:54:09.459654Z","action":"release","task_id":44,"detail":"Rewrite the research prompt after clarification"}
