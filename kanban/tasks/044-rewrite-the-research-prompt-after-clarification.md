@@ -1,10 +1,12 @@
 ---
 id: 44
 title: Rewrite the research prompt after clarification
-status: review
+status: done
 priority: medium
 created: 2026-11-04T11:38:23.179666Z
-updated: 2026-11-04T11:54:09.45544Z
+updated: 2026-11-04T12:07:39.783874Z
+started: 2026-11-04T12:07:39.785991Z
+completed: 2026-11-04T12:07:39.785991Z
 tags:
     - refine
 class: standard
