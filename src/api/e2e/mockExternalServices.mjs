@@ -145,6 +145,7 @@ const debateFailureCandidateOrdinal = 8
 const debateFailureAttempts = new Map()
 const standaloneRetryAttempts = new Map()
 const refineQuestionRetryAttempts = new Map()
+const refineResearchRewriteAttempts = new Map()
 
 const providerOccurrences = new Map()
 const providerReleaseWaiters = new Map()
@@ -824,17 +825,67 @@ function assertThinkingMode(body) {
 
 function modelOutput(system, user) {
   if (system.includes("Condense a Refine source record into a research request")) {
-    const hasScenario = user.includes("[E2E_REFINE_CONDENSE]")
+    if (user.includes("[E2E_REFINE_REWRITE_FAIL_ONCE]")) {
+      const attempts = (refineResearchRewriteAttempts.get("rewrite-failure") ?? 0) + 1
+      refineResearchRewriteAttempts.set("rewrite-failure", attempts)
+      if (attempts === 1) {
+        return {
+          reasoning: "Return an invalid empty request once to exercise terminal rewrite validation.",
+          text: JSON.stringify({ researchRequest: " " }),
+        }
+      }
+      if (
+        !user.includes("Keep landlord permission central.") ||
+        !/Question: What outcome matters most\?\nAnswer: UNANSWERED/.test(user)
+      ) {
+        throw new Error("Retried Refine rewrite omitted a saved answer or unanswered question")
+      }
+      return {
+        reasoning: "Preserve the user's answered constraint and leave the preferred outcome open.",
+        text: JSON.stringify({
+          researchRequest: "Research renter-friendly energy interventions that keep landlord permission central. The preferred outcome remains unspecified; compare relevant outcomes without assuming a preference.",
+        }),
+      }
+    }
+    if (user.includes("[E2E_REFINE_REWRITE_SHORT]")) {
+      const requiredContext = [
+        "Landlord permission",
+        "Upfront cost",
+        "Landlord approval is the main barrier.",
+        "Question: What outcome matters most?\nAnswer: UNANSWERED",
+        "Lower bills",
+        "Prioritize outcomes tenants notice.",
+      ]
+      const missing = requiredContext.filter((value) => !user.includes(value))
+      if (missing.length > 0) {
+        throw new Error(`Refine rewrite omitted submitted clarification context: ${missing.join(", ")}`)
+      }
+      return {
+        reasoning: "Combine the original request with every submitted clarification while preserving unresolved outcomes.",
+        text: JSON.stringify({
+          researchRequest: "Research renter-friendly energy interventions. Prioritize landlord permission and upfront cost, keep landlord approval central, and focus on lower bills tenants notice. The earlier outcome-preference question was unanswered; a later clarification selected lower bills as the measurable target.",
+        }),
+      }
+    }
+    const hasScenario = user.includes("[E2E_REFINE_CONDENSE]") || user.includes("budget cap £123 and removable-only constraint")
     const hasRequirement = user.includes("budget cap £123 and removable-only constraint")
-    const hasSupplement = user.includes("[E2E_REFINE_CONDENSE_ANSWER]")
+    const hasSupplement = user.includes("[E2E_REFINE_CONDENSE_ANSWER]") || user.includes("Keep landlord permission central.")
     const hasUnansweredQuestion = /Question: What outcome matters most\?\nAnswer: UNANSWERED/.test(user)
-    if (!hasScenario || !hasRequirement || (hasUnansweredQuestion && !hasSupplement)) {
-      throw new Error("Refine condensation lost the original requirement, supplemental answer, or unanswered question")
+    if (hasScenario) {
+      if (!hasRequirement || (hasUnansweredQuestion && !hasSupplement)) {
+        throw new Error("Refine condensation lost the original requirement, supplemental answer, or unanswered question")
+      }
+      return {
+        reasoning: "Preserve the explicit user requirement and any submitted context while retaining unanswered status.",
+        text: JSON.stringify({
+          researchRequest: `Research practical renter-friendly energy interventions. Explicit requirement: retain the budget cap £123 and removable-only constraint.${hasSupplement ? " User context: Keep landlord permission central." : ""}${hasUnansweredQuestion ? " What outcome matters most? Answer: UNANSWERED." : ""}`,
+        }),
+      }
     }
     return {
-      reasoning: "Preserve the explicit user requirement and any submitted context while retaining unanswered status.",
+      reasoning: "Keep the original request and clarification record together without adding requirements.",
       text: JSON.stringify({
-        researchRequest: `Research practical renter-friendly energy interventions. Explicit requirement: retain the budget cap £123 and removable-only constraint.${hasSupplement ? " User context: Keep landlord permission central." : ""}${hasUnansweredQuestion ? " What outcome matters most? Answer: UNANSWERED." : ""}`,
+        researchRequest: "Research the original request using submitted clarification answers. Preserve explicit requirements and leave unanswered questions unresolved.",
       }),
     }
   }

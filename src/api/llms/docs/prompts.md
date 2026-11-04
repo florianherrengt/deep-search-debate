@@ -134,8 +134,9 @@ code validates those references, question/choice text and uniqueness, assigns
 UUIDs, and resolves evidence IDs to canonical text before checkpointing. There
 are no model-generated need/decision routes or intermediate classification stages.
 
-A separate Small-role `refine-condense-research-request` prompt is called only
-when the initial preparation or final research request exceeds the configured
-request limit. It combines bounded source excerpts and a checkpointed rolling
-brief while preserving requirements and unanswered questions. See
+A separate Small-role `refine-condense-research-request` prompt rewrites every
+final research request from the original prompt and all submitted answers. It
+also condenses initial preparation requests that exceed the configured request
+limit. It combines bounded source excerpts and a checkpointed rolling brief
+while preserving requirements and leaving unanswered questions unresolved. See
 [the Refine session contract](../../routes/docs/refine-sessions.md).
