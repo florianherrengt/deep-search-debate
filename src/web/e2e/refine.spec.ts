@@ -122,9 +122,10 @@ test.describe("Refine", () => {
 
   test("keeps submitted batches visible, restores drafts, and starts the existing research flow", async ({ page, request }) => {
     test.setTimeout(45_000)
+    const originalPrompt = "[E2E_REFINE_REWRITE_SHORT] Research practical renter-friendly energy interventions."
     await page.setViewportSize({ width: 1440, height: 1000 })
     await page.goto("/refine")
-    await page.getByLabel("What would you like to research?").fill("Research practical renter-friendly energy interventions [E2E_REFINE_EVIDENCE_IDS]")
+    await page.getByLabel("What would you like to research?").fill(`${originalPrompt} [E2E_REFINE_EVIDENCE_IDS]`)
 
     const creation = page.waitForResponse((response) =>
       response.request().method() === "POST" &&
@@ -223,10 +224,9 @@ test.describe("Refine", () => {
     const finalResponse = await request.get(`/api/deep-search-jobs/${sessionAfterStart.research?.slug}`)
     expect(finalResponse.status()).toBe(200)
     const finalJob = (await finalResponse.json() as { deepSearchJob: { researchRequest: string } }).deepSearchJob
-    expect(finalJob.researchRequest).toContain("Research practical renter-friendly energy interventions")
-    expect(finalJob.researchRequest).toContain("Landlord approval is the main barrier.")
-    expect(finalJob.researchRequest).toContain("Lower bills")
-    expect(finalJob.researchRequest).toMatch(/unanswered/i)
+    expect(finalJob.researchRequest).toBe("Research renter-friendly energy interventions. Prioritize landlord permission and upfront cost, keep landlord approval central, and focus on lower bills tenants notice. The earlier outcome-preference question was unanswered; a later clarification selected lower bills as the measurable target.")
+    expect(finalJob.researchRequest).not.toContain("Clarification record:")
+    expect(finalJob.researchRequest).not.toContain("Question:")
 
     await page.goto("/deep-search")
     await expect(page.getByRole("tab", { name: "My Searches" })).toHaveAttribute("aria-selected", "true")
@@ -280,6 +280,59 @@ test.describe("Refine", () => {
     expect(retried.batches[0]?.status).toBe("submitted")
     expect(retried.batches[0]?.answers?.[0]?.text).toContain("Keep landlord permission central.")
     expect(retried.batches.filter(({ status }) => status === "ready")).toHaveLength(1)
+  })
+
+  test("keeps answers after final prompt rewrite fails and lets the user retry after reload", async ({ page, request }) => {
+    test.setTimeout(45_000)
+    await page.goto("/refine")
+    await page.getByLabel("What would you like to research?").fill("[E2E_REFINE_REWRITE_FAIL_ONCE] Research practical renter-friendly energy interventions")
+    const creation = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/refine-sessions")
+    await page.getByRole("button", { name: "Start refining" }).click()
+    const created = await creation
+    const { refineSession } = await created.json() as { refineSession: RefineSession }
+    await expect(page.getByRole("group", { name: "Which renter constraint should the research prioritize?" })).toBeVisible({ timeout: 20_000 })
+
+    const firstQuestion = page.getByRole("group", { name: "Which renter constraint should the research prioritize?" })
+    await firstQuestion.getByLabel(/^Landlord permission(?: —|$)/).check()
+    const savedAnswer = "[E2E_REFINE_REWRITE_FAIL_ONCE] Keep landlord permission central."
+    await firstQuestion.getByLabel("Add your own context").fill(savedAnswer)
+    await expect.poll(async () => (await getSession(request, refineSession.id)).draftAnswers.some(({ text }) => text === savedAnswer), { timeout: 10_000 }).toBe(true)
+
+    const failedStart = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === `/api/refine-sessions/${refineSession.id}/research`)
+    await page.getByRole("button", { name: "Start research" }).click()
+    expect((await failedStart).status()).toBe(500)
+    await expect(page.getByText("The server could not complete the request. Try again.", { exact: true })).toBeVisible()
+    const afterFailure = await getSession(request, refineSession.id)
+    expect(afterFailure.status).toBe("clarifying")
+    expect(afterFailure.research ?? null).toBeNull()
+    expect(afterFailure.batches[0]?.answers?.[0]).toMatchObject({ text: savedAnswer, unanswered: false })
+    expect(afterFailure.batches[0]?.answers?.[1]).toMatchObject({ selectedCandidateIds: [], text: "", unanswered: true })
+
+    await page.reload()
+    const restoredBatch = page.getByRole("region", { name: "Questions 1" })
+    await expect(restoredBatch.getByRole("heading", { name: "Which renter constraint should the research prioritize?", exact: true })).toBeVisible()
+    await expect(restoredBatch.getByText(/Landlord permission — Prioritize changes that need no landlord approval/)).toBeVisible()
+    await expect(restoredBatch.getByText(savedAnswer, { exact: true })).toBeVisible()
+    await expect(page.getByRole("button", { name: "Start research" })).toBeEnabled()
+    await capture(page, "refine-rewrite-retry-ready.png")
+
+    const retriedStart = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === `/api/refine-sessions/${refineSession.id}/research`)
+    await page.getByRole("button", { name: "Start research" }).click()
+    expect([200, 202]).toContain((await retriedStart).status())
+    const started = await getSession(request, refineSession.id)
+    expect(started.status).toBe("research-started")
+    expect(started.batches[0]?.answers?.[0]).toMatchObject({ text: savedAnswer, unanswered: false })
+    await expect.poll(async () => {
+      const response = await request.get(`/api/deep-search-jobs/${started.research?.slug}`)
+      if (!response.ok()) return null
+      return ((await response.json()) as { deepSearchJob: { status: string } }).deepSearchJob.status
+    }, { timeout: 20_000 }).toBe("completed")
+    const finalResponse = await request.get(`/api/deep-search-jobs/${started.research?.slug}`)
+    const finalJob = (await finalResponse.json() as { deepSearchJob: { researchRequest: string } }).deepSearchJob
+    expect(finalJob.researchRequest).toBe("Research renter-friendly energy interventions that keep landlord permission central. The preferred outcome remains unspecified; compare relevant outcomes without assuming a preference.")
+    await page.goto(`/deep-search/${started.research?.slug}`)
+    await expect(page.getByText(finalJob.researchRequest, { exact: true })).toBeVisible({ timeout: 20_000 })
+    await capture(page, "refine-rewritten-request-research.png")
   })
 
   test("starts research during preparation and prevents a stale question batch", async ({ page, request }) => {

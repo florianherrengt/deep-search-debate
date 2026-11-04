@@ -86,6 +86,17 @@ function questionBatch() {
   }
 }
 
+function longSubmittedAnswers(count: number): { questions: Array<{ id: string; prompt: string; candidates: [] }>; answers: Array<{ questionId: string; selectedCandidateIds: []; text: string; unanswered: false }> } {
+  const questions = Array.from({ length: count }, (_, index) => ({ id: crypto.randomUUID(), prompt: `Requirement ${index + 1}`, candidates: [] as [] }))
+  const answers = questions.map(({ id }, index) => ({
+    questionId: id,
+    selectedCandidateIds: [] as [],
+    text: `Answer ${index + 1}: ${"Preserve this user requirement. ".repeat(300)}`.slice(0, 10_000),
+    unanswered: false as const,
+  }))
+  return { questions, answers }
+}
+
 type GenerationTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 type CondenseOutput = { researchRequest: string }
 type CondenseInput = {
@@ -136,6 +147,60 @@ function mockCondensation(output: (input: CondenseInput) => unknown): void {
 }
 
 describe("Refine session persistence", () => {
+  it("rewrites every final request from the original prompt and all answers", async () => {
+    const manager = createRefineSessionManager(fakeDeepSearchManager())
+    const originalPrompt = "Compare local and global approaches."
+    mockCondensation((input) => ({ researchRequest: input.prompt.includes("Focus on the nearby region.")
+      ? "Rewritten research request covering both answers." : "Preparation condensation." }))
+    const created = manager.create("test-user-id", originalPrompt)
+    await vi.waitFor(() => expect(manager.get("test-user-id", created.id)?.batches[0]?.status).toBe("ready"))
+    const ready = manager.get("test-user-id", created.id)!
+    const question = ready.batches[0]?.questions[0]
+    if (!ready.currentBatchId || !question) throw new Error("Expected a ready initial question")
+    const answers = [{ questionId: question.id, selectedCandidateIds: [question.candidates[0].id], text: "Focus on the nearby region." }]
+    manager.askMore("test-user-id", created.id, ready.currentBatchId, answers)
+    await vi.waitFor(() => expect(manager.get("test-user-id", created.id)?.batches[1]?.status).toBe("ready"))
+    const current = manager.get("test-user-id", created.id)!
+    const unansweredQuestion = current.batches[1]?.questions[0]
+    if (!current.currentBatchId || !unansweredQuestion) throw new Error("Expected a ready follow-up batch")
+
+    const started = await manager.startResearch("test-user-id", created.id, current.currentBatchId, [])
+
+    expect(started.status).toBe("research-started")
+    const finalCall = mocks.generateObjectStream.mock.calls.at(-1)?.[0] as CondenseInput
+    expect(finalCall.prompt).toContain(originalPrompt)
+    expect(finalCall.prompt).toContain(question.prompt)
+    expect(finalCall.prompt).toContain("Focus on the nearby region.")
+    expect(finalCall.prompt).toContain(unansweredQuestion.prompt)
+    expect(finalCall.prompt).toContain("UNANSWERED")
+    expect(db.select().from(deepSearchJobs).where(eq(deepSearchJobs.deepSearchJobId, started.research!.deepSearchJobId)).get()?.researchRequest)
+      .toBe("Rewritten research request covering both answers.")
+  })
+
+  it("keeps a failed short rewrite retryable without starting research", async () => {
+    const manager = createRefineSessionManager(fakeDeepSearchManager())
+    const created = manager.create("test-user-id", "Research the local option")
+    await vi.waitFor(() => expect(manager.get("test-user-id", created.id)?.batches[0]?.status).toBe("ready"))
+    const ready = manager.get("test-user-id", created.id)!
+    const question = ready.batches[0]?.questions[0]
+    if (!ready.currentBatchId || !question) throw new Error("Expected a ready initial question")
+    const answers = [{ questionId: question.id, selectedCandidateIds: [], text: "Prefer the lower-cost option." }]
+    mockCondensation(() => ({ researchRequest: " \n " }))
+
+    await expect(manager.startResearch("test-user-id", created.id, ready.currentBatchId, answers)).rejects.toThrow()
+
+    const failed = manager.get("test-user-id", created.id)!
+    expect(failed.status).toBe("clarifying")
+    expect(failed.batches[0]?.answers?.[0]?.text).toBe("Prefer the lower-cost option.")
+    expect(failed.research).toBeNull()
+    expect(db.select().from(refineSearchLinks).where(and(eq(refineSearchLinks.refineSessionId, created.id), eq(refineSearchLinks.role, "research"))).all()).toHaveLength(0)
+
+    mockCondensation(() => ({ researchRequest: "Research the lower-cost local option." }))
+    const retried = await manager.startResearch("test-user-id", created.id, failed.batches[0].id, answers)
+    expect(retried.status).toBe("research-started")
+    expect(retried.batches[0]?.answers?.[0]?.text).toBe("Prefer the lower-cost option.")
+  })
+
   it("rejects malformed persisted preparation checkpoints", () => {
     expect(refinePipelineCheckpointSchema.parse({ stageGenerationIds: {}, stageOutputs: {} })).toEqual({
       stageGenerationIds: {}, stageOutputs: {},
@@ -220,6 +285,7 @@ describe("Refine session persistence", () => {
   })
   it("settles a registered question-generation attempt before recovering a persisted handoff", async () => {
     const manager = createRefineSessionManager(fakeDeepSearchManager())
+    mockCondensation(() => ({ researchRequest: "Recovered research request." }))
     const sessionId = crypto.randomUUID()
     const batchId = crypto.randomUUID()
     const generationId = crypto.randomUUID()
@@ -245,12 +311,15 @@ describe("Refine session persistence", () => {
     const batchId = crypto.randomUUID()
     const generationId = crypto.randomUUID()
     const finalJobId = crypto.randomUUID()
-    const oversizedRequest = `Original request: ${"Preserve every stated condition. ".repeat(400)}`
+    const originalPrompt = "Preserve every stated condition."
+    const { questions, answers } = longSubmittedAnswers(2)
+    const oversizedRequest = answers.map(({ text }) => text).join("\n")
+    mockCondensation(() => ({ researchRequest: "Recovered bounded research request." }))
     db.transaction((transaction) => {
       transaction.insert(refineSessions).values({
         refineSessionId: sessionId,
         userId: "test-user-id",
-        originalPrompt: "Preserve every stated condition.",
+        originalPrompt,
         status: "starting",
         activeBatchId: null,
         finalDeepSearchJobId: finalJobId,
@@ -261,7 +330,8 @@ describe("Refine session persistence", () => {
         refineSessionId: sessionId,
         position: 0,
         status: "submitted",
-        answers: "[]",
+        questions: JSON.stringify(questions),
+        answers: JSON.stringify(answers),
         stageCheckpoints: JSON.stringify({
           stageGenerationIds: { "condense-research:0": generationId },
           stageOutputs: {},
@@ -276,8 +346,6 @@ describe("Refine session persistence", () => {
       transaction.update(refineSessions).set({ activeBatchId: batchId })
         .where(eq(refineSessions.refineSessionId, sessionId)).run()
     }, { behavior: "immediate" })
-    mockCondensation(() => ({ researchRequest: "Recovered bounded research request." }))
-
     manager.reconcilePersisted()
     await vi.waitFor(() => expect(manager.get("test-user-id", sessionId)?.status).toBe("research-started"))
 
@@ -289,6 +357,52 @@ describe("Refine session persistence", () => {
     expect(links[0]?.deepSearchJobId).toBe(finalJobId)
     expect(db.select().from(deepSearchJobs).where(eq(deepSearchJobs.deepSearchJobId, finalJobId)).get()?.researchRequest)
       .toBe("Recovered bounded research request.")
+  })
+
+  it("recovers the final chunk after a rewrite was promoted before restart", async () => {
+    const manager = createRefineSessionManager(fakeDeepSearchManager())
+    const sessionId = crypto.randomUUID()
+    const batchId = crypto.randomUUID()
+    const finalJobId = crypto.randomUUID()
+    const originalPrompt = "Preserve each requirement."
+    const { questions, answers } = longSubmittedAnswers(14)
+    const intermediate = "Bounded brief carrying the first half of the request."
+    const completedRewrite = "Final rewrite preserving late constraints and unresolved questions."
+    db.transaction((transaction) => {
+      transaction.insert(refineSessions).values({
+        refineSessionId: sessionId,
+        userId: "test-user-id",
+        originalPrompt,
+        status: "starting",
+        activeBatchId: null,
+        finalDeepSearchJobId: finalJobId,
+        finalResearchRequest: completedRewrite,
+      }).run()
+      transaction.insert(refineBatches).values({
+        refineBatchId: batchId,
+        refineSessionId: sessionId,
+        position: 0,
+        status: "submitted",
+        questions: JSON.stringify(questions),
+        answers: JSON.stringify(answers),
+        stageCheckpoints: JSON.stringify({
+          stageGenerationIds: {},
+          stageOutputs: {
+            "condense-research:0": { researchRequest: intermediate },
+            "condense-research:1": { researchRequest: completedRewrite },
+          },
+        }),
+      }).run()
+      transaction.update(refineSessions).set({ activeBatchId: batchId })
+        .where(eq(refineSessions.refineSessionId, sessionId)).run()
+    }, { behavior: "immediate" })
+
+    manager.reconcilePersisted()
+    await vi.waitFor(() => expect(manager.get("test-user-id", sessionId)?.status).toBe("research-started"))
+
+    expect(mocks.generateObjectStream).not.toHaveBeenCalled()
+    expect(db.select().from(deepSearchJobs).where(eq(deepSearchJobs.deepSearchJobId, finalJobId)).get()?.researchRequest)
+      .toBe(completedRewrite)
   })
 
   it("keeps drafts private, submits immutable answers, and retains batch history", async () => {
@@ -325,6 +439,8 @@ describe("Refine session persistence", () => {
   })
 
   it("uses bounded searches for each clarification batch and the normal budget for final research", async () => {
+    mockCondensation((input) => ({ researchRequest: input.prompt.includes("Research the best local option")
+      ? "Rewritten local research request." : "Preparation condensation." }))
     const starts: Array<{ role: "preparation" | "research" | undefined; researchRequest: string }> = []
     const manager = createRefineSessionManager(fakeDeepSearchManager((role, researchRequest) => starts.push({ role, researchRequest })))
     const created = manager.create("test-user-id", "Research the best local option")
@@ -380,10 +496,13 @@ describe("Refine session persistence", () => {
       maxRounds: Math.min(3, config.deepSearch.maxRounds),
     })
     expect(starts.filter(({ role }) => role === "research")).toHaveLength(1)
+    expect(finalJob?.researchRequest).toBe("Rewritten local research request.")
   })
 
   it("hands off one linked final search and makes the session read-only", async () => {
     const manager = createRefineSessionManager(fakeDeepSearchManager())
+    mockCondensation((input) => ({ researchRequest: input.prompt.includes("Research sustainable travel")
+      ? "Rewritten sustainable travel research." : "Preparation condensation." }))
     const created = manager.create("test-user-id", "Research sustainable travel")
     await vi.waitFor(() => {
       const batch = manager.get("test-user-id", created.id)?.batches[0]
@@ -400,6 +519,8 @@ describe("Refine session persistence", () => {
       text: "",
     }])
     expect(snapshot.status).toBe("research-started")
+    const finalJob = db.select().from(deepSearchJobs).where(eq(deepSearchJobs.deepSearchJobId, snapshot.research!.deepSearchJobId)).get()
+    expect(finalJob?.researchRequest).toBe("Rewritten sustainable travel research.")
     expect(snapshot.research?.deepSearchJobId).toBeDefined()
     expect(snapshot.batches[0]?.answers?.[0]?.unanswered).toBe(true)
     expect(db.select().from(refineSearchLinks).where(and(eq(refineSearchLinks.refineSessionId, created.id), eq(refineSearchLinks.role, "research"))).all()).toHaveLength(1)
@@ -408,6 +529,8 @@ describe("Refine session persistence", () => {
 
   it("finalizes a newly active batch when Start races with Ask more using the submitted batch ID", async () => {
     const manager = createRefineSessionManager(fakeDeepSearchManager())
+    mockCondensation((input) => ({ researchRequest: input.prompt.includes("Batch unanswered: preparation was cancelled")
+      ? "Rewritten research request including cancelled-preparation marker." : "Rewritten research request." }))
     const created = manager.create("test-user-id", "Research sustainable travel")
     await vi.waitFor(() => expect(manager.get("test-user-id", created.id)?.batches[0]?.status).toBe("ready"))
     const first = manager.get("test-user-id", created.id)!
@@ -430,7 +553,7 @@ describe("Refine session persistence", () => {
     expect(started.batches.map(({ status }) => status)).toEqual(["submitted", "submitted"])
     expect(started.research?.deepSearchJobId).toBeDefined()
     const finalJob = db.select().from(deepSearchJobs).where(eq(deepSearchJobs.deepSearchJobId, started.research!.deepSearchJobId)).get()
-    expect(finalJob?.researchRequest).toContain("Batch unanswered: preparation was cancelled before any questions were presented.")
+    expect(finalJob?.researchRequest).toBe("Rewritten research request including cancelled-preparation marker.")
     expect(db.select().from(refineSearchLinks).where(and(eq(refineSearchLinks.refineSessionId, created.id), eq(refineSearchLinks.role, "research"))).all()).toHaveLength(1)
   })
 

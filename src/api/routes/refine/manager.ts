@@ -338,7 +338,7 @@ export function createRefineSessionManager(deepSearchManager: DeepSearchJobManag
   }
 
   async function boundResearchRequest(userId: string, sessionId: string, batchId: string, request: string, stagePrefix: string, workflowSignal?: AbortSignal): Promise<string> {
-    if (request.length <= config.deepSearch.maxRequestChars) return deepSearchResearchRequestSchema.parse(request)
+    if (stagePrefix !== "condense-research" && request.length <= config.deepSearch.maxRequestChars) return deepSearchResearchRequestSchema.parse(request)
     // Bound both sides of each call, even after an unlimited number of answer batches.
     const maxChars = Math.min(config.deepSearch.maxRequestChars, Math.floor(config.deepSearch.maxSummaryContextChars / 2))
     const schema = z.object({ researchRequest: deepSearchResearchRequestSchema.max(maxChars) }).strict()
@@ -510,7 +510,12 @@ export function createRefineSessionManager(deepSearchManager: DeepSearchJobManag
       try {
         await cancelPreparation(sessionId, userId)
         if (!session.activeBatchId) throw new Error("Refine handoff batch is missing")
-        const researchRequest = await boundResearchRequest(userId, sessionId, session.activeBatchId, session.finalResearchRequest, "condense-research")
+        const batches = db.select().from(refineBatches).where(eq(refineBatches.refineSessionId, sessionId))
+          .orderBy(asc(refineBatches.position)).all()
+        // Rebuild the source record after restart: finalResearchRequest may already hold a rewritten result.
+        const activeBatch = batches.find(({ refineBatchId }) => refineBatchId === session.activeBatchId)
+        const rawResearchRequest = encodeFinalResearchRequest(session, batches, activeBatch)
+        const researchRequest = await boundResearchRequest(userId, sessionId, session.activeBatchId, rawResearchRequest, "condense-research")
         // Completed chunk checkpoints survive preflight failure and restart before this promotion.
         db.update(refineSessions).set({ finalResearchRequest: researchRequest, updatedAt: new Date() })
           .where(and(eq(refineSessions.refineSessionId, sessionId), eq(refineSessions.status, "starting"), eq(refineSessions.finalDeepSearchJobId, session.finalDeepSearchJobId))).run()
