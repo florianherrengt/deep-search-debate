@@ -646,3 +646,5 @@
 {"timestamp":"2026-11-12T00:30:00.529152Z","action":"move","task_id":45,"detail":"in-progress -\u003e review"}
 {"timestamp":"2026-11-12T00:30:00.530563Z","action":"handoff","task_id":45,"detail":"Clarify discovered link IDs after Steam search failure"}
 {"timestamp":"2026-11-12T00:30:00.53066Z","action":"release","task_id":45,"detail":"Clarify discovered link IDs after Steam search failure"}
+{"timestamp":"2026-11-12T00:59:37.523968Z","action":"move","task_id":45,"detail":"review -\u003e in-progress"}
+{"timestamp":"2026-11-12T00:59:37.542332Z","action":"edit","task_id":45,"detail":"Clarify invalid model output errors and link IDs"}
