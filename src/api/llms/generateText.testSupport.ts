@@ -65,14 +65,14 @@ export const mocks = {
   ),
 }
 
-vi.mock("./prompts.ts", () => ({
-  PromptName: {
-    Default: "default",
-    GeneratePromptTitle: "generate-prompt-title",
-    GenerateWebSearchQueries: "generate-websearch-queries",
-  },
-  loadPrompt: mocks.loadPrompt,
-}))
+vi.mock("./prompts.ts", async (importOriginal) => {
+  const { PromptName, getPromptStageLabel } = await importOriginal<typeof import("./prompts.ts")>()
+  return {
+    PromptName,
+    getPromptStageLabel,
+    loadPrompt: mocks.loadPrompt,
+  }
+})
 
 async function awaitCompletedText(generation: {
   completion: Promise<{

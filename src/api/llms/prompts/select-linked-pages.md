@@ -26,6 +26,10 @@ chain when a source points beyond itself. Ignore unrelated navigation, account,
 shopping-cart, advertising, and social-sharing links. Do not choose links simply
 to fill the allowance, and do not assume every link is useful.
 
-Return selectedIds containing only supplied IDs, without duplicates, ordered by
-research value and within maximum_pages_to_open. Return an empty selectedIds
-array when none is worth investigating. Do not invent or rewrite URLs.
+For each selected link, copy its exact `id` field from `<discovered_links>` into
+selectedIds. Preserve the full string verbatim. Identifiers inside a URL, such
+as store or app IDs, are not link IDs. Do not return URLs, titles, or positions.
+
+Return selectedIds without duplicates, ordered by research value and within
+maximum_pages_to_open. Return an empty selectedIds array when none is worth
+investigating. Do not invent or rewrite URLs.

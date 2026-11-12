@@ -4,7 +4,7 @@ import { config } from "../config.ts"
 import { addAbortableQueueTask } from "../helpers/addAbortableQueueTask.ts"
 import { secureJsonParse } from "../helpers/secureJsonParse.ts"
 import { classifyCodexError } from "../openaiConnection/codexErrors.ts"
-import { PromptName, loadPrompt } from "./prompts.ts"
+import { PromptName, getPromptStageLabel, loadPrompt } from "./prompts.ts"
 import { snapshotLlmModelAssignment } from "./modelSettings.ts"
 import {
   reserveLlmCall,
@@ -94,8 +94,26 @@ function rejectedOutput<OutputValue>(error: unknown): Promise<OutputValue> {
 function parseStructuredText<Result>(
   schema: z.ZodType<Result>,
   text: string,
+  promptName: PromptName,
 ): Result {
-  return schema.parse(secureJsonParse(text))
+  try {
+    return schema.parse(secureJsonParse(text))
+  } catch (error) {
+    const stage = getPromptStageLabel(promptName)
+    if (error instanceof z.ZodError) {
+      const invalidLinkIds =
+        (promptName === PromptName.SelectLinkedPages || promptName === PromptName.SelectDiscoveryLinks) &&
+        error.issues.some(({ code, path }) => code === "invalid_value" && path[0] === "selectedIds")
+      const reason = invalidLinkIds
+        ? "the model returned link IDs that were not supplied."
+        : "the model's response did not match the required format."
+      // Preserve the error type and issues used by server diagnostics.
+      error.message = `${stage} failed because ${reason}`
+    } else if (error instanceof SyntaxError) {
+      error.message = `${stage} failed because the model returned a response that could not be read as JSON.`
+    }
+    throw error
+  }
 }
 
 function structuredOutputJsonSchema(
@@ -254,6 +272,7 @@ export async function generateArrayStream<Element>(
           const output = parseStructuredText(
             outputSchema,
             completed.text,
+            params.promptName,
           ).elements
           params.onCompleted?.({ id: completed.id, output }, transaction)
         },
@@ -280,7 +299,7 @@ export async function generateArrayStream<Element>(
       return {
         ...generation,
         output: awaitGenerationText(generation).then(
-          (text) => parseStructuredText(outputSchema, text).elements,
+          (text) => parseStructuredText(outputSchema, text, params.promptName).elements,
         ),
       }
     },
@@ -319,7 +338,7 @@ export async function generateObjectStream<Result>(
         onInterrupted: params.onInterrupted,
         workflowSignal: params.workflowSignal,
         onCompleted: (completed, transaction) => {
-          const output = parseStructuredText(params.schema, completed.text)
+          const output = parseStructuredText(params.schema, completed.text, params.promptName)
           params.onCompleted?.({ id: completed.id, output }, transaction)
         },
       })
@@ -345,7 +364,7 @@ export async function generateObjectStream<Result>(
       return {
         ...generation,
         output: awaitGenerationText(generation).then((text) =>
-          parseStructuredText(params.schema, text)
+          parseStructuredText(params.schema, text, params.promptName)
         ),
       }
     },

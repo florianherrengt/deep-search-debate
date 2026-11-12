@@ -30,6 +30,7 @@ import {
   describeLlmFailure,
   type LlmProviderDiagnostics,
 } from "./providerDiagnostics.ts"
+import { getPromptStageLabel } from "./prompts.ts"
 
 export type TextStreamEvent =
   | { type: "reasoning"; text: string }
@@ -377,7 +378,9 @@ async function consume(
     }
   }
   if (!interruptionReason && !errorMessage && !text.trim()) {
-    errorMessage = "Text generation returned no content"
+    errorMessage = options.metadata
+      ? `${getPromptStageLabel(options.metadata.promptName)} failed because the model returned no content.`
+      : "Text generation returned no content"
     failureKind = "empty-output"
     stream.publish({ type: "error", message: errorMessage })
   }

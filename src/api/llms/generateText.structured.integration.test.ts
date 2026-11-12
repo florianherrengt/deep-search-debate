@@ -3,13 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import z from "zod"
 
 import { researchPlanSchema } from "../agents/deep_search/schemas.ts"
+import { selectPageLinks } from "../agents/deep_search/selection.ts"
 import { db } from "../db/index.ts"
-import { llmGenerations, llmModelSettings, user } from "../db/schema/index.ts"
+import { deepSearchJobs, llmGenerations, llmModelSettings, user } from "../db/schema/index.ts"
 import { deleteDeepSeekApiKey, setDeepSeekApiKey } from "../deepseekConnection/keysRepository.ts"
 import { ideaSchema } from "../routes/ideas/schemas.ts"
 import { generateArrayStream, generateObjectStream } from "./generateText.ts"
 import { replaceLlmModelAssignments } from "./modelSettings.ts"
-import type { TextStreamPersistenceTransaction } from "./streams.ts"
+import { subscribeToTextStream, type TextStreamPersistenceTransaction, type TextStreamEvent } from "./streams.ts"
 import type { LlmUsage } from "./streamTypes.ts"
 
 const userId = "test-user-id"
@@ -101,6 +102,7 @@ describe("structured generation persistence integration", () => {
 
   afterEach(() => {
     db.delete(llmGenerations).where(eq(llmGenerations.userId, userId)).run()
+    db.delete(deepSearchJobs).where(eq(deepSearchJobs.userId, userId)).run()
     db.delete(llmModelSettings).where(eq(llmModelSettings.userId, userId)).run()
     deleteDeepSeekApiKey(userId)
     vi.unstubAllGlobals()
@@ -218,7 +220,7 @@ describe("structured generation persistence integration", () => {
   it("requeries a schema-invalid result as failed without billing or running its hook", async () => {
     const schema = z.object({ answer: z.string().min(1) })
     const onCompleted = vi.fn<ObjectCompletionHook>()
-    installProviderOutput(JSON.stringify({ answer: 42 }))
+    const fetch = installProviderOutput(JSON.stringify({ answer: 42 }))
     const creditsBefore = db
       .select({ credits: user.credits })
       .from(user)
@@ -236,16 +238,86 @@ describe("structured generation persistence integration", () => {
 
     await expect(generation.output).rejects.toBeInstanceOf(z.ZodError)
     await expect(generation.completion).rejects.toBeInstanceOf(z.ZodError)
+    await expect(generation.output).rejects.toThrow(
+      "Text generation failed because the model's response did not match the required format.",
+    )
+    expect(fetch).toHaveBeenCalledOnce()
     expect(onCompleted).not.toHaveBeenCalled()
     expect(persistedGeneration(generation.id)).toMatchObject({
       status: "failed",
       text: JSON.stringify({ answer: 42 }),
       creditsUsed: null,
       promptName: "default",
+      error: "Text generation failed because the model's response did not match the required format.",
     })
     expect(
       db.select({ credits: user.credits }).from(user).where(eq(user.id, userId)).get()!.credits,
     ).toBe(creditsBefore)
+  })
+
+  it.each([
+    { mode: "research" as const, invalid: "unknown", issueCode: "invalid_value", issueCount: 3,
+      message: "Linked-source selection failed because the model returned link IDs that were not supplied." },
+    { mode: "discovery" as const, invalid: "unknown", issueCode: "invalid_value", issueCount: 3,
+      message: "Linked-source selection failed because the model returned link IDs that were not supplied." },
+    { mode: "research" as const, invalid: "duplicate", issueCode: "custom", issueCount: 1,
+      message: "Linked-source selection failed because the model's response did not match the required format." },
+  ])("reports $invalid $mode link selections consistently without repairing or retrying them", async ({ mode, invalid, issueCode, issueCount, message }) => {
+    const deepSearchJobId = crypto.randomUUID()
+    db.insert(deepSearchJobs).values({
+      deepSearchJobId, userId, slug: deepSearchJobId, researchRequest: "Find Steam Deck games",
+      maxSearches: 1, maxResultsPerSearch: 3, maxRounds: 1, strictQuality: false,
+    }).run()
+    const links = ["457140", "1621690", "1169040"].map((appId) => ({
+      id: crypto.randomUUID(), url: `https://store.steampowered.com/app/${appId}/`, title: "Game",
+    }))
+    const selectedIds = invalid === "unknown"
+      ? ["457140", "1621690", "1169040"]
+      : [links[0].id, links[0].id]
+    const text = JSON.stringify({ selectedIds })
+    const fetch = installProviderOutput(text)
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const creditsBefore = db.select({ credits: user.credits }).from(user).where(eq(user.id, userId)).get()!.credits
+    const onCompleted = vi.fn()
+    const generation = await selectPageLinks({
+      userId, deepSearchJobId, mode, userQuery: "Find Steam Deck games",
+      sourceUrl: "https://example.com/games", sourceSummary: "Find related games.", links,
+      maxResultsToExplore: 3, onCompleted,
+    })
+    const liveEvents = subscribeToTextStream(generation.streamId)!
+    const selectionFailure = generation.selectedIds.catch((failure: unknown) => failure)
+    const error = await generation.completion.catch((failure: unknown) => failure)
+    const selectedError = await selectionFailure
+    expect(error).toBeInstanceOf(z.ZodError)
+    expect(error).toHaveProperty("message", message)
+    expect(error).toHaveProperty("issues", expect.arrayContaining([
+      expect.objectContaining({ code: issueCode }),
+    ]))
+    expect(selectedError).toBe(error)
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(onCompleted).not.toHaveBeenCalled()
+    expect(persistedGeneration(generation.streamId)).toMatchObject({
+      status: "failed", text, error: message, creditsUsed: null,
+    })
+    expect(db.select({ credits: user.credits }).from(user).where(eq(user.id, userId)).get()!.credits).toBe(creditsBefore)
+    const expectedEvents = [{ type: "text", text }, { type: "error", message }, { type: "done" }]
+    const observedLive: TextStreamEvent[] = []
+    for await (const event of liveEvents) observedLive.push(event)
+    expect(observedLive).toEqual(expectedEvents)
+
+    // This saved row has no retained live log, so its read exercises database replay.
+    const savedId = crypto.randomUUID()
+    const saved = db.select().from(llmGenerations).where(eq(llmGenerations.llmGenerationId, generation.streamId)).get()!
+    db.insert(llmGenerations).values({ ...saved, llmGenerationId: savedId }).run()
+    const observedReplay: TextStreamEvent[] = []
+    for await (const event of subscribeToTextStream(savedId)!) observedReplay.push(event)
+    expect(observedReplay).toEqual(expectedEvents)
+    expect(errorLog).toHaveBeenCalledOnce()
+    expect(JSON.parse(String(errorLog.mock.calls[0]?.[0])) as unknown).toMatchObject({
+      event: "llm_generation_failed", generationId: generation.streamId, deepSearchJobId,
+      failure: { category: "validation", name: "ZodError", issueCount, issueCodes: [issueCode] },
+    })
+    expect(String(errorLog.mock.calls[0]?.[0])).not.toContain("457140")
   })
 
   it("persists a 5,000-character refine-idea description through structured validation", async () => {
@@ -322,7 +394,7 @@ describe("structured generation persistence integration", () => {
   it("durably rejects an invalid array element without billing or running its hook", async () => {
     const onCompleted = vi.fn<ArrayCompletionHook>()
     const output = { elements: ["valid", 1] }
-    installProviderOutput(JSON.stringify(output))
+    const fetch = installProviderOutput(JSON.stringify(output))
     const creditsBefore = db
       .select({ credits: user.credits })
       .from(user)
@@ -340,12 +412,17 @@ describe("structured generation persistence integration", () => {
 
     await expect(generation.output).rejects.toBeInstanceOf(z.ZodError)
     await expect(generation.completion).rejects.toBeInstanceOf(z.ZodError)
+    await expect(generation.output).rejects.toThrow(
+      "Research planning failed because the model's response did not match the required format.",
+    )
+    expect(fetch).toHaveBeenCalledOnce()
     expect(onCompleted).not.toHaveBeenCalled()
     expect(persistedGeneration(generation.id)).toMatchObject({
       status: "failed",
       text: JSON.stringify(output),
       creditsUsed: null,
       promptName: "generate-websearch-queries",
+      error: "Research planning failed because the model's response did not match the required format.",
     })
     expect(
       db.select({ credits: user.credits }).from(user).where(eq(user.id, userId)).get()!.credits,
@@ -387,12 +464,14 @@ describe("structured generation persistence integration", () => {
     })
   })
 
-  it("rejects prototype properties before the durable completion hook", async () => {
+  it.each([
+    '{"answer":',
+    '{"answer":"safe","__proto__":{"polluted":true}}',
+  ])("rejects unreadable JSON before the durable completion hook: %s", async (text) => {
     const schema = z.object({ answer: z.string().min(1) })
     const onCompleted = vi.fn<ObjectCompletionHook>()
-    installProviderOutput(
-      '{"answer":"safe","__proto__":{"polluted":true}}',
-    )
+    const fetch = installProviderOutput(text)
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const generation = await generateObjectStream({
       userId,
       owner: { standalone: true },
@@ -402,17 +481,22 @@ describe("structured generation persistence integration", () => {
       onCompleted,
     })
 
+    await expect(generation.output).rejects.toBeInstanceOf(SyntaxError)
     await expect(generation.output).rejects.toThrow(
-      "forbidden prototype property",
+      "Text generation failed because the model returned a response that could not be read as JSON.",
     )
-    await expect(generation.completion).rejects.toThrow(
-      "forbidden prototype property",
-    )
+    await expect(generation.completion).rejects.toBeInstanceOf(SyntaxError)
+    expect(fetch).toHaveBeenCalledOnce()
     expect(onCompleted).not.toHaveBeenCalled()
     expect(persistedGeneration(generation.id)).toMatchObject({
       status: "failed",
       creditsUsed: null,
       promptName: "default",
+      text,
+      error: "Text generation failed because the model returned a response that could not be read as JSON.",
+    })
+    expect(JSON.parse(String(errorLog.mock.calls[0]?.[0])) as unknown).toMatchObject({
+      failure: { category: "invalid-json", name: "SyntaxError" },
     })
   })
 

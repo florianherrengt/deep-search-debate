@@ -53,6 +53,12 @@ Change the prompt or schema deliberately when the contract is wrong; switch the
 configured model when it cannot satisfy the contract. Provider-request retries
 remain governed separately by the configured Pi retry policy.
 
+Model-validation failures use plain messages naming the failed stage instead of
+raw validator output. Malformed JSON and schema-invalid responses retain their
+original error types and validation issues for server diagnostics. Empty model
+responses also name the stage. The same message is persisted and published for
+live streams, owning workflows, and replay; validation still fails the attempt.
+
 `browser-agent-action` returns one strict action over bounded, untrusted DOM
 observations. It uses the user's Small model assignment and ordinary job-owned
 generation persistence. Element IDs are refreshed for every observation;

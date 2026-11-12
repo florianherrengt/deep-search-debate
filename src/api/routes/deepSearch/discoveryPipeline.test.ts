@@ -172,11 +172,11 @@ it("persists two rounds of broader discovery and promotes the cumulative invento
 
 it.each([
   { failure: "malformed inventory JSON", invalidInventory: "{not-json", expectedError: "JSON" },
-  { failure: "empty inventory", invalidInventory: { options: [] }, expectedError: "Too small" },
+  { failure: "empty inventory", invalidInventory: { options: [] }, expectedError: "Discovery inventory update failed because the model's response did not match the required format." },
   { failure: "unsupported source", invalidInventory: { options: [{
     name: "Daily trainer", category: "Road shoes", description: "A cushioned everyday shoe.",
     sources: ["https://example.com/unseen"],
-  }] }, expectedError: "Option sources must come from the supplied research" },
+  }] }, expectedError: "Discovery inventory update failed because the model's response did not match the required format." },
 ])("fails closed on $failure and resumes the same discovery job from completed checkpoints", async ({ invalidInventory, expectedError }) => {
   vi.clearAllMocks()
   const userId = "test-user-id"
