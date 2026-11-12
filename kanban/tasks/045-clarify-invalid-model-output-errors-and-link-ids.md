@@ -1,15 +1,13 @@
 ---
 id: 45
 title: Clarify invalid model output errors and link IDs
-status: in-progress
+status: review
 priority: high
 created: 2026-11-12T00:24:41.577418Z
-updated: 2026-11-12T00:59:37.541831Z
+updated: 2026-11-12T01:16:11.773599Z
 tags:
     - bug
     - llm
-claimed_by: riotous-sympathy
-claimed_at: 2026-11-12T00:59:37.541989Z
 class: standard
 ---
 
@@ -20,3 +18,6 @@ Ready for review. Worktree: /Users/florian/projects/deep-search-debate/.worktree
 
 [[2026-11-12]] Thu 00:59
 User confirmed on 2026-11-12: improve all model-validation error messages with the failed stage, and correct the saved error on the existing Steam Deck search. Retain technical server diagnostics and strict failure behavior. Prior prompt correction remains in scope. Production error text correction is authorized; deployment and Resume are not requested.
+
+[[2026-11-12]] Thu 01:16
+Expanded implementation ready for review in /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-45-linked-page-ids, branch codex/ticket-45-linked-page-ids. Nine files changed: shared structured parser now replaces raw model-validation dumps with stage-specific messages while preserving original error identity/issues and diagnostics; prompts.ts owns stage labels; empty-output messages name the stage; original prompt clarification remains. Regression evidence: 8 intended failures before source change; 71 affected tests passed afterward; 4 discovery pipeline tests passed after updating only two obsolete raw-message expectations. Final full checks passed: lint, typecheck, Knip, all 1038 API tests and all 409 web tests. API used --maxWorkers=2 after the unchanged real-browser test timed out at standard full-suite concurrency. Dedicated API gatekeep review found no issues in the complete nine-file diff. Production saved text correction completed and re-queried: 1 job, 1 generation, 3 queries, 6 pages, with exact-old-error guards and all other columns unchanged. Backup: /data/rethinkloop/data/error-correction-8cb2fc01-2a69-45f1-aef6-fc59156c8347-20261112T011227875169Z.json. New saved error: Linked-source selection failed because the model returned link IDs that were not supplied. The failed generation has an older retained in-memory stream log; it can still show raw detail until restart. The main job error reads corrected DB state. Browser was unsigned-in so no live visual verification. No restart, Resume, release, or task-code commit performed. A release restarts the app and automatically resumes unfinished roots, requiring explicit user approval. Source remains uncommitted for review.
