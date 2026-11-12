@@ -1134,6 +1134,43 @@ describe("text streams", () => {
     })
   })
 
+  it("identifies the model stage when an empty response fails live and saved reads", async () => {
+    const source = new AsyncQueue<SourceStreamPart>()
+    const onCompleted = vi.fn()
+    const creditsBefore = getCreditAccount("test-user-id").credits
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { id, completion } = registerTextStream(
+      "test-user-id",
+      { standalone: true },
+      source,
+      {
+        metadata: {
+          modelId: "configured-model", promptName: "generate-websearch-queries",
+          finishReason: Promise.resolve("stop"),
+        },
+        onCompleted,
+      },
+    )
+    const live = subscribeToTextStream(id)!
+    source.push({ type: "text-delta", id: "text", text: "   " })
+    source.close()
+    const message = "Research planning failed because the model returned no content."
+    await expect(completion).resolves.toMatchObject({
+      status: "failed", error: message, failureKind: "empty-output",
+    })
+    const expectedEvents = [{ type: "text", text: "   " }, { type: "error", message }, { type: "done" }]
+    await expect(drain(live)).resolves.toEqual(expectedEvents)
+    await expect(drain(subscribeToTextStream(id)!)).resolves.toEqual(expectedEvents)
+    expect(db.select().from(llmGenerations).where(eq(llmGenerations.llmGenerationId, id)).get()).toMatchObject({
+      status: "failed", error: message, creditsUsed: null,
+    })
+    expect(onCompleted).not.toHaveBeenCalled()
+    expect(getCreditAccount("test-user-id").credits).toBe(creditsBefore)
+    expect(JSON.parse(String(errorLog.mock.calls[0]?.[0])) as unknown).toMatchObject({
+      stage: "generate-websearch-queries", failureKind: "empty-output",
+    })
+  })
+
   it("does not charge when terminal validation fails", async () => {
     const source = new AsyncQueue<SourceStreamPart>()
     const creditsBefore = getCreditAccount("test-user-id").credits

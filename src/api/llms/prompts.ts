@@ -41,6 +41,46 @@ export const PromptName = {
 } as const
 export type PromptName = (typeof PromptName)[keyof typeof PromptName]
 
+const promptStageLabels: Record<PromptName, string> = {
+  "analyze-research-answer": "Research analysis",
+  "answer-research-request": "Research answer generation",
+  "browser-agent-action": "Browser action selection",
+  "correct-research-answer": "Final answer correction",
+  "create-idea-site": "Idea website generation",
+  "debate-judge": "Debate judgment",
+  "debate-opening": "Debate opening",
+  "debate-rebuttal": "Debate rebuttal",
+  "evaluate-idea": "Idea evaluation",
+  "refine-idea": "Idea refinement",
+  "refine-generate-questions": "Clarification question generation",
+  "refine-condense-research-request": "Research request preparation",
+  "default": "Text generation",
+  "generate-prompt-title": "Title generation",
+  "generate-websearch-queries": "Research planning",
+  "generate-discovery-queries": "Discovery planning",
+  "select-discovery-results": "Discovery result selection",
+  "select-discovery-links": "Linked-source selection",
+  "summarize-discovery-page": "Discovery page summary",
+  "summarize-discovery-query": "Discovery search summary",
+  "update-discovery-inventory": "Discovery inventory update",
+  "review-discovery-round": "Discovery review",
+  "review-deep-search-round": "Research review",
+  "generate-idea-research-prompts": "Idea research planning",
+  "generate-ideas": "Idea generation",
+  "select-ideas": "Idea selection",
+  "select-websearch-results": "Search result selection",
+  "select-linked-pages": "Linked-source selection",
+  "summarize-idea-research": "Idea research summary",
+  "summarize-search-query": "Search summary",
+  "summarize-web-page": "Page summary",
+}
+
+export function getPromptStageLabel(promptName: string): string {
+  return Object.hasOwn(promptStageLabels, promptName)
+    ? promptStageLabels[promptName as PromptName]
+    : "Text generation"
+}
+
 export async function loadPrompt(name: PromptName): Promise<string> {
   const filePath = resolve(promptsDir, `${name}.md`)
   return readFile(filePath, "utf-8")
