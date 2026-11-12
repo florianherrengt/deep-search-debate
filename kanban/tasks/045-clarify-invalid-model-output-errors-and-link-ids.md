@@ -1,10 +1,12 @@
 ---
 id: 45
 title: Clarify invalid model output errors and link IDs
-status: review
+status: done
 priority: high
 created: 2026-11-12T00:24:41.577418Z
-updated: 2026-11-12T01:16:11.773599Z
+updated: 2026-11-12T02:54:32.376055Z
+started: 2026-11-12T02:54:32.378628Z
+completed: 2026-11-12T02:54:32.378628Z
 tags:
     - bug
     - llm
@@ -21,3 +23,6 @@ User confirmed on 2026-11-12: improve all model-validation error messages with t
 
 [[2026-11-12]] Thu 01:16
 Expanded implementation ready for review in /Users/florian/projects/deep-search-debate/.worktrees/codex-ticket-45-linked-page-ids, branch codex/ticket-45-linked-page-ids. Nine files changed: shared structured parser now replaces raw model-validation dumps with stage-specific messages while preserving original error identity/issues and diagnostics; prompts.ts owns stage labels; empty-output messages name the stage; original prompt clarification remains. Regression evidence: 8 intended failures before source change; 71 affected tests passed afterward; 4 discovery pipeline tests passed after updating only two obsolete raw-message expectations. Final full checks passed: lint, typecheck, Knip, all 1038 API tests and all 409 web tests. API used --maxWorkers=2 after the unchanged real-browser test timed out at standard full-suite concurrency. Dedicated API gatekeep review found no issues in the complete nine-file diff. Production saved text correction completed and re-queried: 1 job, 1 generation, 3 queries, 6 pages, with exact-old-error guards and all other columns unchanged. Backup: /data/rethinkloop/data/error-correction-8cb2fc01-2a69-45f1-aef6-fc59156c8347-20261112T011227875169Z.json. New saved error: Linked-source selection failed because the model returned link IDs that were not supplied. The failed generation has an older retained in-memory stream log; it can still show raw detail until restart. The main job error reads corrected DB state. Browser was unsigned-in so no live visual verification. No restart, Resume, release, or task-code commit performed. A release restarts the app and automatically resumes unfinished roots, requiring explicit user approval. Source remains uncommitted for review.
+
+[[2026-11-12]] Thu 02:54
+Released and verified after explicit user approval to commit, push, deploy and test. Implementation commit 1b6e96c; integrated and pushed main release a9e10a4a4f38f399e48ab1baaa465b2bb2ce2b86. Dagger published docker.io/florianherrengt/rethinkloop:a9e10a4a4f38f399e48ab1baaa465b2bb2ce2b86 with digest sha256:e2a0b1a6540b6a01d9e71810b4fb6a8873630cc66f26b81a1d406fe36449c866. Coolify deployment rjosjhbhuyzhhof1sngzca52 finished 2026-11-12T02:16:45Z; running container and public health verified healthy. Manual consistent SQLite backup passed quick_check at /data/rethinkloop/backups/pre-validation-errors-20261112T012605Z.db before deployment. Build required reclaiming unused local Docker build cache; images, containers and data preserved. All 1447 local tests and static checks passed; 71 targeted tests passed inside deployed image using isolated in-memory DB and loopback test host. Actual deployed subscribeToTextStream replay verified corrected historical error and terminal done event after cache-clearing restart. Original live job 8cb2fc01-2a69-45f1-aef6-fc59156c8347 completed at 2026-11-12T02:52:06.966Z with error null: all 9 queries complete, 71 pages read, 13 accepted page fallbacks, no active work. Replacement selector eae15468-298d-402b-934c-e1c51bdc074f selected 3 supplied IDs and persisted edges; all 20 prior completed generations unchanged. Corrected answer a73dcd56-4c87-411f-879e-77d8454ed015 and canonical-schema-valid analysis 2ac40d5a-2379-4844-946c-7244e8efec0e are completed and job-owned. Final independent application-code read and public health checks passed. Existing unrelated local changes preserved; worktree retained.
